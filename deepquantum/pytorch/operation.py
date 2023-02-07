@@ -3,32 +3,46 @@ import torch.nn as nn
 
 
 class Operation(nn.Module):
-    def __init__(self, name=None, nqubit=1, wires=0, MPS=False):
+    def __init__(self, name=None, nqubit=1, wires=0, den_mat=False, tsr_mode=False):
         super().__init__()
         self.name = name
         self.nqubit = nqubit
         self.wires = wires
-        self.MPS = MPS
-        
-    def to_MPS(self, x):
-        return x.reshape([-1] + [2] * self.nqubit + [1])
-        
-    def to_SV(self, x):
-        return x.reshape([-1, 2 ** self.nqubit, 1])
-        
-    def reinit_para(self):
-        pass
-        
-    def forward(self, x):
-        if self.MPS:
-            return self.to_MPS(x)
+        self.den_mat = den_mat
+        self.tsr_mode = tsr_mode
+        self.npara = 0
+
+    def tensor_rep(self, x):
+        if self.den_mat:
+            return x.reshape([-1] + [2] * 2 * self.nqubit + [1])
         else:
-            return self.to_SV(x)
+            return x.reshape([-1] + [2] * self.nqubit + [1])
+
+    def vector_rep(self, x):
+        return x.reshape([-1, 2 ** self.nqubit, 1])
+
+    def matrix_rep(self, x):
+        return x.reshape([-1, 2 ** self.nqubit, 2 ** self.nqubit])
+
+    def get_unitary(self):
+        raise NotImplementedError
+        
+    def init_para(self):
+        pass
+
+    def forward(self, x):
+        if self.tsr_mode:
+            return self.tensor_rep(x)
+        else:
+            if self.den_mat:
+                return self.matrix_rep(x)
+            else:
+                return self.vector_rep(x)
 
 
 class Gate(Operation):
-    def __init__(self, name=None, nqubit=1, wires=0, MPS=False):
-        super().__init__(name=name, nqubit=nqubit, wires=wires, MPS=MPS)
+    def __init__(self, name=None, nqubit=1, wires=0, den_mat=False, tsr_mode=False):
+        super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         if type(wires) == int:
             self.n = 1
         if type(wires) == list:
@@ -39,45 +53,67 @@ class Gate(Operation):
         self.register_buffer('pauliz', torch.tensor([[1, 0], [0, -1]], dtype=torch.cfloat))
         self.register_buffer('hadamard', torch.tensor([[1, 1], [1, -1]], dtype=torch.cfloat) / 2 ** 0.5)
         
-        self.register_buffer('matrix', torch.eye(2 ** self.n, dtype=torch.cfloat))
-        
-    def matrix(self):
+        self.register_buffer('matrix', torch.empty((2 ** self.n, 2 ** self.n), dtype=torch.cfloat))
+
+    def update_matrix(self):
         return self.matrix
-        
-    def U(self):
-        raise NotImplementedError
-        
-    def left_multiply(self, x):
-        return self.U() @ self.to_SV(x)
-        
+
+    def op_state(self, x):
+        x = self.get_unitary() @ self.vector_rep(x)
+        if self.tsr_mode:
+            return self.tensor_rep(x)
+        return x
+
+    def op_den_mat(self, x):
+        u = self.get_unitary()
+        x = u @ self.matrix_rep(x) @ u.conj().transpose(-1, -2)
+        if self.tsr_mode:
+            return self.tensor_rep(x)
+        return x
+
     def forward(self, x):
-        x = self.left_multiply(x)
-        if self.MPS:
-            return self.to_MPS(x)
+        if not self.tsr_mode:
+            x = self.tensor_rep(x)
+        if self.den_mat:
+            return self.op_den_mat(x)
         else:
-            return x
+            return self.op_state(x)
 
 
 class Layer(Operation):
-    def __init__(self, name=None, nqubit=1, wires=None, first_layer=False, last_layer=False):
-        super().__init__(name=name, nqubit=nqubit, wires=wires, MPS=True)
+    def __init__(self, name=None, nqubit=1, wires=None, den_mat=False, tsr_mode=False):
+        super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         if wires == None:
             self.wires = list(range(nqubit))
         else:
-            self.wires = wires    
-        self.first_layer=first_layer
-        self.last_layer=last_layer
+            self.wires = wires
         self.gates = nn.ModuleList([])
-        
-    def reinit_para(self):
+
+    def get_unitary(self):
+        u = torch.eye(2 ** self.nqubit, dtype=torch.cfloat)
         for gate in self.gates:
-            gate.reinit_para()
+            u = gate.get_unitary() @ u
+        return u
+
+    def init_para(self, inputs=None):
+        count = 0
+        for gate in self.gates:
+            gate.init_para(inputs[count:count+gate.npara])
+            count += gate.npara
+    
+    def update_npara(self):
+        self.npara = 0
+        for gate in self.gates:
+            self.npara += gate.npara
 
     def forward(self, x):
-        if self.first_layer:
-            x = self.to_MPS(x)
+        if not self.tsr_mode:
+            x = self.tensor_rep(x)
         for gate in self.gates:
             x = gate(x)
-        if self.last_layer:
-            x = self.to_SV(x)
+        if not self.tsr_mode:
+            if self.den_mat:
+                return self.matrix_rep(x)
+            else:
+                return self.vector_rep(x)
         return x
