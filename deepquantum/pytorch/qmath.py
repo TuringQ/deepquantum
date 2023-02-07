@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 from typing import List
 
 
@@ -45,6 +46,22 @@ def partial_trace(rho: torch.Tensor, N: int, trace_lst: List) -> torch.Tensor:
     rho = rho.reshape([b] + [2] * 2 * N).permute(permute_shape).reshape(-1, 2 ** n, 2 ** n)
     rho = rho.diagonal(offset=0, dim1=-2, dim2=-1).sum(-1)
     return rho.reshape(b, 2 ** (N - n), 2 ** (N - n))
+
+
+def amplitude_encoding(data, nqubit):
+    if type(data) != torch.Tensor:
+        data = torch.tensor(data)
+    batch = data.shape[0]
+    data = data.reshape(batch, -1)
+    size = data.shape[1]
+    n = 2 ** nqubit
+    state = torch.zeros(batch, n, dtype=torch.cfloat)
+    data = nn.functional.normalize(data[:, :n], p=2, dim=-1)
+    if n > size:
+        state[:, :size] = data[:, :]
+    else:
+        state[:, :] = data[:, :size]
+    return state.unsqueeze(-1)
 
 
 def Meyer_Wallach_measure(MPS: torch.Tensor) -> torch.Tensor:
