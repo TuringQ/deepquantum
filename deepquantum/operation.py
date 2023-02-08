@@ -44,8 +44,12 @@ class Gate(Operation):
     def __init__(self, name=None, nqubit=1, wires=0, den_mat=False, tsr_mode=False):
         super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         if type(wires) == int:
+            assert wires < nqubit
             self.n = 1
         if type(wires) == list:
+            for wire in wires:
+                assert type(wire) == int
+                assert wire < nqubit
             self.n = len(wires)
         self.register_buffer('identity', torch.eye(2, dtype=torch.cfloat))
         self.register_buffer('paulix', torch.tensor([[0, 1], [1, 0]], dtype=torch.cfloat))
@@ -62,14 +66,14 @@ class Gate(Operation):
         x = self.get_unitary() @ self.vector_rep(x)
         if self.tsr_mode:
             return self.tensor_rep(x)
-        return x
+        return x.squeeze(0)
 
     def op_den_mat(self, x):
         u = self.get_unitary()
         x = u @ self.matrix_rep(x) @ u.conj().transpose(-1, -2)
         if self.tsr_mode:
             return self.tensor_rep(x)
-        return x
+        return x.squeeze(0)
 
     def forward(self, x):
         if not self.tsr_mode:
@@ -83,10 +87,6 @@ class Gate(Operation):
 class Layer(Operation):
     def __init__(self, name=None, nqubit=1, wires=None, den_mat=False, tsr_mode=False):
         super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
-        if wires == None:
-            self.wires = list(range(nqubit))
-        else:
-            self.wires = wires
         self.gates = nn.ModuleList([])
 
     def get_unitary(self):
