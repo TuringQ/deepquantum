@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
-from operation import Gate
-from qmath import multi_kron
+from deepquantum.operation import Gate
+from deepquantum.qmath import multi_kron
 
 
 class SingleGate(Gate):

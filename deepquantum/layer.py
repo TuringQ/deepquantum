@@ -1,5 +1,5 @@
-from operation import Layer
-from gate import *
+from deepquantum.operation import Layer
+from deepquantum.gate import *
 
 
 class SingleLayer(Layer):

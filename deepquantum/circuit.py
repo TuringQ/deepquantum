@@ -1,10 +1,10 @@
 import torch
 import torch.nn as nn
-from operation import *
-from gate import *
-from layer import *
+from deepquantum.operation import *
+from deepquantum.gate import *
+from deepquantum.layer import *
 from functorch import vmap
-from qmath import *
+from deepquantum.qmath import *
 
 
 class Circuit(Operation):
