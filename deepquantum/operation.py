@@ -76,6 +76,11 @@ class Gate(Operation):
         return x.squeeze(0)
 
     def forward(self, x):
+        s = x.shape
+        if len(s) == 1:
+            assert x.shape[-1] == 2 ** self.nqubit
+        else:
+            assert x.shape[-1] == 2 ** self.nqubit or x.shape[-2] == 2 ** self.nqubit
         if not self.tsr_mode:
             x = self.tensor_rep(x)
         if self.den_mat:

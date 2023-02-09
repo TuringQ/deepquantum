@@ -10,16 +10,29 @@ class SingleGate(Gate):
     
     def op_state(self, x):
         matrix = self.update_matrix()
-        permute_shape = list(range(self.nqubit + 2))
-        permute_shape[self.wires + 1] = self.nqubit
-        permute_shape[self.nqubit] = self.wires + 1 
-        rst = (matrix @ x.permute(permute_shape)).permute(permute_shape)
+        pm_shape = list(range(self.nqubit + 2))
+        pm_shape[self.wires + 1] = self.nqubit
+        pm_shape[self.nqubit] = self.wires + 1 
+        x = (matrix @ x.permute(pm_shape)).permute(pm_shape)
         if not self.tsr_mode:
-            rst = self.vector_rep(rst).squeeze(0)
-        return rst
+            x = self.vector_rep(x).squeeze(0)
+        return x
         
     def op_den_mat(self, x):
-        pass
+        matrix = self.update_matrix()
+        # left multiply
+        pm_shape = list(range(2 * self.nqubit + 2))
+        pm_shape[self.wires + 1] = 2 * self.nqubit
+        pm_shape[2 * self.nqubit] = self.wires + 1
+        x = (matrix @ x.permute(pm_shape)).permute(pm_shape)
+        # right multiply
+        pm_shape = list(range(2 * self.nqubit + 2))
+        pm_shape[self.wires + self.nqubit + 1] = 2 * self.nqubit
+        pm_shape[2 * self.nqubit] = self.wires + self.nqubit + 1
+        x = (matrix.conj() @ x.permute(pm_shape)).permute(pm_shape)
+        if not self.tsr_mode:
+            x = self.matrix_rep(x).squeeze(0)
+        return x
 
     def get_unitary(self):
         matrix = self.update_matrix()
@@ -31,6 +44,8 @@ class SingleGate(Gate):
 class DoubleGate(Gate):
     def __init__(self, name=None, nqubit=2, wires=[0,1], den_mat=False, tsr_mode=False):
         super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
+        assert len(wires) == 2
+        assert wires[0] != wires[1]
         self.register_buffer('zerozero', torch.tensor([[1, 0], [0, 0]], dtype=torch.cfloat))
         self.register_buffer('zeroone', torch.tensor([[0, 1], [0, 0]], dtype=torch.cfloat))
         self.register_buffer('onezero', torch.tensor([[0, 0], [1, 0]], dtype=torch.cfloat))
@@ -40,27 +55,64 @@ class DoubleGate(Gate):
         matrix = self.update_matrix()
         cqbit = self.wires[0]
         tqbit = self.wires[1]
-        permute_shape = list(range(self.nqubit + 1))
-        permute_shape.remove(cqbit + 1)
-        permute_shape.remove(tqbit + 1)
-        permute_shape = permute_shape + [cqbit + 1, tqbit + 1] + [self.nqubit + 1]
-        x = (matrix @ x.permute(permute_shape).reshape(-1, 4, 1)).reshape([-1] + [2] * self.nqubit)
-        permute_shape = list(range(self.nqubit + 1))
-        permute_shape.pop()
-        permute_shape.pop()
+        pm_shape = list(range(self.nqubit + 1))
+        pm_shape.remove(cqbit + 1)
+        pm_shape.remove(tqbit + 1)
+        pm_shape = pm_shape + [cqbit + 1, tqbit + 1] + [self.nqubit + 1]
+        x = (matrix @ x.permute(pm_shape).reshape(-1, 4, 1)).reshape([-1] + [2] * self.nqubit)
+        pm_shape = list(range(self.nqubit + 1))
+        pm_shape.pop()
+        pm_shape.pop()
         if cqbit < tqbit:
-            permute_shape.insert(cqbit + 1, self.nqubit - 1)
-            permute_shape.insert(tqbit + 1, self.nqubit)
+            pm_shape.insert(cqbit + 1, self.nqubit - 1)
+            pm_shape.insert(tqbit + 1, self.nqubit)
         else:
-            permute_shape.insert(tqbit + 1, self.nqubit)
-            permute_shape.insert(cqbit + 1, self.nqubit - 1)
-        rst = x.permute(permute_shape).unsqueeze(-1)
+            pm_shape.insert(tqbit + 1, self.nqubit)
+            pm_shape.insert(cqbit + 1, self.nqubit - 1)
+        x = x.permute(pm_shape).unsqueeze(-1)
         if not self.tsr_mode:
-            rst = self.vector_rep(rst).squeeze(0)
-        return rst
+            x = self.vector_rep(x).squeeze(0)
+        return x
         
     def op_den_mat(self, x):
-        pass
+        matrix = self.update_matrix()
+        cqbit = self.wires[0]
+        tqbit = self.wires[1]
+        # left multiply
+        pm_shape = list(range(2 * self.nqubit + 1))
+        pm_shape.remove(cqbit + 1)
+        pm_shape.remove(tqbit + 1)
+        pm_shape = pm_shape + [cqbit + 1, tqbit + 1] + [2 * self.nqubit + 1]
+        x = (matrix @ x.permute(pm_shape).reshape(-1, 4, 1)).reshape([-1] + [2] * 2 * self.nqubit)
+        pm_shape = list(range(2 * self.nqubit + 1))
+        pm_shape.pop()
+        pm_shape.pop()
+        if cqbit < tqbit:
+            pm_shape.insert(cqbit + 1, 2 * self.nqubit - 1)
+            pm_shape.insert(tqbit + 1, 2 * self.nqubit)
+        else:
+            pm_shape.insert(tqbit + 1, 2 * self.nqubit)
+            pm_shape.insert(cqbit + 1, 2 * self.nqubit - 1)
+        x = x.permute(pm_shape).unsqueeze(-1)
+        # right multiply
+        pm_shape = list(range(2 * self.nqubit + 1))
+        pm_shape.remove(cqbit + self.nqubit + 1)
+        pm_shape.remove(tqbit + self.nqubit + 1)
+        pm_shape = pm_shape + [cqbit + self.nqubit + 1, tqbit + self.nqubit+1] + [2 * self.nqubit + 1]
+        x = (matrix.conj() @ x.permute(pm_shape).reshape(-1, 4, 1)).reshape([-1] + [2] * 2 * self.nqubit)
+        pm_shape = list(range(2 * self.nqubit + 1))
+        pm_shape.pop()
+        pm_shape.pop()
+        if cqbit < tqbit:
+            pm_shape.insert(cqbit + self.nqubit + 1, 2 * self.nqubit - 1)
+            pm_shape.insert(tqbit + self.nqubit + 1, 2 * self.nqubit)
+        else:
+            pm_shape.insert(tqbit + self.nqubit + 1, 2 * self.nqubit)
+            pm_shape.insert(cqbit + self.nqubit + 1, 2 * self.nqubit - 1)
+        x = x.permute(pm_shape).unsqueeze(-1)
+        if not self.tsr_mode:
+            x = self.matrix_rep(x).squeeze(0)
+        return x
     
     def get_unitary(self):
         matrix = self.update_matrix()
@@ -102,6 +154,7 @@ class U3Gate(SingleGate):
         super().__init__(name='U3Gate', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         self.npara = 3
         self.requires_grad = requires_grad
+        self.rz = Rz()
         self.register_buffer('rx_m_pi_2', torch.tensor([[1, 1j], [1j, 1]]) / 2 ** 0.5) # rx(-pi/2)
         self.register_buffer('rx_p_pi_2', torch.tensor([[1, -1j], [-1j, 1]]) / 2 ** 0.5) # rx(pi/2)
         self.init_para(inputs=inputs)
@@ -111,21 +164,27 @@ class U3Gate(SingleGate):
             theta = torch.rand(1)[0] * torch.pi
             phi   = torch.rand(1)[0] * 2 * torch.pi
             lambd = torch.rand(1)[0] * 2 * torch.pi
-        elif type(inputs) != torch.Tensor and type(inputs) != torch.nn.parameter.Parameter:
-            inputs = torch.tensor(inputs, dtype=torch.float)
+        else:
             theta = inputs[0]
             phi   = inputs[1]
             lambd = inputs[2]
+        if type(theta) != torch.Tensor and type(theta) != torch.nn.parameter.Parameter:
+            theta = torch.tensor(theta, dtype=torch.float)
+        if type(phi) != torch.Tensor and type(phi) != torch.nn.parameter.Parameter:
+            phi = torch.tensor(phi, dtype=torch.float)
+        if type(lambd) != torch.Tensor and type(lambd) != torch.nn.parameter.Parameter:
+            lambd = torch.tensor(lambd, dtype=torch.float)
         return theta, phi, lambd
     
     def get_matrix(self, theta, phi, lambd):
-        rz1 = Rz().get_matrix(phi)
-        rz2 = Rz().get_matrix(theta)
-        rz3 = Rz().get_matrix(lambd)
+        theta, phi, lambd = self.inputs_to_tensor([theta, phi, lambd])
+        rz1 = self.rz.get_matrix(phi)
+        rz2 = self.rz.get_matrix(theta)
+        rz3 = self.rz.get_matrix(lambd)
         matrix = rz1 @ self.rx_m_pi_2 @ rz2 @ self.rx_p_pi_2 @ rz3
         # cos_t = torch.cos(theta / 2.0)
         # sin_t = torch.sin(theta / 2.0)
-        # e_il = torch.cos(lambd) + 1j * torch.sin(lambd)
+        # e_il = torch.cos(lambd) + 1j * torch.sin(lambd) # torch.exp
         # e_ip = torch.cos(phi) + 1j * torch.sin(phi)
         # e_ipl = torch.cos(lambd + phi) + 1j * torch.sin(lambd + phi)
         # matrix = torch.tensor([[cos_t, -e_il * sin_t],

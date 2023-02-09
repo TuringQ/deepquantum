@@ -8,10 +8,11 @@ class SingleLayer(Layer):
         if wires == None:
             self.wires = list(range(nqubit))
         elif type(wires) == int:
-            assert wires < nqubit
             self.wires = [wires]
         else:
             self.wires = wires
+        for wire in self.wires:
+            assert wire < nqubit
 
 
 class DoubleLayer(Layer):
@@ -21,6 +22,7 @@ class DoubleLayer(Layer):
             for wire in wires:
                 assert len(wire) == 2
                 assert type(wire[0]) == int and type(wire[1]) == int
+                assert wire[0] < nqubit and wire[1] < nqubit
                 assert wire[0] != wire[1]
         self.wires = wires
 

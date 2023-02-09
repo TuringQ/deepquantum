@@ -13,14 +13,17 @@ class Circuit(Operation):
         if init_state == 'zeros':
             init_state = torch.zeros((2 ** self.nqubit, 1), dtype=torch.cfloat)
             init_state[0] = 1
-            if den_mat:
-                init_state = init_state @ init_state.T
+        elif init_state == 'entangle':
+            init_state = torch.ones((2 ** self.nqubit, 1), dtype=torch.cfloat)
+            init_state = nn.functional.normalize(init_state, p=2, dim=-2)
+        if den_mat:
+            init_state = init_state @ init_state.T.conj()
         self.operators = nn.ModuleList([])
         self.gates = nn.ModuleList([])
         self.encoders = nn.ModuleList([])
-        self.measurement = None
+        self.measurements = nn.ModuleList([])
         self.register_buffer('init_state', init_state)
-        self.state = None
+        self.register_buffer('state', None)
 
     def forward(self, data=None):
         if self.init_state.ndim == 2:
@@ -52,16 +55,28 @@ class Circuit(Operation):
         self.init_state = amplitude_encoding(data, self.nqubit)
     
     def measure(self, wires=None, observables='z'):
-        self.measurement = Measurement(nqubit=self.nqubit, wires=wires, observables=observables,
-                                       den_mat=self.den_mat, tsr_mode=False)
+        measure = Measurement(nqubit=self.nqubit, wires=wires, observables=observables,
+                              den_mat=self.den_mat, tsr_mode=False)
+        self.measurements.append(measure)
+
+    def reset_measure(self):
+        self.measurements = nn.ModuleList([])
 
     def sample(self):
         pass
 
     def expectation(self):
-        if self.measurement != None and self.state != None:
-            rst = self.state.conj().transpose(-1, -2) @ self.measurement(self.state)
-            return rst.squeeze(-1).squeeze(-1).real
+        if self.measurements and self.state != None:
+            out = []
+            for measure in self.measurements:
+                if self.den_mat:
+                    rst = vmap(torch.trace)(measure.get_unitary() @ self.state)
+                else:
+                    rst = self.state.conj().transpose(-1, -2) @ measure(self.state)
+                    rst = rst.squeeze(-1).squeeze(-1)
+                out.append(rst.real)
+            out = torch.stack(out, dim=-1)
+            return out
 
     def get_unitary(self):
         u = torch.eye(2 ** self.nqubit, dtype=torch.cfloat)
