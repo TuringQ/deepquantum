@@ -56,10 +56,9 @@ class Gate(Operation):
                 assert type(wire) == int
                 assert wire < nqubit
             self.n = len(wires)
-        self.matrix = torch.empty((2 ** self.n, 2 ** self.n), dtype=torch.cfloat)
 
     def update_matrix(self):
-        return self.matrix
+        raise NotImplementedError
 
     def op_state(self, x):
         x = self.get_unitary() @ self.vector_rep(x)

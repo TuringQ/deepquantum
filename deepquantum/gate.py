@@ -231,29 +231,37 @@ class Identity(Gate):
 class PauliX(SingleGate):
     def __init__(self, nqubit=1, wires=0, den_mat=False, tsr_mode=False):
         super().__init__(name='PauliX', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
-        self.matrix = torch.tensor([[0, 1],
-                                    [1, 0]], dtype=torch.cfloat)
+        self.register_buffer('matrix', torch.tensor([[0, 1], [1, 0]], dtype=torch.cfloat))
+
+    def update_matrix(self):
+        return self.matrix
 
 
 class PauliY(SingleGate):
     def __init__(self, nqubit=1, wires=0, den_mat=False, tsr_mode=False):
         super().__init__(name='PauliY', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
-        self.matrix = torch.tensor([[0, -1j],
-                                    [1j, 0]])
+        self.register_buffer('matrix', torch.tensor([[0, -1j], [1j, 0]]))
+
+    def update_matrix(self):
+        return self.matrix
 
 
 class PauliZ(SingleGate):
     def __init__(self, nqubit=1, wires=0, den_mat=False, tsr_mode=False):
         super().__init__(name='PauliZ', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
-        self.matrix = torch.tensor([[1, 0],
-                                    [0, -1]], dtype=torch.cfloat)
+        self.register_buffer('matrix', torch.tensor([[1, 0], [0, -1]], dtype=torch.cfloat))
+
+    def update_matrix(self):
+        return self.matrix
 
 
 class Hadamard(SingleGate):
     def __init__(self, nqubit=1, wires=0, den_mat=False, tsr_mode=False):
         super().__init__(name='Hadamard', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
-        self.matrix = torch.tensor([[1, 1],
-                                    [1, -1]], dtype=torch.cfloat) / 2 ** 0.5
+        self.register_buffer('matrix', torch.tensor([[1, 1], [1, -1]], dtype=torch.cfloat) / 2 ** 0.5)
+
+    def update_matrix(self):
+        return self.matrix
 
 
 class SingleRotationGate(SingleGate):
@@ -372,7 +380,10 @@ class CombinedSingleGate(SingleGate):
 class CNOT(DoubleControlGate):
     def __init__(self, nqubit=2, wires=[0,1], den_mat=False, tsr_mode=False):
         super().__init__(name='CNOT', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
-        self.matrix = torch.tensor([[1, 0, 0, 0],
-                                    [0, 1, 0, 0],
-                                    [0, 0, 0, 1],
-                                    [0, 0, 1, 0]]) + 0j
+        self.register_buffer('matrix', torch.tensor([[1, 0, 0, 0],
+                                                     [0, 1, 0, 0],
+                                                     [0, 0, 0, 1],
+                                                     [0, 0, 1, 0]]) + 0j)
+
+    def update_matrix(self):
+        return self.matrix
