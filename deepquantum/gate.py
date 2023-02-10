@@ -36,7 +36,8 @@ class SingleGate(Gate):
 
     def get_unitary(self):
         matrix = self.update_matrix()
-        lst = [self.identity] * self.nqubit
+        identity = torch.eye(2, dtype=torch.cfloat).to(matrix.device)
+        lst = [identity] * self.nqubit
         lst[self.wires] = matrix
         return multi_kron(lst)
 
@@ -46,10 +47,6 @@ class DoubleGate(Gate):
         super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         assert len(wires) == 2
         assert wires[0] != wires[1]
-        self.register_buffer('zerozero', torch.tensor([[1, 0], [0, 0]], dtype=torch.cfloat))
-        self.register_buffer('zeroone', torch.tensor([[0, 1], [0, 0]], dtype=torch.cfloat))
-        self.register_buffer('onezero', torch.tensor([[0, 0], [1, 0]], dtype=torch.cfloat))
-        self.register_buffer('oneone', torch.tensor([[0, 0], [0, 1]], dtype=torch.cfloat))
     
     def op_state(self, x):
         matrix = self.update_matrix()
@@ -116,20 +113,25 @@ class DoubleGate(Gate):
     
     def get_unitary(self):
         matrix = self.update_matrix()
-        lst1 = [self.identity] * self.nqubit
-        lst1[self.wires[0]] = self.zerozero
+        identity = torch.eye(2, dtype=torch.cfloat).to(matrix.device)
+        zerozero = torch.tensor([[1, 0], [0, 0]], dtype=torch.cfloat).to(matrix.device)
+        zeroone  = torch.tensor([[0, 1], [0, 0]], dtype=torch.cfloat).to(matrix.device)
+        onezero  = torch.tensor([[0, 0], [1, 0]], dtype=torch.cfloat).to(matrix.device)
+        oneone   = torch.tensor([[0, 0], [0, 1]], dtype=torch.cfloat).to(matrix.device)
+        lst1 = [identity] * self.nqubit
+        lst1[self.wires[0]] = zerozero
         lst1[self.wires[1]] = matrix[0:2, 0:2]
 
-        lst2 = [self.identity] * self.nqubit
-        lst2[self.wires[0]] = self.zeroone
+        lst2 = [identity] * self.nqubit
+        lst2[self.wires[0]] = zeroone
         lst2[self.wires[1]] = matrix[0:2, 2:4]
 
-        lst3 = [self.identity] * self.nqubit
-        lst3[self.wires[0]] = self.onezero
+        lst3 = [identity] * self.nqubit
+        lst3[self.wires[0]] = onezero
         lst3[self.wires[1]] = matrix[2:4, 0:2]
 
-        lst4 = [self.identity] * self.nqubit
-        lst4[self.wires[0]] = self.oneone
+        lst4 = [identity] * self.nqubit
+        lst4[self.wires[0]] = oneone
         lst4[self.wires[1]] = matrix[2:4, 2:4]
         return multi_kron(lst1) + multi_kron(lst2) + multi_kron(lst3) + multi_kron(lst4)
 
@@ -140,11 +142,14 @@ class DoubleControlGate(DoubleGate):
         
     def get_unitary(self):
         matrix = self.update_matrix()
-        lst1 = [self.identity] * self.nqubit
-        lst1[self.wires[0]] = self.zerozero
+        identity = torch.eye(2, dtype=torch.cfloat).to(matrix.device)
+        zerozero = torch.tensor([[1, 0], [0, 0]], dtype=torch.cfloat).to(matrix.device)
+        oneone   = torch.tensor([[0, 0], [0, 1]], dtype=torch.cfloat).to(matrix.device)
+        lst1 = [identity] * self.nqubit
+        lst1[self.wires[0]] = zerozero
 
-        lst2 = [self.identity] * self.nqubit
-        lst2[self.wires[0]] = self.oneone
+        lst2 = [identity] * self.nqubit
+        lst2[self.wires[0]] = oneone
         lst2[self.wires[1]] = matrix[2:4, 2:4]
         return multi_kron(lst1) + multi_kron(lst2)
 
@@ -154,9 +159,6 @@ class U3Gate(SingleGate):
         super().__init__(name='U3Gate', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         self.npara = 3
         self.requires_grad = requires_grad
-        self.rz = Rz()
-        self.register_buffer('rx_m_pi_2', torch.tensor([[1, 1j], [1j, 1]]) / 2 ** 0.5) # rx(-pi/2)
-        self.register_buffer('rx_p_pi_2', torch.tensor([[1, -1j], [-1j, 1]]) / 2 ** 0.5) # rx(pi/2)
         self.init_para(inputs=inputs)
 
     def inputs_to_tensor(self, inputs=None):
@@ -178,10 +180,15 @@ class U3Gate(SingleGate):
     
     def get_matrix(self, theta, phi, lambd):
         theta, phi, lambd = self.inputs_to_tensor([theta, phi, lambd])
-        rz1 = self.rz.get_matrix(phi)
-        rz2 = self.rz.get_matrix(theta)
-        rz3 = self.rz.get_matrix(lambd)
-        matrix = rz1 @ self.rx_m_pi_2 @ rz2 @ self.rx_p_pi_2 @ rz3
+        rz = Rz()
+        rx_m_pi_2 = torch.tensor([[1, 1j], [1j, 1]]) / 2 ** 0.5 # rx(-pi/2)
+        rx_p_pi_2 = torch.tensor([[1, -1j], [-1j, 1]]) / 2 ** 0.5 # rx(pi/2)
+        rx_m_pi_2 = rx_m_pi_2.to(theta.device)
+        rx_p_pi_2 = rx_p_pi_2.to(theta.device)
+        rz1 = rz.get_matrix(phi)
+        rz2 = rz.get_matrix(theta)
+        rz3 = rz.get_matrix(lambd)
+        matrix = rz1 @ rx_m_pi_2 @ rz2 @ rx_p_pi_2 @ rz3
         # cos_t = torch.cos(theta / 2.0)
         # sin_t = torch.sin(theta / 2.0)
         # e_il = torch.cos(lambd) + 1j * torch.sin(lambd) # torch.exp
@@ -224,25 +231,29 @@ class Identity(Gate):
 class PauliX(SingleGate):
     def __init__(self, nqubit=1, wires=0, den_mat=False, tsr_mode=False):
         super().__init__(name='PauliX', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
-        self.matrix = self.paulix
+        self.matrix = torch.tensor([[0, 1],
+                                    [1, 0]], dtype=torch.cfloat)
 
 
 class PauliY(SingleGate):
     def __init__(self, nqubit=1, wires=0, den_mat=False, tsr_mode=False):
         super().__init__(name='PauliY', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
-        self.matrix = self.pauliy
+        self.matrix = torch.tensor([[0, -1j],
+                                    [1j, 0]])
 
 
 class PauliZ(SingleGate):
     def __init__(self, nqubit=1, wires=0, den_mat=False, tsr_mode=False):
         super().__init__(name='PauliZ', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
-        self.matrix = self.pauliz
+        self.matrix = torch.tensor([[1, 0],
+                                    [0, -1]], dtype=torch.cfloat)
 
 
 class Hadamard(SingleGate):
     def __init__(self, nqubit=1, wires=0, den_mat=False, tsr_mode=False):
         super().__init__(name='Hadamard', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
-        self.matrix = self.hadamard
+        self.matrix = torch.tensor([[1, 1],
+                                    [1, -1]], dtype=torch.cfloat) / 2 ** 0.5
 
 
 class SingleRotationGate(SingleGate):
@@ -282,8 +293,10 @@ class Rx(SingleRotationGate):
     
     def get_matrix(self, theta):
         theta = self.inputs_to_tensor(theta)
-        matrix = torch.cos(theta / 2.0) * self.identity \
-               - torch.sin(theta / 2.0) * self.paulix * 1j
+        identity = torch.eye(2, dtype=torch.cfloat).to(theta.device)
+        paulix = torch.tensor([[0, 1], [1, 0]], dtype=torch.cfloat).to(theta.device)
+        matrix = torch.cos(theta / 2.0) * identity \
+               - torch.sin(theta / 2.0) * paulix * 1j
         # cos = torch.cos(theta / 2.0)
         # sin = torch.sin(theta / 2.0)
         # matrix = torch.tensor([[cos, -1j * sin],    # conflict with ad and vmap
@@ -298,8 +311,10 @@ class Ry(SingleRotationGate):
 
     def get_matrix(self, theta):
         theta = self.inputs_to_tensor(theta)
-        matrix = torch.cos(theta / 2.0) * self.identity \
-               - torch.sin(theta / 2.0) * self.pauliy * 1j
+        identity = torch.eye(2, dtype=torch.cfloat).to(theta.device)
+        pauliy = torch.tensor([[0, -1j], [1j, 0]]).to(theta.device)
+        matrix = torch.cos(theta / 2.0) * identity \
+               - torch.sin(theta / 2.0) * pauliy * 1j
         # cos = torch.cos(theta / 2.0)
         # sin = torch.sin(theta / 2.0)
         # matrix = torch.tensor([[cos, -sin],
@@ -314,8 +329,10 @@ class Rz(SingleRotationGate):
 
     def get_matrix(self, theta):
         theta = self.inputs_to_tensor(theta)
-        matrix = torch.cos(theta / 2.0) * self.identity \
-               - torch.sin(theta / 2.0) * self.pauliz * 1j
+        identity = torch.eye(2, dtype=torch.cfloat).to(theta.device)
+        pauliz = torch.tensor([[1, 0], [0, -1]], dtype=torch.cfloat).to(theta.device)
+        matrix = torch.cos(theta / 2.0) * identity \
+               - torch.sin(theta / 2.0) * pauliz * 1j
         # cos = torch.cos(theta / 2.0)
         # sin = torch.sin(theta / 2.0)
         # matrix = torch.tensor([[cos - 1j * sin, 0],
@@ -331,10 +348,13 @@ class CombinedSingleGate(SingleGate):
         self.update_matrix()
         
     def update_matrix(self):
-        matrix = self.identity
+        matrix = None
         for gate in self.gatelist:
             matrix_i = gate.update_matrix()
-            matrix = matrix_i @ matrix
+            if matrix == None:
+                matrix = matrix_i
+            else:
+                matrix = matrix_i @ matrix
         self.matrix = matrix.detach()
         return matrix
 

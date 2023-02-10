@@ -14,8 +14,13 @@ class Operation(nn.Module):
 
     def tensor_rep(self, x):
         if self.den_mat:
+            assert x.shape[-1] == 2 ** self.nqubit and x.shape[-2] == 2 ** self.nqubit
             return x.reshape([-1] + [2] * 2 * self.nqubit + [1])
         else:
+            if x.ndim == 1:
+                assert x.shape[-1] == 2 ** self.nqubit
+            else:
+                assert x.shape[-1] == 2 ** self.nqubit or x.shape[-2] == 2 ** self.nqubit
             return x.reshape([-1] + [2] * self.nqubit + [1])
 
     def vector_rep(self, x):
@@ -51,13 +56,7 @@ class Gate(Operation):
                 assert type(wire) == int
                 assert wire < nqubit
             self.n = len(wires)
-        self.register_buffer('identity', torch.eye(2, dtype=torch.cfloat))
-        self.register_buffer('paulix', torch.tensor([[0, 1], [1, 0]], dtype=torch.cfloat))
-        self.register_buffer('pauliy', torch.tensor([[0, -1j], [1j, 0]]))
-        self.register_buffer('pauliz', torch.tensor([[1, 0], [0, -1]], dtype=torch.cfloat))
-        self.register_buffer('hadamard', torch.tensor([[1, 1], [1, -1]], dtype=torch.cfloat) / 2 ** 0.5)
-        
-        self.register_buffer('matrix', torch.empty((2 ** self.n, 2 ** self.n), dtype=torch.cfloat))
+        self.matrix = torch.empty((2 ** self.n, 2 ** self.n), dtype=torch.cfloat)
 
     def update_matrix(self):
         return self.matrix
@@ -75,17 +74,14 @@ class Gate(Operation):
             return self.tensor_rep(x)
         return x.squeeze(0)
 
-    def forward(self, x):
-        s = x.shape
-        if len(s) == 1:
-            assert x.shape[-1] == 2 ** self.nqubit
-        else:
-            assert x.shape[-1] == 2 ** self.nqubit or x.shape[-2] == 2 ** self.nqubit
+    def forward(self, x):    
         if not self.tsr_mode:
             x = self.tensor_rep(x)
         if self.den_mat:
+            assert x.ndim == 2 * self.nqubit + 2
             return self.op_den_mat(x)
         else:
+            assert x.ndim == self.nqubit + 2
             return self.op_state(x)
 
 
@@ -103,7 +99,10 @@ class Layer(Operation):
     def init_para(self, inputs=None):
         count = 0
         for gate in self.gates:
-            gate.init_para(inputs[count:count+gate.npara])
+            if inputs == None:
+                gate.init_para(inputs)
+            else:
+                gate.init_para(inputs[count:count+gate.npara])
             count += gate.npara
     
     def update_npara(self):

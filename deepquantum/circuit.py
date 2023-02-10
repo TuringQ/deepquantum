@@ -28,6 +28,7 @@ class Circuit(Operation):
     def forward(self, data=None):
         if self.init_state.ndim == 2:
             self.state = vmap(self.forward_helper)(data)
+            self.init_encoder()
         else:
             self.state = self.forward_helper(data)
         return self.state
@@ -50,6 +51,10 @@ class Circuit(Operation):
         for op in self.encoders:
             op.init_para(data[count:count+op.npara])
             count += op.npara
+
+    def init_encoder(self): # deal with the problem of state_dict() with vmap
+        for op in self.encoders:
+            op.init_para()
 
     def amplitude_encoding(self, data):
         self.init_state = amplitude_encoding(data, self.nqubit)
