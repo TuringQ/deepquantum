@@ -23,7 +23,7 @@ class Circuit(Operation):
         self.encoders = nn.ModuleList([])
         self.measurements = nn.ModuleList([])
         self.register_buffer('init_state', init_state)
-        self.register_buffer('state', None)
+        self.state = None
 
     def forward(self, data=None):
         if self.init_state.ndim == 2:
