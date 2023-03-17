@@ -1,6 +1,21 @@
 import torch
 import torch.nn as nn
+import numpy as np
+import random
+from collections import Counter
 from typing import List
+from torch import vmap
+
+
+def is_power_of_two(n):
+    def f(x):
+        if x < 2:
+            return False
+        elif x & (x-1) == 0:
+            return True
+        return False
+    
+    return np.vectorize(f)(n)
 
 
 def multi_kron(lst: List[torch.Tensor]) -> torch.Tensor:
@@ -48,7 +63,43 @@ def partial_trace(rho: torch.Tensor, N: int, trace_lst: List) -> torch.Tensor:
     return rho.reshape(b, 2 ** (N - n), 2 ** (N - n))
 
 
-def amplitude_encoding(data, nqubit):
+def amplitude_encoding(data, nqubit: int) -> torch.Tensor:
+    """Encode data into quantum states using amplitude encoding.
+
+    This function takes a batch of data and encodes each sample into a quantum state
+    using amplitude encoding. The quantum state is represented by a complex-valued tensor
+    of shape (batch_size, 2**nqubit). The data is normalized to have unit norm along the last dimension
+    before encoding. If the data size is smaller than 2**nqubit, the remaining amplitudes are set to zero.
+    If the data size is larger than 2**nqubit, only the first 2**nqubit elements are used.
+
+    Parameters
+    ----------
+    data : torch.Tensor or array-like
+        The input data to be encoded. It should have shape (batch_size, ...) where ... can be any dimensions.
+        If it is not a torch.Tensor object, it will be converted to one.
+    nqubit : int
+        The number of qubits to use for encoding.
+
+    Returns
+    -------
+    torch.Tensor
+        The encoded quantum states as complex-valued tensors of shape (batch_size, 2**nqubit, 1).
+
+    Examples
+    --------
+    >>> data = [[0.5, 0.5], [0.7, 0.3]]
+    >>> amplitude_encoding(data, nqubit=2)
+    tensor([[[0.7071+0.j],
+             [0.7071+0.j],
+             [0.0000+0.j],
+             [0.0000+0.j]],
+
+            [[0.9487+0.j],
+             [0.3162+0.j],
+             [0.0000+0.j],
+             [0.0000+0.j]]])
+    
+    """
     if type(data) != torch.Tensor:
         data = torch.tensor(data)
     batch = data.shape[0]
@@ -64,51 +115,86 @@ def amplitude_encoding(data, nqubit):
     return state.unsqueeze(-1)
 
 
-def Meyer_Wallach_measure(MPS: torch.Tensor) -> torch.Tensor:
+def measure(state, shots=1024, with_prob=False):
+    if state.ndim == 1:
+        batch = 1
+    else:
+        batch = state.shape[0]
+    state = state.reshape(batch, -1)
+    assert is_power_of_two(state.shape[-1]), 'The length of the quantum state is not in the form of 2^n'
+    state = state.detach().numpy()
+    n = int(np.log2(state.shape[-1]))
+    bit_strings = [format(i, f'0{n}b') for i in range(2 ** n)]
+    results_tot = []
+    for i in range(batch):
+        probs = np.abs(state[i]) ** 2
+        samples = random.choices(bit_strings, weights=probs, k=shots)
+        results = dict(Counter(samples))
+        if with_prob:
+            for k in results:
+                index = int(k, 2)
+                results[k] = results[k], probs[index]
+        results_tot.append(results)
+    if batch == 1:
+        return results_tot[0]
+    else:
+        return results_tot
+
+
+def expectation(state, observable, den_mat=False):
+    if den_mat:
+        expval = vmap(torch.trace)(observable.get_unitary() @ state).real
+    else:
+        expval = state.conj().transpose(-1, -2) @ observable(state)
+        expval = expval.squeeze(-1).squeeze(-1).real
+    return expval
+
+
+def Meyer_Wallach_measure(state_tsr: torch.Tensor) -> torch.Tensor:
     """Calculate Meyer-Wallach entanglement measure
     
     See https://readpaper.com/paper/2945680873 Eq.(19)
     
     Args:
-        MPS: input with the shape of (batch, 2, ..., 2, 1)
+        state_tsr: input with the shape of (batch, 2, ..., 2, 1)
     
     Returns:
         torch.Tensor: the value of Meyer-Wallach measure
     """
-    nqubit = len(MPS.shape) - 2
-    batch = MPS.shape[0]
+    nqubit = len(state_tsr.shape) - 2
+    batch = state_tsr.shape[0]
     rst = 0
     for i in range(nqubit):
-        s1 = linear_map_MW(MPS, i, 0).reshape(batch, -1, 1)
-        s2 = linear_map_MW(MPS, i, 1).reshape(batch, -1, 1)
+        s1 = linear_map_MW(state_tsr, i, 0).reshape(batch, -1, 1)
+        s2 = linear_map_MW(state_tsr, i, 1).reshape(batch, -1, 1)
         rst += generalized_distance(s1, s2).reshape(-1)
     return rst * 4 / nqubit
 
 
-def linear_map_MW(MPS: torch.Tensor, j: int, b: int) -> torch.Tensor:
+def linear_map_MW(state_tsr: torch.Tensor, j: int, b: int) -> torch.Tensor:
     """Calculate the linear mapping for Meyer-Wallach measure
 
     See https://readpaper.com/paper/2945680873 Eq.(18)
 
     Note:
-        Project on state `MPS` with local projectors on the `j`th qubit
+        Project on state with local projectors on the `j`th qubit
         See https://arxiv.org/pdf/quant-ph/0305094.pdf Eq.(2)
 
     Args:
-        MPS: input with the shape of (batch, 2, ..., 2, 1)
+        state_tsr: input with the shape of (batch, 2, ..., 2, 1)
         j: the `j`th qubit to project on, from 0 to nqubit - 1
         b: the project basis, |0> or |1>
     
     Returns:
-        torch.Tensor: non-normalized MPS after the linear mapping
+        torch.Tensor: non-normalized state tensor after the linear mapping
     """
-    assert b == 0 or b == 1, "b must be 0 or 1"
-    n = len(MPS.shape)
-    assert j < n - 2, "j can not exceed nqubit"
+    assert b == 0 or b == 1, 'b must be 0 or 1'
+    n = len(state_tsr.shape)
+    assert j < n - 2, 'j can not exceed nqubit'
     permute_shape = list(range(n))
     permute_shape.remove(j + 1)
     permute_shape = [0] + [j + 1] + permute_shape[1:]
-    return MPS.permute(permute_shape)[:, b]
+    return state_tsr.permute(permute_shape)[:, b]
 
 
 def generalized_distance(state1: torch.Tensor, state2: torch.Tensor) -> torch.Tensor:
@@ -124,14 +210,14 @@ def generalized_distance(state1: torch.Tensor, state2: torch.Tensor) -> torch.Te
     Returns:
         torch.Tensor: the generalized distance
     """
-    state1_dag = torch.conj(state1).transpose(-1,-2)
-    state2_dag = torch.conj(state2).transpose(-1,-2)
+    state1_dag = state1.conj().transpose(-1,-2)
+    state2_dag = state2.conj().transpose(-1,-2)
     rst = torch.bmm(state1_dag, state1) * torch.bmm(state2_dag, state2) \
         - torch.bmm(state1_dag, state2) * torch.bmm(state2_dag, state1)
     return rst
 
 
-def Meyer_Wallach_measure_Brennen(MPS: torch.Tensor) -> torch.Tensor:
+def Meyer_Wallach_measure_Brennen(state_tsr: torch.Tensor) -> torch.Tensor:
     """Calculate Meyer-Wallach entanglement measure, proposed by Brennen
     
     See https://arxiv.org/pdf/quant-ph/0305094.pdf Eq.(6)
@@ -140,14 +226,14 @@ def Meyer_Wallach_measure_Brennen(MPS: torch.Tensor) -> torch.Tensor:
         This implementation is slower than `Meyer_Wallach_measure` when nqubit >= 8
     
     Args:
-        MPS: input with the shape of (batch, 2, ..., 2, 1)
+        state_tsr: input with the shape of (batch, 2, ..., 2, 1)
     
     Returns:
         torch.Tensor: the value of Meyer-Wallach measure
     """
-    nqubit = len(MPS.shape) - 2
-    batch = MPS.shape[0]
-    rho = MPS.reshape(batch, -1, 1) @ torch.conj(MPS.reshape(batch, 1, -1))
+    nqubit = len(state_tsr.shape) - 2
+    batch = state_tsr.shape[0]
+    rho = state_tsr.reshape(batch, -1, 1) @ state_tsr.conj().reshape(batch, 1, -1)
     rst = 0
     for i in range(nqubit):
         trace_list = list(range(nqubit))

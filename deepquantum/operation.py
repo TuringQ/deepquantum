@@ -87,7 +87,7 @@ class Gate(Operation):
 class Layer(Operation):
     def __init__(self, name=None, nqubit=1, wires=None, den_mat=False, tsr_mode=False):
         super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
-        self.gates = nn.ModuleList([])
+        self.gates = nn.Sequential()
 
     def get_unitary(self):
         u = torch.eye(2 ** self.nqubit, dtype=torch.cfloat)
@@ -112,8 +112,7 @@ class Layer(Operation):
     def forward(self, x):
         if not self.tsr_mode:
             x = self.tensor_rep(x)
-        for gate in self.gates:
-            x = gate(x)
+        x = self.gates(x)
         if not self.tsr_mode:
             if self.den_mat:
                 return self.matrix_rep(x)

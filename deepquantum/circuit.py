@@ -3,12 +3,12 @@ import torch.nn as nn
 from deepquantum.operation import *
 from deepquantum.gate import *
 from deepquantum.layer import *
-from functorch import vmap
-from deepquantum.qmath import *
+from torch import vmap
+from deepquantum.qmath import amplitude_encoding, measure, expectation
 
 
-class Circuit(Operation):
-    def __init__(self, nqubit, init_state='zeros', name=None, den_mat=False):
+class QubitCircuit(Operation):
+    def __init__(self, nqubit, init_state='zeros', name=None, den_mat=False, reupload=False):
         super().__init__(name=name, nqubit=nqubit, wires=None, den_mat=den_mat)
         if init_state == 'zeros':
             init_state = torch.zeros((2 ** self.nqubit, 1), dtype=torch.cfloat)
@@ -17,11 +17,15 @@ class Circuit(Operation):
             init_state = torch.ones((2 ** self.nqubit, 1), dtype=torch.cfloat)
             init_state = nn.functional.normalize(init_state, p=2, dim=-2)
         if den_mat:
-            init_state = init_state @ init_state.T.conj()
-        self.operators = nn.ModuleList([])
-        self.gates = nn.ModuleList([])
+            s = init_state.shape
+            if s[-1] != 2 ** self.nqubit or s[-2] != 2 ** self.nqubit:
+                init_state = init_state.reshape(s[0], -1, 1)
+                assert init_state.shape[1] == 2 ** self.nqubit, 'The shape of initial state is not correct'
+                init_state = init_state @ init_state.conj().transpose(-1, -2)
+        self.reupload = reupload
+        self.operators = nn.Sequential()
         self.encoders = nn.ModuleList([])
-        self.measurements = nn.ModuleList([])
+        self.observables = nn.ModuleList([])
         self.register_buffer('init_state', init_state)
         self.state = None
 
@@ -35,9 +39,7 @@ class Circuit(Operation):
 
     def forward_helper(self, data=None):
         self.encode(data)
-        x = self.tensor_rep(self.init_state)
-        for op in self.operators:
-            x = op(x)
+        x = self.operators(self.tensor_rep(self.init_state))
         if self.den_mat:
             x = self.matrix_rep(x)
         else:
@@ -49,8 +51,12 @@ class Circuit(Operation):
             return
         count = 0
         for op in self.encoders:
-            op.init_para(data[count:count+op.npara])
-            count += op.npara
+            count_up = count + op.npara
+            if count_up > len(data) and self.reupload:
+                count = 0
+                count_up = count + op.npara
+            op.init_para(data[count:count_up])
+            count = count_up
 
     def init_encoder(self): # deal with the problem of state_dict() with vmap
         for op in self.encoders:
@@ -59,27 +65,23 @@ class Circuit(Operation):
     def amplitude_encoding(self, data):
         self.init_state = amplitude_encoding(data, self.nqubit)
     
-    def measure(self, wires=None, observables='z'):
-        measure = Measurement(nqubit=self.nqubit, wires=wires, observables=observables,
-                              den_mat=self.den_mat, tsr_mode=False)
-        self.measurements.append(measure)
+    def observable(self, wires=None, basis='z'):
+        observable = Observable(nqubit=self.nqubit, wires=wires, basis=basis,
+                                den_mat=self.den_mat, tsr_mode=False)
+        self.observables.append(observable)
 
-    def reset_measure(self):
-        self.measurements = nn.ModuleList([])
+    def reset_observable(self):
+        self.observables = nn.ModuleList([])
 
-    def sample(self):
-        pass
+    def measure(self, shots=1024, with_prob=False):
+        return measure(self.state, shots=shots, with_prob=with_prob)
 
     def expectation(self):
-        if self.measurements and self.state != None:
+        if self.observables and self.state != None:
             out = []
-            for measure in self.measurements:
-                if self.den_mat:
-                    rst = vmap(torch.trace)(measure.get_unitary() @ self.state)
-                else:
-                    rst = self.state.conj().transpose(-1, -2) @ measure(self.state)
-                    rst = rst.squeeze(-1).squeeze(-1)
-                out.append(rst.real)
+            for observable in self.observables:
+                expval = expectation(self.state, observable=observable, den_mat=self.den_mat)
+                out.append(expval)
             out = torch.stack(out, dim=-1)
             return out
 
@@ -95,10 +97,6 @@ class Circuit(Operation):
             
     def add(self, op):
         self.operators.append(op)
-        if isinstance(op, Gate):
-            self.gates.append(op)
-        else:
-            self.gates += op.gates
 
     def print(self):
         pass
@@ -108,6 +106,8 @@ class Circuit(Operation):
 
     def u3(self, wires, inputs=None, encode=False):
         requires_grad = not encode
+        if inputs != None:
+            requires_grad = False
         u3 = U3Gate(inputs=inputs, nqubit=self.nqubit, wires=wires, den_mat=self.den_mat,
                     tsr_mode=True, requires_grad=requires_grad)
         self.add(u3)
@@ -132,6 +132,8 @@ class Circuit(Operation):
 
     def rx(self, wires, inputs=None, encode=False):
         requires_grad = not encode
+        if inputs != None:
+            requires_grad = False
         rx = Rx(inputs=inputs, nqubit=self.nqubit, wires=wires, den_mat=self.den_mat,
                 tsr_mode=True, requires_grad=requires_grad)
         self.add(rx)
@@ -140,6 +142,8 @@ class Circuit(Operation):
 
     def ry(self, wires, inputs=None, encode=False):
         requires_grad = not encode
+        if inputs != None:
+            requires_grad = False
         ry = Ry(inputs=inputs, nqubit=self.nqubit, wires=wires, den_mat=self.den_mat,
                 tsr_mode=True, requires_grad=requires_grad)
         self.add(ry)
@@ -148,6 +152,8 @@ class Circuit(Operation):
 
     def rz(self, wires, inputs=None, encode=False):
         requires_grad = not encode
+        if inputs != None:
+            requires_grad = False
         rz = Rz(inputs=inputs, nqubit=self.nqubit, wires=wires, den_mat=self.den_mat,
                 tsr_mode=True, requires_grad=requires_grad)
         self.add(rz)
@@ -164,6 +170,8 @@ class Circuit(Operation):
 
     def rxlayer(self, inputs=None, wires=None, encode=False):
         requires_grad = not encode
+        if inputs != None:
+            requires_grad = False
         rxl = RxLayer(inputs=inputs, nqubit=self.nqubit, wires=wires, den_mat=self.den_mat,
                       tsr_mode=True, requires_grad=requires_grad)
         self.add(rxl)
@@ -172,6 +180,8 @@ class Circuit(Operation):
     
     def rylayer(self, inputs=None, wires=None, encode=False):
         requires_grad = not encode
+        if inputs != None:
+            requires_grad = False
         ryl = RyLayer(inputs=inputs, nqubit=self.nqubit, wires=wires, den_mat=self.den_mat,
                       tsr_mode=True, requires_grad=requires_grad)
         self.add(ryl)
@@ -180,6 +190,8 @@ class Circuit(Operation):
 
     def rzlayer(self, inputs=None, wires=None, encode=False):
         requires_grad = not encode
+        if inputs != None:
+            requires_grad = False
         rzl = RzLayer(inputs=inputs, nqubit=self.nqubit, wires=wires, den_mat=self.den_mat,
                       tsr_mode=True, requires_grad=requires_grad)
         self.add(rzl)

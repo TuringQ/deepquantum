@@ -27,21 +27,21 @@ class DoubleLayer(Layer):
         self.wires = wires
 
 
-class Measurement(SingleLayer):
-    def __init__(self, nqubit=1, wires=None, observables='z', den_mat=False, tsr_mode=False):
-        super().__init__(name='Measurement', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
-        if len(observables) == 1:
-            self.observables = observables * len(self.wires)
-        assert len(self.wires) == len(self.observables), 'The number of wires is not equal to the number of observables'
+class Observable(SingleLayer):
+    def __init__(self, nqubit=1, wires=None, basis='z', den_mat=False, tsr_mode=False):
+        super().__init__(name='Observable', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
+        if len(basis) == 1:
+            self.basis = basis * len(self.wires)
+        assert len(self.wires) == len(self.basis), 'The number of wires is not equal to the number of bases'
         for i, wire in enumerate(self.wires):
-            if self.observables[i] == 'x':
+            if self.basis[i] == 'x':
                 gate = PauliX(nqubit=nqubit, wires=wire, den_mat=den_mat, tsr_mode=True)
-            elif self.observables[i] == 'y':
+            elif self.basis[i] == 'y':
                 gate = PauliY(nqubit=nqubit, wires=wire, den_mat=den_mat, tsr_mode=True)
-            elif self.observables[i] == 'z':
+            elif self.basis[i] == 'z':
                 gate = PauliZ(nqubit=nqubit, wires=wire, den_mat=den_mat, tsr_mode=True)
             else:
-                raise ValueError('Use illegal observables')
+                raise ValueError('Use illegal measurement basis')
             self.gates.append(gate)
 
 
