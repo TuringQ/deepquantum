@@ -28,8 +28,8 @@ state = FockState(batch_size=2, n_modes=2, cutoff=2)
 
 
 encoding_cir = QumodeCircuit(n_modes=2, backend='fock')
-encoding_cir.add(Displacement(mode=0))
-encoding_cir.add(Displacement(mode=1))
+encoding_cir.displace(mode=0) 
+encoding_cir.displace(mode=1)
 
 
 var_cir = QumodeCircuit(n_modes=2, backend='fock')
@@ -51,7 +51,7 @@ encoding_cir.operators[1].set_params(r=x[:,1], phi=torch.tensor(2.0))
 
 
 state.reset()
-cir = encoding_cir + var_cir + encoding_cir + var_cir
+cir = encoding_cir + var_cir + encoding_cir + var_cir # data re-uploading
 state = cir(state)
 
 print('state tensor', state.tensor)
