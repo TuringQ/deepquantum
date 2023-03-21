@@ -47,6 +47,8 @@ def partial_trace(rho: torch.Tensor, N: int, trace_lst: List) -> torch.Tensor:
     Returns:
         torch.Tensor: reduced density matrices with the shape of (batch, 2^n, 2^n)
     """
+    if rho.ndim == 2:
+        rho = rho.unsqueeze(0)
     assert rho.ndim == 3
     assert rho.shape[1] == 2 ** N and rho.shape[2] == 2 ** N
     b = rho.shape[0]
@@ -60,7 +62,7 @@ def partial_trace(rho: torch.Tensor, N: int, trace_lst: List) -> torch.Tensor:
     permute_shape = permute_shape + trace_lst
     rho = rho.reshape([b] + [2] * 2 * N).permute(permute_shape).reshape(-1, 2 ** n, 2 ** n)
     rho = rho.diagonal(offset=0, dim1=-2, dim2=-1).sum(-1)
-    return rho.reshape(b, 2 ** (N - n), 2 ** (N - n))
+    return rho.reshape(b, 2 ** (N - n), 2 ** (N - n)).squeeze(0)
 
 
 def amplitude_encoding(data, nqubit: int) -> torch.Tensor:
@@ -115,19 +117,31 @@ def amplitude_encoding(data, nqubit: int) -> torch.Tensor:
     return state.unsqueeze(-1)
 
 
-def measure(state, shots=1024, with_prob=False):
+def measure(state, shots=1024, with_prob=False, wires=None):
     if state.ndim == 1:
         batch = 1
     else:
         batch = state.shape[0]
     state = state.reshape(batch, -1)
     assert is_power_of_two(state.shape[-1]), 'The length of the quantum state is not in the form of 2^n'
-    state = state.detach().numpy()
     n = int(np.log2(state.shape[-1]))
-    bit_strings = [format(i, f'0{n}b') for i in range(2 ** n)]
+    if wires == None:
+        bit_strings = [format(i, f'0{n}b') for i in range(2 ** n)]
+    else:
+        assert type(wires) in (int, list)
+        if type(wires) == int:
+            wires = [wires]
+        bit_strings = [format(i, f'0{len(wires)}b') for i in range(2 ** len(wires))]
     results_tot = []
     for i in range(batch):
-        probs = np.abs(state[i]) ** 2
+        probs = torch.abs(state[i]) ** 2
+        if wires != None:
+            wires.sort()
+            pm_shape = list(range(n))
+            for w in wires:
+                pm_shape.remove(w)
+            pm_shape = wires + pm_shape
+            probs = probs.reshape([2] * n).permute(pm_shape).reshape([2] * len(wires) + [-1]).sum(-1).reshape(-1)
         samples = random.choices(bit_strings, weights=probs, k=shots)
         results = dict(Counter(samples))
         if with_prob:

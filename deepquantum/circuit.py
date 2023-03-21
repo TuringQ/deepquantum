@@ -28,18 +28,39 @@ class QubitCircuit(Operation):
         self.observables = nn.ModuleList([])
         self.register_buffer('init_state', init_state)
         self.state = None
+        self.npara = 0
+        self.ndata = 0
 
-    def forward(self, data=None):
-        if self.init_state.ndim == 2:
-            self.state = vmap(self.forward_helper)(data)
-            self.init_encoder()
+    def __add__(self, rhs):
+        cir = QubitCircuit(self.nqubit, self.init_state, self.name, self.den_mat, self.reupload)
+        cir.operators = self.operators + rhs.operators
+        cir.encoders = self.encoders + rhs.encoders
+        cir.observables = rhs.observables
+        cir.npara = self.npara + rhs.npara
+        cir.ndata = self.ndata + rhs.ndata
+        return cir
+
+    def forward(self, data=None, state=None):
+        if state == None:
+            state = self.init_state
+        if data == None:
+            self.state = self.forward_helper(state=state)
         else:
-            self.state = self.forward_helper(data)
+            if data.ndim == 1:
+                data = data.unsqueeze(0)
+            assert data.ndim == 2
+            if state.ndim == 2:
+                self.state = vmap(self.forward_helper, in_dims=(0, None))(data, state)
+            elif state.ndim == 3:
+                self.state = vmap(self.forward_helper)(data, state)
+            self.init_encoder()
         return self.state
 
-    def forward_helper(self, data=None):
+    def forward_helper(self, data=None, state=None):
         self.encode(data)
-        x = self.operators(self.tensor_rep(self.init_state))
+        if state == None:
+            state = self.init_state
+        x = self.operators(self.tensor_rep(state))
         if self.den_mat:
             x = self.matrix_rep(x)
         else:
@@ -95,8 +116,13 @@ class QubitCircuit(Operation):
         for op in self.operators:
             op.init_para()
             
-    def add(self, op):
+    def add(self, op, encode=False):
         self.operators.append(op)
+        if encode:
+            self.encoders.append(op)
+            self.ndata += op.npara
+        else:
+            self.npara += op.npara
 
     def print(self):
         pass
@@ -110,9 +136,7 @@ class QubitCircuit(Operation):
             requires_grad = False
         u3 = U3Gate(inputs=inputs, nqubit=self.nqubit, wires=wires, den_mat=self.den_mat,
                     tsr_mode=True, requires_grad=requires_grad)
-        self.add(u3)
-        if encode:
-            self.encoders.append(u3)
+        self.add(u3, encode=encode)
 
     def x(self, wires):
         x = PauliX(nqubit=self.nqubit, wires=wires, den_mat=self.den_mat, tsr_mode=True)
@@ -136,9 +160,7 @@ class QubitCircuit(Operation):
             requires_grad = False
         rx = Rx(inputs=inputs, nqubit=self.nqubit, wires=wires, den_mat=self.den_mat,
                 tsr_mode=True, requires_grad=requires_grad)
-        self.add(rx)
-        if encode:
-            self.encoders.append(rx)
+        self.add(rx, encode=encode)
 
     def ry(self, wires, inputs=None, encode=False):
         requires_grad = not encode
@@ -146,9 +168,7 @@ class QubitCircuit(Operation):
             requires_grad = False
         ry = Ry(inputs=inputs, nqubit=self.nqubit, wires=wires, den_mat=self.den_mat,
                 tsr_mode=True, requires_grad=requires_grad)
-        self.add(ry)
-        if encode:
-            self.encoders.append(ry)
+        self.add(ry, encode=encode)
 
     def rz(self, wires, inputs=None, encode=False):
         requires_grad = not encode
@@ -156,9 +176,7 @@ class QubitCircuit(Operation):
             requires_grad = False
         rz = Rz(inputs=inputs, nqubit=self.nqubit, wires=wires, den_mat=self.den_mat,
                 tsr_mode=True, requires_grad=requires_grad)
-        self.add(rz)
-        if encode:
-            self.encoders.append(rz)
+        self.add(rz, encode=encode)
 
     def cnot(self, wires):
         cnot = CNOT(nqubit=self.nqubit, wires=wires, den_mat=self.den_mat, tsr_mode=True)
@@ -174,9 +192,7 @@ class QubitCircuit(Operation):
             requires_grad = False
         rxl = RxLayer(inputs=inputs, nqubit=self.nqubit, wires=wires, den_mat=self.den_mat,
                       tsr_mode=True, requires_grad=requires_grad)
-        self.add(rxl)
-        if encode:
-            self.encoders.append(rxl)
+        self.add(rxl, encode=encode)
     
     def rylayer(self, inputs=None, wires=None, encode=False):
         requires_grad = not encode
@@ -184,9 +200,7 @@ class QubitCircuit(Operation):
             requires_grad = False
         ryl = RyLayer(inputs=inputs, nqubit=self.nqubit, wires=wires, den_mat=self.den_mat,
                       tsr_mode=True, requires_grad=requires_grad)
-        self.add(ryl)
-        if encode:
-            self.encoders.append(ryl)
+        self.add(ryl, encode=encode)
 
     def rzlayer(self, inputs=None, wires=None, encode=False):
         requires_grad = not encode
@@ -194,9 +208,7 @@ class QubitCircuit(Operation):
             requires_grad = False
         rzl = RzLayer(inputs=inputs, nqubit=self.nqubit, wires=wires, den_mat=self.den_mat,
                       tsr_mode=True, requires_grad=requires_grad)
-        self.add(rzl)
-        if encode:
-            self.encoders.append(rzl)
+        self.add(rzl, encode=encode)
 
     def cnot_ring(self, minmax=None, step=1, reverse=False):
         cxr = CnotRing(nqubit=self.nqubit, minmax=minmax, den_mat=self.den_mat,
