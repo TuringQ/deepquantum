@@ -116,6 +116,3 @@ class CnotRing(CnotLayer):
         else:
             wires = [[minmax[0] + i, minmax[0] + (i+step) % nwires] for i in range(minmax[1] - minmax[0] + 1)]
         super().__init__(name='CnotRing', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
-        for wire in self.wires:
-            cnot = CNOT(nqubit=nqubit, wires=wire, den_mat=den_mat, tsr_mode=True)
-            self.gates.append(cnot)

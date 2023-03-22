@@ -18,6 +18,46 @@ def is_power_of_two(n):
     return np.vectorize(f)(n)
 
 
+def safe_inverse(x, epsilon=1e-12):
+    return x / (x ** 2 + epsilon)
+
+
+class SVD(torch.autograd.Function):
+    # modified from https://github.com/wangleiphy/tensorgrad/blob/master/tensornets/adlib/svd.py
+    # See https://readpaper.com/paper/2971614414
+    @staticmethod
+    def forward(ctx, A):
+        U, S, Vh = torch.linalg.svd(A, full_matrices=False)
+        S = S.to(U.dtype)
+        ctx.save_for_backward(U, S, Vh)
+        return U, S, Vh
+
+    @staticmethod
+    def backward(ctx, dU, dS, dVh):
+        U, S, Vh = ctx.saved_tensors
+        Uh = U.mH
+        V = Vh.mH
+        dV = dVh.mH
+        m = U.shape[-2]
+        n = V.shape[-2]
+        ns = S.shape[-1]
+
+        F = (S.unsqueeze(-2) ** 2 - S.unsqueeze(-1) ** 2)
+        F = safe_inverse(F)
+        F.diagonal(dim1=-2, dim2=-1).fill_(0)
+
+        J = F * (Uh @ dU)
+        K = F * (Vh @ dV)
+        L = (Vh @ dV).diagonal(dim1=-2, dim2=-1).diag_embed()
+        S_inv = (1 / S).diag_embed()
+        dA = U @ (dS.diag_embed() + (J + J.mH) @ S.diag_embed() + S.diag_embed() @ (K + K.mH) + S_inv @ (L.mH - L) / 2) @ Vh
+        if (m > ns):
+            dA += (torch.eye(m, dtype=dU.dtype, device=dU.device) - U @ Uh) @ dU @ S_inv @ Vh 
+        if (n > ns):
+            dA += U @ S_inv @ dVh @ (torch.eye(n, dtype=dU.dtype, device=dU.device) - V @ Vh)
+        return dA
+
+
 def multi_kron(lst: List[torch.Tensor]) -> torch.Tensor:
     """Calculate the Kronecker/tensor/outer product for a list of tensors
     
@@ -61,7 +101,7 @@ def partial_trace(rho: torch.Tensor, N: int, trace_lst: List) -> torch.Tensor:
         permute_shape.remove(i)
     permute_shape = permute_shape + trace_lst
     rho = rho.reshape([b] + [2] * 2 * N).permute(permute_shape).reshape(-1, 2 ** n, 2 ** n)
-    rho = rho.diagonal(offset=0, dim1=-2, dim2=-1).sum(-1)
+    rho = rho.diagonal(dim1=-2, dim2=-1).sum(-1)
     return rho.reshape(b, 2 ** (N - n), 2 ** (N - n)).squeeze(0)
 
 
@@ -159,7 +199,7 @@ def expectation(state, observable, den_mat=False):
     if den_mat:
         expval = vmap(torch.trace)(observable.get_unitary() @ state).real
     else:
-        expval = state.conj().transpose(-1, -2) @ observable(state)
+        expval = state.mH @ observable(state)
         expval = expval.squeeze(-1).squeeze(-1).real
     return expval
 
@@ -224,11 +264,7 @@ def generalized_distance(state1: torch.Tensor, state2: torch.Tensor) -> torch.Te
     Returns:
         torch.Tensor: the generalized distance
     """
-    state1_dag = state1.conj().transpose(-1,-2)
-    state2_dag = state2.conj().transpose(-1,-2)
-    rst = torch.bmm(state1_dag, state1) * torch.bmm(state2_dag, state2) \
-        - torch.bmm(state1_dag, state2) * torch.bmm(state2_dag, state1)
-    return rst
+    return (state1.mH @ state1) * (state2.mH @ state2) - (state1.mH @ state2) * (state2.mH @ state1)
 
 
 def Meyer_Wallach_measure_Brennen(state_tsr: torch.Tensor) -> torch.Tensor:

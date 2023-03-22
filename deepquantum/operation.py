@@ -68,7 +68,7 @@ class Gate(Operation):
 
     def op_den_mat(self, x):
         u = self.get_unitary()
-        x = u @ self.matrix_rep(x) @ u.conj().transpose(-1, -2)
+        x = u @ self.matrix_rep(x) @ u.mH
         if self.tsr_mode:
             return self.tensor_rep(x)
         return x.squeeze(0)
@@ -115,7 +115,7 @@ class Layer(Operation):
         x = self.gates(x)
         if not self.tsr_mode:
             if self.den_mat:
-                return self.matrix_rep(x)
+                return self.matrix_rep(x).squeeze(0)
             else:
-                return self.vector_rep(x)
+                return self.vector_rep(x).squeeze(0)
         return x

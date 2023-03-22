@@ -21,7 +21,7 @@ class QubitCircuit(Operation):
             if s[-1] != 2 ** self.nqubit or s[-2] != 2 ** self.nqubit:
                 init_state = init_state.reshape(s[0], -1, 1)
                 assert init_state.shape[1] == 2 ** self.nqubit, 'The shape of initial state is not correct'
-                init_state = init_state @ init_state.conj().transpose(-1, -2)
+                init_state = init_state @ init_state.mH
         self.reupload = reupload
         self.operators = nn.Sequential()
         self.encoders = nn.ModuleList([])
