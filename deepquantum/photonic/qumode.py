@@ -1,8 +1,10 @@
 import numbers
+import numpy as np
 import torch
 from torch import nn   
-import gaussian 
+import gaussian.ops
 import fock
+
 
 class QumodeCircuit(nn.Module):
 
@@ -35,7 +37,7 @@ class QumodeCircuit(nn.Module):
             op = fock.ops.Displacement(mode)
             op.set_params(r, phi)
         else:
-            op = gaussian.Displacement(mode)
+            op = gaussian.ops.Displacement(mode)
             op.set_params(r, phi)
         
         self.add(op)
@@ -117,5 +119,19 @@ class FockState:
 
 
 
-class GaussianState:
-    pass
+class GaussianState(gaussian.ops.Gaussian):
+    """
+    Class of Gaussian state. Gaussian state is a special kind of quantum states whose Wigner functions are gaussian functions, 
+    which is completely determined by a covariance matrix and a displacement vector. 
+    
+    In our convention, the covariance matrix and displacement vector are defined for creation and annihilation operators.
+    """
+    def __init__(self, batch_size=1, n_modes=1, h_bar=1/np.sqrt(2), dtype=torch.complex128):
+        """
+        Initialize a gaussian system in the vaccum state with a specfic number of optical modes.
+        """
+        super().__init__(n_modes, batch_size, h_bar, dtype)
+        # initialize a vaccum state  
+        #self.reset(n_modes, batch_size, h_bar, dtype)
+        #print(f'Initialize a gaussian vaccum state with {n_modes} modes and batch size being {batch_size}.')
+    
