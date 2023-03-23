@@ -59,4 +59,11 @@ print('state tensor', state.tensor)
 # yhat = quad_expectation(state, phi=0, mode=0)
 
 
-breakpoint()
+for pn, p in cir.named_parameters():
+    print(pn, p.grad)
+    
+state.tensor.sum().backward()
+
+for pn, p in cir.named_parameters():
+    print(pn, p.grad)
+
