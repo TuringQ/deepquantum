@@ -42,6 +42,33 @@ class QumodeCircuit(nn.Module):
         
         self.add(op)
 
+    def squeeze(self, r=None, phi=None, mode=0):
+        if self.backend == 'fock':
+            None
+        else:
+            op = gaussian.ops.Squeeze(mode)
+            op.set_params(r, phi)
+        
+        self.add(op)
+    
+    def phase_shift(self, phi=None, mode=0):
+        if self.backend == 'fock':
+            None
+        else:
+            op = gaussian.ops.PhaseShifter(mode)
+            op.set_params(phi)
+        
+        self.add(op)
+
+    def beam_split(self, r=None, phi=None, mode=0):
+        if self.backend == 'fock':
+            None
+        else:
+            op = gaussian.ops.BeamSplitter(mode)
+            op.set_params(r, phi)
+        
+        self.add(op)
+
 
 class FockState:
     """Instance attributes includes:

@@ -225,6 +225,9 @@ class Gaussian:
         if theta.shape[0] != self._batch_size and theta.shape[0] != 1:
             raise ValueError('The dimension of the theta tensor should be equal to batch size or 1!')
             
+
+        # change the dtype of r into default dtype
+        r = r.type(self._dtype)
         # transformation matrix
         t = torch.zeros(self._batch_size, 2, 2, dtype=self._dtype)
         t[:,0,0] = torch.cosh(r)
@@ -365,10 +368,10 @@ class Gaussian:
         """
         if not set(modes).issubset(set(range(self._mode_number))):
             raise ValueError('There are some modes to be squeezed do not exist!')
-#         if len(r.shape) == 1:
-#             r = torch.stack([r] * self._batch_size)
-#         if len(theta.shape) == 1:
-#             theta = torch.stack([theta] * self._batch_size)
+        if r.shape[0] != self._batch_size and r.shape[0] != 1:
+            raise ValueError('The dimension of tensor r should be equal to batch size or 1!')
+        if theta.shape[0] != self._batch_size and theta.shape[0] != 1:
+            raise ValueError('The dimension of tensor theta should be equal to batch size or 1!')
             
         r = r.type(self._dtype)
         # transformation matrix
@@ -714,6 +717,9 @@ class Displacement(nn.Module):
     def forward(self, state):
         self.auto_params(state)
         distance = self.r * torch.exp(1j * self.phi)
+        # if distance is a torch tensor scalar, change it into torch tensor with shape [1]
+        if distance.shape == torch.Size([]):
+            distance = torch.tensor([distance])
         # displace the mode
         state.displace_one_mode(self.mode, distance)
         return state
@@ -730,6 +736,134 @@ class Displacement(nn.Module):
     def auto_params(self, state):
         """automatically set None parameter as nn.Paramter for users"""
         if not self.is_r_set:
-            self.register_parameter('r', nn.Parameter(torch.randn(state._batch_size, dtype=state._dtype)))
+            self.register_parameter('r', nn.Parameter(torch.randn([], dtype=state._dtype)))
         if not self.is_phi_set:
-            self.register_parameter('phi', nn.Parameter(torch.randn(state._batch_size, dtype=state._dtype)))
+            self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=state._dtype)))
+
+
+
+
+
+class Squeeze(nn.Module):
+    """
+    Parameters:
+        r (tensor): displacement magnitude 
+        phi (tesnor): displacement angle 
+    """
+    def __init__(self, mode=0):
+        super().__init__()
+        self.mode = mode
+        self.is_r_set  = False
+        self.is_phi_set  = False
+        
+        
+    def forward(self, state):
+        self.auto_params(state)
+        if self.r.shape == torch.Size([]):
+            self.r = torch.tensor([self.r])
+        if self.phi.shape == torch.Size([]):
+            self.phi = torch.tensor([self.phi])
+        # squeeze the mode
+        state.squeeze_one_mode(self.mode, self.r, self.phi)
+        return state
+    
+    def set_params(self, r=None, phi=None):
+        """set r, phi to tensor independently"""
+        if r != None:
+            self.register_buffer('r', r)
+            self.is_r_set = True
+        if phi != None:
+            self.register_buffer('phi', phi)
+            self.is_phi_set = True
+
+    def auto_params(self, state):
+        """automatically set None parameter as nn.Paramter for users"""
+        if not self.is_r_set:
+            self.register_parameter('r', nn.Parameter(torch.randn([], dtype=state._dtype)))
+        if not self.is_phi_set:
+            self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=state._dtype)))
+
+
+
+
+
+class PhaseShifter(nn.Module):
+    """
+    Parameters:
+        r (tensor): displacement magnitude 
+        phi (tesnor): displacement angle 
+    """
+    def __init__(self, mode=0):
+        super().__init__()
+        self.mode = mode
+        self.is_phi_set  = False
+        
+        
+    def forward(self, state):
+        self.auto_params(state)
+        if self.phi.shape == torch.Size([]):
+            self.phi = torch.tensor([self.phi])
+        # phase shifter the mode
+        state.displace_one_mode(self.mode, self.phi)
+        return state
+    
+    def set_params(self, phi=None):
+        """set phi to tensor independently"""
+        if phi != None:
+            self.register_buffer('phi', phi)
+            self.is_phi_set = True
+
+    def auto_params(self, state):
+        """automatically set None parameter as nn.Paramter for users"""
+        if not self.is_phi_set:
+            self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=state._dtype)))
+
+
+
+
+
+###########################
+#### two mode gates ####
+###########################
+
+
+
+
+class BeamSplitter(nn.Module):
+    """
+    Parameters:
+        r (tensor): displacement magnitude 
+        phi (tesnor): displacement angle 
+    """
+    def __init__(self, mode=0):
+        super().__init__()
+        self.mode = mode
+        self.is_r_set  = False
+        self.is_phi_set  = False
+        
+        
+    def forward(self, state):
+        self.auto_params(state)
+        if self.r.shape == torch.Size([]):
+            self.r = torch.tensor([self.r])
+        if self.phi.shape == torch.Size([]):
+            self.phi = torch.tensor([self.phi])
+        # squeeze the mode
+        state.beam_splitter(self.mode, self.r, self.phi)
+        return state
+    
+    def set_params(self, r=None, phi=None):
+        """set r, phi to tensor independently"""
+        if r != None:
+            self.register_buffer('r', r)
+            self.is_r_set = True
+        if phi != None:
+            self.register_buffer('phi', phi)
+            self.is_phi_set = True
+
+    def auto_params(self, state):
+        """automatically set None parameter as nn.Paramter for users"""
+        if not self.is_r_set:
+            self.register_parameter('r', nn.Parameter(torch.randn([], dtype=state._dtype)))
+        if not self.is_phi_set:
+            self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=state._dtype)))
