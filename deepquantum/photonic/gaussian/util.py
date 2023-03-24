@@ -13,7 +13,8 @@ def split_covariance(covariance, modes_id):
     
     Output:
     A, the left covariance matrix after deleting the rows and columns corresponding to modes_id.
-    B, the matrix 
+    B, delete the rows of the matrix by modes_id and select the columns.
+    C, select the rows and columns of the matrix by modes_id.
     """
     modes_id = modes_id.numpy()
     A = torch.clone(covariance).numpy()
@@ -47,7 +48,7 @@ def split_mean(mean, modes_id):
     return (torch.from_numpy(v_a), torch.from_numpy(v_c))
 
 
-def embed_to_covariance(matrix, modes_id):
+def embed_to_covariance(matrix, modes_id, dtype):
     """
     Embed a matrix into its original covariance matrix with dimension being len(modes_id)+dim(matrix).
     
@@ -60,7 +61,7 @@ def embed_to_covariance(matrix, modes_id):
     """
     n = matrix.shape[1] + modes_id.shape[0]
     indices = set(np.arange(n)) - set(modes_id.numpy())
-    cov = torch.stack([torch.eye(n)] * matrix.shape[0])
+    cov = torch.stack([torch.eye(n, dtype=dtype)] * matrix.shape[0])
     
     for i, i1 in enumerate(indices):
         for j, j1 in enumerate(indices):
@@ -69,7 +70,7 @@ def embed_to_covariance(matrix, modes_id):
     return cov
 
 
-def embed_to_mean(mean, quad_id):
+def embed_to_mean(mean, quad_id, dtype):
     """
     Embed a vector into its original mean vector according to the IDs of quadrature.
     mean: torch tensor.
@@ -77,7 +78,7 @@ def embed_to_mean(mean, quad_id):
     """
     n = mean.shape[1] + quad_id.shape[0]
     indices = set(np.arange(n)) - set(quad_id.numpy())
-    new_mean = torch.zeros(mean.shape[0], n)
+    new_mean = torch.zeros(mean.shape[0], n, dtype=dtype)
     
     for i, i1 in enumerate(indices):
         new_mean[:, i1] = mean[:, i]

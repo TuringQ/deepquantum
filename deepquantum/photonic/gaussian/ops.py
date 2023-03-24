@@ -3,12 +3,14 @@ import torch
 from torch import nn
 
 from torch.distributions.uniform import Uniform
+from torch.distributions.multivariate_normal  import MultivariateNormal
 import numbers
-import gaussian.util
+import gaussian.util as util
 
 from thewalrus import hafnian
 import itertools
 from scipy.stats import unitary_group
+
 
 
 
@@ -137,10 +139,10 @@ class Gaussian:
         """
         # transform matrix from quadrature to creation and annihilation
         identity = torch.eye(self._mode_number, dtype = self._dtype)
-        t = self.kappa * torch.cat([torch.cat([identity, 1j*identity], dim=1), torch.cat([identity, -1j*identity], dim=1)], dim=0)
-        hermitian_t = self.kappa * torch.cat([torch.cat([identity, identity], dim=1), torch.cat([-1j*identity, 1j*identity], dim=1)], dim=0)
+        t = self._kappa * torch.cat([torch.cat([identity, 1j*identity], dim=1), torch.cat([identity, -1j*identity], dim=1)], dim=0)
+        hermitian_t = self._kappa * torch.cat([torch.cat([identity, identity], dim=1), torch.cat([-1j*identity, 1j*identity], dim=1)], dim=0)
 
-        mean = torch.squeeze(t @ torch.unsqueeze(mean, 2),2)
+        mean = torch.squeeze(t @ torch.unsqueeze(quad_mean, 2),2)
         cov = t @ quad_cov @ hermitian_t
         return mean, cov
     
@@ -168,10 +170,10 @@ class Gaussian:
         # get the covairance matrix and displacement vector in quadrature representation
         dis, cov = self.annihilation_to_quadrature(self._displacement, self._covariance)
         # get the cov and dis in xpxp ordering
-        dis, cov = ops.xxpp_to_xpxp(dis, cov, self._mode_number, self._dtype)
+        dis, cov = util.xxpp_to_xpxp(dis, cov, self._mode_number, self._dtype)
         
         # get the commutation matrix in xpxp ordering
-        lamb = ops.lambda_xpxp(self._mode_number, self._dtype)
+        lamb = util.lambda_xpxp(self._mode_number, self._dtype)
         
         # return characteristic function
         factor1 = torch.unsqueeze(x, 1) @ (lamb @ cov @ lamb.T) @ torch.unsqueeze(x, 2)
@@ -405,7 +407,7 @@ class Gaussian:
     
     
     
-    def unitary_transf(self, u):
+    def unitary_transform(self, u):
         """
         Apply a given unitary transformation realized by a linear optical circuit (consists of beam splitter and phaser shifter) to the gaussian state.
         
@@ -430,7 +432,7 @@ class Gaussian:
         # generate a random unitary matrix [mode_number, mode_number], representing a random linear optical circuit acting on creation operators
         u = torch.tensor(unitary_group.rvs(mode_number))
         # change the gaussian state
-        self.unitary_transf(u)
+        self.unitary_transform(u)
     
     
     
@@ -494,26 +496,28 @@ class Gaussian:
         quad_ids = torch.cat([mode, mode + self._mode_number], dim=0)
         
         # split the covariance of quadrature into three parts 
-        (cov_a, cov_b, cov_c) = ops.split_covariance(quad_cov, quad_ids)
+        (cov_a, cov_b, cov_c) = util.split_covariance(quad_cov, quad_ids)
         # split the mean vector
-        (mean_a, mean_c) = ops.split_mean(quad_mean, quad_ids)
+        (mean_a, mean_c) = util.split_mean(quad_mean, quad_ids)
         # sample the measured results 
-        res = MultivariateNormal(mean_c.real, cov_c.real)
+        res = MultivariateNormal(mean_c.real, (cov_c+covariance).real).sample()
         
         # update the covariance matrix and mean vector of the left state after measurment
         # the covariance matrix
-        v = cov_a - cov_b @ torch.inverse(cov_c + covariance) @ cov_b
-        full_v = ops.embed_to_covariance(v, quad_ids)
+        
+        v = cov_a - cov_b @ torch.inverse(cov_c + covariance) @ torch.transpose(cov_b, 1, 2)
+        full_v = util.embed_to_covariance(v, quad_ids, self._dtype)
         # mean vector
-        w = mean_a + cov_b @ torch.inverse(cov_c + covariance) @ (res - mean_c)
-        full_w = ops.embed_to_mean(w, quad_ids)
+        w = mean_a + torch.squeeze(cov_b @ torch.inverse(cov_c + covariance) @ torch.unsqueeze((res - mean_c), dim=2), dim=2)
+        full_w = util.embed_to_mean(w, quad_ids, self._dtype)
         # update the state
         new_mean, new_cov = self.quadrature_to_annihilation(full_w, full_v)
         self.update(new_mean, new_cov)
         
-        return res.sample()
+        return res
     
     
+
     def heterodyne_one_mode(self, mode):
         """
         Apply heterodyne detection to a specific mode.
@@ -521,11 +525,14 @@ class Gaussian:
         if not isinstance(mode, list):
             mode = [mode]
         
-        cov = torch.stack([torch.eye(2*len(mode))] * self._batch_size)
-        res = self.general_dyne(cov, mode)
-        
-        return res[0]+1j*res[1]
+        cov = torch.stack([torch.eye(2*len(mode), dtype=self._dtype)] * self._batch_size)
+        res = self.general_dyne_one_mode(cov, mode)
     
+        return res[0][0] + 1j * res[0][1]
+
+    
+
+
     def homodyne_one_mode(self, mode, eps=0.000001):
         """
         Apply homodyne detection to a specific mode.
@@ -534,7 +541,7 @@ class Gaussian:
             mode = [mode]
         cov = torch.stack([torch.tensor([[eps**2, 0], [0, 1/eps**2]])] * self._batch_size)
         
-        res = self.general_dyne(cov, mode)
+        res = self.general_dyne_one_mode(cov, mode)
         return res
     
     
@@ -649,16 +656,16 @@ class Gaussian:
         # get the covairance matrix and displacement vector in quadrature representation
         dis, cov = self.annihilation_to_quadrature(self._displacement, self._covariance)
         # get the cov and dis in xpxp ordering
-        dis, cov = ops.xxpp_to_xpxp(dis, cov, self._mode_number, self._dtype)
+        dis, cov = util.xxpp_to_xpxp(dis, cov, self._mode_number, self._dtype)
         
         # get the commutation matrix in xpxp ordering
-        lamb = ops.lambda_xpxp(self._mode_number, self._dtype)
+        lamb = util.lambda_xpxp(self._mode_number, self._dtype)
         cov = lamb @ cov @ lamb.T
         dis = dis @ lamb.T
         
         # the indices of variables in xpxp ordering of quadrature representation
         i, j = mode_id, mode_id + 1
-        t = ops.double_partial(dis, cov, i) + ops.double_partial(dis, cov, j)
+        t = util.double_partial(dis, cov, i) + util.double_partial(dis, cov, j)
         return -(1 + t) / 2
     
     
@@ -671,21 +678,21 @@ class Gaussian:
         # get the covairance matrix and displacement vector in quadrature representation
         dis, cov = self.annihilation_to_quadrature(self._displacement, self._covariance)
         # get the cov and dis in xpxp ordering
-        dis, cov = ops.xxpp_to_xpxp(dis, cov, self._mode_number, self._dtype)
+        dis, cov = util.xxpp_to_xpxp(dis, cov, self._mode_number, self._dtype)
         
         # get the commutation matrix in xpxp ordering
-        lamb = ops.lambda_xpxp(self._mode_number, self._dtype)
+        lamb = util.lambda_xpxp(self._mode_number, self._dtype)
         cov = lamb @ cov @ lamb.T
         dis = dis @ lamb.T
         
         # the indices of variables in xpxp ordering of quadrature representation
         i, j, k, l = mode1, mode1 + 1, mode2, mode2 + 1
         # calculate the double derivatives
-        t = ops.two_double_partial(dis, cov, i, i) + ops.two_double_partial(dis, cov, j, j) \
-            + ops.two_double_partial(dis, cov, k, k) + ops.two_double_partial(dis, cov, l, l) \
-            + 2 * (ops.two_double_partial(dis, cov, i, j) - ops.two_double_partial(dis, cov, i, k)\
-            - ops.two_double_partial(dis, cov, i, l) - ops.two_double_partial(dis, cov, j, k)\
-            - ops.two_double_partial(dis, cov, j, l) + ops.two_double_partial(dis, cov, k, l))
+        t = util.two_double_partial(dis, cov, i, i) + util.two_double_partial(dis, cov, j, j) \
+            + util.two_double_partial(dis, cov, k, k) + util.two_double_partial(dis, cov, l, l) \
+            + 2 * (util.two_double_partial(dis, cov, i, j) - util.two_double_partial(dis, cov, i, k)\
+            - util.two_double_partial(dis, cov, i, l) - util.two_double_partial(dis, cov, j, k)\
+            - util.two_double_partial(dis, cov, j, l) + util.two_double_partial(dis, cov, k, l))
         t = torch.sqrt(t * torch.conj(t)).real
         return t / 4 - 1 / 2
         
@@ -867,3 +874,21 @@ class BeamSplitter(nn.Module):
             self.register_parameter('r', nn.Parameter(torch.randn([], dtype=state._dtype)))
         if not self.is_phi_set:
             self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=state._dtype)))
+
+
+
+class RandomUnitary(nn.Module):
+    """
+    Generate a Haar random unitary matrix.
+    """
+    def __init__(self, seed):
+        super().__init__()
+        self.seed = seed
+
+    def forward(self, state):
+        # produce the generator
+        self.generator = unitary_group(state._mode_number, self.seed)
+        self.u = torch.tensor(self.generator.rvs())
+        # apply unitary transformation
+        state.unitary_transform(self.u)
+        return state

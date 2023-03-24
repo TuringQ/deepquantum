@@ -4,6 +4,12 @@ import torch
 from torch import nn   
 import gaussian.ops
 import fock
+from scipy.stats import unitary_group
+
+
+
+
+
 
 
 class QumodeCircuit(nn.Module):
@@ -68,6 +74,23 @@ class QumodeCircuit(nn.Module):
             op.set_params(r, phi)
         
         self.add(op)
+    
+    def random_unitary(self, seed=123):
+        """
+        Generate a Haar random unitary matrix U(N).
+        """
+        if self.backend == 'fock':
+            raise ValueError('Fock backend does not support random unitary transformation.')
+        else:
+            op = gaussian.ops.RandomUnitary(seed)
+
+        self.add(op)
+
+
+
+
+
+
 
 
 class FockState:
@@ -162,3 +185,49 @@ class GaussianState(gaussian.ops.Gaussian):
         #self.reset(n_modes, batch_size, h_bar, dtype)
         #print(f'Initialize a gaussian vaccum state with {n_modes} modes and batch size being {batch_size}.')
     
+
+
+
+
+
+#################
+#################
+
+
+# homodyne measurement for one mode
+def homodyne_measure(state, mode):
+    """
+    Make a homodyne measurement of a single mode, return the measurement result and collapse the initial state into 
+    final state.
+    """
+    if isinstance(state, FockState):
+        raise ValueError('Fock backend does not support.')
+    else:
+        # measurement results
+        res = state.homodyne_one_mode(mode)
+        return res, state
+
+
+# heterodyne measurement for one mode
+def heterodyne_measure(state, mode):
+    if isinstance(state, FockState):
+        raise ValueError('Fock backend does not support.')
+    else:
+        # measurement results
+        res = state.heterodyne_one_mode(mode)
+        return res, state
+
+
+
+def prob_gbs(state, pattern):
+    """
+    Compute the probability of a measured photon pattern of a special GBS process. 
+    Special GBS refers to the process where an initial vaccum gaussian state are squeezed by a series of squeezing gates
+    and then pass through a linear optical circuit , which realizes a unitary transformation.
+    Reference: "Detailed study of Gaussian boson sampling".
+    """
+    if isinstance(state, FockState):
+        raise ValueError('Fock backend does not support.')
+    else:
+        
+        prob = state.prob_gbs()
