@@ -2,8 +2,9 @@ import torch
 import numpy as np
 import sys
 sys.path.append("..")
-from qumode import QumodeCircuit, GaussianState
+from qumode import QumodeCircuit, GaussianState, homodyne_measurement, heterodyne_measure
 from gaussian.ops import Displacement
+import qumode
 
 
 
@@ -13,7 +14,8 @@ from gaussian.ops import Displacement
 
 
 n_modes = 3
-batch_size = 2
+batch_size = 1
+
 # initialize a gaussian state
 gs = GaussianState(batch_size, n_modes)
 print('initial gaussian sate:', gs.displacement(), gs.covariance())
@@ -27,12 +29,17 @@ cir.squeeze(r=torch.tensor(0.2), phi=torch.tensor(1.1), mode=1)
 cir.squeeze(r=torch.tensor(0.2), phi=torch.tensor(1.1), mode=2)
 cir.phase_shift(phi=torch.tensor(torch.pi/2), mode=0)
 cir.beam_split(r=torch.tensor(0.2), phi=torch.tensor(1.1), mode=[0,1])
+cir.random_unitary(seed=134)
 
 # new gaussian state
 new_gs = cir(gs)
 print('new gaussian sate:', new_gs.displacement(), new_gs.covariance())
 
-
+# measurement
+#res = homodyne_measure(new_gs, 1)
+#print(f'The result of homodyne measuring the mode {1} is {res}.')
+res = heterodyne_measure(new_gs, 1)
+print(f'The result of heterodyne measuring the mode {1} is {res}.')
 
 
 
@@ -64,11 +71,11 @@ encoding_cir.operators[1].set_params(r=x[:,1], phi=torch.tensor(2.0))
 
 state = GaussianState(batch_size=batch_size, n_modes=n_modes)
 #state.reset(n_modes, batch_size)
-print('initial gaussian sate:', state.displacement(), state.covariance())
+#print('initial gaussian sate:', state.displacement(), state.covariance())
 
 cir = encoding_cir + var_cir + encoding_cir + var_cir # data re-uploading
 
 state = cir(state)
-print('final gaussian sate:', state.displacement(), state.covariance())
+#print('final gaussian sate:', state.displacement(), state.covariance())
 
 
