@@ -2,7 +2,8 @@ import torch
 import numpy as np
 import sys
 sys.path.append("..")
-from qumode import QumodeCircuit, GaussianState, homodyne_measurement, heterodyne_measure
+from qumode import QumodeCircuit, GaussianState, homodyne_measure, heterodyne_measure, \
+    prob_gbs, mean_photon_number, diff_photon_number
 from gaussian.ops import Displacement
 import qumode
 
@@ -13,7 +14,7 @@ import qumode
 ####################
 
 
-n_modes = 3
+n_modes = 4
 batch_size = 1
 
 # initialize a gaussian state
@@ -27,6 +28,7 @@ cir.displace(r=torch.tensor([2.0]), phi=torch.tensor([0.0]), mode=1)
 cir.squeeze(r=torch.tensor(0.2), phi=torch.tensor(1.1), mode=0)
 cir.squeeze(r=torch.tensor(0.2), phi=torch.tensor(1.1), mode=1)
 cir.squeeze(r=torch.tensor(0.2), phi=torch.tensor(1.1), mode=2)
+cir.squeeze(r=torch.tensor(0.2), phi=torch.tensor(1.1), mode=3)
 cir.phase_shift(phi=torch.tensor(torch.pi/2), mode=0)
 cir.beam_split(r=torch.tensor(0.2), phi=torch.tensor(1.1), mode=[0,1])
 cir.random_unitary(seed=134)
@@ -34,6 +36,16 @@ cir.random_unitary(seed=134)
 # new gaussian state
 new_gs = cir(gs)
 print('new gaussian sate:', new_gs.displacement(), new_gs.covariance())
+#print('squeezing parameters: ', cir.squeezing_paras)
+#print('random unitary matrix: ', cir.random_u)
+
+
+prob = prob_gbs(new_gs, cir, torch.tensor([0,0,1,0]))
+print(f'The probability of photon pattern {[0,0,1,0]} is {prob}.')
+
+prob = prob_gbs(new_gs, cir, torch.tensor([0,1,1,0]))
+print(f'The probability of photon pattern {[0,1,1,0]} is {prob}.')
+
 
 # measurement
 #res = homodyne_measure(new_gs, 1)
@@ -42,11 +54,18 @@ res = heterodyne_measure(new_gs, 1)
 print(f'The result of heterodyne measuring the mode {1} is {res}.')
 
 
+mean = mean_photon_number(new_gs, 0)
+print(f'The mean photon number of mode {0} is {mean}.')
+mean = mean_photon_number(new_gs, 1)
+print(f'The mean photon number of mode {1} is {mean}.')
+
+diff = diff_photon_number(new_gs, 0, 1)
+print(f'The difference of two mode photon number is {diff}.')
+
 
 
 ######################
 ######################
-
 
 x = torch.tensor([[1.7, 2.1, -4.0], 
                   [-1.1, 1.3, 2.0],

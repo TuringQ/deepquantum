@@ -140,7 +140,7 @@ def lambda_xpxp(n_mode, dtype):
 
 
 
-def double_partial(cov, disp, i):
+def double_partial(disp, cov, i):
     """
     Calculate the double partial of gauss function with respect to ith variable.
     """
@@ -148,7 +148,7 @@ def double_partial(cov, disp, i):
 
 
 
-def two_double_partial(cov, disp, i, j):
+def two_double_partial(disp, cov, i, j):
     """
     Calculate the double partial of gauss function with respect to i, and then w.r.t j.
     """

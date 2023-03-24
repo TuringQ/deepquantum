@@ -19,6 +19,10 @@ class QumodeCircuit(nn.Module):
         self.n_modes = n_modes
         self.backend = backend
         self.operators = nn.ModuleList([])
+        # store the squeezing parameters
+        self.squeezing_paras = []
+        # store the directly applied random unitary matrix
+        self.random_u = []
     
 
     def __add__(self, rhs):
@@ -36,8 +40,11 @@ class QumodeCircuit(nn.Module):
     def forward(self, state):
         for op in self.operators:
             state = op(state)
+            if isinstance(op, gaussian.ops.RandomUnitary):
+                self.random_u.append(op.u)
         return state
     
+
     def displace(self, r=None, phi=None, mode=0):
         if self.backend == 'fock':
             op = fock.ops.Displacement(mode)
@@ -54,6 +61,7 @@ class QumodeCircuit(nn.Module):
         else:
             op = gaussian.ops.Squeeze(mode)
             op.set_params(r, phi)
+            self.squeezing_paras.append([r, phi])
         
         self.add(op)
     
@@ -218,8 +226,7 @@ def heterodyne_measure(state, mode):
         return res, state
 
 
-
-def prob_gbs(state, pattern):
+def prob_gbs(state, cir, pattern):
     """
     Compute the probability of a measured photon pattern of a special GBS process. 
     Special GBS refers to the process where an initial vaccum gaussian state are squeezed by a series of squeezing gates
@@ -229,5 +236,29 @@ def prob_gbs(state, pattern):
     if isinstance(state, FockState):
         raise ValueError('Fock backend does not support.')
     else:
-        
-        prob = state.prob_gbs()
+        paras = torch.tensor(cir.squeezing_paras)[:, 0]
+        prob = state.prob_gbs(paras, cir.random_u, pattern)
+        return prob
+    
+
+def mean_photon_number(state, mode):
+    """
+    Compute the mean photon number of a mode.
+    Reference: "Training Gaussian boson sampling by quantum machine learning".
+    """
+    if isinstance(state, FockState):
+        raise ValueError('Fock backend does not support.')
+    else:
+        return state.mean_photon_number(mode)
+    
+
+def diff_photon_number(state, mode1, mode2):
+    """
+    Calculate the expectation value of the square of the difference of two mode's photon number operator.
+    Ref: Training Gaussian boson sampling by quantum machine learning.
+    """
+    if isinstance(state, FockState):
+        raise ValueError('Fock backend does not support.')
+    else:
+        return state.diff_photon_number(mode1, mode2)
+    
