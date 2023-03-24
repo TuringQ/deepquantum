@@ -142,9 +142,12 @@ def amplitude_encoding(data, nqubit: int) -> torch.Tensor:
              [0.0000+0.j]]])
     
     """
-    if type(data) != torch.Tensor:
+    if type(data) != torch.Tensor and type(data) != torch.nn.parameter.Parameter:
         data = torch.tensor(data)
-    batch = data.shape[0]
+    if data.ndim == 1 or (data.ndim == 2 and data.shape[-1] == 1):
+        batch = 1
+    else:
+        batch = data.shape[0]
     data = data.reshape(batch, -1)
     size = data.shape[1]
     n = 2 ** nqubit
@@ -158,7 +161,7 @@ def amplitude_encoding(data, nqubit: int) -> torch.Tensor:
 
 
 def measure(state, shots=1024, with_prob=False, wires=None):
-    if state.ndim == 1:
+    if state.ndim == 1 or (state.ndim == 2 and state.shape[-1] == 1):
         batch = 1
     else:
         batch = state.shape[0]
@@ -197,7 +200,7 @@ def measure(state, shots=1024, with_prob=False, wires=None):
 
 def expectation(state, observable, den_mat=False):
     if den_mat:
-        expval = vmap(torch.trace)(observable.get_unitary() @ state).real
+        expval = (observable.get_unitary() @ state).diagonal(dim1=-2, dim2=-1).sum(-1).real
     else:
         expval = state.mH @ observable(state)
         expval = expval.squeeze(-1).squeeze(-1).real

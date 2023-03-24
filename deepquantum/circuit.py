@@ -17,10 +17,12 @@ class QubitCircuit(Operation):
             init_state = torch.ones((2 ** self.nqubit, 1), dtype=torch.cfloat)
             init_state = nn.functional.normalize(init_state, p=2, dim=-2)
         if den_mat:
+            if init_state.ndim == 1 or (init_state.ndim == 2 and init_state.shape[-1] == 1):
+                init_state = init_state.reshape(1, -1, 1)
             s = init_state.shape
             if s[-1] != 2 ** self.nqubit or s[-2] != 2 ** self.nqubit:
-                init_state = init_state.reshape(s[0], -1, 1)
-                assert init_state.shape[1] == 2 ** self.nqubit, 'The shape of initial state is not correct'
+                init_state = init_state.reshape(s[0], -1, 1).squeeze(0)
+                assert init_state.shape[-2] == 2 ** self.nqubit, 'The shape of initial state is not correct'
                 init_state = init_state @ init_state.mH
         self.reupload = reupload
         self.operators = nn.Sequential()
@@ -45,6 +47,8 @@ class QubitCircuit(Operation):
             state = self.init_state
         if data == None:
             self.state = self.forward_helper(state=state)
+            if state.ndim - self.state.ndim == 1:
+                self.state = self.state.unsqueeze(0)
         else:
             if data.ndim == 1:
                 data = data.unsqueeze(0)
@@ -94,8 +98,8 @@ class QubitCircuit(Operation):
     def reset_observable(self):
         self.observables = nn.ModuleList([])
 
-    def measure(self, shots=1024, with_prob=False):
-        return measure(self.state, shots=shots, with_prob=with_prob)
+    def measure(self, shots=1024, with_prob=False, wires=None):
+        return measure(self.state, shots=shots, with_prob=with_prob, wires=wires)
 
     def expectation(self):
         if self.observables and self.state != None:
@@ -186,27 +190,27 @@ class QubitCircuit(Operation):
         hl = HLayer(nqubit=self.nqubit, wires=wires, den_mat=self.den_mat, tsr_mode=True)
         self.add(hl)
 
-    def rxlayer(self, inputs=None, wires=None, encode=False):
+    def rxlayer(self, wires=None, inputs=None, encode=False):
         requires_grad = not encode
         if inputs != None:
             requires_grad = False
-        rxl = RxLayer(inputs=inputs, nqubit=self.nqubit, wires=wires, den_mat=self.den_mat,
+        rxl = RxLayer(nqubit=self.nqubit, wires=wires, inputs=inputs, den_mat=self.den_mat,
                       tsr_mode=True, requires_grad=requires_grad)
         self.add(rxl, encode=encode)
     
-    def rylayer(self, inputs=None, wires=None, encode=False):
+    def rylayer(self, wires=None, inputs=None, encode=False):
         requires_grad = not encode
         if inputs != None:
             requires_grad = False
-        ryl = RyLayer(inputs=inputs, nqubit=self.nqubit, wires=wires, den_mat=self.den_mat,
+        ryl = RyLayer(nqubit=self.nqubit, wires=wires, inputs=inputs, den_mat=self.den_mat,
                       tsr_mode=True, requires_grad=requires_grad)
         self.add(ryl, encode=encode)
 
-    def rzlayer(self, inputs=None, wires=None, encode=False):
+    def rzlayer(self, wires=None, inputs=None, encode=False):
         requires_grad = not encode
         if inputs != None:
             requires_grad = False
-        rzl = RzLayer(inputs=inputs, nqubit=self.nqubit, wires=wires, den_mat=self.den_mat,
+        rzl = RzLayer(nqubit=self.nqubit, wires=wires, inputs=inputs, den_mat=self.den_mat,
                       tsr_mode=True, requires_grad=requires_grad)
         self.add(rzl, encode=encode)
 

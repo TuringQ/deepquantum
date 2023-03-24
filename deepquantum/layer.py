@@ -54,7 +54,7 @@ class HLayer(SingleLayer):
 
 
 class RxLayer(SingleLayer):
-    def __init__(self, inputs=None, nqubit=1, wires=None, den_mat=False, tsr_mode=False, requires_grad=True):
+    def __init__(self, nqubit=1, wires=None, inputs=None, den_mat=False, tsr_mode=False, requires_grad=True):
         super().__init__(name='RxLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         for i, wire in enumerate(self.wires):
             if inputs == None:
@@ -68,7 +68,7 @@ class RxLayer(SingleLayer):
 
 
 class RyLayer(SingleLayer):
-    def __init__(self, inputs=None, nqubit=1, wires=None, den_mat=False, tsr_mode=False, requires_grad=True):
+    def __init__(self, nqubit=1, wires=None, inputs=None, den_mat=False, tsr_mode=False, requires_grad=True):
         super().__init__(name='RyLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         for i, wire in enumerate(self.wires):
             if inputs == None:
@@ -82,7 +82,7 @@ class RyLayer(SingleLayer):
 
 
 class RzLayer(SingleLayer):
-    def __init__(self, inputs=None, nqubit=1, wires=None, den_mat=False, tsr_mode=False, requires_grad=True):
+    def __init__(self, nqubit=1, wires=None, inputs=None, den_mat=False, tsr_mode=False, requires_grad=True):
         super().__init__(name='RzLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         for i, wire in enumerate(self.wires):
             if inputs == None:
@@ -96,7 +96,7 @@ class RzLayer(SingleLayer):
 
 
 class CnotLayer(DoubleLayer):
-    def __init__(self, name=None, nqubit=2, wires=[[0,1]], den_mat=False, tsr_mode=False):
+    def __init__(self, nqubit=2, wires=[[0,1]], name=None, den_mat=False, tsr_mode=False):
         super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         for wire in self.wires:
             cnot = CNOT(nqubit=nqubit, wires=wire, den_mat=den_mat, tsr_mode=True)
