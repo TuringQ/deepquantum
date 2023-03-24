@@ -621,9 +621,9 @@ class Gaussian:
         for i in range(paras.shape[1]):
             diag[:, i, i] = torch.tanh(paras[:, i])
         # B matrix in (27)
-        t = torch.eye(self._mode_number)
+        t = torch.eye(self._mode_number, dtype=self._dtype)
         if type(u) == list:
-            for i in len(u):
+            for i in range(len(u)):
                 t = t @ u[i]
         else:
             t = u
@@ -663,6 +663,7 @@ class Gaussian:
         cov = lamb @ cov @ lamb.T
         dis = dis @ lamb.T
         
+        print(dis.shape, cov.shape)
         # the indices of variables in xpxp ordering of quadrature representation
         i, j = mode_id, mode_id + 1
         t = util.double_partial(dis, cov, i) + util.double_partial(dis, cov, j)
@@ -884,6 +885,7 @@ class RandomUnitary(nn.Module):
     def __init__(self, seed):
         super().__init__()
         self.seed = seed
+        
 
     def forward(self, state):
         # produce the generator
