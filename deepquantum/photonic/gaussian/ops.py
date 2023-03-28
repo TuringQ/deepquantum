@@ -663,7 +663,6 @@ class Gaussian:
         cov = lamb @ cov @ lamb.T
         dis = dis @ lamb.T
         
-        print(dis.shape, cov.shape)
         # the indices of variables in xpxp ordering of quadrature representation
         i, j = mode_id, mode_id + 1
         t = util.double_partial(dis, cov, i) + util.double_partial(dis, cov, j)
@@ -727,7 +726,7 @@ class Displacement(nn.Module):
         distance = self.r * torch.exp(1j * self.phi)
         # if distance is a torch tensor scalar, change it into torch tensor with shape [1]
         if distance.shape == torch.Size([]):
-            distance = torch.tensor([distance])
+            distance = torch.unsqueeze(distance, dim=0)
         # displace the mode
         state.displace_one_mode(self.mode, distance)
         return state
@@ -744,9 +743,9 @@ class Displacement(nn.Module):
     def auto_params(self, state):
         """automatically set None parameter as nn.Paramter for users"""
         if not self.is_r_set:
-            self.register_parameter('r', nn.Parameter(torch.randn([], dtype=state._dtype)))
+            self.register_parameter('r', nn.Parameter(torch.randn([], dtype=torch.float64)))
         if not self.is_phi_set:
-            self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=state._dtype)))
+            self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=torch.float64)))
 
 
 
@@ -768,11 +767,18 @@ class Squeeze(nn.Module):
     def forward(self, state):
         self.auto_params(state)
         if self.r.shape == torch.Size([]):
-            self.r = torch.tensor([self.r])
+            r = torch.unsqueeze(self.r, dim=0)
+        else:
+            r = self.r
         if self.phi.shape == torch.Size([]):
-            self.phi = torch.tensor([self.phi])
+            phi = torch.unsqueeze(self.phi, dim=0)
+        else:
+            phi = self.phi
+        # part of initialization of parameter
+        if not self.is_phi_set:
+            phi = 2 * torch.pi * phi
         # squeeze the mode
-        state.squeeze_one_mode(self.mode, self.r, self.phi)
+        state.squeeze_one_mode(self.mode, r, phi)
         return state
     
     def set_params(self, r=None, phi=None):
@@ -787,9 +793,9 @@ class Squeeze(nn.Module):
     def auto_params(self, state):
         """automatically set None parameter as nn.Paramter for users"""
         if not self.is_r_set:
-            self.register_parameter('r', nn.Parameter(torch.randn([], dtype=state._dtype)))
+            self.register_parameter('r', nn.Parameter(torch.randn([], dtype=torch.float64)))
         if not self.is_phi_set:
-            self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=state._dtype)))
+            self.register_parameter('phi', nn.Parameter(torch.rand([], dtype=torch.float64)))
 
 
 
@@ -810,9 +816,12 @@ class PhaseShifter(nn.Module):
     def forward(self, state):
         self.auto_params(state)
         if self.phi.shape == torch.Size([]):
-            self.phi = torch.tensor([self.phi])
+            phi = torch.unsqueeze(self.phi, dim=0)
+        # part of initialization of parameter
+        if not self.is_phi_set:
+            phi = 2 * torch.pi * phi
         # phase shifter the mode
-        state.displace_one_mode(self.mode, self.phi)
+        state.displace_one_mode(self.mode, phi)
         return state
     
     def set_params(self, phi=None):
@@ -824,7 +833,7 @@ class PhaseShifter(nn.Module):
     def auto_params(self, state):
         """automatically set None parameter as nn.Paramter for users"""
         if not self.is_phi_set:
-            self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=state._dtype)))
+            self.register_parameter('phi', nn.Parameter(torch.rand([], dtype=torch.float64)))
 
 
 
@@ -853,11 +862,14 @@ class BeamSplitter(nn.Module):
     def forward(self, state):
         self.auto_params(state)
         if self.r.shape == torch.Size([]):
-            self.r = torch.tensor([self.r])
+            r = torch.unsqueeze(self.r, dim=0)
         if self.phi.shape == torch.Size([]):
-            self.phi = torch.tensor([self.phi])
+            phi = torch.unsqueeze(self.phi, dim=0)
+        # part of initialization of parameter
+        if not self.is_phi_set:
+            phi = 2 * torch.pi * phi
         # squeeze the mode
-        state.beam_splitter(self.mode, self.r, self.phi)
+        state.beam_splitter(self.mode, r, phi)
         return state
     
     def set_params(self, r=None, phi=None):
@@ -872,9 +884,9 @@ class BeamSplitter(nn.Module):
     def auto_params(self, state):
         """automatically set None parameter as nn.Paramter for users"""
         if not self.is_r_set:
-            self.register_parameter('r', nn.Parameter(torch.randn([], dtype=state._dtype)))
+            self.register_parameter('r', nn.Parameter(torch.randn([], dtype=torch.float64)))
         if not self.is_phi_set:
-            self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=state._dtype)))
+            self.register_parameter('phi', nn.Parameter(torch.rand([], dtype=torch.float64)))
 
 
 
