@@ -177,26 +177,15 @@ class U3Gate(SingleGate):
         if type(lambd) != torch.Tensor and type(lambd) != torch.nn.parameter.Parameter:
             lambd = torch.tensor(lambd, dtype=torch.float)
         return theta, phi, lambd
-    
+
     def get_matrix(self, theta, phi, lambd):
         theta, phi, lambd = self.inputs_to_tensor([theta, phi, lambd])
-        rz = Rz()
-        rx_m_pi_2 = torch.tensor([[1, 1j], [1j, 1]]) / 2 ** 0.5 # rx(-pi/2)
-        rx_p_pi_2 = torch.tensor([[1, -1j], [-1j, 1]]) / 2 ** 0.5 # rx(pi/2)
-        rx_m_pi_2 = rx_m_pi_2.to(theta.device)
-        rx_p_pi_2 = rx_p_pi_2.to(theta.device)
-        rz1 = rz.get_matrix(phi)
-        rz2 = rz.get_matrix(theta)
-        rz3 = rz.get_matrix(lambd)
-        matrix = rz1 @ rx_m_pi_2 @ rz2 @ rx_p_pi_2 @ rz3
-        # cos_t = torch.cos(theta / 2.0)
-        # sin_t = torch.sin(theta / 2.0)
-        # e_il = torch.cos(lambd) + 1j * torch.sin(lambd) # torch.exp
-        # e_ip = torch.cos(phi) + 1j * torch.sin(phi)
-        # e_ipl = torch.cos(lambd + phi) + 1j * torch.sin(lambd + phi)
-        # matrix = torch.tensor([[cos_t, -e_il * sin_t],
-        #                        [e_ip * sin_t, e_ipl * cos_t]])
-        return matrix
+        cos_t = torch.cos(theta / 2)
+        sin_t = torch.sin(theta / 2)
+        e_il  = torch.exp(1j * lambd)
+        e_ip  = torch.exp(1j * phi)
+        e_ipl = torch.exp(1j * (phi + lambd))
+        return torch.stack([cos_t, -e_il * sin_t, e_ip * sin_t, e_ipl * cos_t]).reshape(2, 2)
 
     def update_matrix(self):
         matrix = self.get_matrix(self.theta, self.phi, self.lambd)
@@ -301,15 +290,9 @@ class Rx(SingleRotationGate):
     
     def get_matrix(self, theta):
         theta = self.inputs_to_tensor(theta)
-        identity = torch.eye(2, dtype=torch.cfloat).to(theta.device)
-        paulix = torch.tensor([[0, 1], [1, 0]], dtype=torch.cfloat).to(theta.device)
-        matrix = torch.cos(theta / 2.0) * identity \
-               - torch.sin(theta / 2.0) * paulix * 1j
-        # cos = torch.cos(theta / 2.0)
-        # sin = torch.sin(theta / 2.0)
-        # matrix = torch.tensor([[cos, -1j * sin],    # conflict with ad and vmap
-        #                        [-1j * sin, cos]])
-        return matrix
+        cos = torch.cos(theta / 2)
+        sin = torch.sin(theta / 2)
+        return torch.stack([cos, -1j * sin, -1j * sin, cos]).reshape(2, 2)
 
 
 class Ry(SingleRotationGate):
@@ -319,15 +302,9 @@ class Ry(SingleRotationGate):
 
     def get_matrix(self, theta):
         theta = self.inputs_to_tensor(theta)
-        identity = torch.eye(2, dtype=torch.cfloat).to(theta.device)
-        pauliy = torch.tensor([[0, -1j], [1j, 0]]).to(theta.device)
-        matrix = torch.cos(theta / 2.0) * identity \
-               - torch.sin(theta / 2.0) * pauliy * 1j
-        # cos = torch.cos(theta / 2.0)
-        # sin = torch.sin(theta / 2.0)
-        # matrix = torch.tensor([[cos, -sin],
-        #                        [sin,  cos]]) + 0j
-        return matrix
+        cos = torch.cos(theta / 2)
+        sin = torch.sin(theta / 2)
+        return torch.stack([cos, -sin, sin, cos]).reshape(2, 2) + 0j
 
 
 class Rz(SingleRotationGate):
@@ -337,15 +314,9 @@ class Rz(SingleRotationGate):
 
     def get_matrix(self, theta):
         theta = self.inputs_to_tensor(theta)
-        identity = torch.eye(2, dtype=torch.cfloat).to(theta.device)
-        pauliz = torch.tensor([[1, 0], [0, -1]], dtype=torch.cfloat).to(theta.device)
-        matrix = torch.cos(theta / 2.0) * identity \
-               - torch.sin(theta / 2.0) * pauliz * 1j
-        # cos = torch.cos(theta / 2.0)
-        # sin = torch.sin(theta / 2.0)
-        # matrix = torch.tensor([[cos - 1j * sin, 0],
-        #                        [0, cos + 1j * sin]])
-        return matrix
+        e_m_it = torch.exp(-1j * theta / 2)
+        e_it = torch.exp(1j * theta / 2)
+        return torch.stack([e_m_it, e_it]).reshape(-1).diag_embed()
 
 
 class CombinedSingleGate(SingleGate):

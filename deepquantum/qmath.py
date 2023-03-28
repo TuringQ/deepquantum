@@ -151,7 +151,7 @@ def amplitude_encoding(data, nqubit: int) -> torch.Tensor:
     data = data.reshape(batch, -1)
     size = data.shape[1]
     n = 2 ** nqubit
-    state = torch.zeros(batch, n, dtype=torch.cfloat)
+    state = torch.zeros(batch, n, dtype=torch.cfloat, device=data.device)
     data = nn.functional.normalize(data[:, :n], p=2, dim=-1)
     if n > size:
         state[:, :size] = data[:, :]

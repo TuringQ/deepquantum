@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from deepquantum.state import QubitState
 from deepquantum.operation import *
 from deepquantum.gate import *
 from deepquantum.layer import *
@@ -10,28 +11,15 @@ from deepquantum.qmath import amplitude_encoding, measure, expectation
 class QubitCircuit(Operation):
     def __init__(self, nqubit, init_state='zeros', name=None, den_mat=False, reupload=False):
         super().__init__(name=name, nqubit=nqubit, wires=None, den_mat=den_mat)
-        if init_state == 'zeros':
-            init_state = torch.zeros((2 ** self.nqubit, 1), dtype=torch.cfloat)
-            init_state[0] = 1
-        elif init_state == 'entangle':
-            init_state = torch.ones((2 ** self.nqubit, 1), dtype=torch.cfloat)
-            init_state = nn.functional.normalize(init_state, p=2, dim=-2)
-        if den_mat:
-            if init_state.ndim == 1 or (init_state.ndim == 2 and init_state.shape[-1] == 1):
-                init_state = init_state.reshape(1, -1, 1)
-            s = init_state.shape
-            if s[-1] != 2 ** self.nqubit or s[-2] != 2 ** self.nqubit:
-                init_state = init_state.reshape(s[0], -1, 1).squeeze(0)
-                assert init_state.shape[-2] == 2 ** self.nqubit, 'The shape of initial state is not correct'
-                init_state = init_state @ init_state.mH
-        self.reupload = reupload
+        init_state = QubitState(nqubit=nqubit, state=init_state, den_mat=den_mat)
         self.operators = nn.Sequential()
         self.encoders = nn.ModuleList([])
         self.observables = nn.ModuleList([])
-        self.register_buffer('init_state', init_state)
+        self.register_buffer('init_state', init_state.state)
         self.state = None
         self.npara = 0
         self.ndata = 0
+        self.reupload = reupload
 
     def __add__(self, rhs):
         cir = QubitCircuit(self.nqubit, self.init_state, self.name, self.den_mat, self.reupload)
@@ -74,6 +62,8 @@ class QubitCircuit(Operation):
     def encode(self, data):
         if data == None:
             return
+        if not self.reupload:
+            assert len(data) >= self.ndata, 'The circuit needs more data, or consider data re-uploading'
         count = 0
         for op in self.encoders:
             count_up = count + op.npara
