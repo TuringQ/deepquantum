@@ -50,12 +50,12 @@ class Gate(Operation):
         super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         if type(wires) == int:
             assert wires < nqubit
-            self.n = 1
+            self.nwire = 1
         if type(wires) == list:
             for wire in wires:
                 assert type(wire) == int
                 assert wire < nqubit
-            self.n = len(wires)
+            self.nwire = len(wires)
 
     def update_matrix(self):
         raise NotImplementedError

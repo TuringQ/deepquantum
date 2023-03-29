@@ -18,6 +18,25 @@ def is_power_of_two(n):
     return np.vectorize(f)(n)
 
 
+def inverse_permutation(permute_shape):
+    # permute_shape is a list of integers
+    # return a list of integers that is the inverse of permute_shape
+    # find the index of each element in the range of the list length
+    return [permute_shape.index(i) for i in range(len(permute_shape))]
+
+
+def is_unitary(matrix):
+    # matrix is a torch tensor of complex numbers
+    # return True if matrix is unitary, False otherwise
+    # calculate the conjugate transpose of matrix
+    assert matrix.shape[-1] == matrix.shape[-2]
+    conj_trans = matrix.t().conj()
+    # calculate the product of matrix and conj_trans
+    product = torch.matmul(matrix, conj_trans)
+    # compare product and identity matrix using torch.allclose function
+    return torch.allclose(product, torch.eye(matrix.shape[0]) + 0j)
+
+
 def safe_inverse(x, epsilon=1e-12):
     return x / (x ** 2 + epsilon)
 

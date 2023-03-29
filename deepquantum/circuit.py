@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from deepquantum.state import QubitState
-from deepquantum.operation import *
+from deepquantum.operation import Operation
 from deepquantum.gate import *
 from deepquantum.layer import *
 from torch import vmap
@@ -171,6 +171,11 @@ class QubitCircuit(Operation):
         rz = Rz(inputs=inputs, nqubit=self.nqubit, wires=wires, den_mat=self.den_mat,
                 tsr_mode=True, requires_grad=requires_grad)
         self.add(rz, encode=encode)
+
+    def any(self, unitary, minmax=None):
+        uany = UAnyGate(unitary=unitary, nqubit=self.nqubit, minmax=minmax, den_mat=self.den_mat,
+                        tsr_mode=True)
+        self.add(uany)
 
     def cnot(self, wires):
         cnot = CNOT(nqubit=self.nqubit, wires=wires, den_mat=self.den_mat, tsr_mode=True)
