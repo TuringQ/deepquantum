@@ -17,13 +17,13 @@ def split_covariance(covariance, modes_id):
     C, select the rows and columns of the matrix by modes_id.
     """
     modes_id = modes_id.numpy()
-    A = torch.clone(covariance).numpy()
+    A = torch.clone(covariance).detach().numpy()
     A = np.delete(np.delete(A, modes_id, axis=1), modes_id, axis=2)
     
-    B = torch.clone(covariance).numpy()
+    B = torch.clone(covariance).detach().numpy()
     B = np.delete(B[:, :, modes_id], modes_id, axis=1)
     
-    C = torch.clone(covariance).numpy()
+    C = torch.clone(covariance).detach().numpy()
     C = C[:, :, modes_id][:, modes_id, :]
     
     return (torch.from_numpy(A), torch.from_numpy(B), torch.from_numpy(C))
@@ -41,7 +41,7 @@ def split_mean(mean, modes_id):
     v_c, the mean vector corresponding to the modes_id.
     v_a, the left vector after deleting the elements according to modes_id.
     """
-    v = torch.clone(mean).numpy()
+    v = torch.clone(mean).detach().numpy()
     v_c = v[:, modes_id]
     v_a = np.delete(v, modes_id, axis=1)
     
