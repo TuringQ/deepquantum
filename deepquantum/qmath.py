@@ -34,7 +34,41 @@ def is_unitary(matrix):
     # calculate the product of matrix and conj_trans
     product = torch.matmul(matrix, conj_trans)
     # compare product and identity matrix using torch.allclose function
-    return torch.allclose(product, torch.eye(matrix.shape[0]) + 0j)
+    return torch.allclose(product, torch.eye(matrix.shape[0], dtype=matrix.dtype, device=matrix.device))
+
+
+def is_density_matrix(rho: torch.Tensor) -> bool:
+    """Check if a tensor is a valid density matrix.
+
+    A density matrix is a positive semi-definite Hermitian matrix with trace one.
+
+    Args:
+        rho (torch.Tensor): The tensor to check. It can be either 2D or 3D. If 3D, the first dimension is assumed to be the batch dimension.
+
+    Returns:
+        bool: True if the tensor is a density matrix, False otherwise.
+
+    Raises:
+        AssertionError: If the tensor is not of type torch.Tensor or has an invalid number of dimensions.
+    """
+    assert type(rho) == torch.Tensor
+    assert rho.ndim in (2, 3)
+    assert is_power_of_two(rho.shape[-2]) and is_power_of_two(rho.shape[-1])
+    if rho.ndim == 2:
+        rho = rho.unsqueeze(0)
+    # Check if the tensor is Hermitian
+    hermitian = torch.allclose(rho, rho.mH)
+    if not hermitian:
+        return False
+    # Check if the trace of each matrix is one
+    trace_one = torch.allclose(vmap(torch.trace)(rho), torch.tensor(1.0, dtype=rho.dtype, device=rho.device))
+    if not trace_one:
+        return False
+    # Check if the eigenvalues of each matrix are non-negative
+    positive_semi_definite = torch.all(torch.linalg.eig(rho)[0].real >= 0).item()
+    if not positive_semi_definite:
+        return False
+    return True
 
 
 def safe_inverse(x, epsilon=1e-12):
@@ -232,12 +266,12 @@ def Meyer_Wallach_measure(state_tsr: torch.Tensor) -> torch.Tensor:
     See https://readpaper.com/paper/2945680873 Eq.(19)
     
     Args:
-        state_tsr: input with the shape of (batch, 2, ..., 2, 1)
+        state_tsr: input with the shape of (batch, 2, ..., 2)
     
     Returns:
         torch.Tensor: the value of Meyer-Wallach measure
     """
-    nqubit = len(state_tsr.shape) - 2
+    nqubit = len(state_tsr.shape) - 1
     batch = state_tsr.shape[0]
     rst = 0
     for i in range(nqubit):
@@ -257,7 +291,7 @@ def linear_map_MW(state_tsr: torch.Tensor, j: int, b: int) -> torch.Tensor:
         See https://arxiv.org/pdf/quant-ph/0305094.pdf Eq.(2)
 
     Args:
-        state_tsr: input with the shape of (batch, 2, ..., 2, 1)
+        state_tsr: input with the shape of (batch, 2, ..., 2)
         j: the `j`th qubit to project on, from 0 to nqubit - 1
         b: the project basis, |0> or |1>
     
@@ -266,7 +300,7 @@ def linear_map_MW(state_tsr: torch.Tensor, j: int, b: int) -> torch.Tensor:
     """
     assert b == 0 or b == 1, 'b must be 0 or 1'
     n = len(state_tsr.shape)
-    assert j < n - 2, 'j can not exceed nqubit'
+    assert j < n - 1, 'j can not exceed nqubit'
     permute_shape = list(range(n))
     permute_shape.remove(j + 1)
     permute_shape = [0] + [j + 1] + permute_shape[1:]
@@ -298,12 +332,12 @@ def Meyer_Wallach_measure_Brennen(state_tsr: torch.Tensor) -> torch.Tensor:
         This implementation is slower than `Meyer_Wallach_measure` when nqubit >= 8
     
     Args:
-        state_tsr: input with the shape of (batch, 2, ..., 2, 1)
+        state_tsr: input with the shape of (batch, 2, ..., 2)
     
     Returns:
         torch.Tensor: the value of Meyer-Wallach measure
     """
-    nqubit = len(state_tsr.shape) - 2
+    nqubit = len(state_tsr.shape) - 1
     batch = state_tsr.shape[0]
     rho = state_tsr.reshape(batch, -1, 1) @ state_tsr.conj().reshape(batch, 1, -1)
     rst = 0

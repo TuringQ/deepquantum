@@ -12,66 +12,122 @@ class SingleGate(Gate):
         super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         if type(controls) == int:
             controls = [controls]
+        if controls == None:
+            controls = []
+        assert type(controls) == list
         assert self.wires not in controls, 'Use repeated wires'
-        self.controls = controls
         self.nwire += len(controls)
+        self.controls = controls
     
     def op_state(self, x):
         matrix = self.update_matrix()
-        if self.controls == None:
+        if self.controls == []:
             x = self.op_state_base(x=x, matrix=matrix)
         else:
             x = self.op_state_control(x=x, matrix=matrix)
         if not self.tsr_mode:
             x = self.vector_rep(x).squeeze(0)
         return x
-
+    
     def op_state_base(self, x, matrix):
-        pm_shape = list(range(self.nqubit + 2))
-        pm_shape[self.wires + 1] = self.nqubit
-        pm_shape[self.nqubit] = self.wires + 1
-        x = (matrix @ x.permute(pm_shape)).permute(pm_shape)
+        pm_shape = list(range(self.nqubit + 1))
+        pm_shape.remove(self.wires + 1)
+        pm_shape = [self.wires + 1] + pm_shape
+        x = x.permute(pm_shape).reshape(2, -1)
+        x = (matrix @ x).reshape([2] + [-1] + [2] * (self.nqubit - 1))
+        x = x.permute(inverse_permutation(pm_shape))
         return x
     
     def op_state_control(self, x, matrix):
         nc = len(self.controls)
         target = self.wires + 1
         controls = [i + 1 for i in self.controls]
-        pm_shape = list(range(self.nqubit + 2))
+        pm_shape = list(range(self.nqubit + 1))
         pm_shape.remove(target)
         for i in controls:
             pm_shape.remove(i)
         pm_shape = [target] + pm_shape + controls
         state1 = x.permute(pm_shape).reshape(2, -1, 2 ** nc)
-        state2 = (matrix.reshape(-1, 2) @ state1[:, :, -1]).unsqueeze(-1)
+        state2 = (matrix @ state1[:, :, -1]).unsqueeze(-1)
         state1 = torch.cat([state1[:, :, :-1], state2], dim=-1)
-        state1 = state1.reshape([2] + [-1] + [2] * (self.nqubit - nc - 1) + [1] + [2] * nc)
+        state1 = state1.reshape([2] + [-1] + [2] * (self.nqubit - nc - 1) + [2] * nc)
         x = state1.permute(inverse_permutation(pm_shape))
         return x
-        
+    
     def op_den_mat(self, x):
         matrix = self.update_matrix()
-        # left multiply
-        pm_shape = list(range(2 * self.nqubit + 2))
-        pm_shape[self.wires + 1] = 2 * self.nqubit
-        pm_shape[2 * self.nqubit] = self.wires + 1
-        x = (matrix @ x.permute(pm_shape)).permute(pm_shape)
-        # right multiply
-        pm_shape = list(range(2 * self.nqubit + 2))
-        pm_shape[self.wires + self.nqubit + 1] = 2 * self.nqubit
-        pm_shape[2 * self.nqubit] = self.wires + self.nqubit + 1
-        x = (matrix.conj() @ x.permute(pm_shape)).permute(pm_shape)
+        if self.controls == []:
+            x = self.op_den_mat_base(x=x, matrix=matrix)
+        else:
+            x = self.op_den_mat_control(x=x, matrix=matrix)
         if not self.tsr_mode:
             x = self.matrix_rep(x).squeeze(0)
         return x
+        
+    def op_den_mat_base(self, x, matrix):
+        # left multiply
+        pm_shape = list(range(2 * self.nqubit + 1))
+        pm_shape.remove(self.wires + 1)
+        pm_shape = [self.wires + 1] + pm_shape
+        x = x.permute(pm_shape).reshape(2, -1)
+        x = (matrix @ x).reshape([2] + [-1] + [2] * (2 * self.nqubit - 1))
+        x = x.permute(inverse_permutation(pm_shape))
+        # right multiply
+        pm_shape = list(range(2 * self.nqubit + 1))
+        pm_shape.remove(self.wires + 1 + self.nqubit)
+        pm_shape = [self.wires + 1 + self.nqubit] + pm_shape
+        x = x.permute(pm_shape).reshape(2, -1)
+        x = (matrix.conj() @ x).reshape([2] + [-1] + [2] * (2 * self.nqubit - 1))
+        x = x.permute(inverse_permutation(pm_shape))
+        return x
+    
+    def op_den_mat_control(self, x, matrix):
+        nc = len(self.controls)
+        # left multiply
+        target = self.wires + 1
+        controls = [i + 1 for i in self.controls]
+        pm_shape = list(range(2 * self.nqubit + 1))
+        pm_shape.remove(target)
+        for i in controls:
+            pm_shape.remove(i)
+        pm_shape = [target] + pm_shape + controls
+        state1 = x.permute(pm_shape).reshape(2, -1, 2 ** nc)
+        state2 = (matrix @ state1[:, :, -1]).unsqueeze(-1)
+        state1 = torch.cat([state1[:, :, :-1], state2], dim=-1)
+        state1 = state1.reshape([2] + [-1] + [2] * (2 * self.nqubit - nc - 1) + [2] * nc)
+        x = state1.permute(inverse_permutation(pm_shape))
+        # right multiply
+        target = self.wires + 1 + self.nqubit
+        controls = [i + 1 + self.nqubit for i in self.controls]
+        pm_shape = list(range(2 * self.nqubit + 1))
+        pm_shape.remove(target)
+        for i in controls:
+            pm_shape.remove(i)
+        pm_shape = [target] + pm_shape + controls
+        state1 = x.permute(pm_shape).reshape(2, -1, 2 ** nc)
+        state2 = (matrix.conj() @ state1[:, :, -1]).unsqueeze(-1)
+        state1 = torch.cat([state1[:, :, :-1], state2], dim=-1)
+        state1 = state1.reshape([2] + [-1] + [2] * (2 * self.nqubit - nc - 1) + [2] * nc)
+        x = state1.permute(inverse_permutation(pm_shape))
+        return x
 
     def get_unitary(self):
-        # todo for controlled gates
         matrix = self.update_matrix()
         identity = torch.eye(2, dtype=torch.cfloat, device=matrix.device)
-        lst = [identity] * self.nqubit
-        lst[self.wires] = matrix
-        return multi_kron(lst)
+        if self.controls == None:
+            lst = [identity] * self.nqubit
+            lst[self.wires] = matrix
+            return multi_kron(lst)
+        else:
+            oneone = torch.tensor([[0, 0], [0, 1]], dtype=torch.cfloat, device=matrix.device)
+            lst1 = [identity] * self.nqubit
+            lst2 = [identity] * self.nqubit
+            lst3 = [identity] * self.nqubit
+            for i in self.controls:
+                lst2[i] = oneone
+                lst3[i] = oneone
+            lst3[self.wires] = matrix
+            return multi_kron(lst1) - multi_kron(lst2) + multi_kron(lst3)
 
 
 class DoubleGate(Gate):
@@ -82,63 +138,41 @@ class DoubleGate(Gate):
     
     def op_state(self, x):
         matrix = self.update_matrix()
-        cqbit = self.wires[0]
-        tqbit = self.wires[1]
+        cqbit = self.wires[0] + 1
+        tqbit = self.wires[1] + 1
         pm_shape = list(range(self.nqubit + 1))
-        pm_shape.remove(cqbit + 1)
-        pm_shape.remove(tqbit + 1)
-        pm_shape = pm_shape + [cqbit + 1, tqbit + 1] + [self.nqubit + 1]
-        x = (matrix @ x.permute(pm_shape).reshape(-1, 4, 1)).reshape([-1] + [2] * self.nqubit)
-        pm_shape = list(range(self.nqubit + 1))
-        pm_shape.pop()
-        pm_shape.pop()
-        if cqbit < tqbit:
-            pm_shape.insert(cqbit + 1, self.nqubit - 1)
-            pm_shape.insert(tqbit + 1, self.nqubit)
-        else:
-            pm_shape.insert(tqbit + 1, self.nqubit)
-            pm_shape.insert(cqbit + 1, self.nqubit - 1)
-        x = x.permute(pm_shape).unsqueeze(-1)
+        pm_shape.remove(cqbit)
+        pm_shape.remove(tqbit)
+        pm_shape = [cqbit, tqbit] + pm_shape
+        x = x.permute(pm_shape).reshape(4, -1)
+        x = (matrix @ x).reshape([2, 2] + [-1] + [2] * (self.nqubit - 2))
+        x = x.permute(inverse_permutation(pm_shape))
         if not self.tsr_mode:
             x = self.vector_rep(x).squeeze(0)
         return x
         
     def op_den_mat(self, x):
         matrix = self.update_matrix()
-        cqbit = self.wires[0]
-        tqbit = self.wires[1]
         # left multiply
+        cqbit = self.wires[0] + 1
+        tqbit = self.wires[1] + 1
         pm_shape = list(range(2 * self.nqubit + 1))
-        pm_shape.remove(cqbit + 1)
-        pm_shape.remove(tqbit + 1)
-        pm_shape = pm_shape + [cqbit + 1, tqbit + 1] + [2 * self.nqubit + 1]
-        x = (matrix @ x.permute(pm_shape).reshape(-1, 4, 1)).reshape([-1] + [2] * 2 * self.nqubit)
-        pm_shape = list(range(2 * self.nqubit + 1))
-        pm_shape.pop()
-        pm_shape.pop()
-        if cqbit < tqbit:
-            pm_shape.insert(cqbit + 1, 2 * self.nqubit - 1)
-            pm_shape.insert(tqbit + 1, 2 * self.nqubit)
-        else:
-            pm_shape.insert(tqbit + 1, 2 * self.nqubit)
-            pm_shape.insert(cqbit + 1, 2 * self.nqubit - 1)
-        x = x.permute(pm_shape).unsqueeze(-1)
+        pm_shape.remove(cqbit)
+        pm_shape.remove(tqbit)
+        pm_shape = [cqbit, tqbit] + pm_shape
+        x = x.permute(pm_shape).reshape(4, -1)
+        x = (matrix @ x).reshape([2, 2] + [-1] + [2] * (2 * self.nqubit - 2))
+        x = x.permute(inverse_permutation(pm_shape))
         # right multiply
+        cqbit = self.wires[0] + 1 + self.nqubit
+        tqbit = self.wires[1] + 1 + self.nqubit
         pm_shape = list(range(2 * self.nqubit + 1))
-        pm_shape.remove(cqbit + self.nqubit + 1)
-        pm_shape.remove(tqbit + self.nqubit + 1)
-        pm_shape = pm_shape + [cqbit + self.nqubit + 1, tqbit + self.nqubit+1] + [2 * self.nqubit + 1]
-        x = (matrix.conj() @ x.permute(pm_shape).reshape(-1, 4, 1)).reshape([-1] + [2] * 2 * self.nqubit)
-        pm_shape = list(range(2 * self.nqubit + 1))
-        pm_shape.pop()
-        pm_shape.pop()
-        if cqbit < tqbit:
-            pm_shape.insert(cqbit + self.nqubit + 1, 2 * self.nqubit - 1)
-            pm_shape.insert(tqbit + self.nqubit + 1, 2 * self.nqubit)
-        else:
-            pm_shape.insert(tqbit + self.nqubit + 1, 2 * self.nqubit)
-            pm_shape.insert(cqbit + self.nqubit + 1, 2 * self.nqubit - 1)
-        x = x.permute(pm_shape).unsqueeze(-1)
+        pm_shape.remove(cqbit)
+        pm_shape.remove(tqbit)
+        pm_shape = [cqbit, tqbit] + pm_shape
+        x = x.permute(pm_shape).reshape(4, -1)
+        x = (matrix.conj() @ x).reshape([2, 2] + [-1] + [2] * (2 * self.nqubit - 2))
+        x = x.permute(inverse_permutation(pm_shape))
         if not self.tsr_mode:
             x = self.matrix_rep(x).squeeze(0)
         return x
@@ -409,7 +443,9 @@ class UAnyGate(Gate):
             minmax = [0, nqubit-1]
         self.minmax = minmax
         wires = [i for i in range(minmax[0], minmax[1] + 1)]
-        assert type(unitary) == torch.cfloat
+        if type(unitary) != torch.Tensor:
+            unitary = torch.tensor(unitary, dtype=torch.cfloat).reshape(-1, 2 ** len(wires))
+        assert unitary.dtype == torch.cfloat
         assert unitary.shape[-1] == 2 ** len(wires) and unitary.shape[-2] == 2 ** len(wires)
         assert is_unitary(unitary)
         super().__init__(name='UAnyGate', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)

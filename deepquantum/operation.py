@@ -15,13 +15,13 @@ class Operation(nn.Module):
     def tensor_rep(self, x):
         if self.den_mat:
             assert x.shape[-1] == 2 ** self.nqubit and x.shape[-2] == 2 ** self.nqubit
-            return x.reshape([-1] + [2] * 2 * self.nqubit + [1])
+            return x.reshape([-1] + [2] * 2 * self.nqubit)
         else:
             if x.ndim == 1:
                 assert x.shape[-1] == 2 ** self.nqubit
             else:
                 assert x.shape[-1] == 2 ** self.nqubit or x.shape[-2] == 2 ** self.nqubit
-            return x.reshape([-1] + [2] * self.nqubit + [1])
+            return x.reshape([-1] + [2] * self.nqubit)
 
     def vector_rep(self, x):
         return x.reshape([-1, 2 ** self.nqubit, 1])
@@ -77,10 +77,10 @@ class Gate(Operation):
         if not self.tsr_mode:
             x = self.tensor_rep(x)
         if self.den_mat:
-            assert x.ndim == 2 * self.nqubit + 2
+            assert x.ndim == 2 * self.nqubit + 1
             return self.op_den_mat(x)
         else:
-            assert x.ndim == self.nqubit + 2
+            assert x.ndim == self.nqubit + 1
             return self.op_state(x)
 
 
