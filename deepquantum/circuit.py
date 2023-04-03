@@ -22,12 +22,15 @@ class QubitCircuit(Operation):
         self.reupload = reupload
 
     def __add__(self, rhs):
-        self.operators = self.operators + rhs.operators
-        self.encoders = self.encoders + rhs.encoders
-        self.observables = rhs.observables
-        self.npara = self.npara + rhs.npara
-        self.ndata = self.ndata + rhs.ndata
-        return self
+        assert self.nqubit == rhs.nqubit
+        cir = QubitCircuit(nqubit=self.nqubit, name=self.name, den_mat=self.den_mat, reupload=self.reupload)
+        cir.operators = self.operators + rhs.operators
+        cir.encoders = self.encoders + rhs.encoders
+        cir.observables = rhs.observables
+        cir.init_state = self.init_state
+        cir.npara = self.npara + rhs.npara
+        cir.ndata = self.ndata + rhs.ndata
+        return cir
 
     def forward(self, data=None, state=None):
         if state == None:

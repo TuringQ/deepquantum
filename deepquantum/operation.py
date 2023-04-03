@@ -58,7 +58,7 @@ class Gate(Operation):
             self.nwire = len(wires)
 
     def update_matrix(self):
-        raise NotImplementedError
+        return self.matrix
 
     def op_state(self, x):
         x = self.get_unitary() @ self.vector_rep(x)

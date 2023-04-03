@@ -6,6 +6,8 @@ from deepquantum.qmath import is_density_matrix, amplitude_encoding
 class QubitState(nn.Module):
     def __init__(self, nqubit=1, state='zeros', den_mat=False) -> None:
         super().__init__()
+        self.nqubit = nqubit
+        self.den_mat = den_mat
         if state == 'zeros':
             state = torch.zeros((2 ** nqubit, 1), dtype=torch.cfloat)
             state[0] = 1
