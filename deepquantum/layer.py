@@ -4,27 +4,20 @@ from deepquantum.gate import *
 
 class SingleLayer(Layer):
     def __init__(self, name=None, nqubit=1, wires=None, den_mat=False, tsr_mode=False):
-        super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         if wires == None:
-            self.wires = list(range(nqubit))
-        elif type(wires) == int:
-            self.wires = [wires]
-        else:
-            self.wires = wires
+            wires = [[i] for i in range(nqubit)]
+        super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         for wire in self.wires:
-            assert wire < nqubit
+            assert len(wire) == 1
 
 
 class DoubleLayer(Layer):
     def __init__(self, name=None, nqubit=2, wires=None, den_mat=False, tsr_mode=False):
+        if wires == None:
+            wires = [[i, i + 1] for i in range(0, nqubit - 1, 2)]
         super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
-        if wires != None:
-            for wire in wires:
-                assert len(wire) == 2
-                assert type(wire[0]) == int and type(wire[1]) == int
-                assert wire[0] < nqubit and wire[1] < nqubit
-                assert wire[0] != wire[1]
-        self.wires = wires
+        for wire in self.wires:
+            assert len(wire) == 2
 
 
 class Observable(SingleLayer):
@@ -96,7 +89,7 @@ class RzLayer(SingleLayer):
 
 
 class CnotLayer(DoubleLayer):
-    def __init__(self, nqubit=2, wires=[[0,1]], name=None, den_mat=False, tsr_mode=False):
+    def __init__(self, nqubit=2, wires=[[0,1]], name='CnotLayer', den_mat=False, tsr_mode=False):
         super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         for wire in self.wires:
             cnot = CNOT(nqubit=nqubit, wires=wire, den_mat=den_mat, tsr_mode=True)
@@ -107,6 +100,10 @@ class CnotRing(CnotLayer):
     def __init__(self, nqubit=2, minmax=None, den_mat=False, tsr_mode=False, step=1, reverse=False):
         if minmax == None:
             minmax = [0, nqubit-1]
+        assert type(minmax) == list
+        assert len(minmax) == 2
+        assert all(isinstance(i, int) for i in minmax)
+        assert minmax[0] > -1 and minmax[0] < minmax[1] and minmax[1] < nqubit
         self.minmax = minmax
         self.step = step
         self.reverse = reverse
@@ -115,4 +112,4 @@ class CnotRing(CnotLayer):
             wires = [[minmax[0] + i, minmax[0] + (i-step) % nwires] for i in range(minmax[1] - minmax[0], -1, -1)]
         else:
             wires = [[minmax[0] + i, minmax[0] + (i+step) % nwires] for i in range(minmax[1] - minmax[0] + 1)]
-        super().__init__(name='CnotRing', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
+        super().__init__(nqubit=nqubit, wires=wires, name='CnotRing', den_mat=den_mat, tsr_mode=tsr_mode)
