@@ -130,7 +130,39 @@ class ParametricSingleGate(SingleGate):
         while type(inputs) == list:
             inputs = inputs[0]
         if inputs == None:
-            inputs = torch.rand(1)[0] * torch.pi
+            inputs = torch.rand(1)[0] * 4 * torch.pi
+        elif type(inputs) != torch.Tensor and type(inputs) != torch.nn.parameter.Parameter:
+            inputs = torch.tensor(inputs, dtype=torch.float)
+        return inputs
+
+    def update_matrix(self):
+        matrix = self.get_matrix(self.theta)
+        self.matrix = matrix.detach()
+        return matrix
+        
+    def init_para(self, inputs=None):
+        theta = self.inputs_to_tensor(inputs=inputs)
+        if self.requires_grad:
+            self.theta = nn.Parameter(theta)
+        else:
+            self.register_buffer('theta', theta)
+        self.update_matrix()
+
+
+class ParametricDoubleGate(DoubleGate):
+    def __init__(self, name=None, inputs=None, nqubit=2, wires=[0,1], controls=None,
+                 den_mat=False, tsr_mode=False, requires_grad=False):
+        super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
+                         den_mat=den_mat, tsr_mode=tsr_mode)
+        self.npara = 1
+        self.requires_grad = requires_grad
+        self.init_para(inputs=inputs)
+
+    def inputs_to_tensor(self, inputs=None):
+        while type(inputs) == list:
+            inputs = inputs[0]
+        if inputs == None:
+            inputs = torch.rand(1)[0] * 4 * torch.pi
         elif type(inputs) != torch.Tensor and type(inputs) != torch.nn.parameter.Parameter:
             inputs = torch.tensor(inputs, dtype=torch.float)
         return inputs
@@ -217,8 +249,9 @@ class PhaseShift(ParametricSingleGate):
     
     def get_matrix(self, theta):
         theta = self.inputs_to_tensor(theta)
+        m1 = torch.eye(1, dtype=torch.cfloat, device=theta.device)
         e_it = torch.exp(1j * theta)
-        return torch.stack([1, e_it]).reshape(-1).diag_embed()
+        return torch.block_diag(m1, e_it)
 
 
 class Identity(Gate):
@@ -298,13 +331,13 @@ class Rx(ParametricSingleGate):
     
     def get_matrix(self, theta):
         theta = self.inputs_to_tensor(theta)
-        cos = torch.cos(theta / 2)
-        sin = torch.sin(theta / 2)
-        return torch.stack([cos, -1j * sin, -1j * sin, cos]).reshape(2, 2)
+        cos  = torch.cos(theta / 2)
+        isin = torch.sin(theta / 2) * 1j
+        return torch.stack([cos, -isin, -isin, cos]).reshape(2, 2)
 
 
 class Ry(ParametricSingleGate):
-    def __init__(self, inputs=None, nqubit=1, wires=0, controls=None,
+    def __init__(self, inputs=None, nqubit=1, wires=[0], controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name='Ry', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
@@ -321,15 +354,6 @@ class Rz(ParametricSingleGate):
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name='Rz', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
-    
-    def inputs_to_tensor(self, inputs=None):
-        while type(inputs) == list:
-            inputs = inputs[0]
-        if inputs == None:
-            inputs = torch.rand(1)[0] * 2 * torch.pi
-        elif type(inputs) != torch.Tensor and type(inputs) != torch.nn.parameter.Parameter:
-            inputs = torch.tensor(inputs, dtype=torch.float)
-        return inputs
 
     def get_matrix(self, theta):
         theta = self.inputs_to_tensor(theta)
@@ -389,6 +413,64 @@ class Swap(DoubleGate):
                                                      [0, 0, 1, 0],
                                                      [0, 1, 0, 0],
                                                      [0, 0, 0, 1]]) + 0j)
+
+
+class Rxx(ParametricDoubleGate):
+    def __init__(self, inputs=None, nqubit=2, wires=[0,1], controls=None,
+                 den_mat=False, tsr_mode=False, requires_grad=False):
+        super().__init__(name='Rxx', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
+                         den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
+    
+    def get_matrix(self, theta):
+        theta = self.inputs_to_tensor(theta)
+        cos  = torch.cos(theta / 2)
+        isin = torch.sin(theta / 2) * 1j
+        m1 = torch.stack([cos, cos, cos, cos]).reshape(-1).diag_embed()
+        m2 = torch.stack([-isin, -isin, -isin, -isin]).reshape(-1).diag_embed().fliplr()
+        return m1 + m2
+
+
+class Ryy(ParametricDoubleGate):
+    def __init__(self, inputs=None, nqubit=2, wires=[0,1], controls=None,
+                 den_mat=False, tsr_mode=False, requires_grad=False):
+        super().__init__(name='Ryy', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
+                         den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
+
+    def get_matrix(self, theta):
+        theta = self.inputs_to_tensor(theta)
+        cos  = torch.cos(theta / 2)
+        isin = torch.sin(theta / 2) * 1j
+        m1 = torch.stack([cos, cos, cos, cos]).reshape(-1).diag_embed()
+        m2 = torch.stack([isin, -isin, -isin, isin]).reshape(-1).diag_embed().fliplr()
+        return m1 + m2
+
+
+class Rzz(ParametricDoubleGate):
+    def __init__(self, inputs=None, nqubit=2, wires=[0,1], controls=None,
+                 den_mat=False, tsr_mode=False, requires_grad=False):
+        super().__init__(name='Rzz', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
+                         den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
+
+    def get_matrix(self, theta):
+        theta = self.inputs_to_tensor(theta)
+        e_m_it = torch.exp(-1j * theta / 2)
+        e_it = torch.exp(1j * theta / 2)
+        return torch.stack([e_m_it, e_it, e_it, e_m_it]).reshape(-1).diag_embed()
+
+
+class Rxy(ParametricDoubleGate):
+    def __init__(self, inputs=None, nqubit=2, wires=[0,1], controls=None,
+                 den_mat=False, tsr_mode=False, requires_grad=False):
+        super().__init__(name='Rxy', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
+                         den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
+
+    def get_matrix(self, theta):
+        theta = self.inputs_to_tensor(theta)
+        cos  = torch.cos(theta / 2)
+        isin = torch.sin(theta / 2) * 1j
+        m1 = torch.eye(1, dtype=torch.cfloat, device=theta.device)
+        m2 = torch.stack([cos, -isin, -isin, cos]).reshape(2, 2)
+        return torch.block_diag(m1, m2, m1)
 
 
 class Toffoli(TripleGate):

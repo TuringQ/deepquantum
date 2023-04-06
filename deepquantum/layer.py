@@ -1,5 +1,6 @@
 from deepquantum.operation import Layer
 from deepquantum.gate import *
+from deepquantum.qmath import multi_kron
 
 
 class SingleLayer(Layer):
@@ -9,6 +10,14 @@ class SingleLayer(Layer):
         super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         for wire in self.wires:
             assert len(wire) == 1
+
+    def get_unitary(self):
+        assert len(self.gates) > 0, 'There is no quantum gate'
+        identity = torch.eye(2, dtype=torch.cfloat, device=self.gates[0].matrix.device)
+        lst = [identity] * self.nqubit
+        for gate in self.gates:
+            lst[gate.wires[0]] = gate.update_matrix()
+        return multi_kron(lst)
 
 
 class DoubleLayer(Layer):
@@ -89,7 +98,7 @@ class RzLayer(SingleLayer):
 
 
 class CnotLayer(DoubleLayer):
-    def __init__(self, nqubit=2, wires=[[0,1]], name='CnotLayer', den_mat=False, tsr_mode=False):
+    def __init__(self, nqubit=2, wires=None, name='CnotLayer', den_mat=False, tsr_mode=False):
         super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         for wire in self.wires:
             cnot = CNOT(nqubit=nqubit, wires=wire, den_mat=den_mat, tsr_mode=True)
@@ -97,7 +106,7 @@ class CnotLayer(DoubleLayer):
 
 
 class CnotRing(CnotLayer):
-    def __init__(self, nqubit=2, minmax=None, den_mat=False, tsr_mode=False, step=1, reverse=False):
+    def __init__(self, nqubit=2, minmax=None, step=1, reverse=False, den_mat=False, tsr_mode=False):
         if minmax == None:
             minmax = [0, nqubit-1]
         assert type(minmax) == list
