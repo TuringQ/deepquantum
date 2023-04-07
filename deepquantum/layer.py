@@ -47,6 +47,20 @@ class Observable(SingleLayer):
             self.gates.append(gate)
 
 
+class U3Layer(SingleLayer):
+    def __init__(self, nqubit=1, wires=None, inputs=None, den_mat=False, tsr_mode=False, requires_grad=True):
+        super().__init__(name='U3Layer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
+        for i, wire in enumerate(self.wires):
+            if inputs == None:
+                thetas = None
+            else:
+                thetas = inputs[3*i:3*i+3]
+            u3 = U3Gate(inputs=thetas, nqubit=nqubit, wires=wire, den_mat=den_mat,
+                        tsr_mode=True, requires_grad=requires_grad)
+            self.gates.append(u3)
+            self.npara += u3.npara
+
+
 class HLayer(SingleLayer):
     def __init__(self, nqubit=1, wires=None, den_mat=False, tsr_mode=False):
         super().__init__(name='HLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)

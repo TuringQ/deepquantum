@@ -14,9 +14,16 @@ class QubitState(nn.Module):
             if den_mat:
                 state = state @ state.mH
             self.register_buffer('state', state)
-        elif state == 'entangle':
+        elif state == 'equal':
             state = torch.ones((2 ** nqubit, 1), dtype=torch.cfloat)
             state = nn.functional.normalize(state, p=2, dim=-2)
+            if den_mat:
+                state = state @ state.mH
+            self.register_buffer('state', state)
+        elif state in ('entangle', 'GHZ', 'ghz'):
+            state = torch.zeros((2 ** nqubit, 1), dtype=torch.cfloat)
+            state[0] = 1 / 2 ** 0.5
+            state[-1] = 1 / 2 ** 0.5
             if den_mat:
                 state = state @ state.mH
             self.register_buffer('state', state)

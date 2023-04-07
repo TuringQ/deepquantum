@@ -141,7 +141,7 @@ class QubitCircuit(Operation):
     def draw(self):
         pass
 
-    def u3(self, wires, controls=None, inputs=None, encode=False):
+    def u3(self, wires, inputs=None, controls=None, encode=False):
         requires_grad = not encode
         if inputs != None:
             requires_grad = False
@@ -157,7 +157,7 @@ class QubitCircuit(Operation):
                     den_mat=self.den_mat, tsr_mode=True, requires_grad=requires_grad)
         self.add(cu, encode=encode)
 
-    def ps(self, wires, controls=None, inputs=None, encode=False):
+    def ps(self, wires, inputs=None, controls=None, encode=False):
         requires_grad = not encode
         if inputs != None:
             requires_grad = False
@@ -238,7 +238,7 @@ class QubitCircuit(Operation):
                            den_mat=self.den_mat, tsr_mode=True)
         self.add(ctdg)
 
-    def rx(self, wires, controls=None, inputs=None, encode=False):
+    def rx(self, wires, inputs=None, controls=None, encode=False):
         requires_grad = not encode
         if inputs != None:
             requires_grad = False
@@ -246,7 +246,7 @@ class QubitCircuit(Operation):
                 den_mat=self.den_mat, tsr_mode=True, requires_grad=requires_grad)
         self.add(rx, encode=encode)
 
-    def ry(self, wires, controls=None, inputs=None, encode=False):
+    def ry(self, wires, inputs=None, controls=None, encode=False):
         requires_grad = not encode
         if inputs != None:
             requires_grad = False
@@ -254,7 +254,7 @@ class QubitCircuit(Operation):
                 den_mat=self.den_mat, tsr_mode=True, requires_grad=requires_grad)
         self.add(ry, encode=encode)
 
-    def rz(self, wires, controls=None, inputs=None, encode=False):
+    def rz(self, wires, inputs=None, controls=None, encode=False):
         requires_grad = not encode
         if inputs != None:
             requires_grad = False
@@ -310,7 +310,7 @@ class QubitCircuit(Operation):
                     den_mat=self.den_mat, tsr_mode=True)
         self.add(swap)
 
-    def rxx(self, wires, controls=None, inputs=None, encode=False):
+    def rxx(self, wires, inputs=None, controls=None, encode=False):
         requires_grad = not encode
         if inputs != None:
             requires_grad = False
@@ -318,7 +318,7 @@ class QubitCircuit(Operation):
                   den_mat=self.den_mat, tsr_mode=True, requires_grad=requires_grad)
         self.add(rxx, encode=encode)
 
-    def ryy(self, wires, controls=None, inputs=None, encode=False):
+    def ryy(self, wires, inputs=None, controls=None, encode=False):
         requires_grad = not encode
         if inputs != None:
             requires_grad = False
@@ -326,7 +326,7 @@ class QubitCircuit(Operation):
                   den_mat=self.den_mat, tsr_mode=True, requires_grad=requires_grad)
         self.add(ryy, encode=encode)
 
-    def rzz(self, wires, controls=None, inputs=None, encode=False):
+    def rzz(self, wires, inputs=None, controls=None, encode=False):
         requires_grad = not encode
         if inputs != None:
             requires_grad = False
@@ -334,7 +334,7 @@ class QubitCircuit(Operation):
                   den_mat=self.den_mat, tsr_mode=True, requires_grad=requires_grad)
         self.add(rzz, encode=encode)
 
-    def rxy(self, wires, controls=None, inputs=None, encode=False):
+    def rxy(self, wires, inputs=None, controls=None, encode=False):
         requires_grad = not encode
         if inputs != None:
             requires_grad = False
@@ -424,6 +424,14 @@ class QubitCircuit(Operation):
         rzl = RzLayer(nqubit=self.nqubit, wires=wires, inputs=inputs, den_mat=self.den_mat,
                       tsr_mode=True, requires_grad=requires_grad)
         self.add(rzl, encode=encode)
+
+    def u3layer(self, wires=None, inputs=None, encode=False):
+        requires_grad = not encode
+        if inputs != None:
+            requires_grad = False
+        u3l = U3Layer(nqubit=self.nqubit, wires=wires, inputs=inputs, den_mat=self.den_mat,
+                      tsr_mode=True, requires_grad=requires_grad)
+        self.add(u3l, encode=encode)
 
     def cxlayer(self, wires=None):
         cxl = CnotLayer(nqubit=self.nqubit, wires=wires, den_mat=self.den_mat, tsr_mode=True)
