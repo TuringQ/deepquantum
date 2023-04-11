@@ -185,6 +185,13 @@ class Gate(Operation):
             assert x.ndim == self.nqubit + 1
             return self.op_state(x)
 
+    def extra_repr(self):
+        s = f'wires={self.wires}'
+        if self.controls == []:
+            return s
+        else:
+            return s + f', controls={self.controls}'
+
 
 class Layer(Operation):
     def __init__(self, name=None, nqubit=1, wires=[[0]], den_mat=False, tsr_mode=False):

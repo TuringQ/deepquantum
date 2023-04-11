@@ -148,6 +148,13 @@ class ParametricSingleGate(SingleGate):
             self.register_buffer('theta', theta)
         self.update_matrix()
 
+    def extra_repr(self):
+        s = f'wires={self.wires}, theta={self.theta.data}'
+        if self.controls == []:
+            return s
+        else:
+            return s + f', controls={self.controls}'
+
 
 class ParametricDoubleGate(DoubleGate):
     def __init__(self, name=None, inputs=None, nqubit=2, wires=[0,1], controls=None,
@@ -179,6 +186,13 @@ class ParametricDoubleGate(DoubleGate):
         else:
             self.register_buffer('theta', theta)
         self.update_matrix()
+
+    def extra_repr(self):
+        s = f'wires={self.wires}, theta={self.theta.data}'
+        if self.controls == []:
+            return s
+        else:
+            return s + f', controls={self.controls}'
 
 
 class U3Gate(ParametricSingleGate):
@@ -230,6 +244,13 @@ class U3Gate(ParametricSingleGate):
             self.register_buffer('phi', phi)
             self.register_buffer('lambd', lambd)
         self.update_matrix()
+
+    def extra_repr(self):
+        s = f'wires={self.wires}, theta={self.theta.data}, phi={self.phi.data}, lambda={self.lambd.data}'
+        if self.controls == []:
+            return s
+        else:
+            return s + f', controls={self.controls}'
 
 
 class PhaseShift(ParametricSingleGate):

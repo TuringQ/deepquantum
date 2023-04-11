@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 from deepquantum.state import QubitState
@@ -13,12 +14,13 @@ class QubitCircuit(Operation):
         super().__init__(name=name, nqubit=nqubit, wires=None, den_mat=den_mat)
         init_state = QubitState(nqubit=nqubit, state=init_state, den_mat=den_mat)
         self.operators = nn.Sequential()
-        self.encoders = nn.ModuleList([])
+        self.encoders = []
         self.observables = nn.ModuleList([])
         self.register_buffer('init_state', init_state.state)
         self.state = None
         self.npara = 0
         self.ndata = 0
+        self.depth = np.array([0] * nqubit)
         self.reupload = reupload
 
     def __add__(self, rhs):
@@ -30,6 +32,7 @@ class QubitCircuit(Operation):
         cir.init_state = self.init_state
         cir.npara = self.npara + rhs.npara
         cir.ndata = self.ndata + rhs.ndata
+        cir.depth = self.depth + rhs.depth
         return cir
 
     def forward(self, data=None, state=None):
@@ -87,12 +90,13 @@ class QubitCircuit(Operation):
 
     def reset(self, init_state='zeros'):
         self.operators = nn.Sequential()
-        self.encoders = nn.ModuleList([])
+        self.encoders = []
         self.observables = nn.ModuleList([])
         self.init_state = QubitState(nqubit=self.nqubit, state=init_state, den_mat=self.den_mat)
         self.state = None
         self.npara = 0
         self.ndata = 0
+        self.depth = np.array([0] * self.nqubit)
 
     def amplitude_encoding(self, data):
         self.init_state = amplitude_encoding(data, self.nqubit)
@@ -128,12 +132,34 @@ class QubitCircuit(Operation):
         return u
 
     def add(self, op, encode=False):
-        self.operators.append(op)
-        if encode:
-            self.encoders.append(op)
-            self.ndata += op.npara
-        else:
+        assert isinstance(op, Operation)
+        if isinstance(op, QubitCircuit):
+            assert self.nqubit == op.nqubit
+            self.operators += op.operators
+            self.encoders  += op.encoders
+            self.observables = op.observables
             self.npara += op.npara
+            self.ndata += op.ndata
+            self.depth += op.depth
+        else:
+            self.operators.append(op)
+            if isinstance(op, Gate):
+                for i in op.wires:
+                    self.depth[i] += 1
+                for i in op.controls:
+                    self.depth[i] += 1
+            elif isinstance(op, Layer):
+                for wire in op.wires:
+                    for i in wire:
+                        self.depth[i] += 1
+            if encode:
+                self.encoders.append(op)
+                self.ndata += op.npara
+            else:
+                self.npara += op.npara
+
+    def max_depth(self):
+        return max(self.depth)
 
     def print(self):
         pass
