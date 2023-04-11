@@ -75,9 +75,15 @@ class QubitCircuit(Operation):
         for op in self.encoders:
             count_up = count + op.npara
             if count_up > len(data) and self.reupload:
-                count = 0
-                count_up = count + op.npara
-            op.init_para(data[count:count_up])
+                data_tmp = data[count:]
+                count_up -= len(data_tmp)
+                while count_up >= len(data):
+                    data_tmp = torch.cat([data_tmp, data])
+                    count_up -= len(data)
+                data_tmp = torch.cat([data_tmp, data[:count_up]])
+                op.init_para(data_tmp)
+            else:
+                op.init_para(data[count:count_up])
             count = count_up
 
     def init_para(self):
