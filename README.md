@@ -64,9 +64,6 @@ batch = 2
 print('amplitude encoding')
 data = torch.randn(batch, 2 ** N)
 cir = QubitCircuit(N)
-# 振幅编码，多余的数据会被舍弃，自动做了归一化
-# 通过替换init_state实现，与线路本身的构建无关
-cir.amplitude_encoding(data)
 # 加一层rx
 cir.rxlayer()
 # 加一层ry并指定线路
@@ -76,8 +73,10 @@ cir.cnot_ring()
 # 添加测量，同样记录在列表中，可以添加多个，自动得到所有测量结果
 # 可以指定测量的线路和观测量，包括用列表形式的组合
 cir.observable(wires=0, basis='x')
+# 振幅编码，多余的数据会被舍弃，自动做了归一化
+state = cir.amplitude_encoding(data)
 # forward得到末态
-state = cir()
+state = cir(state=state)
 # 得到测量期望，shape为(batch, 测量次数)
 exp = cir.expectation()
 print('state', state, state.norm(dim=-2))
@@ -108,20 +107,21 @@ print('expectation', exp)
 
 # hybrid
 class Net(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, nqubit) -> None:
         super().__init__()
         self.fc = nn.Linear(8, 4)
-        self.cir = QubitCircuit(N)
-        self.build_circuit()
-    
-    def build_circuit(self):
-        self.cir.hlayer()
-        self.cir.rxlayer(encode=True)
-        self.cir.rylayer(wires=[0, 2])
-        self.cir.rxlayer()
-        self.cir.cnot_ring()
-        for i in range(N):
-            self.cir.observable(wires=i)
+        self.cir = self.circuit(nqubit)
+
+    def circuit(self, nqubit):
+        cir = QubitCircuit(nqubit)
+        cir.hlayer()
+        cir.rxlayer(encode=True)
+        cir.rylayer(wires=[0, 2])
+        cir.rxlayer()
+        cir.cnot_ring()
+        for i in range(nqubit):
+            cir.observable(wires=i)
+        return cir
     
     @Time() # 帮助计时的装饰器
     def forward(self, x):
@@ -132,7 +132,7 @@ class Net(nn.Module):
 
 nfeat = 8
 x = torch.sin(torch.tensor(list(range(batch * nfeat))).float()).reshape(batch, nfeat)
-net = Net()
+net = Net(N)
 y = net(x)
 print(net.state_dict())
 print('y', y)

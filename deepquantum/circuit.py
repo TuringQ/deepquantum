@@ -7,6 +7,7 @@ from deepquantum.gate import *
 from deepquantum.layer import *
 from torch import vmap
 from deepquantum.qmath import amplitude_encoding, measure, expectation
+from qiskit import QuantumCircuit
 
 
 class QubitCircuit(Operation):
@@ -22,6 +23,7 @@ class QubitCircuit(Operation):
         self.ndata = 0
         self.depth = np.array([0] * nqubit)
         self.reupload = reupload
+        self.measure_wires = None
 
     def __add__(self, rhs):
         assert self.nqubit == rhs.nqubit
@@ -98,14 +100,14 @@ class QubitCircuit(Operation):
         self.operators = nn.Sequential()
         self.encoders = []
         self.observables = nn.ModuleList([])
-        self.init_state = QubitState(nqubit=self.nqubit, state=init_state, den_mat=self.den_mat)
+        self.init_state = QubitState(nqubit=self.nqubit, state=init_state, den_mat=self.den_mat).state
         self.state = None
         self.npara = 0
         self.ndata = 0
         self.depth = np.array([0] * self.nqubit)
 
     def amplitude_encoding(self, data):
-        self.init_state = amplitude_encoding(data, self.nqubit)
+        return amplitude_encoding(data, self.nqubit)
     
     def observable(self, wires=None, basis='z'):
         observable = Observable(nqubit=self.nqubit, wires=wires, basis=basis,
@@ -116,6 +118,15 @@ class QubitCircuit(Operation):
         self.observables = nn.ModuleList([])
 
     def measure(self, shots=1024, with_prob=False, wires=None):
+        if self.state == None:
+            self.forward()
+        if wires == None:
+            self.measure_wires = list(range(self.nqubit))
+        else:
+            assert type(wires) in (int, list)
+            if type(wires) == int:
+                wires = [wires]
+            self.measure_wires = wires
         return measure(self.state, shots=shots, with_prob=with_prob, wires=wires)
 
     def expectation(self):
@@ -166,12 +177,23 @@ class QubitCircuit(Operation):
 
     def max_depth(self):
         return max(self.depth)
+    
+    def qasm(self):
+        s = 'OPENQASM 2.0;\n' + 'include "qelib1.inc";\n'
+        s += f'qreg q[{self.nqubit}];\n' + f'creg c[{self.nqubit}];\n'
+        for op in self.operators:
+            s += op.qasm()
+        if self.measure_wires != None:
+            for wire in self.measure_wires:
+                s += f'measure q[{wire}] -> c[{wire}];\n'
+        return s
 
     def print(self):
         pass
         
-    def draw(self):
-        pass
+    def draw(self, output='mpl'):
+        qc = QuantumCircuit.from_qasm_str(self.qasm())
+        return qc.draw(output)
 
     def u3(self, wires, inputs=None, controls=None, encode=False):
         requires_grad = not encode
