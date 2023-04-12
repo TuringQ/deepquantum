@@ -241,3 +241,9 @@ class Layer(Operation):
             else:
                 return self.vector_rep(x).squeeze(0)
         return x
+    
+    def qasm(self):
+        s = ''
+        for gate in self.gates:
+            s += gate.qasm()
+        return s
