@@ -23,7 +23,7 @@ class QubitCircuit(Operation):
         self.ndata = 0
         self.depth = np.array([0] * nqubit)
         self.reupload = reupload
-        self.measure_wires = None
+        self.wires_measure = None
 
     def __add__(self, rhs):
         assert self.nqubit == rhs.nqubit
@@ -76,17 +76,13 @@ class QubitCircuit(Operation):
         count = 0
         for op in self.encoders:
             count_up = count + op.npara
-            if count_up > len(data) and self.reupload:
-                data_tmp = data[count:]
-                count_up -= len(data_tmp)
-                while count_up >= len(data):
-                    data_tmp = torch.cat([data_tmp, data])
-                    count_up -= len(data)
-                data_tmp = torch.cat([data_tmp, data[:count_up]])
+            if self.reupload and count_up > len(data):
+                n = int(np.ceil(count_up / len(data)))
+                data_tmp = torch.cat([data] * n)[count:count_up]
                 op.init_para(data_tmp)
             else:
                 op.init_para(data[count:count_up])
-            count = count_up
+            count = count_up % len(data)
 
     def init_para(self):
         for op in self.operators:
@@ -121,12 +117,12 @@ class QubitCircuit(Operation):
         if self.state == None:
             self.forward()
         if wires == None:
-            self.measure_wires = list(range(self.nqubit))
+            self.wires_measure = list(range(self.nqubit))
         else:
             assert type(wires) in (int, list)
             if type(wires) == int:
                 wires = [wires]
-            self.measure_wires = wires
+            self.wires_measure = wires
         return measure(self.state, shots=shots, with_prob=with_prob, wires=wires)
 
     def expectation(self):
@@ -179,21 +175,22 @@ class QubitCircuit(Operation):
         return max(self.depth)
     
     def qasm(self):
-        s = 'OPENQASM 2.0;\n' + 'include "qelib1.inc";\n'
-        s += f'qreg q[{self.nqubit}];\n' + f'creg c[{self.nqubit}];\n'
+        qasm_str = 'OPENQASM 2.0;\n' + 'include "qelib1.inc";\n'
+        qasm_str += f'qreg q[{self.nqubit}];\n' + f'creg c[{self.nqubit}];\n'
         for op in self.operators:
-            s += op.qasm()
-        if self.measure_wires != None:
-            for wire in self.measure_wires:
-                s += f'measure q[{wire}] -> c[{wire}];\n'
-        return s
+            qasm_str += op.qasm()
+        if self.wires_measure != None:
+            for wire in self.wires_measure:
+                qasm_str += f'measure q[{wire}] -> c[{wire}];\n'
+        Gate.qasm_new_gate = []
+        return qasm_str
 
     def print(self):
         pass
         
-    def draw(self, output='mpl'):
+    def draw(self, output='mpl', **kwargs):
         qc = QuantumCircuit.from_qasm_str(self.qasm())
-        return qc.draw(output)
+        return qc.draw(output=output, **kwargs)
 
     def u3(self, wires, inputs=None, controls=None, encode=False):
         requires_grad = not encode
@@ -446,9 +443,9 @@ class QubitCircuit(Operation):
                      den_mat=self.den_mat, tsr_mode=True)
         self.add(cswap)
 
-    def any(self, unitary, minmax=None):
-        uany = UAnyGate(unitary=unitary, nqubit=self.nqubit, minmax=minmax, den_mat=self.den_mat,
-                        tsr_mode=True)
+    def any(self, unitary, minmax=None, name='uany'):
+        uany = UAnyGate(unitary=unitary, nqubit=self.nqubit, minmax=minmax, name=name,
+                        den_mat=self.den_mat, tsr_mode=True)
         self.add(uany)
 
     def hlayer(self, wires=None):
