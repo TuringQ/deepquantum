@@ -258,7 +258,8 @@ class U3Gate(ParametricSingleGate):
         elif len(self.controls) == 1:
             return f'cu({self.theta.data},{self.phi.data},{self.lambd.data},0.0) q{self.controls},q{self.wires};\n'
         else:
-            raise NotImplementedError
+            return self.qasm_customized('u')
+
 
 class PhaseShift(ParametricSingleGate):
     def __init__(self, inputs=None, nqubit=1, wires=[0], controls=None,
@@ -287,14 +288,14 @@ class PhaseShift(ParametricSingleGate):
         elif len(self.controls) == 1:
             return f'cp({self.theta.data}) q{self.controls},q{self.wires};\n'
         else:
-            raise NotImplementedError
+            return self.qasm_customized('p')
 
 
 class Identity(Gate):
     def __init__(self, nqubit=1, wires=[0], den_mat=False, tsr_mode=False):
         super().__init__(name='Identity', nqubit=nqubit, wires=wires, controls=None,
                          den_mat=den_mat, tsr_mode=tsr_mode)
-        self.matrix = torch.eye(2 ** self.nqubit, dtype=torch.cfloat)
+        self.register_buffer('matrix', torch.eye(2 ** self.nqubit, dtype=torch.cfloat))
         
     def get_unitary(self):
         return self.matrix
@@ -317,7 +318,7 @@ class PauliX(SingleGate):
         elif len(self.controls) == 2:
             return f'ccx q[{self.controls[0]}],q[{self.controls[1]}],q{self.wires};\n'
         else:
-            raise NotImplementedError
+            return self.qasm_customized('x')
 
 
 class PauliY(SingleGate):
@@ -332,8 +333,7 @@ class PauliY(SingleGate):
         elif len(self.controls) == 1:
             return f'cy q{self.controls},q{self.wires};\n'
         else:
-            raise NotImplementedError
-
+            return self.qasm_customized('y')
 
 class PauliZ(SingleGate):
     def __init__(self, nqubit=1, wires=[0], controls=None, den_mat=False, tsr_mode=False):
@@ -349,7 +349,7 @@ class PauliZ(SingleGate):
         elif len(self.controls) == 2:
             return f'ccz q[{self.controls[0]}],q[{self.controls[1]}],q{self.wires};\n'
         else:
-            raise NotImplementedError
+            return self.qasm_customized('z')
 
 
 class Hadamard(SingleGate):
@@ -364,7 +364,7 @@ class Hadamard(SingleGate):
         elif len(self.controls) == 1:
             return f'ch q{self.controls},q{self.wires};\n'
         else:
-            raise NotImplementedError
+            return self.qasm_customized('h')
 
 
 class SGate(SingleGate):
@@ -379,7 +379,7 @@ class SGate(SingleGate):
         elif len(self.controls) == 1:
             return f'cs q{self.controls},q{self.wires};\n'
         else:
-            raise NotImplementedError
+            return self.qasm_customized('s')
 
 
 class SDaggerGate(SingleGate):
@@ -394,7 +394,7 @@ class SDaggerGate(SingleGate):
         elif len(self.controls) == 1:
             return f'csdg q{self.controls},q{self.wires};\n'
         else:
-            raise NotImplementedError
+            return self.qasm_customized('sdg')
 
 
 class TGate(SingleGate):
@@ -407,7 +407,7 @@ class TGate(SingleGate):
         if self.controls == []:
             return f't q{self.wires};\n'
         else:
-            raise NotImplementedError
+            return self.qasm_customized('t')
 
 
 class TDaggerGate(SingleGate):
@@ -420,7 +420,7 @@ class TDaggerGate(SingleGate):
         if self.controls == []:
             return f'tdg q{self.wires};\n'
         else:
-            raise NotImplementedError
+            return self.qasm_customized('tdg')
 
 
 class Rx(ParametricSingleGate):
@@ -441,7 +441,7 @@ class Rx(ParametricSingleGate):
         elif len(self.controls) == 1:
             return f'crx({self.theta.data}) q{self.controls},q{self.wires};\n'
         else:
-            raise NotImplementedError
+            return self.qasm_customized('rx')
 
 
 class Ry(ParametricSingleGate):
@@ -462,7 +462,7 @@ class Ry(ParametricSingleGate):
         elif len(self.controls) == 1:
             return f'cry({self.theta.data}) q{self.controls},q{self.wires};\n'
         else:
-            raise NotImplementedError
+            return self.qasm_customized('ry')
 
 
 class Rz(ParametricSingleGate):
@@ -483,7 +483,7 @@ class Rz(ParametricSingleGate):
         elif len(self.controls) == 1:
             return f'crz({self.theta.data}) q{self.controls},q{self.wires};\n'
         else:
-            raise NotImplementedError
+            return self.qasm_customized('rz')
 
 
 class CombinedSingleGate(SingleGate):
@@ -553,7 +553,7 @@ class Swap(DoubleGate):
         elif len(self.controls) == 1:
             return f'cswap q{self.controls},q[{self.wires[0]}],q[{self.wires[1]}];\n'
         else:
-            raise NotImplementedError
+            return self.qasm_customized('swap')
 
 
 class Rxx(ParametricDoubleGate):
@@ -574,7 +574,7 @@ class Rxx(ParametricDoubleGate):
         if self.controls == []:
             return f'rxx({self.theta.data}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
         else:
-            raise NotImplementedError
+            return self.qasm_customized('rxx')
 
 
 class Ryy(ParametricDoubleGate):
@@ -595,7 +595,7 @@ class Ryy(ParametricDoubleGate):
         if self.controls == []:
             return f'ryy({self.theta.data}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
         else:
-            raise NotImplementedError
+            return self.qasm_customized('ryy')
 
 
 class Rzz(ParametricDoubleGate):
@@ -614,7 +614,7 @@ class Rzz(ParametricDoubleGate):
         if self.controls == []:
             return f'rzz({self.theta.data}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
         else:
-            raise NotImplementedError
+            return self.qasm_customized('rzz')
 
 
 class Rxy(ParametricDoubleGate):
@@ -630,6 +630,9 @@ class Rxy(ParametricDoubleGate):
         m1 = torch.eye(1, dtype=torch.cfloat, device=theta.device)
         m2 = torch.stack([cos, -isin, -isin, cos]).reshape(2, 2)
         return torch.block_diag(m1, m2, m1)
+    
+    def qasm(self):
+        return self.qasm_customized('rxy')
 
 
 class Toffoli(TripleGate):
@@ -715,7 +718,7 @@ class Fredkin(TripleGate):
 
 
 class UAnyGate(Gate):
-    def __init__(self, unitary, nqubit=1, minmax=None, den_mat=False, tsr_mode=False):
+    def __init__(self, unitary, nqubit=1, minmax=None, name='UAnyGate', den_mat=False, tsr_mode=False):
         if minmax == None:
             minmax = [0, nqubit-1]
         assert type(minmax) == list
@@ -729,7 +732,7 @@ class UAnyGate(Gate):
         assert unitary.dtype == torch.cfloat
         assert unitary.shape[-1] == 2 ** len(wires) and unitary.shape[-2] == 2 ** len(wires)
         assert is_unitary(unitary)
-        super().__init__(name='UAnyGate', nqubit=nqubit, wires=wires, controls=None,
+        super().__init__(name=name, nqubit=nqubit, wires=wires, controls=None,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', unitary)
 
@@ -738,3 +741,20 @@ class UAnyGate(Gate):
         lst = [identity] * (self.nqubit - len(self.wires) + 1)
         lst[self.wires[0]] = self.matrix
         return multi_kron(lst)
+    
+    def qasm(self):
+        return self.qasm_customized(self.name)
+
+
+class Barrier(Gate):
+    def __init__(self, nqubit=1, wires=[0]):
+        super().__init__(name='Barrier', nqubit=nqubit, wires=wires)
+
+    def forward(self, x):
+        return x
+    
+    def qasm(self):
+        qasm_str = 'barrier '
+        for wire in self.wires:
+            qasm_str += f'q[{wire}],'
+        return qasm_str[:-1] + ';\n'
