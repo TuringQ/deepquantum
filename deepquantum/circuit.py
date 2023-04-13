@@ -492,3 +492,9 @@ class QubitCircuit(Operation):
         cxr = CnotRing(nqubit=self.nqubit, minmax=minmax, step=step, reverse=reverse,
                        den_mat=self.den_mat, tsr_mode=True)
         self.add(cxr)
+
+    def barrier(self, wires=None):
+        if wires == None:
+            wires = list(range(self.nqubit))
+        br = Barrier(nqubit=self.nqubit, wires=wires)
+        self.add(br)

@@ -201,7 +201,7 @@ class Gate(Operation):
             name = f'c{len(self.controls)}{name}_'
         else:
             name = 'c' * len(self.controls) + f'{name}_'
-        warnings.warn(f'{name} is an empty gate and should be only used to draw circuit.')
+        # warnings.warn(f'{name} is an empty gate and should be only used to draw circuit.')
         qasm_str1 = f'gate {name} '
         qasm_str2 = f'{name} '
         for i, wire in enumerate(self.controls):

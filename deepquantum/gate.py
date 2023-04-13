@@ -295,7 +295,7 @@ class Identity(Gate):
     def __init__(self, nqubit=1, wires=[0], den_mat=False, tsr_mode=False):
         super().__init__(name='Identity', nqubit=nqubit, wires=wires, controls=None,
                          den_mat=den_mat, tsr_mode=tsr_mode)
-        self.matrix = torch.eye(2 ** self.nqubit, dtype=torch.cfloat)
+        self.register_buffer('matrix', torch.eye(2 ** self.nqubit, dtype=torch.cfloat))
         
     def get_unitary(self):
         return self.matrix
@@ -744,3 +744,17 @@ class UAnyGate(Gate):
     
     def qasm(self):
         return self.qasm_customized(self.name)
+
+
+class Barrier(Gate):
+    def __init__(self, nqubit=1, wires=[0]):
+        super().__init__(name='Barrier', nqubit=nqubit, wires=wires)
+
+    def forward(self, x):
+        return x
+    
+    def qasm(self):
+        qasm_str = 'barrier '
+        for wire in self.wires:
+            qasm_str += f'q[{wire}],'
+        return qasm_str[:-1] + ';\n'
