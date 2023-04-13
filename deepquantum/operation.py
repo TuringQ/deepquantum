@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from deepquantum.qmath import inverse_permutation
+import warnings
 
 
 class Operation(nn.Module):
@@ -47,6 +48,8 @@ class Operation(nn.Module):
 
 
 class Gate(Operation):
+    qasm_new_gate = []
+
     def __init__(self, name=None, nqubit=1, wires=[0], controls=None, den_mat=False, tsr_mode=False):
         if type(wires) == int:
             wires = [wires]
@@ -191,6 +194,29 @@ class Gate(Operation):
             return s
         else:
             return s + f', controls={self.controls}'
+    
+    def qasm_customized(self, name):
+        name = name.lower()
+        if len(self.controls) > 2:
+            name = f'c{len(self.controls)}{name}_'
+        else:
+            name = 'c' * len(self.controls) + f'{name}_'
+        # warnings.warn(f'{name} is an empty gate and should be only used to draw circuit.')
+        qasm_str1 = f'gate {name} '
+        qasm_str2 = f'{name} '
+        for i, wire in enumerate(self.controls):
+            qasm_str1 += f'q{i},'
+            qasm_str2 += f'q[{wire}],'
+        for i, wire in enumerate(self.wires):
+            qasm_str1 += f'q{len(self.controls) + i},'
+            qasm_str2 += f'q[{wire}],'
+        qasm_str1 = qasm_str1[:-1] + ' { }\n'
+        qasm_str2 = qasm_str2[:-1] + ';\n'
+        if name not in Gate.qasm_new_gate:
+            Gate.qasm_new_gate.append(name)
+            return qasm_str1 + qasm_str2
+        else:
+            return qasm_str2
 
 
 class Layer(Operation):
