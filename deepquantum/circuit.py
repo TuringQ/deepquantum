@@ -101,6 +101,7 @@ class QubitCircuit(Operation):
         self.npara = 0
         self.ndata = 0
         self.depth = np.array([0] * self.nqubit)
+        self.wires_measure = None
 
     def amplitude_encoding(self, data):
         return amplitude_encoding(data, self.nqubit)
@@ -176,7 +177,10 @@ class QubitCircuit(Operation):
     
     def qasm(self):
         qasm_str = 'OPENQASM 2.0;\n' + 'include "qelib1.inc";\n'
-        qasm_str += f'qreg q[{self.nqubit}];\n' + f'creg c[{self.nqubit}];\n'
+        if self.wires_measure == None:
+            qasm_str += f'qreg q[{self.nqubit}];\n'
+        else:
+            qasm_str += f'qreg q[{self.nqubit}];\n' + f'creg c[{self.nqubit}];\n'
         for op in self.operators:
             qasm_str += op.qasm()
         if self.wires_measure != None:
