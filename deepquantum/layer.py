@@ -32,6 +32,7 @@ class DoubleLayer(Layer):
 class Observable(SingleLayer):
     def __init__(self, nqubit=1, wires=None, basis='z', den_mat=False, tsr_mode=False):
         super().__init__(name='Observable', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
+        basis = basis.lower()
         if len(basis) == 1:
             self.basis = basis * len(self.wires)
         else:
