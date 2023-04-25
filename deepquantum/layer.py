@@ -32,8 +32,11 @@ class DoubleLayer(Layer):
 class Observable(SingleLayer):
     def __init__(self, nqubit=1, wires=None, basis='z', den_mat=False, tsr_mode=False):
         super().__init__(name='Observable', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
+        basis = basis.lower()
         if len(basis) == 1:
             self.basis = basis * len(self.wires)
+        else:
+            self.basis = basis
         assert len(self.wires) == len(self.basis), 'The number of wires is not equal to the number of bases'
         for i, wire in enumerate(self.wires):
             if self.basis[i] == 'x':

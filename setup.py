@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 requirements = [
-    "torch==2.0",
+    "torch>=2.0",
     "numpy",
     "matplotlib",
     "qiskit",
@@ -10,7 +10,7 @@ requirements = [
 
 setup(
     name='deepquantum',
-    version='0.0.3',
+    version='0.0.4',
     packages=find_packages(where="."),
     url='',
     license='',
