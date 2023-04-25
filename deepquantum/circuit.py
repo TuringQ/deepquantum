@@ -101,6 +101,7 @@ class QubitCircuit(Operation):
         self.npara = 0
         self.ndata = 0
         self.depth = np.array([0] * self.nqubit)
+        self.wires_measure = None
 
     def amplitude_encoding(self, data):
         return amplitude_encoding(data, self.nqubit)
@@ -176,7 +177,10 @@ class QubitCircuit(Operation):
     
     def qasm(self):
         qasm_str = 'OPENQASM 2.0;\n' + 'include "qelib1.inc";\n'
-        qasm_str += f'qreg q[{self.nqubit}];\n' + f'creg c[{self.nqubit}];\n'
+        if self.wires_measure == None:
+            qasm_str += f'qreg q[{self.nqubit}];\n'
+        else:
+            qasm_str += f'qreg q[{self.nqubit}];\n' + f'creg c[{self.nqubit}];\n'
         for op in self.operators:
             qasm_str += op.qasm()
         if self.wires_measure != None:
@@ -200,29 +204,29 @@ class QubitCircuit(Operation):
                     den_mat=self.den_mat, tsr_mode=True, requires_grad=requires_grad)
         self.add(u3, encode=encode)
 
-    def cu(self, wires, inputs=None, encode=False):
+    def cu(self, control, target, inputs=None, encode=False):
         requires_grad = not encode
         if inputs != None:
             requires_grad = False
-        cu = U3Gate(inputs=inputs, nqubit=self.nqubit, wires=[wires[1]], controls=[wires[0]],
+        cu = U3Gate(inputs=inputs, nqubit=self.nqubit, wires=[target], controls=[control],
                     den_mat=self.den_mat, tsr_mode=True, requires_grad=requires_grad)
         self.add(cu, encode=encode)
 
-    def ps(self, wires, inputs=None, controls=None, encode=False):
+    def p(self, wires, inputs=None, controls=None, encode=False):
         requires_grad = not encode
         if inputs != None:
             requires_grad = False
-        ps = PhaseShift(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls,
-                        den_mat=self.den_mat, tsr_mode=True, requires_grad=requires_grad)
-        self.add(ps, encode=encode)
+        p = PhaseShift(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls,
+                       den_mat=self.den_mat, tsr_mode=True, requires_grad=requires_grad)
+        self.add(p, encode=encode)
 
-    def cphase(self, wires, inputs=None, encode=False):
+    def cp(self, control, target, inputs=None, encode=False):
         requires_grad = not encode
         if inputs != None:
             requires_grad = False
-        cphase = PhaseShift(inputs=inputs, nqubit=self.nqubit, wires=[wires[1]], controls=[wires[0]],
-                            den_mat=self.den_mat, tsr_mode=True, requires_grad=requires_grad)
-        self.add(cphase, encode=encode)
+        cp = PhaseShift(inputs=inputs, nqubit=self.nqubit, wires=[target], controls=[control],
+                        den_mat=self.den_mat, tsr_mode=True, requires_grad=requires_grad)
+        self.add(cp, encode=encode)
 
     def x(self, wires, controls=None):
         x = PauliX(nqubit=self.nqubit, wires=wires, controls=controls,
@@ -264,28 +268,28 @@ class QubitCircuit(Operation):
                           den_mat=self.den_mat, tsr_mode=True)
         self.add(tdg)
 
-    def ch(self, wires):
-        ch = Hadamard(nqubit=self.nqubit, wires=[wires[1]], controls=[wires[0]],
+    def ch(self, control, target):
+        ch = Hadamard(nqubit=self.nqubit, wires=[target], controls=[control],
                       den_mat=self.den_mat, tsr_mode=True)
         self.add(ch)
 
-    def cs(self, wires):
-        cs = SGate(nqubit=self.nqubit, wires=[wires[1]], controls=[wires[0]],
+    def cs(self, control, target):
+        cs = SGate(nqubit=self.nqubit, wires=[target], controls=[control],
                    den_mat=self.den_mat, tsr_mode=True)
         self.add(cs)
 
-    def csdg(self, wires):
-        csdg = SDaggerGate(nqubit=self.nqubit, wires=[wires[1]], controls=[wires[0]],
+    def csdg(self, control, target):
+        csdg = SDaggerGate(nqubit=self.nqubit, wires=[target], controls=[control],
                            den_mat=self.den_mat, tsr_mode=True)
         self.add(csdg)
 
-    def ct(self, wires):
-        ct = TGate(nqubit=self.nqubit, wires=[wires[1]], controls=[wires[0]],
+    def ct(self, control, target):
+        ct = TGate(nqubit=self.nqubit, wires=[target], controls=[control],
                    den_mat=self.den_mat, tsr_mode=True)
         self.add(ct)
 
-    def ctdg(self, wires):
-        ctdg = TDaggerGate(nqubit=self.nqubit, wires=[wires[1]], controls=[wires[0]],
+    def ctdg(self, control, target):
+        ctdg = TDaggerGate(nqubit=self.nqubit, wires=[target], controls=[control],
                            den_mat=self.den_mat, tsr_mode=True)
         self.add(ctdg)
 
@@ -313,46 +317,46 @@ class QubitCircuit(Operation):
                 den_mat=self.den_mat, tsr_mode=True, requires_grad=requires_grad)
         self.add(rz, encode=encode)
 
-    def crx(self, wires, inputs=None, encode=False):
+    def crx(self, control, target, inputs=None, encode=False):
         requires_grad = not encode
         if inputs != None:
             requires_grad = False
-        crx = Rx(inputs=inputs, nqubit=self.nqubit, wires=[wires[1]], controls=[wires[0]],
+        crx = Rx(inputs=inputs, nqubit=self.nqubit, wires=[target], controls=[control],
                  den_mat=self.den_mat, tsr_mode=True, requires_grad=requires_grad)
         self.add(crx, encode=encode)
 
-    def cry(self, wires, inputs=None, encode=False):
+    def cry(self, control, target, inputs=None, encode=False):
         requires_grad = not encode
         if inputs != None:
             requires_grad = False
-        cry = Ry(inputs=inputs, nqubit=self.nqubit, wires=[wires[1]], controls=[wires[0]],
+        cry = Ry(inputs=inputs, nqubit=self.nqubit, wires=[target], controls=[control],
                  den_mat=self.den_mat, tsr_mode=True, requires_grad=requires_grad)
         self.add(cry, encode=encode)
 
-    def crz(self, wires, inputs=None, encode=False):
+    def crz(self, control, target, inputs=None, encode=False):
         requires_grad = not encode
         if inputs != None:
             requires_grad = False
-        crz = Rz(inputs=inputs, nqubit=self.nqubit, wires=[wires[1]], controls=[wires[0]],
+        crz = Rz(inputs=inputs, nqubit=self.nqubit, wires=[target], controls=[control],
                  den_mat=self.den_mat, tsr_mode=True, requires_grad=requires_grad)
         self.add(crz, encode=encode)
 
-    def cnot(self, wires):
-        cnot = CNOT(nqubit=self.nqubit, wires=wires, den_mat=self.den_mat, tsr_mode=True)
+    def cnot(self, control, target):
+        cnot = CNOT(nqubit=self.nqubit, wires=[control, target], den_mat=self.den_mat, tsr_mode=True)
         self.add(cnot)
 
-    def cx(self, wires):
-        cx = PauliX(nqubit=self.nqubit, wires=[wires[1]], controls=[wires[0]],
+    def cx(self, control, target):
+        cx = PauliX(nqubit=self.nqubit, wires=[target], controls=[control],
                     den_mat=self.den_mat, tsr_mode=True)
         self.add(cx)
 
-    def cy(self, wires):
-        cy = PauliY(nqubit=self.nqubit, wires=[wires[1]], controls=[wires[0]],
+    def cy(self, control, target):
+        cy = PauliY(nqubit=self.nqubit, wires=[target], controls=[control],
                     den_mat=self.den_mat, tsr_mode=True)
         self.add(cy)
 
-    def cz(self, wires):
-        cz = PauliZ(nqubit=self.nqubit, wires=[wires[1]], controls=[wires[0]],
+    def cz(self, control, target):
+        cz = PauliZ(nqubit=self.nqubit, wires=[target], controls=[control],
                     den_mat=self.den_mat, tsr_mode=True)
         self.add(cz)
 
@@ -393,53 +397,55 @@ class QubitCircuit(Operation):
                   den_mat=self.den_mat, tsr_mode=True, requires_grad=requires_grad)
         self.add(rxy, encode=encode)
 
-    def crxx(self, wires, inputs=None, encode=False):
+    def crxx(self, control, target1, target2, inputs=None, encode=False):
         requires_grad = not encode
         if inputs != None:
             requires_grad = False
-        crxx = Rxx(inputs=inputs, nqubit=self.nqubit, wires=[wires[1], wires[2]], controls=[wires[0]],
+        crxx = Rxx(inputs=inputs, nqubit=self.nqubit, wires=[target1, target2], controls=[control],
                    den_mat=self.den_mat, tsr_mode=True, requires_grad=requires_grad)
         self.add(crxx, encode=encode)
 
-    def cryy(self, wires, inputs=None, encode=False):
+    def cryy(self, control, target1, target2, inputs=None, encode=False):
         requires_grad = not encode
         if inputs != None:
             requires_grad = False
-        cryy = Ryy(inputs=inputs, nqubit=self.nqubit, wires=[wires[1], wires[2]], controls=[wires[0]],
+        cryy = Ryy(inputs=inputs, nqubit=self.nqubit, wires=[target1, target2], controls=[control],
                    den_mat=self.den_mat, tsr_mode=True, requires_grad=requires_grad)
         self.add(cryy, encode=encode)
 
-    def crzz(self, wires, inputs=None, encode=False):
+    def crzz(self, control, target1, target2, inputs=None, encode=False):
         requires_grad = not encode
         if inputs != None:
             requires_grad = False
-        crzz = Rzz(inputs=inputs, nqubit=self.nqubit, wires=[wires[1], wires[2]], controls=[wires[0]],
+        crzz = Rzz(inputs=inputs, nqubit=self.nqubit, wires=[target1, target2], controls=[control],
                    den_mat=self.den_mat, tsr_mode=True, requires_grad=requires_grad)
         self.add(crzz, encode=encode)
 
-    def crxy(self, wires, inputs=None, encode=False):
+    def crxy(self, control, target1, target2, inputs=None, encode=False):
         requires_grad = not encode
         if inputs != None:
             requires_grad = False
-        crxy = Rxy(inputs=inputs, nqubit=self.nqubit, wires=[wires[1], wires[2]], controls=[wires[0]],
+        crxy = Rxy(inputs=inputs, nqubit=self.nqubit, wires=[target1, target2], controls=[control],
                    den_mat=self.den_mat, tsr_mode=True, requires_grad=requires_grad)
         self.add(crxy, encode=encode)
 
-    def toffoli(self, wires):
-        toffoli = Toffoli(nqubit=self.nqubit, wires=wires, den_mat=self.den_mat, tsr_mode=True)
+    def toffoli(self, control1, control2, target):
+        toffoli = Toffoli(nqubit=self.nqubit, wires=[control1, control2, target],
+                          den_mat=self.den_mat, tsr_mode=True)
         self.add(toffoli)
 
-    def ccx(self, wires):
-        ccx = PauliX(nqubit=self.nqubit, wires=[wires[2]], controls=[wires[0], wires[1]],
+    def ccx(self, control1, control2, target):
+        ccx = PauliX(nqubit=self.nqubit, wires=[target], controls=[control1, control2],
                      den_mat=self.den_mat, tsr_mode=True)
         self.add(ccx)
 
-    def fredkin(self, wires):
-        fredkin = Fredkin(nqubit=self.nqubit, wires=wires, den_mat=self.den_mat, tsr_mode=True)
+    def fredkin(self, control, target1, target2):
+        fredkin = Fredkin(nqubit=self.nqubit, wires=[control, target1, target2],
+                          den_mat=self.den_mat, tsr_mode=True)
         self.add(fredkin)
 
-    def cswap(self, wires):
-        cswap = Swap(nqubit=self.nqubit, wires=[wires[1], wires[2]], controls=[wires[0]],
+    def cswap(self, control, target1, target2):
+        cswap = Swap(nqubit=self.nqubit, wires=[target1, target2], controls=[control],
                      den_mat=self.den_mat, tsr_mode=True)
         self.add(cswap)
 
