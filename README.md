@@ -11,6 +11,10 @@ Install DeepQuantum with the following commands.
 > cd deepquantum
 >
 > pip install -e .
+>
+> # or use tsinghua source
+>
+> pip install -e . -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 ## Getting Started
 
