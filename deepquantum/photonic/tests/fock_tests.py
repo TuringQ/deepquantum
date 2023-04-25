@@ -1,23 +1,32 @@
+import sys
+sys.path.append("..")
+
 import torch
 from torch import tensor
-from qumode import QumodeCircuit, FockState
+from qumode import QumodeCircuit, FockState, homodyne_measure
 from fock.ops import Displacement
 
 
 
 #------QC
-state = FockState(n_modes=2, cutoff=2) 
+state = FockState(batch_size=3, n_modes=2, cutoff=15, pure=False, dtype=torch.complex128) 
 
 cir = QumodeCircuit(n_modes=2, backend='fock')
-cir.displace(r=tensor(1.0), phi=tensor(0.0), mode=0)
-cir.displace(r=tensor(2.0), phi=tensor(0.0), mode=1)
-#cir.displace(r=tensor(3.0), phi=tensor(3.0), mode=0)
+cir.displace(r=tensor(1.0), phi=tensor(2.0), mode=0)
+cir.displace(r=tensor(2.0), phi=tensor(3.0), mode=1)
+
 
 state = cir(state) 
 
-# samples = homodyne_measure(state, phi=0, mode=0)   # (shots, modes)
+# samples = state.homodyne_measure(phi=0., mode=0, shots=1) 
 
-# breakpoint()
+samples, state = homodyne_measure(state, phi=0, mode=0, shots=1)   
+
+print('measurements:', samples)
+print('collapsed state:', state.tensor)
+print('collapsed state:', state.tensor.shape)
+
+
 
 #------QML
 
