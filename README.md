@@ -12,7 +12,7 @@ Install DeepQuantum with the following commands.
 >
 > pip install -e .
 >
-> # or use tsinghua source
+> \# or use tsinghua source
 >
 > pip install -e . -i https://pypi.tuna.tsinghua.edu.cn/simple
 
@@ -24,7 +24,7 @@ The following is a minimal demo.
 
 ```python
 import deepquantum as dq
-cir = dq.Circuit(2)
+cir = dq.QubitCircuit(2)
 cir.h(0)
 cir.cnot(0, 1)
 cir.rx(1, 0.2)

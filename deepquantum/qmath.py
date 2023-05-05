@@ -320,7 +320,7 @@ def generalized_distance(state1: torch.Tensor, state2: torch.Tensor) -> torch.Te
     Returns:
         torch.Tensor: the generalized distance
     """
-    return (state1.mH @ state1) * (state2.mH @ state2) - (state1.mH @ state2) * (state2.mH @ state1)
+    return ((state1.mH @ state1) * (state2.mH @ state2) - (state1.mH @ state2) * (state2.mH @ state1)).real
 
 
 def Meyer_Wallach_measure_Brennen(state_tsr: torch.Tensor) -> torch.Tensor:
@@ -346,6 +346,6 @@ def Meyer_Wallach_measure_Brennen(state_tsr: torch.Tensor) -> torch.Tensor:
         trace_list.remove(i)
         rho_i = partial_trace(rho, nqubit, trace_list)
         rho_i = rho_i @ rho_i
-        trace_rho_i = rho_i.diagonal(offset=0, dim1=-2, dim2=-1).sum(-1)
+        trace_rho_i = rho_i.diagonal(offset=0, dim1=-2, dim2=-1).sum(-1).real
         rst += trace_rho_i
     return 2 * (1 - rst / nqubit)

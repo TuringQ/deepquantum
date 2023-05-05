@@ -13,11 +13,15 @@ from qiskit import QuantumCircuit
 class QubitCircuit(Operation):
     def __init__(self, nqubit, init_state='zeros', name=None, den_mat=False, reupload=False):
         super().__init__(name=name, nqubit=nqubit, wires=None, den_mat=den_mat)
-        init_state = QubitState(nqubit=nqubit, state=init_state, den_mat=den_mat)
+        if type(init_state) == QubitState:
+            assert nqubit == init_state.nqubit
+            assert den_mat == init_state.den_mat
+            self.init_state = init_state
+        else:
+            self.init_state = QubitState(nqubit=nqubit, state=init_state, den_mat=den_mat)
         self.operators = nn.Sequential()
         self.encoders = []
         self.observables = nn.ModuleList([])
-        self.register_buffer('init_state', init_state.state)
         self.state = None
         self.npara = 0
         self.ndata = 0
@@ -28,18 +32,29 @@ class QubitCircuit(Operation):
     def __add__(self, rhs):
         assert self.nqubit == rhs.nqubit
         cir = QubitCircuit(nqubit=self.nqubit, name=self.name, den_mat=self.den_mat, reupload=self.reupload)
+        cir.init_state = self.init_state
         cir.operators = self.operators + rhs.operators
         cir.encoders = self.encoders + rhs.encoders
         cir.observables = rhs.observables
-        cir.init_state = self.init_state
         cir.npara = self.npara + rhs.npara
         cir.ndata = self.ndata + rhs.ndata
         cir.depth = self.depth + rhs.depth
+        cir.wires_measure = rhs.wires_measure
         return cir
+
+    def to(self, arg):
+        if arg == torch.float:
+            self.init_state.to(torch.cfloat)
+        elif arg == torch.double:
+            self.init_state.to(torch.cdouble)
+        else:
+            self.init_state.to(arg)
+        self.operators.to(arg)
+        self.observables.to(arg)
 
     def forward(self, data=None, state=None):
         if state == None:
-            state = self.init_state
+            state = self.init_state.state
         if data == None:
             self.state = self.forward_helper(state=state)
             if self.state.ndim == 2:
@@ -60,7 +75,7 @@ class QubitCircuit(Operation):
     def forward_helper(self, data=None, state=None):
         self.encode(data)
         if state == None:
-            state = self.init_state
+            state = self.init_state.state
         x = self.operators(self.tensor_rep(state))
         if self.den_mat:
             x = self.matrix_rep(x)
@@ -93,10 +108,15 @@ class QubitCircuit(Operation):
             op.init_para()
 
     def reset(self, init_state='zeros'):
+        if type(init_state) == QubitState:
+            assert self.nqubit == init_state.nqubit
+            assert self.den_mat == init_state.den_mat
+            self.init_state = init_state
+        else:
+            self.init_state = QubitState(nqubit=self.nqubit, state=init_state, den_mat=self.den_mat)
         self.operators = nn.Sequential()
         self.encoders = []
         self.observables = nn.ModuleList([])
-        self.init_state = QubitState(nqubit=self.nqubit, state=init_state, den_mat=self.den_mat).state
         self.state = None
         self.npara = 0
         self.ndata = 0
@@ -115,8 +135,6 @@ class QubitCircuit(Operation):
         self.observables = nn.ModuleList([])
 
     def measure(self, shots=1024, with_prob=False, wires=None):
-        if self.state == None:
-            self.forward()
         if wires == None:
             self.wires_measure = list(range(self.nqubit))
         else:
@@ -124,7 +142,10 @@ class QubitCircuit(Operation):
             if type(wires) == int:
                 wires = [wires]
             self.wires_measure = wires
-        return measure(self.state, shots=shots, with_prob=with_prob, wires=wires)
+        if self.state == None:
+            return
+        else:
+            return measure(self.state, shots=shots, with_prob=with_prob, wires=wires)
 
     def expectation(self):
         assert len(self.observables) > 0, 'There is no observable'

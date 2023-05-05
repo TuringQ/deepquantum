@@ -1,6 +1,9 @@
 import torch
 import torch.nn as nn
-from deepquantum.qmath import is_density_matrix, amplitude_encoding
+from deepquantum.qmath import is_density_matrix, amplitude_encoding, SVD
+
+
+svd = SVD.apply
 
 
 class QubitState(nn.Module):
@@ -41,6 +44,168 @@ class QubitState(nn.Module):
                 if den_mat:
                     state = state @ state.mH
                 self.register_buffer('state', state)
+
+    def forward(self):
+        pass
+
+
+class MatrixProductState(nn.Module):
+    def __init__(self, nqubit=1, state='zeros', chi=None, qudit=2) -> None:
+        super().__init__()
+        if chi == None:
+            chi = 10 * nqubit
+        self.nqubit = nqubit
+        self.chi = chi
+        self.qudit = qudit
+        self.center = -1
+        tensors = []
+        if state == 'zeros':
+            tensor = torch.zeros(qudit * chi, dtype=torch.cfloat)
+            tensor[0] = 1.
+            tensor = tensor.reshape(1, qudit, chi)
+            tensors.append(tensor)
+            for i in range(1, nqubit - 1):
+                tensor = torch.zeros(chi * qudit * chi, dtype=torch.cfloat)
+                tensor[0] = 1.
+                tensor = tensor.reshape(chi, qudit, chi)
+                tensors.append(tensor)
+            tensor = torch.zeros(qudit * chi, dtype=torch.cfloat)
+            tensor[0] = 1.
+            tensor = tensor.reshape(chi, qudit, 1)
+            tensors.append(tensor)
+        else:
+            assert type(state) == list, 'Invalid input type'
+            assert all(isinstance(i, torch.Tensor) for i in state), 'Invalid input type'
+            assert len(state) == nqubit
+            tensors = state
+        self.tensors = []
+        for i in range(nqubit):
+            self.register_buffer(f'tensor{i}', tensors[i])
+            self.tensors.append(self.__getattr__(f'tensor{i}'))
+
+    def center_orthogonalization(self, c, dc=-1, normalize=False):
+        if c == -1:
+            c = self.nqubit - 1
+        if self.center < -0.5:
+            self.orthogonalize_n1_n2(0, c, dc, normalize)
+            self.orthogonalize_n1_n2(self.nqubit - 1, c, dc, normalize)
+        elif self.center != c:
+            self.orthogonalize_n1_n2(self.center, c, dc, normalize)
+        if normalize:
+            self.normalize_central_tensor()
+        self.center = c
+
+    def check_center_orthogonality(self, prt=False):
+        assert self.tensors[0].ndim == 3
+        if self.center < -0.5:
+            if prt:
+                print('MPS NOT in center-orthogonal form!')
+        else:
+            err = [None] * self.nqubit
+            for i in range(self.center):
+                s = self.tensors[i].shape
+                tmp = self.tensors[i].reshape(-1, s[-1])
+                tmp = tmp.mH @ tmp
+                err[i] = (tmp - torch.eye(tmp.shape[0], device=self.tensors[i].device,
+                                          dtype=self.tensors[i].dtype)).norm(p=1).item()
+            for i in range(self.nqubit - 1, self.center, -1):
+                s = self.tensors[i].shape
+                tmp = self.tensors[i].reshape(s[0], -1)
+                tmp = tmp @ tmp.mH
+                err[i] = (tmp - torch.eye(tmp.shape[0], device=self.tensors[i].device,
+                                          dtype=self.tensors[i].dtype)).norm(p=1).item()
+            if prt:
+                print('Orthogonality check:')
+                print('=' * 35)
+                err_av = 0.0
+                for i in range(self.nqubit):
+                    if err[i] is None:
+                        print('Site ' + str(i) + ':  center')
+                    else:
+                        print('Site ' + str(i) + ': ', err[i])
+                        err_av += err[i]
+                print('-' * 35)
+                print('Average error = %g' % (err_av / (self.nqubit - 1)))
+                print('=' * 35)
+            return err
+        
+    def full_tensor(self):
+        assert self.nqubit < 24
+        psi = self.tensors[0]
+        for i in range(1, self.nqubit):
+            psi = torch.einsum('...abc,...cde->...abde', psi, self.tensors[i])
+            s = psi.shape
+            psi = psi.reshape(-1, s[-4], s[-3]*s[-2], s[-1])
+        return psi.squeeze()
+
+    def normalize_central_tensor(self):
+        if self.tensors[self.center].ndim == 3:
+            norm = self.tensors[self.center].norm()
+        elif self.tensors[self.center].ndim == 4:
+            norm = self.tensors[self.center].norm(dim=[1,2,3], keepdim=True)
+        self.tensors[self.center] /= norm
+
+    def orthogonalize_left2right(self, index, dc=-1, normalize=False):
+        # no truncation if dc=-1
+        assert index < self.nqubit - 1
+        shape = self.tensors[index].shape
+        if len(shape) == 3:
+            batch = 1
+        else:
+            batch = shape[0]
+        if 0 < dc < shape[-1]:
+            if_trun = True
+        else:
+            if_trun = False
+        u, s, vh = svd(self.tensors[index].reshape(batch, -1, shape[-1]))
+        if if_trun:
+            u = u[:, :, :dc]
+            r = s[:, :dc].diag_embed() @ vh[:, :dc, :]
+        else:
+            r = s.diag_embed() @ vh
+        self.tensors[index] = u.reshape(batch, shape[-3], shape[-2], -1)
+        if normalize:
+            r /= r.norm(dim=[-2,-1], keepdim=True)
+        self.tensors[index + 1] = torch.einsum('...ab,...bcd->...acd', r, self.tensors[index + 1])
+        if len(shape) == 3:
+            self.tensors[index] = self.tensors[index].squeeze(0)
+            self.tensors[index + 1] = self.tensors[index + 1].squeeze(0)
+        return s
+    
+    def orthogonalize_right2left(self, index, dc=-1, normalize=False):
+        # no truncation if dc=-1
+        assert index > 0
+        shape = self.tensors[index].shape
+        if len(shape) == 3:
+            batch = 1
+        else:
+            batch = shape[0]
+        if 0 < dc < shape[-3]:
+            if_trun = True
+        else:
+            if_trun = False
+        u, s, vh = svd(self.tensors[index].reshape(batch, shape[-3], -1))
+        if if_trun:
+            vh = vh[:, :dc, :]
+            l = u[:, :, :dc] @ s[:, :dc].diag_embed()
+        else:
+            l = u @ s.diag_embed()
+        self.tensors[index] = vh.reshape(batch, -1, shape[-2], shape[-1])
+        if normalize:
+            l /= l.norm(dim=[-2,-1], keepdim=True)
+        self.tensors[index - 1] = torch.einsum('...abc,...cd->...abd', self.tensors[index - 1], l)
+        if len(shape) == 3:
+            self.tensors[index] = self.tensors[index].squeeze(0)
+            self.tensors[index - 1] = self.tensors[index - 1].squeeze(0)
+        return s
+    
+    def orthogonalize_n1_n2(self, n1, n2, dc, normalize):
+        if n1 < n2:
+            for index in range(n1, n2, 1):
+                self.orthogonalize_left2right(index, dc, normalize)
+        else:
+            for index in range(n1, n2, -1):
+                self.orthogonalize_right2left(index, dc, normalize)
 
     def forward(self):
         pass
