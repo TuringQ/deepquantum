@@ -176,6 +176,7 @@ class QubitCircuit(Operation):
             self.npara += op.npara
             self.ndata += op.ndata
             self.depth += op.depth
+            self.wires_measure = op.wires_measure
         else:
             self.operators.append(op)
             if isinstance(op, Gate):

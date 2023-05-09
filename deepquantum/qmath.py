@@ -102,7 +102,7 @@ class SVD(torch.autograd.Function):
         J = F * (Uh @ dU)
         K = F * (Vh @ dV)
         L = (Vh @ dV).diagonal(dim1=-2, dim2=-1).diag_embed()
-        S_inv = (1 / S).diag_embed()
+        S_inv = safe_inverse(S).diag_embed()
         dA = U @ (dS.diag_embed() + (J + J.mH) @ S.diag_embed() + S.diag_embed() @ (K + K.mH) + S_inv @ (L.mH - L) / 2) @ Vh
         if (m > ns):
             dA += (torch.eye(m, dtype=dU.dtype, device=dU.device) - U @ Uh) @ dU @ S_inv @ Vh 
@@ -258,6 +258,39 @@ def expectation(state, observable, den_mat=False):
         expval = state.mH @ observable(state)
         expval = expval.squeeze(-1).squeeze(-1).real
     return expval
+
+
+def inner_product_mps(tensors0, tensors1, form='norm'):
+    # form: 'log' or 'list'
+    assert tensors0[0].shape[0] == tensors0[-1].shape[-1]
+    assert tensors1[0].shape[0] == tensors1[-1].shape[-1]
+    assert len(tensors0) == len(tensors1)
+
+    v0 = torch.eye(tensors0[0].shape[0], dtype=tensors0[0].dtype, device=tensors0[0].device)
+    v1 = torch.eye(tensors1[0].shape[0], dtype=tensors0[0].dtype, device=tensors0[0].device)
+    v = torch.kron(v0, v1).reshape([tensors0[0].shape[0], tensors1[0].shape[0],
+                                    tensors0[0].shape[0], tensors1[0].shape[0]])
+    norm_list = []
+    for n in range(len(tensors0)):
+        v = torch.einsum('...uvap,...adb,...pdq->...uvbq', v, tensors0[n].conj(), tensors1[n])
+        norm_list.append(v.norm())
+        v = v / norm_list[-1]
+    if v.numel() > 1:
+        norm1 = torch.einsum('...acac->...', v)
+        norm_list.append(norm1)
+    else:
+        norm_list.append(v[0, 0, 0, 0])
+    if form == 'log':
+        norm = 0.0
+        for x in norm_list:
+            norm = norm + torch.log(x.abs())
+    elif form == 'list':
+        return norm_list
+    else:
+        norm = 1.0
+        for x in norm_list:
+            norm = norm * x
+    return norm
 
 
 def Meyer_Wallach_measure(state_tsr: torch.Tensor) -> torch.Tensor:

@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from deepquantum.qmath import is_density_matrix, amplitude_encoding, SVD
+from deepquantum.qmath import is_density_matrix, amplitude_encoding, inner_product_mps, SVD
 
 
 svd = SVD.apply
@@ -78,10 +78,17 @@ class MatrixProductState(nn.Module):
             assert all(isinstance(i, torch.Tensor) for i in state), 'Invalid input type'
             assert len(state) == nqubit
             tensors = state
-        self.tensors = []
         for i in range(nqubit):
             self.register_buffer(f'tensor{i}', tensors[i])
-            self.tensors.append(self.__getattr__(f'tensor{i}'))
+
+    @property
+    def tensors(self):
+        # ATTENTION: This output is provided for reading only.
+        # Please modify the tensors through buffers.
+        tensors = []
+        for j in range(self.nqubit):
+            tensors.append(self.__getattr__(f'tensor{j}'))
+        return tensors
 
     def center_orthogonalization(self, c, dc=-1, normalize=False):
         if c == -1:
@@ -91,29 +98,30 @@ class MatrixProductState(nn.Module):
             self.orthogonalize_n1_n2(self.nqubit - 1, c, dc, normalize)
         elif self.center != c:
             self.orthogonalize_n1_n2(self.center, c, dc, normalize)
+        self.center = c
         if normalize:
             self.normalize_central_tensor()
-        self.center = c
 
     def check_center_orthogonality(self, prt=False):
-        assert self.tensors[0].ndim == 3
+        tensors = self.tensors
+        assert tensors[0].ndim == 3
         if self.center < -0.5:
             if prt:
                 print('MPS NOT in center-orthogonal form!')
         else:
             err = [None] * self.nqubit
             for i in range(self.center):
-                s = self.tensors[i].shape
-                tmp = self.tensors[i].reshape(-1, s[-1])
+                s = tensors[i].shape
+                tmp = tensors[i].reshape(-1, s[-1])
                 tmp = tmp.mH @ tmp
-                err[i] = (tmp - torch.eye(tmp.shape[0], device=self.tensors[i].device,
-                                          dtype=self.tensors[i].dtype)).norm(p=1).item()
+                err[i] = (tmp - torch.eye(tmp.shape[0], device=tmp.device,
+                                          dtype=tmp.dtype)).norm(p=1).item()
             for i in range(self.nqubit - 1, self.center, -1):
-                s = self.tensors[i].shape
-                tmp = self.tensors[i].reshape(s[0], -1)
+                s = tensors[i].shape
+                tmp = tensors[i].reshape(s[0], -1)
                 tmp = tmp @ tmp.mH
-                err[i] = (tmp - torch.eye(tmp.shape[0], device=self.tensors[i].device,
-                                          dtype=self.tensors[i].dtype)).norm(p=1).item()
+                err[i] = (tmp - torch.eye(tmp.shape[0], device=tmp.device,
+                                          dtype=tmp.dtype)).norm(p=1).item()
             if prt:
                 print('Orthogonality check:')
                 print('=' * 35)
@@ -131,24 +139,35 @@ class MatrixProductState(nn.Module):
         
     def full_tensor(self):
         assert self.nqubit < 24
-        psi = self.tensors[0]
+        tensors = self.tensors
+        psi = tensors[0]
         for i in range(1, self.nqubit):
-            psi = torch.einsum('...abc,...cde->...abde', psi, self.tensors[i])
+            psi = torch.einsum('...abc,...cde->...abde', psi, tensors[i])
             s = psi.shape
             psi = psi.reshape(-1, s[-4], s[-3]*s[-2], s[-1])
         return psi.squeeze()
+    
+    def inner(self, tensors, form='norm'):
+        # form: 'log' or 'list'
+        if type(tensors) is list:
+            return inner_product_mps(self.tensors, tensors, form=form)
+        else:
+            return inner_product_mps(self.tensors, tensors.tensors, form=form)
 
     def normalize_central_tensor(self):
-        if self.tensors[self.center].ndim == 3:
-            norm = self.tensors[self.center].norm()
-        elif self.tensors[self.center].ndim == 4:
-            norm = self.tensors[self.center].norm(dim=[1,2,3], keepdim=True)
-        self.tensors[self.center] /= norm
+        assert self.center in list(range(self.nqubit))
+        tensors = self.tensors
+        if tensors[self.center].ndim == 3:
+            norm = tensors[self.center].norm()
+        elif tensors[self.center].ndim == 4:
+            norm = tensors[self.center].norm(dim=[1,2,3], keepdim=True)
+        self._buffers[f'tensor{self.center}'] /= norm
 
     def orthogonalize_left2right(self, index, dc=-1, normalize=False):
         # no truncation if dc=-1
         assert index < self.nqubit - 1
-        shape = self.tensors[index].shape
+        tensors = self.tensors
+        shape = tensors[index].shape
         if len(shape) == 3:
             batch = 1
         else:
@@ -157,25 +176,27 @@ class MatrixProductState(nn.Module):
             if_trun = True
         else:
             if_trun = False
-        u, s, vh = svd(self.tensors[index].reshape(batch, -1, shape[-1]))
+        u, s, vh = svd(tensors[index].reshape(batch, -1, shape[-1]))
         if if_trun:
             u = u[:, :, :dc]
             r = s[:, :dc].diag_embed() @ vh[:, :dc, :]
         else:
             r = s.diag_embed() @ vh
-        self.tensors[index] = u.reshape(batch, shape[-3], shape[-2], -1)
+        self._buffers[f'tensor{index}'] = u.reshape(batch, shape[-3], shape[-2], -1)
         if normalize:
             r /= r.norm(dim=[-2,-1], keepdim=True)
-        self.tensors[index + 1] = torch.einsum('...ab,...bcd->...acd', r, self.tensors[index + 1])
+        self._buffers[f'tensor{index + 1}'] = torch.einsum('...ab,...bcd->...acd', r, tensors[index + 1])
         if len(shape) == 3:
-            self.tensors[index] = self.tensors[index].squeeze(0)
-            self.tensors[index + 1] = self.tensors[index + 1].squeeze(0)
+            tensors = self.tensors
+            self._buffers[f'tensor{index}'] = tensors[index].squeeze(0)
+            self._buffers[f'tensor{index + 1}'] = tensors[index + 1].squeeze(0)
         return s
     
     def orthogonalize_right2left(self, index, dc=-1, normalize=False):
         # no truncation if dc=-1
         assert index > 0
-        shape = self.tensors[index].shape
+        tensors = self.tensors
+        shape = tensors[index].shape
         if len(shape) == 3:
             batch = 1
         else:
@@ -184,19 +205,20 @@ class MatrixProductState(nn.Module):
             if_trun = True
         else:
             if_trun = False
-        u, s, vh = svd(self.tensors[index].reshape(batch, shape[-3], -1))
+        u, s, vh = svd(tensors[index].reshape(batch, shape[-3], -1))
         if if_trun:
             vh = vh[:, :dc, :]
             l = u[:, :, :dc] @ s[:, :dc].diag_embed()
         else:
             l = u @ s.diag_embed()
-        self.tensors[index] = vh.reshape(batch, -1, shape[-2], shape[-1])
+        self._buffers[f'tensor{index}'] = vh.reshape(batch, -1, shape[-2], shape[-1])
         if normalize:
             l /= l.norm(dim=[-2,-1], keepdim=True)
-        self.tensors[index - 1] = torch.einsum('...abc,...cd->...abd', self.tensors[index - 1], l)
+        self._buffers[f'tensor{index - 1}'] = torch.einsum('...abc,...cd->...abd', tensors[index - 1], l)
         if len(shape) == 3:
-            self.tensors[index] = self.tensors[index].squeeze(0)
-            self.tensors[index - 1] = self.tensors[index - 1].squeeze(0)
+            tensors = self.tensors
+            self._buffers[f'tensor{index}'] = tensors[index].squeeze(0)
+            self._buffers[f'tensor{index - 1}'] = tensors[index - 1].squeeze(0)
         return s
     
     def orthogonalize_n1_n2(self, n1, n2, dc, normalize):
