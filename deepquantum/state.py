@@ -50,13 +50,14 @@ class QubitState(nn.Module):
 
 
 class MatrixProductState(nn.Module):
-    def __init__(self, nqubit=1, state='zeros', chi=None, qudit=2) -> None:
+    def __init__(self, nqubit=1, state='zeros', chi=None, qudit=2, normalize=True) -> None:
         super().__init__()
         if chi == None:
             chi = 10 * nqubit
         self.nqubit = nqubit
         self.chi = chi
         self.qudit = qudit
+        self.normalize = normalize
         self.center = -1
         tensors = []
         if state == 'zeros':
@@ -163,11 +164,11 @@ class MatrixProductState(nn.Module):
             norm = tensors[self.center].norm(dim=[1,2,3], keepdim=True)
         self._buffers[f'tensor{self.center}'] /= norm
 
-    def orthogonalize_left2right(self, index, dc=-1, normalize=False):
+    def orthogonalize_left2right(self, site, dc=-1, normalize=False):
         # no truncation if dc=-1
-        assert index < self.nqubit - 1
+        assert site < self.nqubit - 1
         tensors = self.tensors
-        shape = tensors[index].shape
+        shape = tensors[site].shape
         if len(shape) == 3:
             batch = 1
         else:
@@ -176,27 +177,27 @@ class MatrixProductState(nn.Module):
             if_trun = True
         else:
             if_trun = False
-        u, s, vh = svd(tensors[index].reshape(batch, -1, shape[-1]))
+        u, s, vh = svd(tensors[site].reshape(batch, -1, shape[-1]))
         if if_trun:
             u = u[:, :, :dc]
             r = s[:, :dc].diag_embed() @ vh[:, :dc, :]
         else:
             r = s.diag_embed() @ vh
-        self._buffers[f'tensor{index}'] = u.reshape(batch, shape[-3], shape[-2], -1)
+        self._buffers[f'tensor{site}'] = u.reshape(batch, shape[-3], shape[-2], -1)
         if normalize:
             r /= r.norm(dim=[-2,-1], keepdim=True)
-        self._buffers[f'tensor{index + 1}'] = torch.einsum('...ab,...bcd->...acd', r, tensors[index + 1])
+        self._buffers[f'tensor{site + 1}'] = torch.einsum('...ab,...bcd->...acd', r, tensors[site + 1])
         if len(shape) == 3:
             tensors = self.tensors
-            self._buffers[f'tensor{index}'] = tensors[index].squeeze(0)
-            self._buffers[f'tensor{index + 1}'] = tensors[index + 1].squeeze(0)
+            self._buffers[f'tensor{site}'] = tensors[site].squeeze(0)
+            self._buffers[f'tensor{site + 1}'] = tensors[site + 1].squeeze(0)
         return s
     
-    def orthogonalize_right2left(self, index, dc=-1, normalize=False):
+    def orthogonalize_right2left(self, site, dc=-1, normalize=False):
         # no truncation if dc=-1
-        assert index > 0
+        assert site > 0
         tensors = self.tensors
-        shape = tensors[index].shape
+        shape = tensors[site].shape
         if len(shape) == 3:
             batch = 1
         else:
@@ -205,29 +206,29 @@ class MatrixProductState(nn.Module):
             if_trun = True
         else:
             if_trun = False
-        u, s, vh = svd(tensors[index].reshape(batch, shape[-3], -1))
+        u, s, vh = svd(tensors[site].reshape(batch, shape[-3], -1))
         if if_trun:
             vh = vh[:, :dc, :]
             l = u[:, :, :dc] @ s[:, :dc].diag_embed()
         else:
             l = u @ s.diag_embed()
-        self._buffers[f'tensor{index}'] = vh.reshape(batch, -1, shape[-2], shape[-1])
+        self._buffers[f'tensor{site}'] = vh.reshape(batch, -1, shape[-2], shape[-1])
         if normalize:
             l /= l.norm(dim=[-2,-1], keepdim=True)
-        self._buffers[f'tensor{index - 1}'] = torch.einsum('...abc,...cd->...abd', tensors[index - 1], l)
+        self._buffers[f'tensor{site - 1}'] = torch.einsum('...abc,...cd->...abd', tensors[site - 1], l)
         if len(shape) == 3:
             tensors = self.tensors
-            self._buffers[f'tensor{index}'] = tensors[index].squeeze(0)
-            self._buffers[f'tensor{index - 1}'] = tensors[index - 1].squeeze(0)
+            self._buffers[f'tensor{site}'] = tensors[site].squeeze(0)
+            self._buffers[f'tensor{site - 1}'] = tensors[site - 1].squeeze(0)
         return s
     
     def orthogonalize_n1_n2(self, n1, n2, dc, normalize):
         if n1 < n2:
-            for index in range(n1, n2, 1):
-                self.orthogonalize_left2right(index, dc, normalize)
+            for site in range(n1, n2, 1):
+                self.orthogonalize_left2right(site, dc, normalize)
         else:
-            for index in range(n1, n2, -1):
-                self.orthogonalize_right2left(index, dc, normalize)
+            for site in range(n1, n2, -1):
+                self.orthogonalize_right2left(site, dc, normalize)
 
     def forward(self):
         pass

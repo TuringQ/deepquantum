@@ -3,7 +3,7 @@ import torch.nn as nn
 import numpy as np
 import random
 from collections import Counter
-from typing import List
+from typing import List, Tuple
 from torch import vmap
 
 
@@ -109,6 +109,30 @@ class SVD(torch.autograd.Function):
         if (n > ns):
             dA += U @ S_inv @ dVh @ (torch.eye(n, dtype=dU.dtype, device=dU.device) - V @ Vh)
         return dA
+
+
+svd = SVD.apply
+
+
+def split_tensor(tensor: torch.Tensor, center_left: bool = True) -> Tuple[torch.Tensor, torch.Tensor]:
+    u, s, vh = svd(tensor)
+    if center_left:
+        return u @ s.diag_embed(), vh
+    else:
+        return u, s.diag_embed() @ vh
+
+
+def state_to_tensors(state: torch.Tensor, nqubit :int, qudit: int = 2) -> List[torch.Tensor]:
+    state = state.reshape([qudit] * nqubit)
+    tensors = []
+    nleft = 1
+    for _ in range(nqubit):
+        u, state = split_tensor(state.reshape(nleft * qudit, -1), center_left=False)
+        tensors.append(u.reshape(nleft, qudit, -1))
+        nleft = state.shape[0]
+    assert state.shape == (1, 1)
+    tensors[-1] *= state[0, 0]
+    return tensors
 
 
 def multi_kron(lst: List[torch.Tensor]) -> torch.Tensor:
@@ -252,6 +276,10 @@ def measure(state, shots=1024, with_prob=False, wires=None):
 
 
 def expectation(state, observable, den_mat=False):
+    if type(state) == list:
+        from deepquantum.state import MatrixProductState
+        mps = MatrixProductState(nqubit=len(state), state=state)
+        return inner_product_mps(state, observable(mps).tensors).real
     if den_mat:
         expval = (observable.get_unitary() @ state).diagonal(dim1=-2, dim2=-1).sum(-1).real
     else:
@@ -262,19 +290,20 @@ def expectation(state, observable, den_mat=False):
 
 def inner_product_mps(tensors0, tensors1, form='norm'):
     # form: 'log' or 'list'
-    assert tensors0[0].shape[0] == tensors0[-1].shape[-1]
-    assert tensors1[0].shape[0] == tensors1[-1].shape[-1]
+    assert tensors0[0].shape[-3] == tensors0[-1].shape[-1]
+    assert tensors1[0].shape[-3] == tensors1[-1].shape[-1]
     assert len(tensors0) == len(tensors1)
 
-    v0 = torch.eye(tensors0[0].shape[0], dtype=tensors0[0].dtype, device=tensors0[0].device)
-    v1 = torch.eye(tensors1[0].shape[0], dtype=tensors0[0].dtype, device=tensors0[0].device)
-    v = torch.kron(v0, v1).reshape([tensors0[0].shape[0], tensors1[0].shape[0],
-                                    tensors0[0].shape[0], tensors1[0].shape[0]])
+    v0 = torch.eye(tensors0[0].shape[-3], dtype=tensors0[0].dtype, device=tensors0[0].device)
+    v1 = torch.eye(tensors1[0].shape[-3], dtype=tensors0[0].dtype, device=tensors0[0].device)
+    v = torch.kron(v0, v1).reshape([tensors0[0].shape[-3], tensors1[0].shape[-3],
+                                    tensors0[0].shape[-3], tensors1[0].shape[-3]])
     norm_list = []
     for n in range(len(tensors0)):
         v = torch.einsum('...uvap,...adb,...pdq->...uvbq', v, tensors0[n].conj(), tensors1[n])
-        norm_list.append(v.norm())
-        v = v / norm_list[-1]
+        norm_v = v.norm(p=2, dim=[-4,-3,-2,-1], keepdim=True)
+        v = v / norm_v
+        norm_list.append(norm_v.squeeze())
     if v.numel() > 1:
         norm1 = torch.einsum('...acac->...', v)
         norm_list.append(norm1)

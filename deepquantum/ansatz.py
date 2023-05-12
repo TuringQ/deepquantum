@@ -3,8 +3,9 @@ import random
 
 
 class RandomCircuitG3(QubitCircuit):
-    def __init__(self, nqubit, ngate, wires=None, init_state='zeros', den_mat=False):
-        super().__init__(nqubit=nqubit, init_state=init_state, name='RandomCircuitG3', den_mat=den_mat)
+    def __init__(self, nqubit, ngate, wires=None, init_state='zeros', den_mat=False, mps=False, chi=None):
+        super().__init__(nqubit=nqubit, init_state=init_state, name='RandomCircuitG3', den_mat=den_mat,
+                         mps=mps, chi=chi)
         self.ngate = ngate
         self.gate_set = ['CNOT', 'H', 'T']
         if wires == None:

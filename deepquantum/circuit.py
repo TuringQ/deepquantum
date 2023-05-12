@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from deepquantum.state import QubitState
+from deepquantum.state import QubitState, MatrixProductState
 from deepquantum.operation import Operation
 from deepquantum.gate import *
 from deepquantum.layer import *
@@ -11,14 +11,21 @@ from qiskit import QuantumCircuit
 
 
 class QubitCircuit(Operation):
-    def __init__(self, nqubit, init_state='zeros', name=None, den_mat=False, reupload=False):
+    def __init__(self, nqubit, init_state='zeros', name=None, den_mat=False, reupload=False,
+                 mps=False, chi=None):
         super().__init__(name=name, nqubit=nqubit, wires=None, den_mat=den_mat)
-        if type(init_state) == QubitState:
+        if type(init_state) in (QubitState, MatrixProductState):
             assert nqubit == init_state.nqubit
-            assert den_mat == init_state.den_mat
+            if type(init_state) == MatrixProductState:
+                assert den_mat == False, 'Currently, DO NOT support MPS for density matrix'
+            else:
+                assert den_mat == init_state.den_mat
             self.init_state = init_state
         else:
-            self.init_state = QubitState(nqubit=nqubit, state=init_state, den_mat=den_mat)
+            if mps:
+                self.init_state = MatrixProductState(nqubit=nqubit, state=init_state, chi=chi)
+            else:
+                self.init_state = QubitState(nqubit=nqubit, state=init_state, den_mat=den_mat)
         self.operators = nn.Sequential()
         self.encoders = []
         self.observables = nn.ModuleList([])
@@ -27,11 +34,14 @@ class QubitCircuit(Operation):
         self.ndata = 0
         self.depth = np.array([0] * nqubit)
         self.reupload = reupload
+        self.mps = mps
+        self.chi = chi
         self.wires_measure = None
 
     def __add__(self, rhs):
         assert self.nqubit == rhs.nqubit
-        cir = QubitCircuit(nqubit=self.nqubit, name=self.name, den_mat=self.den_mat, reupload=self.reupload)
+        cir = QubitCircuit(nqubit=self.nqubit, name=self.name, den_mat=self.den_mat, reupload=self.reupload,
+                           mps=self.mps, chi=self.chi)
         cir.init_state = self.init_state
         cir.operators = self.operators + rhs.operators
         cir.encoders = self.encoders + rhs.encoders
@@ -54,7 +64,14 @@ class QubitCircuit(Operation):
 
     def forward(self, data=None, state=None):
         if state == None:
-            state = self.init_state.state
+            state = self.init_state
+        if type(state) == MatrixProductState:
+            mps = self.forward_helper(data=data, state=state)
+            self.state = mps.tensors
+            self.init_encoder()
+            return mps
+        elif type(state) == QubitState:
+            state = state.state
         if data == None:
             self.state = self.forward_helper(state=state)
             if self.state.ndim == 2:
@@ -75,7 +92,11 @@ class QubitCircuit(Operation):
     def forward_helper(self, data=None, state=None):
         self.encode(data)
         if state == None:
-            state = self.init_state.state
+            state = self.init_state
+        if type(state) == MatrixProductState:
+            return self.operators(state)
+        elif type(state) == QubitState:
+            state = state.state
         x = self.operators(self.tensor_rep(state))
         if self.den_mat:
             x = self.matrix_rep(x)
@@ -108,12 +129,20 @@ class QubitCircuit(Operation):
             op.init_para()
 
     def reset(self, init_state='zeros'):
-        if type(init_state) == QubitState:
+        if type(init_state) in (QubitState, MatrixProductState):
             assert self.nqubit == init_state.nqubit
-            assert self.den_mat == init_state.den_mat
+            if type(init_state) == MatrixProductState:
+                assert self.den_mat == False, 'Currently, DO NOT support MPS for density matrix'
+                self.mps = True
+                self.chi = init_state.chi
+            else:
+                assert self.den_mat == init_state.den_mat
             self.init_state = init_state
         else:
-            self.init_state = QubitState(nqubit=self.nqubit, state=init_state, den_mat=self.den_mat)
+            if self.mps:
+                self.init_state = MatrixProductState(nqubit=self.nqubit, state=init_state, chi=self.chi)
+            else:
+                self.init_state = QubitState(nqubit=self.nqubit, state=init_state, den_mat=self.den_mat)
         self.operators = nn.Sequential()
         self.encoders = []
         self.observables = nn.ModuleList([])
@@ -149,7 +178,11 @@ class QubitCircuit(Operation):
 
     def expectation(self):
         assert len(self.observables) > 0, 'There is no observable'
-        assert type(self.state) == torch.Tensor, 'There is no final state'
+        if type(self.state) == list:
+            assert all(isinstance(i, torch.Tensor) for i in self.state), 'Invalid final state'
+            assert len(self.state) == self.nqubit, 'Invalid final state'
+        else:
+            assert type(self.state) == torch.Tensor, 'There is no final state'
         out = []
         for observable in self.observables:
             expval = expectation(self.state, observable=observable, den_mat=self.den_mat)
