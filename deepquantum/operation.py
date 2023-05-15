@@ -1,7 +1,10 @@
 import torch
 import torch.nn as nn
-from deepquantum.qmath import inverse_permutation
+import numpy as np
+from deepquantum.qmath import inverse_permutation, state_to_tensors
+from deepquantum.state import MatrixProductState
 import warnings
+from copy import copy
 
 
 class Operation(nn.Module):
@@ -178,7 +181,9 @@ class Gate(Operation):
         x = state1.permute(inverse_permutation(pm_shape))
         return x
 
-    def forward(self, x):    
+    def forward(self, x):
+        if type(x) == MatrixProductState:
+            return self.op_mps(x)
         if not self.tsr_mode:
             x = self.tensor_rep(x)
         if self.den_mat:
@@ -217,6 +222,77 @@ class Gate(Operation):
             return qasm_str1 + qasm_str2
         else:
             return qasm_str2
+
+    def get_mpo(self):
+        """
+        Convert gate to MPO form with identities at empty sites
+        """
+        # If sites are not adjacent, insert identities in the middle, i.e.
+        #   |       |             |   |   |
+        # --A---x---B--   ->    --A---I---B--
+        #   |       |             |   |   |
+        # where
+        #      a
+        #      |
+        # --i--I--j-- = \delta_{i,j} \delta_{a,b}
+        #      |
+        #      b
+        index = self.wires + self.controls
+        index_left = min(index)
+        nindex = len(index)
+        index_sort = sorted(index)
+        # convert index to a list of integers from 0 to nindex-1
+        s = {x: i for i, x in enumerate(index_sort)}
+        index_local = [s[x] for x in index]
+        # use shallow copy to share parameters
+        gate_copy = copy(self)
+        gate_copy.nqubit = nindex
+        gate_copy.wires = index_local[:len(gate_copy.wires)]
+        gate_copy.controls = index_local[len(gate_copy.wires):]
+        u = gate_copy.get_unitary()
+        # transform gate from (out1, out2, ..., in1, in2 ...) to (out1, in1, out2, in2, ...)
+        order = list(np.arange(2 * nindex).reshape((2, nindex)).T.flatten())
+        u = u.reshape([2] * 2 * nindex).permute(order).reshape([4] * nindex)
+        main_tensors = state_to_tensors(u, nqubit=nindex, qudit=4)
+        # each tensor is in shape of (i, a, b, j)
+        tensors = []
+        previous_i = None
+        for i, main_tensor in zip(index_sort, main_tensors):
+            # insert identites in the middle
+            if previous_i is not None:
+                for _ in range(previous_i + 1, i):
+                    chi = tensors[-1].shape[-1]
+                    identity = torch.eye(chi * 2, dtype=self.matrix.dtype, device=self.matrix.device)
+                    tensors.append(identity.reshape(chi, 2, chi, 2).permute(0, 1, 3, 2))
+            nleft, _, nright = main_tensor.shape
+            tensors.append(main_tensor.reshape(nleft, 2, 2, nright))
+            previous_i = i
+        return tensors, index_left
+    
+    def op_mps(self, mps: MatrixProductState):
+        # use TEBD algorithm
+        #
+        #     contract tensor
+        #           a
+        #           |
+        #     i-----O-----j            a
+        #           |        ->        |
+        #           b             ik---X---jl
+        #           |
+        #     k-----T-----l
+        mpo_tensors, left = self.get_mpo()
+        mps.center_orthogonalization(left, dc=mps.chi, normalize=mps.normalize)
+        mps_tensors = mps.tensors
+        for i, mpo_tensor in enumerate(mpo_tensors):
+            mps_tensors[left + i] = torch.einsum('iabj,...kbl->...ikajl', mpo_tensor, mps_tensors[left + i])
+            s = mps_tensors[left + i].shape
+            if len(s) == 5:
+                mps_tensors[left + i] = mps_tensors[left + i].reshape(s[-5] * s[-4], s[-3], s[-2] * s[-1])
+            else:
+                mps_tensors[left + i] = mps_tensors[left + i].reshape(-1, s[-5] * s[-4], s[-3], s[-2] * s[-1])
+        out = MatrixProductState(nqubit=mps.nqubit, state=mps_tensors, chi=mps.chi, normalize=mps.normalize)
+        out.center_orthogonalization(left + len(mpo_tensors) - 1, dc=out.chi, normalize=out.normalize)
+        return out
 
 
 class Layer(Operation):
@@ -258,6 +334,8 @@ class Layer(Operation):
             self.npara += gate.npara
 
     def forward(self, x):
+        if type(x) == MatrixProductState:
+            return self.gates(x)
         if not self.tsr_mode:
             x = self.tensor_rep(x)
         x = self.gates(x)

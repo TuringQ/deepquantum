@@ -3,7 +3,7 @@ import torch.nn as nn
 import numpy as np
 import random
 from collections import Counter
-from typing import List
+from typing import List, Tuple
 from torch import vmap
 
 
@@ -78,12 +78,24 @@ def safe_inverse(x, epsilon=1e-12):
 class SVD(torch.autograd.Function):
     # modified from https://github.com/wangleiphy/tensorgrad/blob/master/tensornets/adlib/svd.py
     # See https://readpaper.com/paper/2971614414
+    generate_vmap_rule = True
+
     @staticmethod
-    def forward(ctx, A):
+    def forward(A):
         U, S, Vh = torch.linalg.svd(A, full_matrices=False)
         S = S.to(U.dtype)
-        ctx.save_for_backward(U, S, Vh)
+        # ctx.save_for_backward(U, S, Vh)
         return U, S, Vh
+    
+    # setup_context is responsible for calling methods and/or assigning to
+    # the ctx object. Please do not do additional compute (e.g. add
+    # Tensors together) in setup_context.
+    # https://pytorch.org/docs/master/notes/extending.func.html
+    @staticmethod
+    def setup_context(ctx, inputs, output):
+        A = inputs
+        U, S, Vh = output
+        ctx.save_for_backward(U, S, Vh)
 
     @staticmethod
     def backward(ctx, dU, dS, dVh):
@@ -102,13 +114,37 @@ class SVD(torch.autograd.Function):
         J = F * (Uh @ dU)
         K = F * (Vh @ dV)
         L = (Vh @ dV).diagonal(dim1=-2, dim2=-1).diag_embed()
-        S_inv = (1 / S).diag_embed()
+        S_inv = safe_inverse(S).diag_embed()
         dA = U @ (dS.diag_embed() + (J + J.mH) @ S.diag_embed() + S.diag_embed() @ (K + K.mH) + S_inv @ (L.mH - L) / 2) @ Vh
         if (m > ns):
             dA += (torch.eye(m, dtype=dU.dtype, device=dU.device) - U @ Uh) @ dU @ S_inv @ Vh 
         if (n > ns):
             dA += U @ S_inv @ dVh @ (torch.eye(n, dtype=dU.dtype, device=dU.device) - V @ Vh)
         return dA
+
+
+svd = SVD.apply
+
+
+def split_tensor(tensor: torch.Tensor, center_left: bool = True) -> Tuple[torch.Tensor, torch.Tensor]:
+    u, s, vh = svd(tensor)
+    if center_left:
+        return u @ s.diag_embed(), vh
+    else:
+        return u, s.diag_embed() @ vh
+
+
+def state_to_tensors(state: torch.Tensor, nqubit :int, qudit: int = 2) -> List[torch.Tensor]:
+    state = state.reshape([qudit] * nqubit)
+    tensors = []
+    nleft = 1
+    for _ in range(nqubit):
+        u, state = split_tensor(state.reshape(nleft * qudit, -1), center_left=False)
+        tensors.append(u.reshape(nleft, qudit, -1))
+        nleft = state.shape[0]
+    assert state.shape == (1, 1)
+    tensors[-1] *= state[0, 0]
+    return tensors
 
 
 def multi_kron(lst: List[torch.Tensor]) -> torch.Tensor:
@@ -251,13 +287,51 @@ def measure(state, shots=1024, with_prob=False, wires=None):
         return results_tot
 
 
-def expectation(state, observable, den_mat=False):
+def expectation(state, observable, den_mat=False, chi=None):
+    if type(state) == list:
+        from deepquantum.state import MatrixProductState
+        mps = MatrixProductState(nqubit=len(state), state=state, chi=chi)
+        return inner_product_mps(state, observable(mps).tensors).real
     if den_mat:
         expval = (observable.get_unitary() @ state).diagonal(dim1=-2, dim2=-1).sum(-1).real
     else:
         expval = state.mH @ observable(state)
         expval = expval.squeeze(-1).squeeze(-1).real
     return expval
+
+
+def inner_product_mps(tensors0, tensors1, form='norm'):
+    # form: 'log' or 'list'
+    assert tensors0[0].shape[-3] == tensors0[-1].shape[-1]
+    assert tensors1[0].shape[-3] == tensors1[-1].shape[-1]
+    assert len(tensors0) == len(tensors1)
+
+    v0 = torch.eye(tensors0[0].shape[-3], dtype=tensors0[0].dtype, device=tensors0[0].device)
+    v1 = torch.eye(tensors1[0].shape[-3], dtype=tensors0[0].dtype, device=tensors0[0].device)
+    v = torch.kron(v0, v1).reshape([tensors0[0].shape[-3], tensors1[0].shape[-3],
+                                    tensors0[0].shape[-3], tensors1[0].shape[-3]])
+    norm_list = []
+    for n in range(len(tensors0)):
+        v = torch.einsum('...uvap,...adb,...pdq->...uvbq', v, tensors0[n].conj(), tensors1[n])
+        norm_v = v.norm(p=2, dim=[-4,-3,-2,-1], keepdim=True)
+        v = v / norm_v
+        norm_list.append(norm_v.squeeze())
+    if v.numel() > 1:
+        norm1 = torch.einsum('...acac->...', v)
+        norm_list.append(norm1)
+    else:
+        norm_list.append(v[0, 0, 0, 0])
+    if form == 'log':
+        norm = 0.0
+        for x in norm_list:
+            norm = norm + torch.log(x.abs())
+    elif form == 'list':
+        return norm_list
+    else:
+        norm = 1.0
+        for x in norm_list:
+            norm = norm * x
+    return norm
 
 
 def Meyer_Wallach_measure(state_tsr: torch.Tensor) -> torch.Tensor:
@@ -320,7 +394,7 @@ def generalized_distance(state1: torch.Tensor, state2: torch.Tensor) -> torch.Te
     Returns:
         torch.Tensor: the generalized distance
     """
-    return (state1.mH @ state1) * (state2.mH @ state2) - (state1.mH @ state2) * (state2.mH @ state1)
+    return ((state1.mH @ state1) * (state2.mH @ state2) - (state1.mH @ state2) * (state2.mH @ state1)).real
 
 
 def Meyer_Wallach_measure_Brennen(state_tsr: torch.Tensor) -> torch.Tensor:
@@ -346,6 +420,6 @@ def Meyer_Wallach_measure_Brennen(state_tsr: torch.Tensor) -> torch.Tensor:
         trace_list.remove(i)
         rho_i = partial_trace(rho, nqubit, trace_list)
         rho_i = rho_i @ rho_i
-        trace_rho_i = rho_i.diagonal(offset=0, dim1=-2, dim2=-1).sum(-1)
+        trace_rho_i = rho_i.diagonal(offset=0, dim1=-2, dim2=-1).sum(-1).real
         rst += trace_rho_i
     return 2 * (1 - rst / nqubit)
