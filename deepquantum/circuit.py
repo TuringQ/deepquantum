@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from deepquantum.state import QubitState
+from deepquantum.state import QubitState, MatrixProductState
 from deepquantum.operation import Operation
 from deepquantum.gate import *
 from deepquantum.layer import *
@@ -11,49 +11,85 @@ from qiskit import QuantumCircuit
 
 
 class QubitCircuit(Operation):
-    def __init__(self, nqubit, init_state='zeros', name=None, den_mat=False, reupload=False):
+    def __init__(self, nqubit, init_state='zeros', name=None, den_mat=False, reupload=False,
+                 mps=False, chi=None):
         super().__init__(name=name, nqubit=nqubit, wires=None, den_mat=den_mat)
-        init_state = QubitState(nqubit=nqubit, state=init_state, den_mat=den_mat)
+        if type(init_state) in (QubitState, MatrixProductState):
+            assert nqubit == init_state.nqubit
+            if type(init_state) == MatrixProductState:
+                assert den_mat == False, 'Currently, DO NOT support MPS for density matrix'
+            else:
+                assert den_mat == init_state.den_mat
+            self.init_state = init_state
+        else:
+            if mps:
+                self.init_state = MatrixProductState(nqubit=nqubit, state=init_state, chi=chi)
+            else:
+                self.init_state = QubitState(nqubit=nqubit, state=init_state, den_mat=den_mat)
         self.operators = nn.Sequential()
         self.encoders = []
         self.observables = nn.ModuleList([])
-        self.register_buffer('init_state', init_state.state)
         self.state = None
         self.npara = 0
         self.ndata = 0
         self.depth = np.array([0] * nqubit)
         self.reupload = reupload
+        self.mps = mps
+        self.chi = chi
         self.wires_measure = None
 
     def __add__(self, rhs):
         assert self.nqubit == rhs.nqubit
-        cir = QubitCircuit(nqubit=self.nqubit, name=self.name, den_mat=self.den_mat, reupload=self.reupload)
+        cir = QubitCircuit(nqubit=self.nqubit, name=self.name, den_mat=self.den_mat, reupload=self.reupload,
+                           mps=self.mps, chi=self.chi)
+        cir.init_state = self.init_state
         cir.operators = self.operators + rhs.operators
         cir.encoders = self.encoders + rhs.encoders
         cir.observables = rhs.observables
-        cir.init_state = self.init_state
         cir.npara = self.npara + rhs.npara
         cir.ndata = self.ndata + rhs.ndata
         cir.depth = self.depth + rhs.depth
+        cir.wires_measure = rhs.wires_measure
         return cir
+
+    def to(self, arg):
+        if arg == torch.float:
+            self.init_state.to(torch.cfloat)
+        elif arg == torch.double:
+            self.init_state.to(torch.cdouble)
+        else:
+            self.init_state.to(arg)
+        self.operators.to(arg)
+        self.observables.to(arg)
 
     def forward(self, data=None, state=None):
         if state == None:
             state = self.init_state
+        if type(state) == MatrixProductState:
+            state = state.tensors
+        elif type(state) == QubitState:
+            state = state.state
         if data == None:
             self.state = self.forward_helper(state=state)
-            if self.state.ndim == 2:
-                self.state = self.state.unsqueeze(0)
-            if state.ndim == 2:
-                self.state = self.state.squeeze(0)
+            if not self.mps:
+                if self.state.ndim == 2:
+                    self.state = self.state.unsqueeze(0)
+                if state.ndim == 2:
+                    self.state = self.state.squeeze(0)
         else:
             if data.ndim == 1:
                 data = data.unsqueeze(0)
             assert data.ndim == 2
-            if state.ndim == 2:
-                self.state = vmap(self.forward_helper, in_dims=(0, None))(data, state)
-            elif state.ndim == 3:
-                self.state = vmap(self.forward_helper)(data, state)
+            if self.mps:
+                if state[0].ndim == 3:
+                    self.state = vmap(self.forward_helper, in_dims=(0, None))(data, state)
+                elif state[0].ndim == 4:
+                    self.state = vmap(self.forward_helper)(data, state)
+            else:
+                if state.ndim == 2:
+                    self.state = vmap(self.forward_helper, in_dims=(0, None))(data, state)
+                elif state.ndim == 3:
+                    self.state = vmap(self.forward_helper)(data, state)
             self.init_encoder()
         return self.state
 
@@ -61,6 +97,13 @@ class QubitCircuit(Operation):
         self.encode(data)
         if state == None:
             state = self.init_state
+        if self.mps:
+            if type(state) != MatrixProductState:
+                state = MatrixProductState(nqubit=self.nqubit, state=state, chi=self.chi,
+                                           normalize=self.init_state.normalize)
+            return self.operators(state).tensors
+        if type(state) == QubitState:
+            state = state.state
         x = self.operators(self.tensor_rep(state))
         if self.den_mat:
             x = self.matrix_rep(x)
@@ -93,10 +136,23 @@ class QubitCircuit(Operation):
             op.init_para()
 
     def reset(self, init_state='zeros'):
+        if type(init_state) in (QubitState, MatrixProductState):
+            assert self.nqubit == init_state.nqubit
+            if type(init_state) == MatrixProductState:
+                assert self.den_mat == False, 'Currently, DO NOT support MPS for density matrix'
+                self.mps = True
+                self.chi = init_state.chi
+            else:
+                assert self.den_mat == init_state.den_mat
+            self.init_state = init_state
+        else:
+            if self.mps:
+                self.init_state = MatrixProductState(nqubit=self.nqubit, state=init_state, chi=self.chi)
+            else:
+                self.init_state = QubitState(nqubit=self.nqubit, state=init_state, den_mat=self.den_mat)
         self.operators = nn.Sequential()
         self.encoders = []
         self.observables = nn.ModuleList([])
-        self.init_state = QubitState(nqubit=self.nqubit, state=init_state, den_mat=self.den_mat).state
         self.state = None
         self.npara = 0
         self.ndata = 0
@@ -115,8 +171,6 @@ class QubitCircuit(Operation):
         self.observables = nn.ModuleList([])
 
     def measure(self, shots=1024, with_prob=False, wires=None):
-        if self.state == None:
-            self.forward()
         if wires == None:
             self.wires_measure = list(range(self.nqubit))
         else:
@@ -124,14 +178,21 @@ class QubitCircuit(Operation):
             if type(wires) == int:
                 wires = [wires]
             self.wires_measure = wires
-        return measure(self.state, shots=shots, with_prob=with_prob, wires=wires)
+        if self.state == None:
+            return
+        else:
+            return measure(self.state, shots=shots, with_prob=with_prob, wires=wires)
 
     def expectation(self):
         assert len(self.observables) > 0, 'There is no observable'
-        assert type(self.state) == torch.Tensor, 'There is no final state'
+        if type(self.state) == list:
+            assert all(isinstance(i, torch.Tensor) for i in self.state), 'Invalid final state'
+            assert len(self.state) == self.nqubit, 'Invalid final state'
+        else:
+            assert type(self.state) == torch.Tensor, 'There is no final state'
         out = []
         for observable in self.observables:
-            expval = expectation(self.state, observable=observable, den_mat=self.den_mat)
+            expval = expectation(self.state, observable=observable, den_mat=self.den_mat, chi=self.chi)
             out.append(expval)
         out = torch.stack(out, dim=-1)
         return out
@@ -155,6 +216,7 @@ class QubitCircuit(Operation):
             self.npara += op.npara
             self.ndata += op.ndata
             self.depth += op.depth
+            self.wires_measure = op.wires_measure
         else:
             self.operators.append(op)
             if isinstance(op, Gate):
