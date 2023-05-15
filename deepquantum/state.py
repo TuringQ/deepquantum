@@ -61,19 +61,25 @@ class MatrixProductState(nn.Module):
         self.center = -1
         tensors = []
         if state == 'zeros':
-            tensor = torch.zeros(qudit * chi, dtype=torch.cfloat)
-            tensor[0] = 1.
-            tensor = tensor.reshape(1, qudit, chi)
-            tensors.append(tensor)
-            for i in range(1, nqubit - 1):
-                tensor = torch.zeros(chi * qudit * chi, dtype=torch.cfloat)
+            if nqubit == 1:
+                tensor = torch.zeros(qudit, dtype=torch.cfloat)
                 tensor[0] = 1.
-                tensor = tensor.reshape(chi, qudit, chi)
+                tensor = tensor.reshape(1, qudit, 1)
                 tensors.append(tensor)
-            tensor = torch.zeros(qudit * chi, dtype=torch.cfloat)
-            tensor[0] = 1.
-            tensor = tensor.reshape(chi, qudit, 1)
-            tensors.append(tensor)
+            else:
+                tensor = torch.zeros(qudit * chi, dtype=torch.cfloat)
+                tensor[0] = 1.
+                tensor = tensor.reshape(1, qudit, chi)
+                tensors.append(tensor)
+                for i in range(1, nqubit - 1):
+                    tensor = torch.zeros(chi * qudit * chi, dtype=torch.cfloat)
+                    tensor[0] = 1.
+                    tensor = tensor.reshape(chi, qudit, chi)
+                    tensors.append(tensor)
+                tensor = torch.zeros(qudit * chi, dtype=torch.cfloat)
+                tensor[0] = 1.
+                tensor = tensor.reshape(chi, qudit, 1)
+                tensors.append(tensor)
         else:
             assert type(state) == list, 'Invalid input type'
             assert all(isinstance(i, torch.Tensor) for i in state), 'Invalid input type'
@@ -90,6 +96,13 @@ class MatrixProductState(nn.Module):
         for j in range(self.nqubit):
             tensors.append(self.__getattr__(f'tensor{j}'))
         return tensors
+
+    def set_tensors(self, tensors):
+        assert type(tensors) == list, 'Invalid input type'
+        assert all(isinstance(i, torch.Tensor) for i in tensors), 'Invalid input type'
+        assert len(tensors) == self.nqubit
+        for i in range(self.nqubit):
+            self.register_buffer(f'tensor{i}', tensors[i])
 
     def center_orthogonalization(self, c, dc=-1, normalize=False):
         if c == -1:
@@ -161,7 +174,7 @@ class MatrixProductState(nn.Module):
         if tensors[self.center].ndim == 3:
             norm = tensors[self.center].norm()
         elif tensors[self.center].ndim == 4:
-            norm = tensors[self.center].norm(dim=[1,2,3], keepdim=True)
+            norm = tensors[self.center].norm(p=2, dim=[1,2,3], keepdim=True)
         self._buffers[f'tensor{self.center}'] /= norm
 
     def orthogonalize_left2right(self, site, dc=-1, normalize=False):

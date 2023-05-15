@@ -78,12 +78,24 @@ def safe_inverse(x, epsilon=1e-12):
 class SVD(torch.autograd.Function):
     # modified from https://github.com/wangleiphy/tensorgrad/blob/master/tensornets/adlib/svd.py
     # See https://readpaper.com/paper/2971614414
+    generate_vmap_rule = True
+
     @staticmethod
-    def forward(ctx, A):
+    def forward(A):
         U, S, Vh = torch.linalg.svd(A, full_matrices=False)
         S = S.to(U.dtype)
-        ctx.save_for_backward(U, S, Vh)
+        # ctx.save_for_backward(U, S, Vh)
         return U, S, Vh
+    
+    # setup_context is responsible for calling methods and/or assigning to
+    # the ctx object. Please do not do additional compute (e.g. add
+    # Tensors together) in setup_context.
+    # https://pytorch.org/docs/master/notes/extending.func.html
+    @staticmethod
+    def setup_context(ctx, inputs, output):
+        A = inputs
+        U, S, Vh = output
+        ctx.save_for_backward(U, S, Vh)
 
     @staticmethod
     def backward(ctx, dU, dS, dVh):
@@ -275,10 +287,10 @@ def measure(state, shots=1024, with_prob=False, wires=None):
         return results_tot
 
 
-def expectation(state, observable, den_mat=False):
+def expectation(state, observable, den_mat=False, chi=None):
     if type(state) == list:
         from deepquantum.state import MatrixProductState
-        mps = MatrixProductState(nqubit=len(state), state=state)
+        mps = MatrixProductState(nqubit=len(state), state=state, chi=chi)
         return inner_product_mps(state, observable(mps).tensors).real
     if den_mat:
         expval = (observable.get_unitary() @ state).diagonal(dim1=-2, dim2=-1).sum(-1).real

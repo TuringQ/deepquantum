@@ -32,3 +32,16 @@ cir.observable(0)
 print(cir())
 print(cir.expectation())
 ```
+
+With `MatrixProductState`, DeepQuantum supports large-scale simulations. Users could simply set `mps=True` in `QubitCircuit` and adjust the bond dimension `chi` to control the complexity.
+
+```python
+import deepquantum as dq
+cir = dq.QubitCircuit(2, mps=True, chi=4)
+cir.h(0)
+cir.cnot(0, 1)
+cir.rx(1, 0.2)
+cir.observable(0)
+print(cir())
+print(cir.expectation())
+```

@@ -66,26 +66,30 @@ class QubitCircuit(Operation):
         if state == None:
             state = self.init_state
         if type(state) == MatrixProductState:
-            mps = self.forward_helper(data=data, state=state)
-            self.state = mps.tensors
-            self.init_encoder()
-            return mps
+            state = state.tensors
         elif type(state) == QubitState:
             state = state.state
         if data == None:
             self.state = self.forward_helper(state=state)
-            if self.state.ndim == 2:
-                self.state = self.state.unsqueeze(0)
-            if state.ndim == 2:
-                self.state = self.state.squeeze(0)
+            if not self.mps:
+                if self.state.ndim == 2:
+                    self.state = self.state.unsqueeze(0)
+                if state.ndim == 2:
+                    self.state = self.state.squeeze(0)
         else:
             if data.ndim == 1:
                 data = data.unsqueeze(0)
             assert data.ndim == 2
-            if state.ndim == 2:
-                self.state = vmap(self.forward_helper, in_dims=(0, None))(data, state)
-            elif state.ndim == 3:
-                self.state = vmap(self.forward_helper)(data, state)
+            if self.mps:
+                if state[0].ndim == 3:
+                    self.state = vmap(self.forward_helper, in_dims=(0, None))(data, state)
+                elif state[0].ndim == 4:
+                    self.state = vmap(self.forward_helper)(data, state)
+            else:
+                if state.ndim == 2:
+                    self.state = vmap(self.forward_helper, in_dims=(0, None))(data, state)
+                elif state.ndim == 3:
+                    self.state = vmap(self.forward_helper)(data, state)
             self.init_encoder()
         return self.state
 
@@ -93,9 +97,12 @@ class QubitCircuit(Operation):
         self.encode(data)
         if state == None:
             state = self.init_state
-        if type(state) == MatrixProductState:
-            return self.operators(state)
-        elif type(state) == QubitState:
+        if self.mps:
+            if type(state) != MatrixProductState:
+                state = MatrixProductState(nqubit=self.nqubit, state=state, chi=self.chi,
+                                           normalize=self.init_state.normalize)
+            return self.operators(state).tensors
+        if type(state) == QubitState:
             state = state.state
         x = self.operators(self.tensor_rep(state))
         if self.den_mat:
@@ -185,7 +192,7 @@ class QubitCircuit(Operation):
             assert type(self.state) == torch.Tensor, 'There is no final state'
         out = []
         for observable in self.observables:
-            expval = expectation(self.state, observable=observable, den_mat=self.den_mat)
+            expval = expectation(self.state, observable=observable, den_mat=self.den_mat, chi=self.chi)
             out.append(expval)
         out = torch.stack(out, dim=-1)
         return out
