@@ -175,7 +175,7 @@ class MatrixProductState(nn.Module):
             norm = tensors[self.center].norm()
         elif tensors[self.center].ndim == 4:
             norm = tensors[self.center].norm(p=2, dim=[1,2,3], keepdim=True)
-        self._buffers[f'tensor{self.center}'] /= norm
+        self._buffers[f'tensor{self.center}'] = self._buffers[f'tensor{self.center}'] / norm
 
     def orthogonalize_left2right(self, site, dc=-1, normalize=False):
         # no truncation if dc=-1
@@ -198,7 +198,7 @@ class MatrixProductState(nn.Module):
             r = s.diag_embed() @ vh
         self._buffers[f'tensor{site}'] = u.reshape(batch, shape[-3], shape[-2], -1)
         if normalize:
-            r /= r.norm(dim=[-2,-1], keepdim=True)
+            r = r / r.norm(dim=[-2,-1], keepdim=True)
         self._buffers[f'tensor{site + 1}'] = torch.einsum('...ab,...bcd->...acd', r, tensors[site + 1])
         if len(shape) == 3:
             tensors = self.tensors
@@ -227,7 +227,7 @@ class MatrixProductState(nn.Module):
             l = u @ s.diag_embed()
         self._buffers[f'tensor{site}'] = vh.reshape(batch, -1, shape[-2], shape[-1])
         if normalize:
-            l /= l.norm(dim=[-2,-1], keepdim=True)
+            l = l / l.norm(dim=[-2,-1], keepdim=True)
         self._buffers[f'tensor{site - 1}'] = torch.einsum('...abc,...cd->...abd', tensors[site - 1], l)
         if len(shape) == 3:
             tensors = self.tensors

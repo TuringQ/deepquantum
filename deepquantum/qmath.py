@@ -134,16 +134,17 @@ def split_tensor(tensor: torch.Tensor, center_left: bool = True) -> Tuple[torch.
         return u, s.diag_embed() @ vh
 
 
-def state_to_tensors(state: torch.Tensor, nqubit :int, qudit: int = 2) -> List[torch.Tensor]:
+def state_to_tensors(state: torch.Tensor, nqubit: int, qudit: int = 2) -> List[torch.Tensor]:
     state = state.reshape([qudit] * nqubit)
     tensors = []
     nleft = 1
-    for _ in range(nqubit):
+    for _ in range(nqubit - 1):
         u, state = split_tensor(state.reshape(nleft * qudit, -1), center_left=False)
         tensors.append(u.reshape(nleft, qudit, -1))
         nleft = state.shape[0]
+    u, state = split_tensor(state.reshape(nleft * qudit, -1), center_left=False)
     assert state.shape == (1, 1)
-    tensors[-1] *= state[0, 0]
+    tensors.append(u.reshape(nleft, qudit, -1) * state[0, 0])
     return tensors
 
 
