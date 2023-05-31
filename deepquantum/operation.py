@@ -51,7 +51,8 @@ class Operation(nn.Module):
 
 
 class Gate(Operation):
-    qasm_new_gate = []
+    # include default names in QASM
+    qasm_new_gate = ['c3x', 'c4x']
 
     def __init__(self, name=None, nqubit=1, wires=[0], controls=None, den_mat=False, tsr_mode=False):
         if type(wires) == int:
@@ -203,12 +204,16 @@ class Gate(Operation):
         else:
             return s + f', controls={self.controls}'
     
+    @staticmethod
+    def reset_qasm_new_gate():
+        Gate.qasm_new_gate = ['c3x', 'c4x']
+    
     def qasm_customized(self, name):
         name = name.lower()
         if len(self.controls) > 2:
-            name = f'c{len(self.controls)}{name}_'
+            name = f'c{len(self.controls)}{name}'
         else:
-            name = 'c' * len(self.controls) + f'{name}_'
+            name = 'c' * len(self.controls) + f'{name}'
         # warnings.warn(f'{name} is an empty gate and should be only used to draw circuit.')
         qasm_str1 = f'gate {name} '
         qasm_str2 = f'{name} '

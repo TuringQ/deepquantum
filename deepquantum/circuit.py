@@ -258,7 +258,7 @@ class QubitCircuit(Operation):
         if self.wires_measure != None:
             for wire in self.wires_measure:
                 qasm_str += f'measure q[{wire}] -> c[{wire}];\n'
-        Gate.qasm_new_gate = []
+        Gate.reset_qasm_new_gate()
         return qasm_str
         
     def draw(self, output='mpl', **kwargs):
