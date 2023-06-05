@@ -808,10 +808,12 @@ class UAnyGate(Gate):
         return self.qasm_customized(self.name)
 
 
-class Barrier(Identity):
+class Barrier(Gate):
     def __init__(self, nqubit=1, wires=[0]):
-        super().__init__(nqubit=nqubit, wires=wires)
-        self.name = 'Barrier'
+        super().__init__(name='Barrier', nqubit=nqubit, wires=wires)
+
+    def forward(self, x):
+        return x
     
     def qasm(self):
         qasm_str = 'barrier '

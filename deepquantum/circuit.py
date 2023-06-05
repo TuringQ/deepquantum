@@ -222,6 +222,8 @@ class QubitCircuit(Operation):
     def get_unitary(self):
         u = None
         for op in self.operators:
+            if type(op) == Barrier:
+                continue
             if u == None:
                 u = op.get_unitary()
             else:
