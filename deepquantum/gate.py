@@ -12,13 +12,13 @@ class SingleGate(Gate):
 
     def get_unitary(self):
         matrix = self.update_matrix()
-        identity = torch.eye(2, dtype=torch.cfloat, device=matrix.device)
+        identity = torch.eye(2, dtype=matrix.dtype, device=matrix.device)
         if self.controls == []:
             lst = [identity] * self.nqubit
             lst[self.wires[0]] = matrix
             return multi_kron(lst)
         else:
-            oneone = torch.tensor([[0, 0], [0, 1]], dtype=torch.cfloat, device=matrix.device)
+            oneone = torch.tensor([[0, 0], [0, 1]], dtype=matrix.dtype, device=matrix.device)
             lst1 = [identity] * self.nqubit
             lst2 = [identity] * self.nqubit
             lst3 = [identity] * self.nqubit
@@ -37,11 +37,11 @@ class DoubleGate(Gate):
     
     def get_unitary(self):
         matrix = self.update_matrix()
-        identity = torch.eye(2, dtype=torch.cfloat, device=matrix.device)
-        zerozero = torch.tensor([[1, 0], [0, 0]], dtype=torch.cfloat, device=matrix.device)
-        zeroone  = torch.tensor([[0, 1], [0, 0]], dtype=torch.cfloat, device=matrix.device)
-        onezero  = torch.tensor([[0, 0], [1, 0]], dtype=torch.cfloat, device=matrix.device)
-        oneone   = torch.tensor([[0, 0], [0, 1]], dtype=torch.cfloat, device=matrix.device)
+        identity = torch.eye(2, dtype=matrix.dtype, device=matrix.device)
+        zerozero = torch.tensor([[1, 0], [0, 0]], dtype=matrix.dtype, device=matrix.device)
+        zeroone  = torch.tensor([[0, 1], [0, 0]], dtype=matrix.dtype, device=matrix.device)
+        onezero  = torch.tensor([[0, 0], [1, 0]], dtype=matrix.dtype, device=matrix.device)
+        oneone   = torch.tensor([[0, 0], [0, 1]], dtype=matrix.dtype, device=matrix.device)
         if self.controls == []:
             lst1 = [identity] * self.nqubit
             lst2 = [identity] * self.nqubit
@@ -97,9 +97,9 @@ class DoubleControlGate(DoubleGate):
 
     def get_unitary(self):
         matrix = self.update_matrix()
-        identity = torch.eye(2, dtype=torch.cfloat, device=matrix.device)
-        zerozero = torch.tensor([[1, 0], [0, 0]], dtype=torch.cfloat, device=matrix.device)
-        oneone   = torch.tensor([[0, 0], [0, 1]], dtype=torch.cfloat, device=matrix.device)
+        identity = torch.eye(2, dtype=matrix.dtype, device=matrix.device)
+        zerozero = torch.tensor([[1, 0], [0, 0]], dtype=matrix.dtype, device=matrix.device)
+        oneone   = torch.tensor([[0, 0], [0, 1]], dtype=matrix.dtype, device=matrix.device)
         lst1 = [identity] * self.nqubit
         lst2 = [identity] * self.nqubit
         
@@ -245,6 +245,11 @@ class U3Gate(ParametricSingleGate):
             self.register_buffer('lambd', lambd)
         self.update_matrix()
 
+    def inverse(self):
+        return U3Gate(inputs=[-self.theta, -self.lambd, -self.phi], nqubit=self.nqubit,
+                      wires=self.wires, controls=self.controls, den_mat=self.den_mat,
+                      tsr_mode=self.tsr_mode, requires_grad=False)
+
     def extra_repr(self):
         s = f'wires={self.wires}, theta={self.theta.data}, phi={self.phi.data}, lambda={self.lambd.data}'
         if self.controls == []:
@@ -278,9 +283,13 @@ class PhaseShift(ParametricSingleGate):
     
     def get_matrix(self, theta):
         theta = self.inputs_to_tensor(theta)
-        m1 = torch.eye(1, dtype=torch.cfloat, device=theta.device)
+        m1 = torch.eye(1, dtype=theta.dtype, device=theta.device)
         e_it = torch.exp(1j * theta)
         return torch.block_diag(m1, e_it)
+
+    def inverse(self):
+        return PhaseShift(inputs=-self.theta, nqubit=self.nqubit, wires=self.wires, controls=self.controls,
+                          den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
     
     def qasm(self):
         if self.controls == []:
@@ -346,8 +355,6 @@ class PauliZ(SingleGate):
             return f'z q{self.wires};\n'
         elif len(self.controls) == 1:
             return f'cz q{self.controls},q{self.wires};\n'
-        elif len(self.controls) == 2:
-            return f'ccz q[{self.controls[0]}],q[{self.controls[1]}],q{self.wires};\n'
         else:
             return self.qasm_customized('z')
 
@@ -373,6 +380,10 @@ class SGate(SingleGate):
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0], [0, 1j]]))
 
+    def inverse(self):
+        return SDaggerGate(nqubit=self.nqubit, wires=self.wires, controls=self.controls,
+                           den_mat=self.den_mat, tsr_mode=self.tsr_mode)
+
     def qasm(self):
         if self.controls == []:
             return f's q{self.wires};\n'
@@ -387,6 +398,10 @@ class SDaggerGate(SingleGate):
         super().__init__(name='SDaggerGate', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0], [0, -1j]]))
+
+    def inverse(self):
+        return SGate(nqubit=self.nqubit, wires=self.wires, controls=self.controls,
+                     den_mat=self.den_mat, tsr_mode=self.tsr_mode)
 
     def qasm(self):
         if self.controls == []:
@@ -403,6 +418,10 @@ class TGate(SingleGate):
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0], [0, (1 + 1j) / 2 ** 0.5]]))
 
+    def inverse(self):
+        return TDaggerGate(nqubit=self.nqubit, wires=self.wires, controls=self.controls,
+                           den_mat=self.den_mat, tsr_mode=self.tsr_mode)
+
     def qasm(self):
         if self.controls == []:
             return f't q{self.wires};\n'
@@ -415,6 +434,10 @@ class TDaggerGate(SingleGate):
         super().__init__(name='TDaggerGate', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0], [0, (1 - 1j) / 2 ** 0.5]]))
+
+    def inverse(self):
+        return TGate(nqubit=self.nqubit, wires=self.wires, controls=self.controls,
+                     den_mat=self.den_mat, tsr_mode=self.tsr_mode)
 
     def qasm(self):
         if self.controls == []:
@@ -434,6 +457,10 @@ class Rx(ParametricSingleGate):
         cos  = torch.cos(theta / 2)
         isin = torch.sin(theta / 2) * 1j
         return torch.stack([cos, -isin, -isin, cos]).reshape(2, 2)
+    
+    def inverse(self):
+        return Rx(inputs=-self.theta, nqubit=self.nqubit, wires=self.wires, controls=self.controls,
+                  den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
 
     def qasm(self):
         if self.controls == []:
@@ -456,6 +483,10 @@ class Ry(ParametricSingleGate):
         sin = torch.sin(theta / 2)
         return torch.stack([cos, -sin, sin, cos]).reshape(2, 2) + 0j
     
+    def inverse(self):
+        return Ry(inputs=-self.theta, nqubit=self.nqubit, wires=self.wires, controls=self.controls,
+                  den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
+    
     def qasm(self):
         if self.controls == []:
             return f'ry({self.theta.data}) q{self.wires};\n'
@@ -476,6 +507,10 @@ class Rz(ParametricSingleGate):
         e_m_it = torch.exp(-1j * theta / 2)
         e_it = torch.exp(1j * theta / 2)
         return torch.stack([e_m_it, e_it]).reshape(-1).diag_embed()
+    
+    def inverse(self):
+        return Rz(inputs=-self.theta, nqubit=self.nqubit, wires=self.wires, controls=self.controls,
+                  den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
     
     def qasm(self):
         if self.controls == []:
@@ -518,6 +553,13 @@ class CombinedSingleGate(SingleGate):
         self.gatelist.append(gate)
         self.matrix = gate.matrix @ self.matrix
         self.npara += gate.npara
+
+    def inverse(self):
+        gatelist = nn.ModuleList()
+        for gate in reversed(self.gatelist):
+            gatelist.append(gate.inverse())
+        return CombinedSingleGate(gatelist=gatelist, name=self.name, nqubit=self.nqubit, wires=self.wires,
+                                  controls=self.controls, den_mat=self.den_mat, tsr_mode=self.tsr_mode)
 
     def qasm(self):
         s = ''
@@ -570,6 +612,10 @@ class Rxx(ParametricDoubleGate):
         m2 = torch.stack([-isin, -isin, -isin, -isin]).reshape(-1).diag_embed().fliplr()
         return m1 + m2
     
+    def inverse(self):
+        return Rxx(inputs=-self.theta, nqubit=self.nqubit, wires=self.wires, controls=self.controls,
+                   den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
+    
     def qasm(self):
         if self.controls == []:
             return f'rxx({self.theta.data}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
@@ -591,6 +637,10 @@ class Ryy(ParametricDoubleGate):
         m2 = torch.stack([isin, -isin, -isin, isin]).reshape(-1).diag_embed().fliplr()
         return m1 + m2
     
+    def inverse(self):
+        return Ryy(inputs=-self.theta, nqubit=self.nqubit, wires=self.wires, controls=self.controls,
+                   den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
+    
     def qasm(self):
         if self.controls == []:
             return f'ryy({self.theta.data}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
@@ -610,6 +660,10 @@ class Rzz(ParametricDoubleGate):
         e_it = torch.exp(1j * theta / 2)
         return torch.stack([e_m_it, e_it, e_it, e_m_it]).reshape(-1).diag_embed()
     
+    def inverse(self):
+        return Rzz(inputs=-self.theta, nqubit=self.nqubit, wires=self.wires, controls=self.controls,
+                   den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
+    
     def qasm(self):
         if self.controls == []:
             return f'rzz({self.theta.data}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
@@ -627,9 +681,13 @@ class Rxy(ParametricDoubleGate):
         theta = self.inputs_to_tensor(theta)
         cos  = torch.cos(theta / 2)
         isin = torch.sin(theta / 2) * 1j
-        m1 = torch.eye(1, dtype=torch.cfloat, device=theta.device)
+        m1 = torch.eye(1, dtype=theta.dtype, device=theta.device)
         m2 = torch.stack([cos, -isin, -isin, cos]).reshape(2, 2)
         return torch.block_diag(m1, m2, m1)
+    
+    def inverse(self):
+        return Rxy(inputs=-self.theta, nqubit=self.nqubit, wires=self.wires, controls=self.controls,
+                   den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
     
     def qasm(self):
         return self.qasm_customized('rxy')
@@ -650,8 +708,8 @@ class Toffoli(TripleGate):
 
     def get_unitary(self):
         matrix = self.update_matrix()
-        identity = torch.eye(2, dtype=torch.cfloat, device=matrix.device)
-        oneone = torch.tensor([[0, 0], [0, 1]], dtype=torch.cfloat, device=matrix.device)
+        identity = torch.eye(2, dtype=matrix.dtype, device=matrix.device)
+        oneone = torch.tensor([[0, 0], [0, 1]], dtype=matrix.dtype, device=matrix.device)
         lst1 = [identity] * self.nqubit
         lst2 = [identity] * self.nqubit
         lst3 = [identity] * self.nqubit
@@ -683,11 +741,11 @@ class Fredkin(TripleGate):
 
     def get_unitary(self):
         matrix = self.update_matrix()
-        identity = torch.eye(2, dtype=torch.cfloat, device=matrix.device)
-        zerozero = torch.tensor([[1, 0], [0, 0]], dtype=torch.cfloat, device=matrix.device)
-        zeroone  = torch.tensor([[0, 1], [0, 0]], dtype=torch.cfloat, device=matrix.device)
-        onezero  = torch.tensor([[0, 0], [1, 0]], dtype=torch.cfloat, device=matrix.device)
-        oneone   = torch.tensor([[0, 0], [0, 1]], dtype=torch.cfloat, device=matrix.device)
+        identity = torch.eye(2, dtype=matrix.dtype, device=matrix.device)
+        zerozero = torch.tensor([[1, 0], [0, 0]], dtype=matrix.dtype, device=matrix.device)
+        zeroone  = torch.tensor([[0, 1], [0, 0]], dtype=matrix.dtype, device=matrix.device)
+        onezero  = torch.tensor([[0, 0], [1, 0]], dtype=matrix.dtype, device=matrix.device)
+        oneone   = torch.tensor([[0, 0], [0, 1]], dtype=matrix.dtype, device=matrix.device)
         lst1 = [identity] * self.nqubit
         lst2 = [identity] * self.nqubit
         lst3 = [identity] * self.nqubit
@@ -720,16 +778,16 @@ class Fredkin(TripleGate):
 class UAnyGate(Gate):
     def __init__(self, unitary, nqubit=1, minmax=None, name='UAnyGate', den_mat=False, tsr_mode=False):
         if minmax == None:
-            minmax = [0, nqubit-1]
+            minmax = [0, nqubit - 1]
         assert type(minmax) == list
         assert len(minmax) == 2
         assert all(isinstance(i, int) for i in minmax)
         assert minmax[0] > -1 and minmax[0] <= minmax[1] and minmax[1] < nqubit
         self.minmax = minmax
-        wires = [i for i in range(minmax[0], minmax[1] + 1)]
+        wires = list(range(minmax[0], minmax[1] + 1))
         if type(unitary) != torch.Tensor:
             unitary = torch.tensor(unitary, dtype=torch.cfloat).reshape(-1, 2 ** len(wires))
-        assert unitary.dtype == torch.cfloat
+        assert unitary.dtype in (torch.cfloat, torch.cdouble)
         assert unitary.shape[-1] == 2 ** len(wires) and unitary.shape[-2] == 2 ** len(wires)
         assert is_unitary(unitary)
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=None,
@@ -737,10 +795,14 @@ class UAnyGate(Gate):
         self.register_buffer('matrix', unitary)
 
     def get_unitary(self):
-        identity = torch.eye(2, dtype=torch.cfloat, device=self.matrix.device)
+        identity = torch.eye(2, dtype=self.matrix.dtype, device=self.matrix.device)
         lst = [identity] * (self.nqubit - len(self.wires) + 1)
         lst[self.wires[0]] = self.matrix
         return multi_kron(lst)
+    
+    def inverse(self):
+        return UAnyGate(unitary=self.matrix.mH, nqubit=self.nqubit, minmax=self.minmax, name=self.name,
+                        den_mat=self.den_mat, tsr_mode=self.tsr_mode)
     
     def qasm(self):
         return self.qasm_customized(self.name)

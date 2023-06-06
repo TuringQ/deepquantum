@@ -28,7 +28,7 @@ class QubitCircuit(Operation):
                 self.init_state = QubitState(nqubit=nqubit, state=init_state, den_mat=den_mat)
         self.operators = nn.Sequential()
         self.encoders = []
-        self.observables = nn.ModuleList([])
+        self.observables = nn.ModuleList()
         self.state = None
         self.npara = 0
         self.ndata = 0
@@ -55,12 +55,32 @@ class QubitCircuit(Operation):
     def to(self, arg):
         if arg == torch.float:
             self.init_state.to(torch.cfloat)
+            for op in self.operators:
+                if op.npara == 0:
+                    op.to(torch.cfloat)
+                elif op.npara > 0:
+                    op.to(torch.float)
+            for ob in self.observables:
+                if ob.npara == 0:
+                    ob.to(torch.cfloat)
+                elif ob.npara > 0:
+                    ob.to(torch.float)
         elif arg == torch.double:
             self.init_state.to(torch.cdouble)
+            for op in self.operators:
+                if op.npara == 0:
+                    op.to(torch.cdouble)
+                elif op.npara > 0:
+                    op.to(torch.double)
+            for ob in self.observables:
+                if ob.npara == 0:
+                    ob.to(torch.cdouble)
+                elif ob.npara > 0:
+                    ob.to(torch.double)
         else:
             self.init_state.to(arg)
-        self.operators.to(arg)
-        self.observables.to(arg)
+            self.operators.to(arg)
+            self.observables.to(arg)
 
     def forward(self, data=None, state=None):
         if state == None:
@@ -81,11 +101,13 @@ class QubitCircuit(Operation):
                 data = data.unsqueeze(0)
             assert data.ndim == 2
             if self.mps:
+                assert state[0].ndim in (3, 4)
                 if state[0].ndim == 3:
                     self.state = vmap(self.forward_helper, in_dims=(0, None))(data, state)
                 elif state[0].ndim == 4:
                     self.state = vmap(self.forward_helper)(data, state)
             else:
+                assert state.ndim in (2, 3)
                 if state.ndim == 2:
                     self.state = vmap(self.forward_helper, in_dims=(0, None))(data, state)
                 elif state.ndim == 3:
@@ -152,7 +174,7 @@ class QubitCircuit(Operation):
                 self.init_state = QubitState(nqubit=self.nqubit, state=init_state, den_mat=self.den_mat)
         self.operators = nn.Sequential()
         self.encoders = []
-        self.observables = nn.ModuleList([])
+        self.observables = nn.ModuleList()
         self.state = None
         self.npara = 0
         self.ndata = 0
@@ -168,7 +190,7 @@ class QubitCircuit(Operation):
         self.observables.append(observable)
 
     def reset_observable(self):
-        self.observables = nn.ModuleList([])
+        self.observables = nn.ModuleList()
 
     def measure(self, shots=1024, with_prob=False, wires=None):
         if wires == None:
@@ -200,11 +222,50 @@ class QubitCircuit(Operation):
     def get_unitary(self):
         u = None
         for op in self.operators:
+            if type(op) == Barrier:
+                continue
             if u == None:
                 u = op.get_unitary()
             else:
                 u = op.get_unitary() @ u
         return u
+    
+    def inverse(self):
+        # ATTENTION: Only the circuit structure is guaranteed.
+        # You must encode data manually.
+        cir = QubitCircuit(nqubit=self.nqubit, name=self.name, den_mat=self.den_mat, reupload=self.reupload,
+                           mps=self.mps, chi=self.chi)
+        for op in reversed(self.operators):
+            op_inv = op.inverse()
+            cir.operators.append(op_inv)
+            if op in self.encoders:
+                cir.encoders.append(op_inv)
+        cir.depth = self.depth
+        cir.npara = self.npara
+        cir.ndata = self.ndata
+        return cir
+    
+    @property
+    def max_depth(self):
+        return max(self.depth)
+    
+    def qasm(self):
+        qasm_str = 'OPENQASM 2.0;\n' + 'include "qelib1.inc";\n'
+        if self.wires_measure == None:
+            qasm_str += f'qreg q[{self.nqubit}];\n'
+        else:
+            qasm_str += f'qreg q[{self.nqubit}];\n' + f'creg c[{self.nqubit}];\n'
+        for op in self.operators:
+            qasm_str += op.qasm()
+        if self.wires_measure != None:
+            for wire in self.wires_measure:
+                qasm_str += f'measure q[{wire}] -> c[{wire}];\n'
+        Gate.reset_qasm_new_gate()
+        return qasm_str
+        
+    def draw(self, output='mpl', **kwargs):
+        qc = QuantumCircuit.from_qasm_str(self.qasm())
+        return qc.draw(output=output, **kwargs)
 
     def add(self, op, encode=False):
         assert isinstance(op, Operation)
@@ -232,31 +293,7 @@ class QubitCircuit(Operation):
                 self.encoders.append(op)
                 self.ndata += op.npara
             else:
-                self.npara += op.npara
-
-    def max_depth(self):
-        return max(self.depth)
-    
-    def qasm(self):
-        qasm_str = 'OPENQASM 2.0;\n' + 'include "qelib1.inc";\n'
-        if self.wires_measure == None:
-            qasm_str += f'qreg q[{self.nqubit}];\n'
-        else:
-            qasm_str += f'qreg q[{self.nqubit}];\n' + f'creg c[{self.nqubit}];\n'
-        for op in self.operators:
-            qasm_str += op.qasm()
-        if self.wires_measure != None:
-            for wire in self.wires_measure:
-                qasm_str += f'measure q[{wire}] -> c[{wire}];\n'
-        Gate.qasm_new_gate = []
-        return qasm_str
-
-    def print(self):
-        pass
-        
-    def draw(self, output='mpl', **kwargs):
-        qc = QuantumCircuit.from_qasm_str(self.qasm())
-        return qc.draw(output=output, **kwargs)
+                self.npara += op.npara    
 
     def u3(self, wires, inputs=None, controls=None, encode=False):
         requires_grad = not encode
@@ -515,6 +552,18 @@ class QubitCircuit(Operation):
         uany = UAnyGate(unitary=unitary, nqubit=self.nqubit, minmax=minmax, name=name,
                         den_mat=self.den_mat, tsr_mode=True)
         self.add(uany)
+
+    def xlayer(self, wires=None):
+        xl = XLayer(nqubit=self.nqubit, wires=wires, den_mat=self.den_mat, tsr_mode=True)
+        self.add(xl)
+
+    def ylayer(self, wires=None):
+        yl = YLayer(nqubit=self.nqubit, wires=wires, den_mat=self.den_mat, tsr_mode=True)
+        self.add(yl)
+
+    def zlayer(self, wires=None):
+        zl = ZLayer(nqubit=self.nqubit, wires=wires, den_mat=self.den_mat, tsr_mode=True)
+        self.add(zl)
 
     def hlayer(self, wires=None):
         hl = HLayer(nqubit=self.nqubit, wires=wires, den_mat=self.den_mat, tsr_mode=True)

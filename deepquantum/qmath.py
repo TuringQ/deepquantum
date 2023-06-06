@@ -18,6 +18,21 @@ def is_power_of_two(n):
     return np.vectorize(f)(n)
 
 
+def int_to_bitstring(x, n, debug=False):
+    assert type(x) == int
+    assert type(n) == int
+    if x < 2 ** n:
+        # remove '0b'
+        s = bin(x)[2:]
+        if len(s) <= n:
+            s = '0' * (n - len(s)) + s
+    else:
+        if debug:
+            print(f'Quantum register ({n}) overflowed for {x}.')
+        s = bin(x)[-n:]
+    return s
+
+
 def inverse_permutation(permute_shape):
     # permute_shape is a list of integers
     # return a list of integers that is the inverse of permute_shape

@@ -5,12 +5,13 @@ requirements = [
     "numpy",
     "matplotlib",
     "qiskit",
-    "pylatexenc"
+    "pylatexenc",
+    "pytest"
 ]
 
 setup(
     name='deepquantum',
-    version='0.1.2',
+    version='0.1.4',
     packages=find_packages(where="."),
     url='',
     license='',
