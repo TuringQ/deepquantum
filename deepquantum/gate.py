@@ -149,7 +149,7 @@ class ParametricSingleGate(SingleGate):
         self.update_matrix()
 
     def extra_repr(self):
-        s = f'wires={self.wires}, theta={self.theta.data}'
+        s = f'wires={self.wires}, theta={self.theta.item()}'
         if self.controls == []:
             return s
         else:
@@ -188,7 +188,7 @@ class ParametricDoubleGate(DoubleGate):
         self.update_matrix()
 
     def extra_repr(self):
-        s = f'wires={self.wires}, theta={self.theta.data}'
+        s = f'wires={self.wires}, theta={self.theta.item()}'
         if self.controls == []:
             return s
         else:
@@ -251,7 +251,7 @@ class U3Gate(ParametricSingleGate):
                       tsr_mode=self.tsr_mode, requires_grad=False)
 
     def extra_repr(self):
-        s = f'wires={self.wires}, theta={self.theta.data}, phi={self.phi.data}, lambda={self.lambd.data}'
+        s = f'wires={self.wires}, theta={self.theta.item()}, phi={self.phi.item()}, lambda={self.lambd.item()}'
         if self.controls == []:
             return s
         else:
@@ -259,9 +259,9 @@ class U3Gate(ParametricSingleGate):
 
     def qasm(self):
         if self.controls == []:
-            return f'u({self.theta.data},{self.phi.data},{self.lambd.data}) q{self.wires};\n'
+            return f'u({self.theta.item()},{self.phi.item()},{self.lambd.item()}) q{self.wires};\n'
         elif len(self.controls) == 1:
-            return f'cu({self.theta.data},{self.phi.data},{self.lambd.data},0.0) q{self.controls},q{self.wires};\n'
+            return f'cu({self.theta.item()},{self.phi.item()},{self.lambd.item()},0.0) q{self.controls},q{self.wires};\n'
         else:
             return self.qasm_customized('u')
 
@@ -293,9 +293,9 @@ class PhaseShift(ParametricSingleGate):
     
     def qasm(self):
         if self.controls == []:
-            return f'p({self.theta.data}) q{self.wires};\n'
+            return f'p({self.theta.item()}) q{self.wires};\n'
         elif len(self.controls) == 1:
-            return f'cp({self.theta.data}) q{self.controls},q{self.wires};\n'
+            return f'cp({self.theta.item()}) q{self.controls},q{self.wires};\n'
         else:
             return self.qasm_customized('p')
 
@@ -464,9 +464,9 @@ class Rx(ParametricSingleGate):
 
     def qasm(self):
         if self.controls == []:
-            return f'rx({self.theta.data}) q{self.wires};\n'
+            return f'rx({self.theta.item()}) q{self.wires};\n'
         elif len(self.controls) == 1:
-            return f'crx({self.theta.data}) q{self.controls},q{self.wires};\n'
+            return f'crx({self.theta.item()}) q{self.controls},q{self.wires};\n'
         else:
             return self.qasm_customized('rx')
 
@@ -489,9 +489,9 @@ class Ry(ParametricSingleGate):
     
     def qasm(self):
         if self.controls == []:
-            return f'ry({self.theta.data}) q{self.wires};\n'
+            return f'ry({self.theta.item()}) q{self.wires};\n'
         elif len(self.controls) == 1:
-            return f'cry({self.theta.data}) q{self.controls},q{self.wires};\n'
+            return f'cry({self.theta.item()}) q{self.controls},q{self.wires};\n'
         else:
             return self.qasm_customized('ry')
 
@@ -514,9 +514,9 @@ class Rz(ParametricSingleGate):
     
     def qasm(self):
         if self.controls == []:
-            return f'rz({self.theta.data}) q{self.wires};\n'
+            return f'rz({self.theta.item()}) q{self.wires};\n'
         elif len(self.controls) == 1:
-            return f'crz({self.theta.data}) q{self.controls},q{self.wires};\n'
+            return f'crz({self.theta.item()}) q{self.controls},q{self.wires};\n'
         else:
             return self.qasm_customized('rz')
 
@@ -618,7 +618,7 @@ class Rxx(ParametricDoubleGate):
     
     def qasm(self):
         if self.controls == []:
-            return f'rxx({self.theta.data}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
+            return f'rxx({self.theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
         else:
             return self.qasm_customized('rxx')
 
@@ -643,7 +643,7 @@ class Ryy(ParametricDoubleGate):
     
     def qasm(self):
         if self.controls == []:
-            return f'ryy({self.theta.data}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
+            return f'ryy({self.theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
         else:
             return self.qasm_customized('ryy')
 
@@ -666,7 +666,7 @@ class Rzz(ParametricDoubleGate):
     
     def qasm(self):
         if self.controls == []:
-            return f'rzz({self.theta.data}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
+            return f'rzz({self.theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
         else:
             return self.qasm_customized('rzz')
 
