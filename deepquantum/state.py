@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from deepquantum.qmath import is_density_matrix, amplitude_encoding, inner_product_mps, SVD
+from deepquantum.qmath import is_density_matrix, amplitude_encoding, inner_product_mps, split_tensor, SVD
 
 
 svd = SVD.apply
@@ -242,6 +242,25 @@ class MatrixProductState(nn.Module):
         else:
             for site in range(n1, n2, -1):
                 self.orthogonalize_right2left(site, dc, normalize)
+
+    # def reduce_dimension(self, index_left, center_left):
+    #     index_right = index_left + 1
+    #     assert self.center in (index_left, index_right)
+    #     tensor_left = self.tensors[index_left]
+    #     tensor_right = self.tensors[index_right]
+    #     ni = tensor_left.shape[0]
+    #     nk = tensor_right.shape[-1]
+    #     T = torch.einsum("iaj,jbk->iabk", tensor_left, tensor_right)
+    #     T = T.reshape(ni * 2, nk * 2)
+    #     new_tensor_left, new_tensor_right = split_tensor(T, center_left=center_left)
+    #     new_tensor_left = new_tensor_left.reshape(ni, 2, -1)
+    #     new_tensor_right = new_tensor_right.reshape(-1, 2, nk)
+    #     self.tensors[index_left] = new_tensor_left
+    #     self.tensors[index_right] = new_tensor_right
+    #     if center_left:
+    #         self.center = index_left
+    #     else:
+    #         self.center = index_right
 
     def forward(self):
         pass

@@ -51,7 +51,8 @@ class Operation(nn.Module):
 
 
 class Gate(Operation):
-    qasm_new_gate = []
+    # include default names in QASM
+    qasm_new_gate = ['c3x', 'c4x']
 
     def __init__(self, name=None, nqubit=1, wires=[0], controls=None, den_mat=False, tsr_mode=False):
         if type(wires) == int:
@@ -192,6 +193,9 @@ class Gate(Operation):
         else:
             assert x.ndim == self.nqubit + 1
             return self.op_state(x)
+        
+    def inverse(self):
+        return self
 
     def extra_repr(self):
         s = f'wires={self.wires}'
@@ -200,12 +204,16 @@ class Gate(Operation):
         else:
             return s + f', controls={self.controls}'
     
+    @staticmethod
+    def reset_qasm_new_gate():
+        Gate.qasm_new_gate = ['c3x', 'c4x']
+    
     def qasm_customized(self, name):
         name = name.lower()
         if len(self.controls) > 2:
-            name = f'c{len(self.controls)}{name}_'
+            name = f'c{len(self.controls)}{name}'
         else:
-            name = 'c' * len(self.controls) + f'{name}_'
+            name = 'c' * len(self.controls) + f'{name}'
         # warnings.warn(f'{name} is an empty gate and should be only used to draw circuit.')
         qasm_str1 = f'gate {name} '
         qasm_str2 = f'{name} '
@@ -281,17 +289,32 @@ class Gate(Operation):
         #           |
         #     k-----T-----l
         mpo_tensors, left = self.get_mpo()
-        mps.center_orthogonalization(left, dc=mps.chi, normalize=mps.normalize)
+        right = left + len(mpo_tensors) - 1
+        diff_left = abs(left - mps.center)
+        diff_right = abs(right - mps.center)
+        center_left = diff_left < diff_right
+        if center_left:
+            end1 = left
+            end2 = right
+            step = 1
+        else:
+            end1 = right
+            end2 = left
+            step = -1
+        idx_list = np.arange(left, right + 1)[::step]
+        i_list = np.arange(len(mpo_tensors))[::step]
+        mps.center_orthogonalization(end1, dc=-1, normalize=mps.normalize)
         mps_tensors = mps.tensors
-        for i, mpo_tensor in enumerate(mpo_tensors):
-            mps_tensors[left + i] = torch.einsum('iabj,...kbl->...ikajl', mpo_tensor, mps_tensors[left + i])
-            s = mps_tensors[left + i].shape
+        for i, idx in zip(i_list, idx_list):
+            mps_tensors[idx] = torch.einsum('iabj,...kbl->...ikajl', mpo_tensors[i], mps_tensors[idx])
+            s = mps_tensors[idx].shape
             if len(s) == 5:
-                mps_tensors[left + i] = mps_tensors[left + i].reshape(s[-5] * s[-4], s[-3], s[-2] * s[-1])
+                mps_tensors[idx] = mps_tensors[idx].reshape(s[-5] * s[-4], s[-3], s[-2] * s[-1])
             else:
-                mps_tensors[left + i] = mps_tensors[left + i].reshape(-1, s[-5] * s[-4], s[-3], s[-2] * s[-1])
+                mps_tensors[idx] = mps_tensors[idx].reshape(-1, s[-5] * s[-4], s[-3], s[-2] * s[-1])
         out = MatrixProductState(nqubit=mps.nqubit, state=mps_tensors, chi=mps.chi, normalize=mps.normalize)
-        out.center_orthogonalization(left + len(mpo_tensors) - 1, dc=out.chi, normalize=out.normalize)
+        out.center_orthogonalization(end2, dc=-1, normalize=out.normalize)
+        out.center_orthogonalization(end1, dc=out.chi, normalize=out.normalize)
         return out
 
 
@@ -345,6 +368,9 @@ class Layer(Operation):
             else:
                 return self.vector_rep(x).squeeze(0)
         return x
+
+    def inverse(self):
+        return self
     
     def qasm(self):
         s = ''

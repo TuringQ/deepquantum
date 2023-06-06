@@ -63,6 +63,39 @@ class U3Layer(SingleLayer):
             self.gates.append(u3)
             self.npara += u3.npara
 
+    def inverse(self):
+        inputs = []
+        for gate in self.gates:
+            inputs.append(-gate.theta)
+            inputs.append(-gate.lambd)
+            inputs.append(-gate.phi)
+        return U3Layer(nqubit=self.nqubit, wires=self.wires, inputs=inputs,
+                       den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
+
+
+class XLayer(SingleLayer):
+    def __init__(self, nqubit=1, wires=None, den_mat=False, tsr_mode=False):
+        super().__init__(name='XLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
+        for wire in self.wires:
+            x = PauliX(nqubit=nqubit, wires=wire, den_mat=den_mat, tsr_mode=True)
+            self.gates.append(x)
+
+
+class YLayer(SingleLayer):
+    def __init__(self, nqubit=1, wires=None, den_mat=False, tsr_mode=False):
+        super().__init__(name='YLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
+        for wire in self.wires:
+            y = PauliY(nqubit=nqubit, wires=wire, den_mat=den_mat, tsr_mode=True)
+            self.gates.append(y)
+
+
+class ZLayer(SingleLayer):
+    def __init__(self, nqubit=1, wires=None, den_mat=False, tsr_mode=False):
+        super().__init__(name='ZLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
+        for wire in self.wires:
+            z = PauliZ(nqubit=nqubit, wires=wire, den_mat=den_mat, tsr_mode=True)
+            self.gates.append(z)
+
 
 class HLayer(SingleLayer):
     def __init__(self, nqubit=1, wires=None, den_mat=False, tsr_mode=False):
@@ -85,6 +118,13 @@ class RxLayer(SingleLayer):
             self.gates.append(rx)
             self.npara += rx.npara
 
+    def inverse(self):
+        inputs = []
+        for gate in self.gates:
+            inputs.append(-gate.theta)
+        return RxLayer(nqubit=self.nqubit, wires=self.wires, inputs=inputs,
+                       den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
+
 
 class RyLayer(SingleLayer):
     def __init__(self, nqubit=1, wires=None, inputs=None, den_mat=False, tsr_mode=False, requires_grad=True):
@@ -98,6 +138,13 @@ class RyLayer(SingleLayer):
                     tsr_mode=True, requires_grad=requires_grad)
             self.gates.append(ry)
             self.npara += ry.npara
+
+    def inverse(self):
+        inputs = []
+        for gate in self.gates:
+            inputs.append(-gate.theta)
+        return RyLayer(nqubit=self.nqubit, wires=self.wires, inputs=inputs,
+                       den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
 
 
 class RzLayer(SingleLayer):
@@ -113,6 +160,13 @@ class RzLayer(SingleLayer):
             self.gates.append(rz)
             self.npara += rz.npara
 
+    def inverse(self):
+        inputs = []
+        for gate in self.gates:
+            inputs.append(-gate.theta)
+        return RzLayer(nqubit=self.nqubit, wires=self.wires, inputs=inputs,
+                       den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
+
 
 class CnotLayer(DoubleLayer):
     def __init__(self, nqubit=2, wires=None, name='CnotLayer', den_mat=False, tsr_mode=False):
@@ -120,6 +174,13 @@ class CnotLayer(DoubleLayer):
         for wire in self.wires:
             cnot = CNOT(nqubit=nqubit, wires=wire, den_mat=den_mat, tsr_mode=True)
             self.gates.append(cnot)
+
+    def inverse(self):
+        wires = []
+        for wire in reversed(self.wires):
+            wires.append(wire)
+        return CnotLayer(nqubit=self.nqubit, wires=wires, name=self.name,
+                         den_mat=self.den_mat, tsr_mode=self.tsr_mode)
 
 
 class CnotRing(CnotLayer):
