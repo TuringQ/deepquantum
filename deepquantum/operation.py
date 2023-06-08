@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from deepquantum.qmath import inverse_permutation, state_to_tensors
-from deepquantum.state import MatrixProductState
+from .qmath import inverse_permutation, state_to_tensors
+from .state import MatrixProductState
 import warnings
 from copy import copy
 

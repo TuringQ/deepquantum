@@ -1,6 +1,6 @@
-from deepquantum.operation import Layer
-from deepquantum.gate import *
-from deepquantum.qmath import multi_kron
+from .operation import Layer
+from .gate import *
+from .qmath import multi_kron
 
 
 class SingleLayer(Layer):

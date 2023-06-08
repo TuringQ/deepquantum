@@ -1,6 +1,6 @@
 import torch
-from deepquantum.qmath import int_to_bitstring
-from deepquantum.circuit import QubitCircuit
+from .qmath import int_to_bitstring
+from .circuit import QubitCircuit
 import random
 
 

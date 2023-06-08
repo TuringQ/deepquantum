@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from deepquantum.qmath import is_density_matrix, amplitude_encoding, inner_product_mps, split_tensor, SVD
+from .qmath import is_density_matrix, amplitude_encoding, inner_product_mps, split_tensor, SVD
 
 
 svd = SVD.apply

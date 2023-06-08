@@ -1,12 +1,12 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from deepquantum.state import QubitState, MatrixProductState
-from deepquantum.operation import Operation
-from deepquantum.gate import *
-from deepquantum.layer import *
+from .state import QubitState, MatrixProductState
+from .operation import Operation
+from .gate import *
+from .layer import *
 from torch import vmap
-from deepquantum.qmath import amplitude_encoding, measure, expectation
+from .qmath import amplitude_encoding, measure, expectation
 from qiskit import QuantumCircuit
 
 
