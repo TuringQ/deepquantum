@@ -1,13 +1,17 @@
 from setuptools import setup, find_packages
 
 requirements = [
-    "torch",
-    "numpy"
+    "torch==2.0",
+    "numpy",
+    "matplotlib",
+    "qiskit",
+    "pylatexenc",
+    "pytest"
 ]
 
 setup(
     name='deepquantum',
-    version='0.0.1',
+    version='0.1.4',
     packages=find_packages(where="."),
     url='',
     license='',
