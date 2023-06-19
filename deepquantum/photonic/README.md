@@ -6,11 +6,17 @@
 
 - 门支持三种类型的
 ```
-Displacement(r=tensor(1.0), phi=tensor(0.0))
-Displacement(r=Parameter, phi=Parameter)
-Displacement(r=Parameter, phi=tensor(0.0))
+d = Displacement(r=tensor(1.0), phi=tensor(0.0), mode)
+d = Displacement(r=Parameter, phi=Parameter, mode)
+d = Displacement(r=Parameter, phi=tensor(0.0), mode)
+
+d.set_r
+d.set_phi
 ```
 
 - 训练好的模型 要支持 不同batch_size的推理
 
-- add `quad_expectation`, `homodyne_measure` to fock.ops
+- 使用 to(device） 调用GPU
+
+- 任意变换 batch_size
+

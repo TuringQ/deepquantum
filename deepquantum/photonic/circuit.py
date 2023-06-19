@@ -4,11 +4,10 @@ from string import ascii_lowercase as indices
 import numpy as np
 import torch
 from torch import nn   
-import gaussian.ops
+import gaussian
 import fock
 from scipy.stats import unitary_group
 from scipy.special import factorial
-import tensorflow as tf
 from torch.distributions.categorical import Categorical
 
 
@@ -17,8 +16,10 @@ from torch.distributions.categorical import Categorical
 
 class QumodeCircuit(nn.Module):
 
-    def __init__(self, n_modes, backend='fock'):
+    def __init__(self, batch_size, n_modes, backend='fock'):
         super().__init__()
+        self.init_state = FockState(batch_size, n_modes) # :bug: how to move init_state.tesnor to GPU
+        self.batch_size = batch_size
         self.n_modes = n_modes
         self.backend = backend
         self.operators = nn.ModuleList([])
@@ -26,12 +27,13 @@ class QumodeCircuit(nn.Module):
         self.squeezing_paras = []
         # store the directly applied random unitary matrix
         self.random_u = []
-    
+
+
 
     def __add__(self, rhs):
         # outplace operation
         # https://qiskit.org/documentation/stubs/qiskit.circuit.QuantumCircuit.compose.html
-        cir = QumodeCircuit(self.n_modes, self.backend)
+        cir = QumodeCircuit(self.batch_size, self.n_modes, self.backend)
         cir.operators = self.operators + rhs.operators
         return cir
 
@@ -40,7 +42,9 @@ class QumodeCircuit(nn.Module):
         self.operators.append(op)
 
 
-    def forward(self, state):
+    def forward(self, state=None):
+        if state is None:
+            state = self.init_state.reset()
         for op in self.operators:
             state = op(state)
             if isinstance(op, gaussian.ops.RandomUnitary):
@@ -60,7 +64,8 @@ class QumodeCircuit(nn.Module):
 
     def squeeze(self, r=None, phi=None, mode=0):
         if self.backend == 'fock':
-            None
+            op = fock.ops.Squeezing(mode)
+            op.set_params(r, phi)
         else:
             op = gaussian.ops.Squeeze(mode)
             op.set_params(r, phi)
@@ -70,19 +75,21 @@ class QumodeCircuit(nn.Module):
     
     def phase_shift(self, phi=None, mode=0):
         if self.backend == 'fock':
-            None
+            op = fock.ops.PhaseShifter(mode)
+            op.set_params(phi)
         else:
             op = gaussian.ops.PhaseShifter(mode)
             op.set_params(phi)
         
         self.add(op)
 
-    def beam_split(self, r=None, phi=None, mode=0):
+    def beam_split(self, theta=None, phi=None, mode1=0, mode2=1):
         if self.backend == 'fock':
-            None
+            op = fock.ops.BeamSplitter(mode1, mode2)
+            op.set_params(theta, phi)
         else:
-            op = gaussian.ops.BeamSplitter(mode)
-            op.set_params(r, phi)
+            op = gaussian.ops.BeamSplitter([mode1, mode2])
+            op.set_params(theta, phi)
         
         self.add(op)
     
@@ -95,6 +102,15 @@ class QumodeCircuit(nn.Module):
         else:
             op = gaussian.ops.RandomUnitary(seed)
 
+        self.add(op)
+
+    def kerr(self, kappa=None, mode=0):
+        if self.backend == 'fock':
+            op = fock.ops.KerrInteraction(mode)
+            op.set_params(kappa)
+        else:
+            raise ValueError('Gaussian backend does not support kerr transformation.')
+        
         self.add(op)
 
 
@@ -178,6 +194,8 @@ class FockState:
         self.set(self._batch_size, self._n_modes, self._cutoff,
                  self._hbar, self._pure, self._dtype)
         
+        return self
+        
     def homodyne_measure(self, phi=0., mode=0, shots=1):
         """
         Homodyne measurement on a single mode.
@@ -188,7 +206,9 @@ class FockState:
         Args:
             phi (float): phase angle of quadrature to measure
             mode (int): which mode to measure.
-            shots (int): the number of times to measure the state
+            shots (int): the number of times to measure the state, 
+                collapse state conditioned on measurement result only when shots == 1,
+                otherwise return state before the measurement.
 
         Returns:
             tensor: shape (batch_size, shots), returns measurements of a single mode for each different state in a batch
@@ -367,6 +387,78 @@ class FockState:
                 self.tensor = new_state
 
         return meas_result
+    
+
+    def dm(self):
+        r"""
+        Return state's density matrix, optionally converts the state from pure state (ket) to mixed state (density matrix). 
+        """
+        if self._pure:
+            self.tensor = fock.ops.mix(self.tensor)
+        return self.tensor
+
+    def reduced_dm(self, modes):
+        r"""
+        Computes the reduced density matrix for modes
+        Args:
+            modes (int or Sequence[int]): specifies the mode(s) to return the reduced
+                                density matrix for.
+        Returns:
+            Tensor: the reduced density matrix for modes
+        """
+        if isinstance(modes, int):
+            modes = [modes]
+        if modes == list(range(self._n_modes)):
+            # reduced state is full state
+            return self.dm()
+        if len(modes) > self._n_modes:
+            raise ValueError(
+                "The number of specified modes cannot " "be larger than the number of subsystems."
+            )
+        reduced = fock.ops.reduced_density_matrix(self.tensor, modes, self._pure)
+        return reduced
+
+
+    def quad_expectation(self, phi=0., mode=0):
+        """Compute the expectation value of the quadrature operator :math:`\hat{x}_\phi` in single mode
+        
+        Args:
+            phi (float): rotation angle for the quadrature operator
+            mode (int): which single mode to take the expectation value of
+
+        Returns:
+            Tensor: the expectation value
+        """
+        rho = self.reduced_dm(mode) 
+
+        if len(phi.shape) == 0:  
+            phi = torch.unsqueeze(phi, 0)
+        larger_cutoff = self._cutoff + 1  # start one dimension higher to avoid truncation errors
+        R = fock.ops.phase_shifter_matrix(phi, larger_cutoff, self._dtype, self._batch_size)
+
+        a, ad = fock.ops.ladder_ops(larger_cutoff)
+        x = np.sqrt(self._hbar / 2.0) * (a + ad)
+        x = x.to(self._dtype)
+        x = torch.unsqueeze(x, 0)  # add batch dimension to x
+        quad = torch.conj(R) @ x @ R
+        quad2 = (quad @ quad)[:, : self._cutoff, : self._cutoff]
+        quad = quad[:, : self._cutoff, : self._cutoff]  # drop highest dimension
+
+        flat_rho = torch.reshape(rho, [-1, self._cutoff ** 2])
+        flat_quad = torch.reshape(quad, [1, self._cutoff ** 2])
+        flat_quad2 = torch.reshape(quad2, [1, self._cutoff ** 2])
+
+        e = torch.real(
+            torch.sum(flat_rho * flat_quad, dim=1)
+        )  # implements a batched tr(rho @ x) x.T = x
+        e2 = torch.real(
+            torch.sum(flat_rho * flat_quad2, dim=1)
+        )  # implements a batched tr(rho @ x ** 2)
+        v = e2 - e ** 2
+
+        return e, v
+
+
 
 
 
@@ -403,7 +495,8 @@ def homodyne_measure(state, phi=0., mode=0, shots=1):
     Args:
         phi (float): phase angle of quadrature to measure, gaussian backend only supports phi=0 and phi=90
         mode (int): which mode to measure.
-        shots (int): the number of times to measure the state, gaussian backend only supports shots=1.
+        shots (int): the number of times to measure the state, gaussian backend only supports shots=1. 
+            collapse state conditioned on measurement result only when shots == 1, otherwise return state before the measurement.
 
     Returns:
         res (tensor): shape (batch_size, shots), returns measurements of a single mode for each different state in a batch,

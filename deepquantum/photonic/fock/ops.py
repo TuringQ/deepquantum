@@ -357,7 +357,6 @@ def displacement_matrix(r, phi, cutoff, dtype, batch_size):  # pragma: no cover
 
     r = r.to(dtype)
     phi = phi.to(dtype)
-    batch_size = r.shape[0]
 
 
     D = torch.zeros((batch_size, cutoff, cutoff)).to(dtype)
@@ -402,7 +401,6 @@ def squeezing_matrix(r, phi, cutoff, dtype, batch_size):  # pragma: no cover
 
     r = r.to(dtype)
     phi = phi.to(dtype)
-    batch_size = r.shape[0]
     
 
     S = torch.zeros((batch_size, cutoff, cutoff)).to(dtype)
@@ -435,7 +433,7 @@ def squeezing_matrix(r, phi, cutoff, dtype, batch_size):  # pragma: no cover
     return S                                                        
 
 
-def beamsplitter_matrix(theta, phi, cutoff, dtype):  # pragma: no cover
+def beam_splitter_matrix(theta, phi, cutoff, dtype, batch_size):  # pragma: no cover
     r"""Calculates the matrix elements of the beamsplitter gate using a recurrence relation.
     
     Args:
@@ -447,10 +445,12 @@ def beamsplitter_matrix(theta, phi, cutoff, dtype):  # pragma: no cover
     Returns:
         torch.Tensor: matrix representing the beamsplitter operation.
     """
-    
+    theta = add_batch_dim(theta, batch_size)
+    phi = add_batch_dim(phi, batch_size)
+
     theta = theta.to(dtype)
     phi = phi.to(dtype)
-    batch_size = theta.shape[0]
+
 
     sqrt = torch.sqrt(torch.arange(cutoff)).to(dtype)
     ct = torch.cos(theta)
@@ -519,12 +519,13 @@ def phase_shifter_matrix(phi, cutoff, dtype, batch_size):
     return diag_matrix
 
 
-def kerr_interaction_matrix(kappa, cutoff, dtype):
+def kerr_interaction_matrix(kappa, cutoff, dtype, batch_size):
     """Creates the single mode Kerr interaction matrix
     
     Args:
         kappa (torch.Tensor): batched angle shape = (batch_size,)
     """
+    kappa = add_batch_dim(kappa, batch_size)
     kappa = kappa.to(dtype)
 
     diag = [torch.exp(1j * kappa * n ** 2) for n in range(cutoff)]
@@ -534,7 +535,7 @@ def kerr_interaction_matrix(kappa, cutoff, dtype):
 
 
 
-def snap_maxtrix(theta, cutoff, dtype):
+def snap_maxtrix(theta, cutoff, dtype, batch_size):
     """https://journals.aps.org/prl/abstract/10.1103/PhysRevLett.115.137002
 
     Constructs the matrix for a SNAP gate operation
@@ -548,6 +549,7 @@ def snap_maxtrix(theta, cutoff, dtype):
     Returns:
         torch.Tensor: matrix representing the SNAP gate, shape = (batch_size, cutoff, cutoff)
     """
+    theta = add_batch_dim(theta, batch_size)
     theta = theta.to(dtype)
 
     diag = [torch.exp(1j * theta[:, n]) for n in range(cutoff)]
@@ -557,12 +559,17 @@ def snap_maxtrix(theta, cutoff, dtype):
 
 
 
+def ladder_ops(cutoff):
+    """returns the matrix representation of the annihilation and creation operators"""
+    vals = torch.tensor([np.sqrt(n) for n in range(1, cutoff)])
+    a = torch.diag(vals, 1)
+    ad = torch.transpose(torch.conj(a), 1, 0)
+    return a, ad
+
 
 #---------------------------------------------------------------------------------------------------------------------------------------deprecated
 
 
-
-# deprecated
 
 def displacement(r, phi, mode, in_modes, cutoff, pure=True, dtype=torch.complex64):
     """returns displacement unitary matrix applied on specified input modes"""
@@ -580,7 +587,7 @@ def squeezing(r, theta, mode, in_modes, cutoff, pure=True, dtype=torch.complex64
 
 def beamsplitter(theta, phi, mode1, mode2, in_modes, cutoff, pure=True, dtype=torch.complex64):
     """returns beamsplitter unitary matrix applied on specified input modes"""
-    matrix = beamsplitter_matrix(theta, phi, cutoff, dtype)
+    matrix = beam_splitter_matrix(theta, phi, cutoff, dtype)
     output = two_mode_gate(matrix, mode1, mode2, in_modes, pure)
 
     return output
@@ -628,12 +635,7 @@ def coherent_state(r, phi, cutoff, pure=True, dtype=torch.complex64):
 
 
 
-def ladder_ops(cutoff):
-    """returns the matrix representation of the annihilation and creation operators"""
-    vals = torch.tensor([np.sqrt(n) for n in range(1, cutoff)])
-    a = torch.diag(vals, 1)
-    ad = torch.transpose(torch.conj(a), 1, 0)
-    return a, ad
+
 
 
 
@@ -656,10 +658,51 @@ class Displacement(nn.Module):
         
         
     def forward(self, state):
-        # state in, state out, this is in-ploace operation
+        # state in, state out, this is in-place operation
         self.auto_params(dtype=state._dtype2)
         # tensor contraction
         self.matirx = displacement_matrix(self.r, self.phi, state._cutoff, state._dtype, state._batch_size)
+        state.tensor = single_mode_gate(self.matirx, self.mode, state.tensor, state._pure)
+        return state
+    
+    def set_params(self, r=None, phi=None):
+        """set r, phi to tensor independently"""
+        if r != None:
+            self.register_buffer('r', r)
+            self.is_r_set = True
+        if phi != None:
+            self.register_buffer('phi', phi)
+            self.is_phi_set = True
+        
+
+    def auto_params(self, dtype):
+        """automatically set None parameter as nn.Paramter for users"""
+        if not self.is_r_set:
+            self.register_parameter('r', nn.Parameter(torch.randn([], dtype=dtype)))
+            self.is_r_set = True
+        if not self.is_phi_set:
+            self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=dtype)))
+            self.is_phi_set = True
+        
+
+
+class Squeezing(nn.Module):
+    """
+    Parameters:
+        r (tensor): squeezing magnitude 
+        phi (tesnor): squeezing angle 
+    """
+    def __init__(self, mode=0):
+        super().__init__()
+        self.mode = mode
+        self.is_r_set  = False
+        self.is_phi_set  = False
+        
+    def forward(self, state):
+        # state in, state out, this is in-place operation
+        self.auto_params(dtype=state._dtype2)
+        # tensor contraction
+        self.matirx = squeezing_matrix(self.r, self.phi, state._cutoff, state._dtype, state._batch_size)
         state.tensor = single_mode_gate(self.matirx, self.mode, state.tensor, state._pure)
         return state
     
@@ -676,45 +719,10 @@ class Displacement(nn.Module):
         """automatically set None parameter as nn.Paramter for users"""
         if not self.is_r_set:
             self.register_parameter('r', nn.Parameter(torch.randn([], dtype=dtype)))
+            self.is_r_set = True
         if not self.is_phi_set:
             self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=dtype)))
-
-
-class Squeezing(nn.Module):
-    """
-    Parameters:
-        r (tensor): squeezing magnitude 
-        theta (tesnor): squeezing angle 
-    """
-    def __init__(self, mode=0):
-        super().__init__()
-        self.mode = mode
-        self.is_r_set  = False
-        self.is_theta_set  = False
-        
-    def forward(self, state):
-        # state in, state out, this is in-ploace operation
-        self.auto_params(dtype=state._dtype2)
-        # tensor contraction
-        self.matirx = squeezing_matrix(self.r, self.theta, state._cutoff, state._dtype, state._batch_size)
-        state.tensor = single_mode_gate(self.matirx, self.mode, state.tensor, state._pure)
-        return state
-    
-    def set_params(self, r=None, theta=None):
-        """set r, theta to tensor independently"""
-        if r != None:
-            self.register_buffer('r', r)
-            self.is_r_set = True
-        if theta != None:
-            self.register_buffer('theta', theta)
-            self.is_theta_set = True
-
-    def auto_params(self, dtype):
-        """automatically set None parameter as nn.Paramter for users"""
-        if not self.is_r_set:
-            self.register_parameter('r', nn.Parameter(torch.randn([], dtype=dtype)))
-        if not self.is_theta_set:
-            self.register_parameter('theta', nn.Parameter(torch.randn([], dtype=dtype)))
+            self.is_phi_set = True
 
 class PhaseShifter(nn.Module):
     """
@@ -727,7 +735,7 @@ class PhaseShifter(nn.Module):
         self.is_phi_set  = False
         
     def forward(self, state):
-        # state in, state out, this is in-ploace operation
+        # state in, state out, this is in-place operation
         self.auto_params(dtype=state._dtype2)
         # tensor contraction
         self.matirx = phase_shifter_matrix(self.phi, state._cutoff, state._dtype, state._batch_size)
@@ -744,5 +752,79 @@ class PhaseShifter(nn.Module):
         """automatically set None parameter as nn.Paramter for users"""
         if not self.is_phi_set:
             self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=dtype)))
+            self.is_phi_set = True
 
 
+class BeamSplitter(nn.Module):
+    """
+    Parameters:
+        theta (tesnor): beam splitter angle 
+        phi (tesnor): beam splitter angle
+    Methods:
+        set_params(theta=None, phi=None): set theta, phi to non-trainable tensor independently 
+    """
+    def __init__(self, mode1=0, mode2=1):
+        super().__init__()
+        self.mode1 = mode1
+        self.mode2 = mode2
+        self.is_theta_set = False
+        self.is_phi_set = False
+
+    def forward(self, state):
+        # state in, state out, this is in-place operation
+        self.auto_params(dtype=state._dtype2)
+        # tensor contraction
+        self.matirx = beam_splitter_matrix(theta=self.theta, phi=self.phi, cutoff=state._cutoff, dtype=state._dtype, batch_size=state._batch_size)
+        state.tensor = two_mode_gate(self.matirx, self.mode1, self.mode2, state.tensor, state._pure)
+        return state
+    
+    def set_params(self, theta=None, phi=None):
+        """set theta, phi to tensor independently"""
+        if theta != None:
+            self.register_buffer('theta', theta)
+            self.is_theta_set = True
+        if phi != None:
+            self.register_buffer('phi', phi)
+            self.is_phi_set = True
+    
+    def auto_params(self, dtype):
+        """automatically set None parameter as nn.Paramter for users"""
+        if not self.is_theta_set:
+            self.register_parameter('theta', nn.Parameter(torch.randn([], dtype=dtype)))
+            self.is_theta_set = True
+        if not self.is_phi_set:
+            self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=dtype)))
+            self.is_phi_set = True
+
+
+
+
+class KerrInteraction(nn.Module):
+    """
+    Parameters:
+        kappa (tesnor): kerr interaction strength
+    """
+    def __init__(self, mode=0):
+        super().__init__()
+        self.mode = mode
+        self.is_kappa_set = False
+
+    def forward(self, state):
+        # state in, state out, this is in-place operation
+        self.auto_params(dtype=state._dtype2)
+        # tensor contraction
+        self.matirx = kerr_interaction_matrix(self.kappa, state._cutoff, state._dtype, state._batch_size)
+        state.tensor = single_mode_gate(self.matirx, self.mode, state.tensor, state._pure)
+        return state
+    
+    def set_params(self, kappa=None):
+        """set kappa to tensor independently"""
+        if kappa != None:
+            self.register_buffer('kappa', kappa)
+            self.is_kappa_set = True
+    
+    def auto_params(self, dtype):
+        """automatically set None parameter as nn.Paramter for users"""
+        if not self.is_kappa_set:
+            self.register_parameter('kappa', nn.Parameter(torch.randn([], dtype=dtype)))
+            self.is_kappa_set = True
