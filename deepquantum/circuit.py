@@ -233,7 +233,8 @@ class QubitCircuit(Operation):
     def inverse(self):
         # ATTENTION: Only the circuit structure is guaranteed.
         # You must encode data manually.
-        cir = QubitCircuit(nqubit=self.nqubit, name=self.name, den_mat=self.den_mat, reupload=self.reupload,
+        name = self.name + '_inverse'
+        cir = QubitCircuit(nqubit=self.nqubit, name=name, den_mat=self.den_mat, reupload=self.reupload,
                            mps=self.mps, chi=self.chi)
         for op in reversed(self.operators):
             op_inv = op.inverse()
@@ -548,10 +549,18 @@ class QubitCircuit(Operation):
                      den_mat=self.den_mat, tsr_mode=True)
         self.add(cswap)
 
-    def any(self, unitary, minmax=None, name='uany'):
-        uany = UAnyGate(unitary=unitary, nqubit=self.nqubit, minmax=minmax, name=name,
+    def any(self, unitary, wires=None, minmax=None, name='uany'):
+        uany = UAnyGate(unitary=unitary, nqubit=self.nqubit, wires=wires, minmax=minmax, name=name,
                         den_mat=self.den_mat, tsr_mode=True)
         self.add(uany)
+
+    def latent(self, wires=None, minmax=None, inputs=None, encode=False, name='latent'):
+        requires_grad = not encode
+        if inputs != None:
+            requires_grad = False
+        latent = LatentGate(inputs=inputs, nqubit=self.nqubit, wires=wires, minmax=minmax, name=name,
+                            den_mat=self.den_mat, tsr_mode=True, requires_grad=requires_grad)
+        self.add(latent, encode=encode)
 
     def xlayer(self, wires=None):
         xl = XLayer(nqubit=self.nqubit, wires=wires, den_mat=self.den_mat, tsr_mode=True)

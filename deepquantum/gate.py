@@ -1,7 +1,10 @@
 import torch
 import torch.nn as nn
 from .operation import Gate
-from .qmath import multi_kron, is_unitary
+from .qmath import multi_kron, is_unitary, SVD
+
+
+svd = SVD.apply
 
 
 class SingleGate(Gate):
@@ -115,6 +118,39 @@ class TripleGate(Gate):
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         assert len(self.wires) == 3
+
+
+class ArbitraryGate(Gate):
+    def __init__(self, name=None, nqubit=1, wires=None, minmax=None, den_mat=False, tsr_mode=False):
+        if type(wires) == int:
+            wires = [wires]
+        if wires == None:
+            if minmax == None:
+                minmax = [0, nqubit - 1]
+            assert type(minmax) == list
+            assert len(minmax) == 2
+            assert all(isinstance(i, int) for i in minmax)
+            assert minmax[0] > -1 and minmax[0] <= minmax[1] and minmax[1] < nqubit
+            wires = list(range(minmax[0], minmax[1] + 1))
+        self.minmax = minmax
+        super().__init__(name=name, nqubit=nqubit, wires=wires, controls=None,
+                         den_mat=den_mat, tsr_mode=tsr_mode)
+        
+    def get_unitary(self):
+        if self.minmax != None:
+            matrix = self.update_matrix()
+            identity = torch.eye(2, dtype=matrix.dtype, device=matrix.device)
+            lst = [identity] * (self.nqubit - len(self.wires) + 1)
+            lst[self.wires[0]] = matrix
+            return multi_kron(lst)
+        else:
+            matrix = self.update_matrix()
+            identity = torch.eye(2 ** self.nqubit, dtype=matrix.dtype, device=matrix.device)
+            identity = identity.reshape([2 ** self.nqubit] + [2] * self.nqubit)
+            return self.op_state_base(identity, matrix).reshape(2 ** self.nqubit, 2 ** self.nqubit).T
+        
+    def qasm(self):
+        return self.qasm_customized(self.name)
 
 
 class ParametricSingleGate(SingleGate):
@@ -643,7 +679,12 @@ class Ryy(ParametricDoubleGate):
     
     def qasm(self):
         if self.controls == []:
-            return f'ryy({self.theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
+            qasm_str1 = ''
+            qasm_str2 = f'ryy({self.theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
+            if 'ryy' not in Gate.qasm_new_gate:
+                qasm_str1 += 'gate ryy(param0) q0,q1 { rx(pi/2) q0; rx(pi/2) q1; cx q0,q1; rz(param0) q1; cx q0,q1; rx(-pi/2) q0; rx(-pi/2) q1; }\n'
+                Gate.qasm_new_gate.append('ryy')
+            return qasm_str1 + qasm_str2
         else:
             return self.qasm_customized('ryy')
 
@@ -775,37 +816,63 @@ class Fredkin(TripleGate):
         return f'cswap q[{self.wires[0]}],q[{self.wires[1]}],q[{self.wires[2]}];\n'
 
 
-class UAnyGate(Gate):
-    def __init__(self, unitary, nqubit=1, minmax=None, name='UAnyGate', den_mat=False, tsr_mode=False):
-        if minmax == None:
-            minmax = [0, nqubit - 1]
-        assert type(minmax) == list
-        assert len(minmax) == 2
-        assert all(isinstance(i, int) for i in minmax)
-        assert minmax[0] > -1 and minmax[0] <= minmax[1] and minmax[1] < nqubit
-        self.minmax = minmax
-        wires = list(range(minmax[0], minmax[1] + 1))
+class UAnyGate(ArbitraryGate):
+    def __init__(self, unitary, nqubit=1, wires=None, minmax=None, name='UAnyGate', den_mat=False,
+                 tsr_mode=False):
+        super().__init__(name=name, nqubit=nqubit, wires=wires, minmax=minmax, den_mat=den_mat,
+                         tsr_mode=tsr_mode)
         if type(unitary) != torch.Tensor:
-            unitary = torch.tensor(unitary, dtype=torch.cfloat).reshape(-1, 2 ** len(wires))
+            unitary = torch.tensor(unitary, dtype=torch.cfloat).reshape(-1, 2 ** len(self.wires))
         assert unitary.dtype in (torch.cfloat, torch.cdouble)
-        assert unitary.shape[-1] == 2 ** len(wires) and unitary.shape[-2] == 2 ** len(wires)
+        assert unitary.shape[-1] == 2 ** len(self.wires) and unitary.shape[-2] == 2 ** len(self.wires)
         assert is_unitary(unitary)
-        super().__init__(name=name, nqubit=nqubit, wires=wires, controls=None,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', unitary)
-
-    def get_unitary(self):
-        identity = torch.eye(2, dtype=self.matrix.dtype, device=self.matrix.device)
-        lst = [identity] * (self.nqubit - len(self.wires) + 1)
-        lst[self.wires[0]] = self.matrix
-        return multi_kron(lst)
     
     def inverse(self):
-        return UAnyGate(unitary=self.matrix.mH, nqubit=self.nqubit, minmax=self.minmax, name=self.name,
+        name = self.name + '_dagger'
+        return UAnyGate(unitary=self.matrix.mH, nqubit=self.nqubit, minmax=self.minmax, name=name,
                         den_mat=self.den_mat, tsr_mode=self.tsr_mode)
+
+
+class LatentGate(ArbitraryGate):
+    def __init__(self, inputs=None, nqubit=1, wires=None, minmax=None, name='LatentGate',
+                 den_mat=False, tsr_mode=False, requires_grad=False):
+        super().__init__(name=name, nqubit=nqubit, wires=wires, minmax=minmax, den_mat=den_mat,
+                         tsr_mode=tsr_mode)
+        self.requires_grad = requires_grad
+        self.init_para(inputs=inputs)
+
+    def inputs_to_tensor(self, inputs=None):
+        if inputs == None:
+            inputs = torch.randn(2 ** len(self.wires), 2 ** len(self.wires))
+        elif type(inputs) != torch.Tensor and type(inputs) != torch.nn.parameter.Parameter:
+            inputs = torch.tensor(inputs, dtype=torch.float)
+        assert inputs.shape[-1] == 2 ** len(self.wires) and inputs.shape[-2] == 2 ** len(self.wires)
+        return inputs
     
-    def qasm(self):
-        return self.qasm_customized(self.name)
+    def get_matrix(self, inputs):
+        latent = self.inputs_to_tensor(inputs)
+        u, _, vh = svd(latent)
+        return u @ vh
+
+    def update_matrix(self):
+        matrix = self.get_matrix(self.latent)
+        self.matrix = matrix.detach()
+        return matrix
+        
+    def init_para(self, inputs=None):
+        latent = self.inputs_to_tensor(inputs=inputs)
+        if self.requires_grad:
+            self.latent = nn.Parameter(latent)
+        else:
+            self.register_buffer('latent', latent)
+        self.update_matrix()
+        self.npara = self.latent.numel()
+
+    def inverse(self):
+        name = self.name + '_dagger'
+        return LatentGate(inputs=self.latent.mH, nqubit=self.nqubit, minmax=self.minmax, name=name,
+                          den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
 
 
 class Barrier(Gate):
