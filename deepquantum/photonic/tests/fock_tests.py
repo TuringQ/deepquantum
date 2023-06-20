@@ -137,10 +137,15 @@ class CVQNN(nn.Module):
 
 model = CVQNN(batch_size=1, n_qumodes=2)
 print(model)
+
+
+model.to(torch.device("mps"))
 print(list(model.named_buffers()))
 print(list(model.named_parameters()))
 
-x = torch.tensor([[1.0, -0.8]], dtype=torch.float64)
+
+x = torch.tensor([[1.0, -0.8]], dtype=torch.float32).to(torch.device("mps"))
+print('===============')
 print('model(x):', model(x))
 print(list(model.named_buffers()))
 print(list(model.named_parameters()))

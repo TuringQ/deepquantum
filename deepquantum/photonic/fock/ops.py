@@ -656,10 +656,9 @@ class Displacement(nn.Module):
         self.is_r_set  = False
         self.is_phi_set  = False
         
-        
     def forward(self, state):
         # state in, state out, this is in-place operation
-        self.auto_params(dtype=state._dtype2)
+        self.auto_params(dtype=state._dtype2, device=state.tensor.device)
         # tensor contraction
         self.matirx = displacement_matrix(self.r, self.phi, state._cutoff, state._dtype, state._batch_size)
         state.tensor = single_mode_gate(self.matirx, self.mode, state.tensor, state._pure)
@@ -675,13 +674,13 @@ class Displacement(nn.Module):
             self.is_phi_set = True
         
 
-    def auto_params(self, dtype):
+    def auto_params(self, dtype, device):
         """automatically set None parameter as nn.Paramter for users"""
         if not self.is_r_set:
-            self.register_parameter('r', nn.Parameter(torch.randn([], dtype=dtype)))
+            self.register_parameter('r', nn.Parameter(torch.randn([], dtype=dtype, device=device)))
             self.is_r_set = True
         if not self.is_phi_set:
-            self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=dtype)))
+            self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=dtype, device=device)))
             self.is_phi_set = True
         
 
@@ -700,7 +699,7 @@ class Squeezing(nn.Module):
         
     def forward(self, state):
         # state in, state out, this is in-place operation
-        self.auto_params(dtype=state._dtype2)
+        self.auto_params(dtype=state._dtype2, device=state.tensor.device)
         # tensor contraction
         self.matirx = squeezing_matrix(self.r, self.phi, state._cutoff, state._dtype, state._batch_size)
         state.tensor = single_mode_gate(self.matirx, self.mode, state.tensor, state._pure)
@@ -715,13 +714,13 @@ class Squeezing(nn.Module):
             self.register_buffer('phi', phi)
             self.is_phi_set = True
 
-    def auto_params(self, dtype):
+    def auto_params(self, dtype, device):
         """automatically set None parameter as nn.Paramter for users"""
         if not self.is_r_set:
-            self.register_parameter('r', nn.Parameter(torch.randn([], dtype=dtype)))
+            self.register_parameter('r', nn.Parameter(torch.randn([], dtype=dtype, device=device)))
             self.is_r_set = True
         if not self.is_phi_set:
-            self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=dtype)))
+            self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=dtype, device=device)))
             self.is_phi_set = True
 
 class PhaseShifter(nn.Module):
@@ -736,7 +735,7 @@ class PhaseShifter(nn.Module):
         
     def forward(self, state):
         # state in, state out, this is in-place operation
-        self.auto_params(dtype=state._dtype2)
+        self.auto_params(dtype=state._dtype2, device=state.tensor.device)
         # tensor contraction
         self.matirx = phase_shifter_matrix(self.phi, state._cutoff, state._dtype, state._batch_size)
         state.tensor = single_mode_gate(self.matirx, self.mode, state.tensor, state._pure)
@@ -748,10 +747,10 @@ class PhaseShifter(nn.Module):
             self.register_buffer('phi', phi)
             self.is_phi_set = True
 
-    def auto_params(self, dtype):
+    def auto_params(self, dtype, device):
         """automatically set None parameter as nn.Paramter for users"""
         if not self.is_phi_set:
-            self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=dtype)))
+            self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=dtype, device=device)))
             self.is_phi_set = True
 
 
@@ -772,7 +771,7 @@ class BeamSplitter(nn.Module):
 
     def forward(self, state):
         # state in, state out, this is in-place operation
-        self.auto_params(dtype=state._dtype2)
+        self.auto_params(dtype=state._dtype2, device=state.tensor.device)
         # tensor contraction
         self.matirx = beam_splitter_matrix(theta=self.theta, phi=self.phi, cutoff=state._cutoff, dtype=state._dtype, batch_size=state._batch_size)
         state.tensor = two_mode_gate(self.matirx, self.mode1, self.mode2, state.tensor, state._pure)
@@ -787,13 +786,13 @@ class BeamSplitter(nn.Module):
             self.register_buffer('phi', phi)
             self.is_phi_set = True
     
-    def auto_params(self, dtype):
+    def auto_params(self, dtype, device):
         """automatically set None parameter as nn.Paramter for users"""
         if not self.is_theta_set:
-            self.register_parameter('theta', nn.Parameter(torch.randn([], dtype=dtype)))
+            self.register_parameter('theta', nn.Parameter(torch.randn([], dtype=dtype, device=device)))
             self.is_theta_set = True
         if not self.is_phi_set:
-            self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=dtype)))
+            self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=dtype, device=device)))
             self.is_phi_set = True
 
 
@@ -811,7 +810,7 @@ class KerrInteraction(nn.Module):
 
     def forward(self, state):
         # state in, state out, this is in-place operation
-        self.auto_params(dtype=state._dtype2)
+        self.auto_params(dtype=state._dtype2, device=state.tensor.device)
         # tensor contraction
         self.matirx = kerr_interaction_matrix(self.kappa, state._cutoff, state._dtype, state._batch_size)
         state.tensor = single_mode_gate(self.matirx, self.mode, state.tensor, state._pure)
@@ -823,8 +822,8 @@ class KerrInteraction(nn.Module):
             self.register_buffer('kappa', kappa)
             self.is_kappa_set = True
     
-    def auto_params(self, dtype):
+    def auto_params(self, dtype, device):
         """automatically set None parameter as nn.Paramter for users"""
         if not self.is_kappa_set:
-            self.register_parameter('kappa', nn.Parameter(torch.randn([], dtype=dtype)))
+            self.register_parameter('kappa', nn.Parameter(torch.randn([], dtype=dtype, device=device)))
             self.is_kappa_set = True
