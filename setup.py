@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 requirements = [
-    "torch==2.0",
+    "torch>=2.0",
     "numpy",
     "matplotlib",
     "qiskit",
