@@ -830,8 +830,8 @@ class UAnyGate(ArbitraryGate):
     
     def inverse(self):
         name = self.name + '_dagger'
-        return UAnyGate(unitary=self.matrix.mH, nqubit=self.nqubit, minmax=self.minmax, name=name,
-                        den_mat=self.den_mat, tsr_mode=self.tsr_mode)
+        return UAnyGate(unitary=self.matrix.mH, nqubit=self.nqubit, wires=self.wires, minmax=self.minmax,
+                        name=name, den_mat=self.den_mat, tsr_mode=self.tsr_mode)
 
 
 class LatentGate(ArbitraryGate):
@@ -851,7 +851,7 @@ class LatentGate(ArbitraryGate):
         return inputs
     
     def get_matrix(self, inputs):
-        latent = self.inputs_to_tensor(inputs)
+        latent = self.inputs_to_tensor(inputs) + 0j
         u, _, vh = svd(latent)
         return u @ vh
 
@@ -871,8 +871,8 @@ class LatentGate(ArbitraryGate):
 
     def inverse(self):
         name = self.name + '_dagger'
-        return LatentGate(inputs=self.latent.mH, nqubit=self.nqubit, minmax=self.minmax, name=name,
-                          den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
+        return LatentGate(inputs=self.latent.mH, nqubit=self.nqubit, wires=self.wires, minmax=self.minmax,
+                          name=name, den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
 
 
 class Barrier(Gate):
