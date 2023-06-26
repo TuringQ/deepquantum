@@ -87,8 +87,10 @@ class FockState(nn.Module):
         self._single_mode_mixed_vac = torch.stack([self._single_mode_mixed_vac] * self._batch_size)
 
     def reset(self):
+        device = self.tensor.device
         self.set(self._batch_size, self._n_modes, self._cutoff,
                  self._hbar, self._pure, self._dtype)
+        self.tensor = self.tensor.to(device)
         
         return self
         
@@ -327,15 +329,16 @@ class FockState(nn.Module):
         """
         rho = self.reduced_dm(mode) 
 
-        if len(phi.shape) == 0:  
-            phi = torch.unsqueeze(phi, 0)
         larger_cutoff = self._cutoff + 1  # start one dimension higher to avoid truncation errors
         R = fock.ops.phase_shifter_matrix(phi, larger_cutoff, self._dtype, self._batch_size)
-
+        
         a, ad = fock.ops.ladder_ops(larger_cutoff)
+      
         x = np.sqrt(self._hbar / 2.0) * (a + ad)
         x = x.to(self._dtype)
         x = torch.unsqueeze(x, 0)  # add batch dimension to x
+        x = x.to(R.device)
+        
         quad = torch.conj(R) @ x @ R
         quad2 = (quad @ quad)[:, : self._cutoff, : self._cutoff]
         quad = quad[:, : self._cutoff, : self._cutoff]  # drop highest dimension
@@ -343,7 +346,7 @@ class FockState(nn.Module):
         flat_rho = torch.reshape(rho, [-1, self._cutoff ** 2])
         flat_quad = torch.reshape(quad, [1, self._cutoff ** 2])
         flat_quad2 = torch.reshape(quad2, [1, self._cutoff ** 2])
-
+        
         e = torch.real(
             torch.sum(flat_rho * flat_quad, dim=1)
         )  # implements a batched tr(rho @ x) x.T = x

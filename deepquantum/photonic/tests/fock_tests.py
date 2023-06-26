@@ -106,7 +106,6 @@ from fock.ops import Displacement, BeamSplitter
 
 #------QML Example 2
 
-# :todo:
 class CVQNN(nn.Module):
     """number of parameters per layer 2N*N+3N, N = n_qumodes"""
     def __init__(self, batch_size=10, n_qumodes=2):
@@ -117,6 +116,7 @@ class CVQNN(nn.Module):
         self.var_cir = QumodeCircuit(batch_size, n_qumodes, backend='fock')
         self._build_cir()
         
+        
 
     def _build_cir(self):
         self.encoding_cir.displace(mode=0)
@@ -126,12 +126,14 @@ class CVQNN(nn.Module):
 
     def forward(self, x):
         # Load classical data into quantum states
-        self.encoding_cir.operators[0].set_params(x[:, 0], tensor(0.0))
-        self.encoding_cir.operators[1].set_params(x[:, 1], tensor(0.0))
+        self.encoding_cir.operators[0].set_params(x[:, 0], tensor(0.0, device=x.device))
+        self.encoding_cir.operators[1].set_params(x[:, 1], tensor(0.0, device=x.device))
         # Applies layers of gates to the initial state
+        
         cir = self.encoding_cir + self.var_cir
+    
         state = cir()
-        output, _ = state.quad_expectation(phi=tensor(0.0), mode=0)
+        output, _ = state.quad_expectation(phi=tensor(0.0, device=x.device), mode=0)
         return output
 
 
@@ -139,13 +141,15 @@ model = CVQNN(batch_size=1, n_qumodes=2)
 print(model)
 
 
-model.to(torch.device("mps"))
+model.to(torch.device("cuda"))
 print(list(model.named_buffers()))
 print(list(model.named_parameters()))
 
 
-x = torch.tensor([[1.0, -0.8]], dtype=torch.float32).to(torch.device("mps"))
+
+
 print('===============')
+x = torch.tensor([[1.0, -0.8]], dtype=torch.float32).to(torch.device("cuda"))
 print('model(x):', model(x))
 print(list(model.named_buffers()))
 print(list(model.named_parameters()))

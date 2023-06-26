@@ -248,6 +248,7 @@ def single_mode_gate(matrix, mode, in_modes, pure=True):
     eqn = eqn_lhs + "->" + eqn_rhs
     
     einsum_inputs = [matrix, in_modes]
+
     if not pure:
         transposed_axis = [0, 2, 1]
         einsum_inputs.append(torch.permute(torch.conj(matrix), transposed_axis))
@@ -359,8 +360,8 @@ def displacement_matrix(r, phi, cutoff, dtype, batch_size):  # pragma: no cover
     phi = phi.to(dtype)
 
 
-    D = torch.zeros((batch_size, cutoff, cutoff)).to(dtype)
-    sqrt = torch.sqrt(torch.arange(cutoff)).to(dtype)
+    D = torch.zeros((batch_size, cutoff, cutoff)).to(dtype).to(r.device)
+    sqrt = torch.sqrt(torch.arange(cutoff)).to(dtype).to(r.device)
     
     alpha0 = r * torch.exp(1j * phi)
     alpha1 = -r * torch.exp(-1j * phi)
@@ -369,7 +370,6 @@ def displacement_matrix(r, phi, cutoff, dtype, batch_size):  # pragma: no cover
     D[:, 0, 0] = torch.exp(-0.5 * r**2)
     
     for m in range(1, cutoff):
-
         D[:, m, 0] = alpha0 / sqrt[m] * D[:, m - 1, 0].clone()
  
 
@@ -451,8 +451,8 @@ def beam_splitter_matrix(theta, phi, cutoff, dtype, batch_size):  # pragma: no c
     theta = theta.to(dtype)
     phi = phi.to(dtype)
 
-
-    sqrt = torch.sqrt(torch.arange(cutoff)).to(dtype)
+    
+    sqrt = torch.sqrt(torch.arange(cutoff)).to(dtype).to(theta.device)
     ct = torch.cos(theta)
     st = torch.sin(theta) * torch.exp(1j * phi)
     
@@ -461,9 +461,9 @@ def beam_splitter_matrix(theta, phi, cutoff, dtype, batch_size):  # pragma: no c
     R_03 = -torch.conj(st)
     R_13 = ct
 
-    Z = torch.zeros((batch_size, cutoff, cutoff, cutoff, cutoff)).to(dtype)
+    Z = torch.zeros((batch_size, cutoff, cutoff, cutoff, cutoff)).to(dtype).to(theta.device)
     Z[:, 0, 0, 0, 0] = 1.0
-
+   
     # rank 3
     for m in range(cutoff):
         for n in range(cutoff - m):
@@ -501,6 +501,8 @@ def beam_splitter_matrix(theta, phi, cutoff, dtype, batch_size):  # pragma: no c
     
     # Z = np.transpose(Z, [0, 1, 3, 2, 4]) 
     Z = torch.permute(Z, (0, 1, 3, 2, 4)) 
+    
+    
     return Z
 
 

@@ -36,7 +36,7 @@ class QumodeCircuit(nn.Module):
     def __add__(self, rhs):
         # outplace operation
         # https://qiskit.org/documentation/stubs/qiskit.circuit.QuantumCircuit.compose.html
-        cir = QumodeCircuit(self.batch_size, self.n_modes, self.backend)
+        cir = QumodeCircuit(self.batch_size, self.n_modes, self.backend).to(self.init_state.tensor.device)
         cir.operators = self.operators + rhs.operators
         return cir
 
