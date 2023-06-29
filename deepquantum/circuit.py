@@ -1,11 +1,12 @@
+from copy import copy
 import numpy as np
 import torch
 import torch.nn as nn
+from torch import vmap
 from .state import QubitState, MatrixProductState
 from .operation import Operation
 from .gate import *
 from .layer import *
-from torch import vmap
 from .qmath import amplitude_encoding, measure, expectation
 from qiskit import QuantumCircuit
 
@@ -268,8 +269,28 @@ class QubitCircuit(Operation):
         qc = QuantumCircuit.from_qasm_str(self.qasm())
         return qc.draw(output=output, **kwargs)
 
-    def add(self, op, encode=False):
+    def add(self, op, encode=False, wires=None, controls=None):
         assert isinstance(op, Operation)
+        if wires != None:
+            assert isinstance(op, Gate)
+            if type(wires) == int:
+                wires = [wires]
+            if type(controls) == int:
+                controls = [controls]
+            if controls == None:
+                controls = []
+            assert type(wires) == list and type(controls) == list, 'Invalid input type'
+            assert all(isinstance(i, int) for i in wires), 'Invalid input type'
+            assert all(isinstance(i, int) for i in controls), 'Invalid input type'
+            assert min(wires) > -1 and max(wires) < self.nqubit, 'Invalid input'
+            if len(controls) > 0:
+                assert min(controls) > -1 and max(controls) < self.nqubit, 'Invalid input'
+            assert len(set(wires)) == len(wires) and len(set(controls)) == len(controls), 'Invalid input'
+            for wire in wires:
+                assert wire not in controls, 'Use repeated wires'
+            op = copy(op)
+            op.wires = wires
+            op.controls = controls
         if isinstance(op, QubitCircuit):
             assert self.nqubit == op.nqubit
             self.operators += op.operators
