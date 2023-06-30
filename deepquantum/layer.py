@@ -1,3 +1,5 @@
+from copy import deepcopy
+import torch.nn as nn
 from .operation import Layer
 from .gate import *
 from .qmath import multi_kron
@@ -64,13 +66,13 @@ class U3Layer(SingleLayer):
             self.npara += u3.npara
 
     def inverse(self):
-        inputs = []
-        for gate in self.gates:
-            inputs.append(-gate.theta)
-            inputs.append(-gate.lambd)
-            inputs.append(-gate.phi)
-        return U3Layer(nqubit=self.nqubit, wires=self.wires, inputs=inputs,
-                       den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
+        layer = deepcopy(self)
+        gates = nn.Sequential()
+        for gate in self.gates[::-1]:
+            gates.append(gate.inverse())
+        layer.gates = gates
+        layer.wires = self.wires[::-1]
+        return layer
 
 
 class XLayer(SingleLayer):
@@ -119,11 +121,13 @@ class RxLayer(SingleLayer):
             self.npara += rx.npara
 
     def inverse(self):
-        inputs = []
-        for gate in self.gates:
-            inputs.append(-gate.theta)
-        return RxLayer(nqubit=self.nqubit, wires=self.wires, inputs=inputs,
-                       den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
+        layer = deepcopy(self)
+        gates = nn.Sequential()
+        for gate in self.gates[::-1]:
+            gates.append(gate.inverse())
+        layer.gates = gates
+        layer.wires = self.wires[::-1]
+        return layer
 
 
 class RyLayer(SingleLayer):
@@ -140,11 +144,13 @@ class RyLayer(SingleLayer):
             self.npara += ry.npara
 
     def inverse(self):
-        inputs = []
-        for gate in self.gates:
-            inputs.append(-gate.theta)
-        return RyLayer(nqubit=self.nqubit, wires=self.wires, inputs=inputs,
-                       den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
+        layer = deepcopy(self)
+        gates = nn.Sequential()
+        for gate in self.gates[::-1]:
+            gates.append(gate.inverse())
+        layer.gates = gates
+        layer.wires = self.wires[::-1]
+        return layer
 
 
 class RzLayer(SingleLayer):
@@ -161,11 +167,13 @@ class RzLayer(SingleLayer):
             self.npara += rz.npara
 
     def inverse(self):
-        inputs = []
-        for gate in self.gates:
-            inputs.append(-gate.theta)
-        return RzLayer(nqubit=self.nqubit, wires=self.wires, inputs=inputs,
-                       den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
+        layer = deepcopy(self)
+        gates = nn.Sequential()
+        for gate in self.gates[::-1]:
+            gates.append(gate.inverse())
+        layer.gates = gates
+        layer.wires = self.wires[::-1]
+        return layer
 
 
 class CnotLayer(DoubleLayer):

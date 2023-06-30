@@ -346,7 +346,7 @@ class Layer(Operation):
         count = 0
         for gate in self.gates:
             if inputs == None:
-                gate.init_para(inputs)
+                gate.init_para()
             else:
                 gate.init_para(inputs[count:count+gate.npara])
             count += gate.npara

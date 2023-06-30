@@ -1,3 +1,4 @@
+from copy import copy
 import torch
 import torch.nn as nn
 from .operation import Gate
@@ -133,6 +134,7 @@ class ArbitraryGate(Gate):
             assert minmax[0] > -1 and minmax[0] <= minmax[1] and minmax[1] < nqubit
             wires = list(range(minmax[0], minmax[1] + 1))
         self.minmax = minmax
+        self.inv_mode = False
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=None,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         
@@ -149,6 +151,16 @@ class ArbitraryGate(Gate):
             identity = identity.reshape([2 ** self.nqubit] + [2] * self.nqubit)
             return self.op_state_base(identity, matrix).reshape(2 ** self.nqubit, 2 ** self.nqubit).T
         
+    def inverse(self):
+        if type(self.name) == str:
+            name = self.name + '_dagger'
+        else:
+            name = self.name
+        gate = copy(self)
+        gate.inv_mode = not self.inv_mode
+        gate.name = name
+        return gate
+        
     def qasm(self):
         return self.qasm_customized(self.name)
 
@@ -160,6 +172,7 @@ class ParametricSingleGate(SingleGate):
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.npara = 1
         self.requires_grad = requires_grad
+        self.inv_mode = False
         self.init_para(inputs=inputs)
 
     def inputs_to_tensor(self, inputs=None):
@@ -172,7 +185,11 @@ class ParametricSingleGate(SingleGate):
         return inputs
 
     def update_matrix(self):
-        matrix = self.get_matrix(self.theta)
+        if self.inv_mode:
+            theta = -self.theta
+        else:
+            theta = self.theta
+        matrix = self.get_matrix(theta)
         self.matrix = matrix.detach()
         return matrix
         
@@ -184,8 +201,17 @@ class ParametricSingleGate(SingleGate):
             self.register_buffer('theta', theta)
         self.update_matrix()
 
+    def inverse(self):
+        gate = copy(self)
+        gate.inv_mode = not self.inv_mode
+        return gate
+
     def extra_repr(self):
-        s = f'wires={self.wires}, theta={self.theta.item()}'
+        if self.inv_mode:
+            theta = -self.theta
+        else:
+            theta = self.theta
+        s = f'wires={self.wires}, theta={theta.item()}'
         if self.controls == []:
             return s
         else:
@@ -199,6 +225,7 @@ class ParametricDoubleGate(DoubleGate):
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.npara = 1
         self.requires_grad = requires_grad
+        self.inv_mode = False
         self.init_para(inputs=inputs)
 
     def inputs_to_tensor(self, inputs=None):
@@ -211,7 +238,11 @@ class ParametricDoubleGate(DoubleGate):
         return inputs
 
     def update_matrix(self):
-        matrix = self.get_matrix(self.theta)
+        if self.inv_mode:
+            theta = -self.theta
+        else:
+            theta = self.theta
+        matrix = self.get_matrix(theta)
         self.matrix = matrix.detach()
         return matrix
         
@@ -223,8 +254,17 @@ class ParametricDoubleGate(DoubleGate):
             self.register_buffer('theta', theta)
         self.update_matrix()
 
+    def inverse(self):
+        gate = copy(self)
+        gate.inv_mode = not self.inv_mode
+        return gate
+
     def extra_repr(self):
-        s = f'wires={self.wires}, theta={self.theta.item()}'
+        if self.inv_mode:
+            theta = -self.theta
+        else:
+            theta = self.theta
+        s = f'wires={self.wires}, theta={theta.item()}'
         if self.controls == []:
             return s
         else:
@@ -265,7 +305,15 @@ class U3Gate(ParametricSingleGate):
         return torch.stack([cos_t, -e_il * sin_t, e_ip * sin_t, e_ipl * cos_t]).reshape(2, 2)
 
     def update_matrix(self):
-        matrix = self.get_matrix(self.theta, self.phi, self.lambd)
+        if self.inv_mode:
+            theta = -self.theta
+            phi   = -self.lambd
+            lambd = -self.phi
+        else:
+            theta = self.theta
+            phi   = self.phi
+            lambd = self.lambd
+        matrix = self.get_matrix(theta, phi, lambd)
         self.matrix = matrix.detach()
         return matrix
 
@@ -281,23 +329,34 @@ class U3Gate(ParametricSingleGate):
             self.register_buffer('lambd', lambd)
         self.update_matrix()
 
-    def inverse(self):
-        return U3Gate(inputs=[-self.theta, -self.lambd, -self.phi], nqubit=self.nqubit,
-                      wires=self.wires, controls=self.controls, den_mat=self.den_mat,
-                      tsr_mode=self.tsr_mode, requires_grad=False)
-
     def extra_repr(self):
-        s = f'wires={self.wires}, theta={self.theta.item()}, phi={self.phi.item()}, lambda={self.lambd.item()}'
+        if self.inv_mode:
+            theta = -self.theta
+            phi   = -self.lambd
+            lambd = -self.phi
+        else:
+            theta = self.theta
+            phi   = self.phi
+            lambd = self.lambd
+        s = f'wires={self.wires}, theta={theta.item()}, phi={phi.item()}, lambda={lambd.item()}'
         if self.controls == []:
             return s
         else:
             return s + f', controls={self.controls}'
 
     def qasm(self):
+        if self.inv_mode:
+            theta = -self.theta
+            phi   = -self.lambd
+            lambd = -self.phi
+        else:
+            theta = self.theta
+            phi   = self.phi
+            lambd = self.lambd
         if self.controls == []:
-            return f'u({self.theta.item()},{self.phi.item()},{self.lambd.item()}) q{self.wires};\n'
+            return f'u({theta.item()},{phi.item()},{lambd.item()}) q{self.wires};\n'
         elif len(self.controls) == 1:
-            return f'cu({self.theta.item()},{self.phi.item()},{self.lambd.item()},0.0) q{self.controls},q{self.wires};\n'
+            return f'cu({theta.item()},{phi.item()},{lambd.item()},0.0) q{self.controls},q{self.wires};\n'
         else:
             return self.qasm_customized('u')
 
@@ -322,16 +381,16 @@ class PhaseShift(ParametricSingleGate):
         m1 = torch.eye(1, dtype=theta.dtype, device=theta.device)
         e_it = torch.exp(1j * theta)
         return torch.block_diag(m1, e_it)
-
-    def inverse(self):
-        return PhaseShift(inputs=-self.theta, nqubit=self.nqubit, wires=self.wires, controls=self.controls,
-                          den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
     
     def qasm(self):
+        if self.inv_mode:
+            theta = -self.theta
+        else:
+            theta = self.theta
         if self.controls == []:
-            return f'p({self.theta.item()}) q{self.wires};\n'
+            return f'p({theta.item()}) q{self.wires};\n'
         elif len(self.controls) == 1:
-            return f'cp({self.theta.item()}) q{self.controls},q{self.wires};\n'
+            return f'cp({theta.item()}) q{self.controls},q{self.wires};\n'
         else:
             return self.qasm_customized('p')
 
@@ -493,16 +552,16 @@ class Rx(ParametricSingleGate):
         cos  = torch.cos(theta / 2)
         isin = torch.sin(theta / 2) * 1j
         return torch.stack([cos, -isin, -isin, cos]).reshape(2, 2)
-    
-    def inverse(self):
-        return Rx(inputs=-self.theta, nqubit=self.nqubit, wires=self.wires, controls=self.controls,
-                  den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
 
     def qasm(self):
+        if self.inv_mode:
+            theta = -self.theta
+        else:
+            theta = self.theta
         if self.controls == []:
-            return f'rx({self.theta.item()}) q{self.wires};\n'
+            return f'rx({theta.item()}) q{self.wires};\n'
         elif len(self.controls) == 1:
-            return f'crx({self.theta.item()}) q{self.controls},q{self.wires};\n'
+            return f'crx({theta.item()}) q{self.controls},q{self.wires};\n'
         else:
             return self.qasm_customized('rx')
 
@@ -519,15 +578,15 @@ class Ry(ParametricSingleGate):
         sin = torch.sin(theta / 2)
         return torch.stack([cos, -sin, sin, cos]).reshape(2, 2) + 0j
     
-    def inverse(self):
-        return Ry(inputs=-self.theta, nqubit=self.nqubit, wires=self.wires, controls=self.controls,
-                  den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
-    
     def qasm(self):
+        if self.inv_mode:
+            theta = -self.theta
+        else:
+            theta = self.theta
         if self.controls == []:
-            return f'ry({self.theta.item()}) q{self.wires};\n'
+            return f'ry({theta.item()}) q{self.wires};\n'
         elif len(self.controls) == 1:
-            return f'cry({self.theta.item()}) q{self.controls},q{self.wires};\n'
+            return f'cry({theta.item()}) q{self.controls},q{self.wires};\n'
         else:
             return self.qasm_customized('ry')
 
@@ -544,15 +603,15 @@ class Rz(ParametricSingleGate):
         e_it = torch.exp(1j * theta / 2)
         return torch.stack([e_m_it, e_it]).reshape(-1).diag_embed()
     
-    def inverse(self):
-        return Rz(inputs=-self.theta, nqubit=self.nqubit, wires=self.wires, controls=self.controls,
-                  den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
-    
     def qasm(self):
+        if self.inv_mode:
+            theta = -self.theta
+        else:
+            theta = self.theta
         if self.controls == []:
-            return f'rz({self.theta.item()}) q{self.wires};\n'
+            return f'rz({theta.item()}) q{self.wires};\n'
         elif len(self.controls) == 1:
-            return f'crz({self.theta.item()}) q{self.controls},q{self.wires};\n'
+            return f'crz({theta.item()}) q{self.controls},q{self.wires};\n'
         else:
             return self.qasm_customized('rz')
 
@@ -648,13 +707,13 @@ class Rxx(ParametricDoubleGate):
         m2 = torch.stack([-isin, -isin, -isin, -isin]).reshape(-1).diag_embed().fliplr()
         return m1 + m2
     
-    def inverse(self):
-        return Rxx(inputs=-self.theta, nqubit=self.nqubit, wires=self.wires, controls=self.controls,
-                   den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
-    
     def qasm(self):
+        if self.inv_mode:
+            theta = -self.theta
+        else:
+            theta = self.theta
         if self.controls == []:
-            return f'rxx({self.theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
+            return f'rxx({theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
         else:
             return self.qasm_customized('rxx')
 
@@ -673,14 +732,14 @@ class Ryy(ParametricDoubleGate):
         m2 = torch.stack([isin, -isin, -isin, isin]).reshape(-1).diag_embed().fliplr()
         return m1 + m2
     
-    def inverse(self):
-        return Ryy(inputs=-self.theta, nqubit=self.nqubit, wires=self.wires, controls=self.controls,
-                   den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
-    
     def qasm(self):
+        if self.inv_mode:
+            theta = -self.theta
+        else:
+            theta = self.theta
         if self.controls == []:
             qasm_str1 = ''
-            qasm_str2 = f'ryy({self.theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
+            qasm_str2 = f'ryy({theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
             if 'ryy' not in Gate.qasm_new_gate:
                 qasm_str1 += 'gate ryy(param0) q0,q1 { rx(pi/2) q0; rx(pi/2) q1; cx q0,q1; rz(param0) q1; cx q0,q1; rx(-pi/2) q0; rx(-pi/2) q1; }\n'
                 Gate.qasm_new_gate.append('ryy')
@@ -701,13 +760,13 @@ class Rzz(ParametricDoubleGate):
         e_it = torch.exp(1j * theta / 2)
         return torch.stack([e_m_it, e_it, e_it, e_m_it]).reshape(-1).diag_embed()
     
-    def inverse(self):
-        return Rzz(inputs=-self.theta, nqubit=self.nqubit, wires=self.wires, controls=self.controls,
-                   den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
-    
     def qasm(self):
+        if self.inv_mode:
+            theta = -self.theta
+        else:
+            theta = self.theta
         if self.controls == []:
-            return f'rzz({self.theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
+            return f'rzz({theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
         else:
             return self.qasm_customized('rzz')
 
@@ -725,10 +784,6 @@ class Rxy(ParametricDoubleGate):
         m1 = torch.eye(1, dtype=theta.dtype, device=theta.device)
         m2 = torch.stack([cos, -isin, -isin, cos]).reshape(2, 2)
         return torch.block_diag(m1, m2, m1)
-    
-    def inverse(self):
-        return Rxy(inputs=-self.theta, nqubit=self.nqubit, wires=self.wires, controls=self.controls,
-                   den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
     
     def qasm(self):
         return self.qasm_customized('rxy')
@@ -827,11 +882,12 @@ class UAnyGate(ArbitraryGate):
         assert unitary.shape[-1] == 2 ** len(self.wires) and unitary.shape[-2] == 2 ** len(self.wires)
         assert is_unitary(unitary)
         self.register_buffer('matrix', unitary)
-    
-    def inverse(self):
-        name = self.name + '_dagger'
-        return UAnyGate(unitary=self.matrix.mH, nqubit=self.nqubit, wires=self.wires, minmax=self.minmax,
-                        name=name, den_mat=self.den_mat, tsr_mode=self.tsr_mode)
+
+    def update_matrix(self):
+        if self.inv_mode:
+            return self.matrix.mH
+        else:
+            return self.matrix
 
 
 class LatentGate(ArbitraryGate):
@@ -856,7 +912,11 @@ class LatentGate(ArbitraryGate):
         return u @ vh
 
     def update_matrix(self):
-        matrix = self.get_matrix(self.latent)
+        if self.inv_mode:
+            latent = self.latent.mH
+        else:
+            latent = self.latent
+        matrix = self.get_matrix(latent)
         self.matrix = matrix.detach()
         return matrix
         
@@ -868,11 +928,6 @@ class LatentGate(ArbitraryGate):
             self.register_buffer('latent', latent)
         self.update_matrix()
         self.npara = self.latent.numel()
-
-    def inverse(self):
-        name = self.name + '_dagger'
-        return LatentGate(inputs=self.latent.mH, nqubit=self.nqubit, wires=self.wires, minmax=self.minmax,
-                          name=name, den_mat=self.den_mat, tsr_mode=self.tsr_mode, requires_grad=False)
 
 
 class Barrier(Gate):

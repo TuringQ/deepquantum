@@ -231,16 +231,19 @@ class QubitCircuit(Operation):
                 u = op.get_unitary() @ u
         return u
     
-    def inverse(self):
-        # ATTENTION: Only the circuit structure is guaranteed.
-        # You must encode data manually.
-        name = self.name + '_inverse'
+    def inverse(self, encode=False):
+        # ATTENTION: The inversed circuit shares the parameters with the original circuit.
+        # You should ONLY encode data onto the original circuit.
+        if type(self.name) == str:
+            name = self.name + '_inverse'
+        else:
+            name = self.name
         cir = QubitCircuit(nqubit=self.nqubit, name=name, den_mat=self.den_mat, reupload=self.reupload,
                            mps=self.mps, chi=self.chi)
         for op in reversed(self.operators):
             op_inv = op.inverse()
             cir.operators.append(op_inv)
-            if op in self.encoders:
+            if encode and op in self.encoders:
                 cir.encoders.append(op_inv)
         cir.depth = self.depth
         cir.npara = self.npara
