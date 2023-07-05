@@ -483,7 +483,12 @@ class SGate(SingleGate):
         if self.controls == []:
             return f's q{self.wires};\n'
         elif len(self.controls) == 1:
-            return f'cs q{self.controls},q{self.wires};\n'
+            qasm_str1 = ''
+            qasm_str2 = f'cs q{self.controls},q{self.wires};\n'
+            if 'cs' not in Gate.qasm_new_gate:
+                qasm_str1 += 'gate cs q0,q1 { p(pi/4) q0; cx q0,q1; p(-pi/4) q1; cx q0,q1; p(pi/4) q1; }\n'
+                Gate.qasm_new_gate.append('cs')
+            return qasm_str1 + qasm_str2
         else:
             return self.qasm_customized('s')
 
@@ -502,7 +507,12 @@ class SDaggerGate(SingleGate):
         if self.controls == []:
             return f'sdg q{self.wires};\n'
         elif len(self.controls) == 1:
-            return f'csdg q{self.controls},q{self.wires};\n'
+            qasm_str1 = ''
+            qasm_str2 = f'csdg q{self.controls},q{self.wires};\n'
+            if 'csdg' not in Gate.qasm_new_gate:
+                qasm_str1 += 'gate csdg q0,q1 { p(-pi/4) q0; cx q0,q1; p(pi/4) q1; cx q0,q1; p(-pi/4) q1; }\n'
+                Gate.qasm_new_gate.append('csdg')
+            return qasm_str1 + qasm_str2
         else:
             return self.qasm_customized('sdg')
 

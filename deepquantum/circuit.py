@@ -291,6 +291,7 @@ class QubitCircuit(Operation):
             assert len(set(wires)) == len(wires) and len(set(controls)) == len(controls), 'Invalid input'
             for wire in wires:
                 assert wire not in controls, 'Use repeated wires'
+            assert len(wires) == len(op.wires), 'Invalid input'
             op = copy(op)
             op.wires = wires
             op.controls = controls
