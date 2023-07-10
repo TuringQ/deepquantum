@@ -1,3 +1,5 @@
+__version__ = '0.1.4'
+
 from .operation import *
 from .qmath import *
 from .gate import *
