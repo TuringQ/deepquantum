@@ -19,7 +19,7 @@ class QumodeCircuit(nn.Module):
     def __init__(self, batch_size, n_modes, backend='fock', cutoff=10, dtype=torch.complex64):
         super().__init__()
         if backend == 'fock':
-            self.init_state = FockState(batch_size, n_modes, dtype=dtype) 
+            self.init_state = FockState(batch_size, n_modes, cutoff=cutoff, dtype=dtype) 
         else:
             self.init_state = GaussianState(batch_size, n_modes)
         self.batch_size = batch_size

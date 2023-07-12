@@ -318,7 +318,8 @@ class FockState(nn.Module):
 
 
     def quad_expectation(self, phi=0., mode=0):
-        """Compute the expectation value of the quadrature operator :math:`\hat{x}_\phi` in single mode
+        """Compute the expectation value of the quadrature operator :math:`\hat{x}_\phi` in single mode.
+        This will not change self.tensor.
         
         Args:
             phi (float): rotation angle for the quadrature operator
@@ -342,20 +343,25 @@ class FockState(nn.Module):
         quad = torch.conj(R) @ x @ R
         quad2 = (quad @ quad)[:, : self._cutoff, : self._cutoff]
         quad = quad[:, : self._cutoff, : self._cutoff]  # drop highest dimension
-
+      
         flat_rho = torch.reshape(rho, [-1, self._cutoff ** 2])
-        flat_quad = torch.reshape(quad, [1, self._cutoff ** 2])
-        flat_quad2 = torch.reshape(quad2, [1, self._cutoff ** 2])
+        flat_quad = torch.reshape(quad, [-1, self._cutoff ** 2])
+        flat_quad2 = torch.reshape(quad2, [-1, self._cutoff ** 2])
         
         e = torch.real(
             torch.sum(flat_rho * flat_quad, dim=1)
-        )  # implements a batched tr(rho @ x) x.T = x
+        )  # implements a batched tr(rho @ x), x.T = x
         e2 = torch.real(
             torch.sum(flat_rho * flat_quad2, dim=1)
         )  # implements a batched tr(rho @ x ** 2)
         v = e2 - e ** 2
 
         return e, v
+    
+
+    def extra_repr(self):
+        s = f"batch_size={self._batch_size}, n_modes={self._n_modes}, cutoff={self._cutoff}, dtype={self._dtype}"
+        return s
 
 
 

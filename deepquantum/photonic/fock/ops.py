@@ -403,8 +403,8 @@ def squeezing_matrix(r, phi, cutoff, dtype, batch_size):  # pragma: no cover
     phi = phi.to(dtype)
     
 
-    S = torch.zeros((batch_size, cutoff, cutoff)).to(dtype)
-    sqrt = torch.sqrt(torch.arange(cutoff)).to(dtype)
+    S = torch.zeros((batch_size, cutoff, cutoff)).to(dtype).to(r.device)
+    sqrt = torch.sqrt(torch.arange(cutoff)).to(dtype).to(r.device)
 
     
 
@@ -433,7 +433,7 @@ def squeezing_matrix(r, phi, cutoff, dtype, batch_size):  # pragma: no cover
     return S                                                        
 
 
-def beam_splitter_matrix(theta, phi, cutoff, dtype, batch_size):  # pragma: no cover
+def beam_splitter_matrix(theta, phi, cutoff, dtype, batch_size):  
     r"""Calculates the matrix elements of the beamsplitter gate using a recurrence relation.
     
     Args:
@@ -568,46 +568,7 @@ def ladder_ops(cutoff):
     ad = torch.transpose(torch.conj(a), 1, 0)
     return a, ad
 
-
-#---------------------------------------------------------------------------------------------------------------------------------------deprecated
-
-
-
-def displacement(r, phi, mode, in_modes, cutoff, pure=True, dtype=torch.complex64):
-    """returns displacement unitary matrix applied on specified input modes"""
-    matrix = displacement_matrix(r, phi, cutoff, dtype)
-    output = single_mode_gate(matrix, mode, in_modes, pure)
-
-    return output
-
-def squeezing(r, theta, mode, in_modes, cutoff, pure=True, dtype=torch.complex64):
-    """returns squeezing unitary matrix applied on specified input modes"""
-    matrix = squeezing_matrix(r, theta, cutoff, dtype)
-    output = single_mode_gate(matrix, mode, in_modes, pure)
-
-    return output
-
-def beamsplitter(theta, phi, mode1, mode2, in_modes, cutoff, pure=True, dtype=torch.complex64):
-    """returns beamsplitter unitary matrix applied on specified input modes"""
-    matrix = beam_splitter_matrix(theta, phi, cutoff, dtype)
-    output = two_mode_gate(matrix, mode1, mode2, in_modes, pure)
-
-    return output
-
-
-def phase_shifter(phi, mode, in_modes, cutoff, pure=True, dtype=torch.complex64):
-    """returns phase shift unitary matrix applied on specified input modes"""
-    matrix = phase_shifter_matrix(phi, cutoff, dtype=dtype)
-    output = single_mode_gate(matrix, mode, in_modes, pure)
-    return output
-
-
-def kerr_interaction(kappa, mode, in_modes, cutoff, pure=True, dtype=torch.complex64):
-    """returns Kerr unitary matrix applied on specified input modes"""
-    matrix = kerr_interaction_matrix(kappa, cutoff, dtype=dtype)
-    output = single_mode_gate(matrix, mode, in_modes, pure)
-    return output
-
+#------------------------------------------------------------------------------------ todo: convert functions below to classes
 
 
 def snap(theta, mode, in_modes, cutoff, pure=True, dtype=torch.complex64):
@@ -684,6 +645,11 @@ class Displacement(nn.Module):
         if not self.is_phi_set:
             self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=dtype, device=device)))
             self.is_phi_set = True
+
+    def extra_repr(self):
+        s = f'mode={self.mode}'
+        return s
+
         
 
 
@@ -725,6 +691,12 @@ class Squeezing(nn.Module):
             self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=dtype, device=device)))
             self.is_phi_set = True
 
+    def extra_repr(self):
+        s = f'mode={self.mode}'
+        return s
+
+
+
 class PhaseShifter(nn.Module):
     """
     Parameters:
@@ -754,6 +726,10 @@ class PhaseShifter(nn.Module):
         if not self.is_phi_set:
             self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=dtype, device=device)))
             self.is_phi_set = True
+
+    def extra_repr(self):
+        s = f'mode={self.mode}'
+        return s
 
 
 class BeamSplitter(nn.Module):
@@ -797,7 +773,9 @@ class BeamSplitter(nn.Module):
             self.register_parameter('phi', nn.Parameter(torch.randn([], dtype=dtype, device=device)))
             self.is_phi_set = True
 
-
+    def extra_repr(self):
+        s = f'mode1={self.mode1}, mode2={self.mode2}'
+        return s
 
 
 class KerrInteraction(nn.Module):
@@ -829,3 +807,7 @@ class KerrInteraction(nn.Module):
         if not self.is_kappa_set:
             self.register_parameter('kappa', nn.Parameter(torch.randn([], dtype=dtype, device=device)))
             self.is_kappa_set = True
+
+    def extra_repr(self):
+        s = f'mode={self.mode}'
+        return s

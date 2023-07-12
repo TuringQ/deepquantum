@@ -1,13 +1,15 @@
 import sys
 sys.path.append("..")
 
+import numpy as np
 import torch
 from torch import nn
 from torch import tensor
+import torch.nn.functional as F
 from circuit import QumodeCircuit, FockState
 from fock.ops import Displacement, BeamSplitter
-
-
+from sklearn import datasets
+import matplotlib.pyplot as plt
 
 # #------QC Example 1
 # state = FockState(batch_size=3, n_modes=2, cutoff=15, pure=False, dtype=torch.complex128) 
@@ -29,7 +31,7 @@ from fock.ops import Displacement, BeamSplitter
 
 
 
-# #------QML, , most of angles are changing for every forward iterqaion
+# #------QML Example 1 
 
 # x = torch.tensor([[1.7, 2.1, -4.0], 
 #                   [-1.1, 1.3, 2.0]])
@@ -52,7 +54,7 @@ from fock.ops import Displacement, BeamSplitter
 
 # # loop over encoding_cir to encoding classocal data into quantum state
 # for i, op in enumerate(encoding_cir.operators):
-#     op.set_params(r=x[:,i], phi=torch.tensor(0.0)) # can i call set_params of the same gate multiple times?
+#     op.set_params(r=x[:,i], phi=torch.tensor(0.0)) 
 
 
 
@@ -106,61 +108,65 @@ from fock.ops import Displacement, BeamSplitter
 
 #------QML Example 2
 
-class CVQNN(nn.Module):
-    """number of parameters per layer 2N*N+3N, N = n_qumodes"""
-    def __init__(self, batch_size=10, n_qumodes=2):
-        super().__init__()
-        assert n_qumodes == 2, "only support 2 qumodes"
+cutoff = 15
 
-        self.encoding_cir = QumodeCircuit(batch_size, n_qumodes, backend='fock')
-        self.var_cir = QumodeCircuit(batch_size, n_qumodes, backend='fock')
+
+class CVQNN(nn.Module):
+    """
+    https://strawberryfields.ai/photonics/demos/run_quantum_neural_network.html
+    """
+    def __init__(self, batch_size):
+        super().__init__()
+        self.var_cir = QumodeCircuit(batch_size=batch_size, n_modes=1, backend='fock', cutoff=cutoff, dtype=torch.complex64)
         self._build_cir()
         
-        
-
     def _build_cir(self):
-        self.encoding_cir.displace(mode=0)
-        self.encoding_cir.displace(mode=1)
+        for i in range(5):
+            self.var_cir.phase_shift(mode=0)
+            self.var_cir.squeeze(mode=0)
+            self.var_cir.phase_shift(mode=0)
+            self.var_cir.displace(mode=0)
+            self.var_cir.kerr(mode=0)
 
-        self.var_cir.beam_split(mode1=0, mode2=1) 
-
-    def forward(self, x):
-        # Load classical data into quantum states
-        self.encoding_cir.operators[0].set_params(x[:, 0], tensor(0.0, device=x.device))
-        self.encoding_cir.operators[1].set_params(x[:, 1], tensor(0.0, device=x.device))
+    def forward(self):
         # Applies layers of gates to the initial state
-        
-        cir = self.encoding_cir + self.var_cir
-    
-        state = cir()
-        output, _ = state.quad_expectation(phi=tensor(0.0, device=x.device), mode=0)
-        return output
+        state = self.var_cir()
+        return  state.tensor.squeeze()
 
 
-model = CVQNN(batch_size=1, n_qumodes=2)
+model = CVQNN(batch_size=1)
+model.to(torch.device("cuda"))
 print(model)
 
 
-model.to(torch.device("cuda"))
-print(list(model.named_buffers()))
-print(list(model.named_parameters()))
+target_state = np.zeros(cutoff)
+target_state[1] = 1
+target_state = torch.tensor(target_state, dtype=torch.complex64, device="cuda")
+
+yhat = model() # Note：这时候模型还没有参数, 一定要先跑一次forward，才能有参数
+optimizer = torch.optim.Adam(model.parameters(), lr=0.01)  
+
+history = []
+for i in range(1000):
+    yhat = model()
+    fidelity = torch.abs(torch.sum(torch.conj(yhat) * target_state)) ** 2
+    modulus = torch.abs(torch.sum(torch.conj(yhat) * yhat)) ** 2
+    loss = 1 - fidelity
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
+    print(f"Step: {i} Loss: {loss:.4f} Fidelity: {fidelity:.4f} Modulus: {modulus:.4f}")
+    history.append(loss.item())
 
 
-
-
-print('===============')
-x = torch.tensor([[1.0, -0.8]], dtype=torch.float32).to(torch.device("cuda"))
-print('model(x):', model(x))
-print(list(model.named_buffers()))
-print(list(model.named_parameters()))
-
-print('===============')
-for pn, p in model.named_parameters():
-    print(pn, p.grad)
+plt.plot(history)
+plt.show()
     
-model(x).sum().backward()
 
-for pn, p in model.named_parameters():
-    print(pn, p.grad)
+
+
+
+
 
 
