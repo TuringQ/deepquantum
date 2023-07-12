@@ -247,7 +247,10 @@ class QubitCircuit(Operation):
                 cir.encoders.append(op_inv)
         cir.depth = self.depth
         cir.npara = self.npara
-        cir.ndata = self.ndata
+        if encode:
+            cir.ndata = self.ndata
+        else:
+            cir.ndata = 0
         return cir
     
     @property
