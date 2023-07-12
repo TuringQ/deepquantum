@@ -183,8 +183,8 @@ class QuantumConvolutionalNeuralNetwork(Ansatz):
                          mps=mps, chi=chi)
         wires = self.wires
         self.requires_grad = requires_grad
-        u1 = U3Gate(nqubit=nqubit, den_mat=den_mat, tsr_mode=True, requires_grad=requires_grad)
-        u2 = U3Gate(nqubit=nqubit, den_mat=den_mat, tsr_mode=True, requires_grad=requires_grad)
+        u1 = U3Gate(nqubit=nqubit, den_mat=den_mat, requires_grad=requires_grad)
+        u2 = U3Gate(nqubit=nqubit, den_mat=den_mat, requires_grad=requires_grad)
         for i, wire in enumerate(wires[1::2]):
             self.add(u1, wires=wires[2 * i])
             self.add(u2, wires=wire)
@@ -195,11 +195,11 @@ class QuantumConvolutionalNeuralNetwork(Ansatz):
         self.latent(wires=wires)
 
     def conv(self, wires):
-        rxx = Rxx(nqubit=self.nqubit, den_mat=self.den_mat, tsr_mode=True, requires_grad=self.requires_grad)
-        ryy = Ryy(nqubit=self.nqubit, den_mat=self.den_mat, tsr_mode=True, requires_grad=self.requires_grad)
-        rzz = Rzz(nqubit=self.nqubit, den_mat=self.den_mat, tsr_mode=True, requires_grad=self.requires_grad)
-        u1 = U3Gate(nqubit=self.nqubit, den_mat=self.den_mat, tsr_mode=True, requires_grad=self.requires_grad)
-        u2 = U3Gate(nqubit=self.nqubit, den_mat=self.den_mat, tsr_mode=True, requires_grad=self.requires_grad)
+        rxx = Rxx(nqubit=self.nqubit, den_mat=self.den_mat, requires_grad=self.requires_grad)
+        ryy = Ryy(nqubit=self.nqubit, den_mat=self.den_mat, requires_grad=self.requires_grad)
+        rzz = Rzz(nqubit=self.nqubit, den_mat=self.den_mat, requires_grad=self.requires_grad)
+        u1 = U3Gate(nqubit=self.nqubit, den_mat=self.den_mat, requires_grad=self.requires_grad)
+        u2 = U3Gate(nqubit=self.nqubit, den_mat=self.den_mat, requires_grad=self.requires_grad)
         for start in [1, 2]:
             for i, wire in enumerate(wires[start::2]):
                 self.add(rxx, wires=[wires[2 * i + start - 1], wire])
@@ -209,7 +209,7 @@ class QuantumConvolutionalNeuralNetwork(Ansatz):
                 self.add(u2, wires=wire)
 
     def pool(self, wires):
-        cu = U3Gate(nqubit=self.nqubit, den_mat=self.den_mat, tsr_mode=True, requires_grad=self.requires_grad)
+        cu = U3Gate(nqubit=self.nqubit, den_mat=self.den_mat, requires_grad=self.requires_grad)
         for i, wire in enumerate(wires[1::2]):
             self.add(cu, wires=wires[2 * i], controls=wire)
 
