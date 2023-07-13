@@ -1,9 +1,11 @@
-from deepquantum.operation import *
-from deepquantum.qmath import *
-from deepquantum.gate import *
-from deepquantum.layer import *
-from deepquantum.state import *
-from deepquantum.circuit import *
-from deepquantum.ansatz import *
-from deepquantum.utils import *
+__version__ = '0.2.0'
+
+from .operation import *
+from .qmath import *
+from .gate import *
+from .layer import *
+from .state import *
+from .circuit import *
+from .ansatz import *
+from .utils import *
 from . import photonic
