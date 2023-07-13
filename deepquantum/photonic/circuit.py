@@ -4,24 +4,26 @@ from string import ascii_lowercase as indices
 import numpy as np
 import torch
 from torch import nn   
-import gaussian
-import fock
+import deepquantum.photonic.gaussian as gaussian
+import deepquantum.photonic.fock as fock
 from scipy.stats import unitary_group
 from scipy.special import factorial
 from torch.distributions.categorical import Categorical
-from state import FockState, GaussianState
+from deepquantum.photonic.state import FockState, GaussianState
 
 
 
 
 class QumodeCircuit(nn.Module):
 
-    def __init__(self, batch_size, n_modes, backend='fock', cutoff=10, dtype=torch.complex64):
+    def __init__(self, batch_size, n_modes, backend, cutoff=10, hbar=2., pure=True, dtype=torch.complex64):
+        """User must specify batch_size, n_modes and backend, other parameters can be infered from input state."""
         super().__init__()
         if backend == 'fock':
-            self.init_state = FockState(batch_size, n_modes, cutoff=cutoff, dtype=dtype) 
+            self.init_state = FockState(batch_size, n_modes, cutoff=cutoff, hbar=hbar, pure=pure, dtype=dtype) 
         else:
             self.init_state = GaussianState(batch_size, n_modes)
+        self.state = None
         self.batch_size = batch_size
         self.n_modes = n_modes
         self.backend = backend
@@ -30,7 +32,7 @@ class QumodeCircuit(nn.Module):
         self.squeezing_paras = []
         # store the directly applied random unitary matrix
         self.random_u = []
-
+  
 
 
     def __add__(self, rhs):
@@ -52,6 +54,7 @@ class QumodeCircuit(nn.Module):
             state = op(state)
             if isinstance(op, gaussian.ops.RandomUnitary):
                 self.random_u.append(op.u)
+        self.state = state
         return state
     
 
