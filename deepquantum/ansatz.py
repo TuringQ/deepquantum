@@ -1,6 +1,7 @@
 import torch
-from deepquantum.qmath import int_to_bitstring
-from deepquantum.circuit import QubitCircuit
+from .qmath import int_to_bitstring
+from .gate import *
+from .circuit import QubitCircuit
 import random
 
 
@@ -170,6 +171,47 @@ class PhiModularAdder(Ansatz):
         self.x(self.minmax[0])
         self.add(qft)
         self.add(phi_add_number)
+
+
+class QuantumConvolutionalNeuralNetwork(Ansatz):
+    # See https://readpaper.com/paper/4554418257818296321 Fig.1
+    # or https://pennylane.ai/qml/demos/tutorial_learning_few_data
+    def __init__(self, nqubit, nlayer, minmax=None, init_state='zeros', den_mat=False, requires_grad=True,
+                 mps=False, chi=None):
+        super().__init__(nqubit=nqubit, wires=None, minmax=minmax, ancilla=None, controls=None,
+                         init_state=init_state, name='QuantumConvolutionalNeuralNetwork', den_mat=den_mat,
+                         mps=mps, chi=chi)
+        wires = self.wires
+        self.requires_grad = requires_grad
+        u1 = U3Gate(nqubit=nqubit, den_mat=den_mat, requires_grad=requires_grad)
+        u2 = U3Gate(nqubit=nqubit, den_mat=den_mat, requires_grad=requires_grad)
+        for i, wire in enumerate(wires[1::2]):
+            self.add(u1, wires=wires[2 * i])
+            self.add(u2, wires=wire)
+        for _ in range(nlayer):
+            self.conv(wires)
+            self.pool(wires)
+            wires = wires[::2]
+        self.latent(wires=wires)
+
+    def conv(self, wires):
+        rxx = Rxx(nqubit=self.nqubit, den_mat=self.den_mat, requires_grad=self.requires_grad)
+        ryy = Ryy(nqubit=self.nqubit, den_mat=self.den_mat, requires_grad=self.requires_grad)
+        rzz = Rzz(nqubit=self.nqubit, den_mat=self.den_mat, requires_grad=self.requires_grad)
+        u1 = U3Gate(nqubit=self.nqubit, den_mat=self.den_mat, requires_grad=self.requires_grad)
+        u2 = U3Gate(nqubit=self.nqubit, den_mat=self.den_mat, requires_grad=self.requires_grad)
+        for start in [1, 2]:
+            for i, wire in enumerate(wires[start::2]):
+                self.add(rxx, wires=[wires[2 * i + start - 1], wire])
+                self.add(ryy, wires=[wires[2 * i + start - 1], wire])
+                self.add(rzz, wires=[wires[2 * i + start - 1], wire])
+                self.add(u1, wires=wires[2 * i + start - 1])
+                self.add(u2, wires=wire)
+
+    def pool(self, wires):
+        cu = U3Gate(nqubit=self.nqubit, den_mat=self.den_mat, requires_grad=self.requires_grad)
+        for i, wire in enumerate(wires[1::2]):
+            self.add(cu, wires=wires[2 * i], controls=wire)
 
 
 class QuantumFourierTransform(Ansatz):

@@ -1,10 +1,10 @@
 import torch
 import torch.nn as nn
-from deepquantum.qmath import is_density_matrix, amplitude_encoding, inner_product_mps, split_tensor, SVD
+from .qmath import is_density_matrix, amplitude_encoding, inner_product_mps, SVD, QR
 
 
 svd = SVD.apply
-
+qr = QR.apply
 
 class QubitState(nn.Module):
     def __init__(self, nqubit=1, state='zeros', den_mat=False) -> None:
@@ -190,21 +190,21 @@ class MatrixProductState(nn.Module):
             if_trun = True
         else:
             if_trun = False
-        u, s, vh = svd(tensors[site].reshape(batch, -1, shape[-1]))
         if if_trun:
+            u, s, vh = svd(tensors[site].reshape(batch, -1, shape[-1]))
             u = u[:, :, :dc]
             r = s[:, :dc].diag_embed() @ vh[:, :dc, :]
         else:
-            r = s.diag_embed() @ vh
+            u, r = qr(tensors[site].reshape(batch, -1, shape[-1]))
         self._buffers[f'tensor{site}'] = u.reshape(batch, shape[-3], shape[-2], -1)
         if normalize:
-            r = r / r.norm(dim=[-2,-1], keepdim=True)
+            norm = r.norm(dim=[-2,-1], keepdim=True)
+            r = r / norm
         self._buffers[f'tensor{site + 1}'] = torch.einsum('...ab,...bcd->...acd', r, tensors[site + 1])
         if len(shape) == 3:
             tensors = self.tensors
             self._buffers[f'tensor{site}'] = tensors[site].squeeze(0)
             self._buffers[f'tensor{site + 1}'] = tensors[site + 1].squeeze(0)
-        return s
     
     def orthogonalize_right2left(self, site, dc=-1, normalize=False):
         # no truncation if dc=-1
@@ -219,21 +219,23 @@ class MatrixProductState(nn.Module):
             if_trun = True
         else:
             if_trun = False
-        u, s, vh = svd(tensors[site].reshape(batch, shape[-3], -1))
         if if_trun:
+            u, s, vh = svd(tensors[site].reshape(batch, shape[-3], -1))
             vh = vh[:, :dc, :]
             l = u[:, :, :dc] @ s[:, :dc].diag_embed()
         else:
-            l = u @ s.diag_embed()
+            q, r = qr(tensors[site].reshape(batch, shape[-3], -1).mH)
+            vh = q.mH
+            l = r.mH
         self._buffers[f'tensor{site}'] = vh.reshape(batch, -1, shape[-2], shape[-1])
         if normalize:
-            l = l / l.norm(dim=[-2,-1], keepdim=True)
+            norm = l.norm(dim=[-2,-1], keepdim=True)
+            l = l / norm
         self._buffers[f'tensor{site - 1}'] = torch.einsum('...abc,...cd->...abd', tensors[site - 1], l)
         if len(shape) == 3:
             tensors = self.tensors
             self._buffers[f'tensor{site}'] = tensors[site].squeeze(0)
             self._buffers[f'tensor{site - 1}'] = tensors[site - 1].squeeze(0)
-        return s
     
     def orthogonalize_n1_n2(self, n1, n2, dc, normalize):
         if n1 < n2:
@@ -242,25 +244,6 @@ class MatrixProductState(nn.Module):
         else:
             for site in range(n1, n2, -1):
                 self.orthogonalize_right2left(site, dc, normalize)
-
-    # def reduce_dimension(self, index_left, center_left):
-    #     index_right = index_left + 1
-    #     assert self.center in (index_left, index_right)
-    #     tensor_left = self.tensors[index_left]
-    #     tensor_right = self.tensors[index_right]
-    #     ni = tensor_left.shape[0]
-    #     nk = tensor_right.shape[-1]
-    #     T = torch.einsum("iaj,jbk->iabk", tensor_left, tensor_right)
-    #     T = T.reshape(ni * 2, nk * 2)
-    #     new_tensor_left, new_tensor_right = split_tensor(T, center_left=center_left)
-    #     new_tensor_left = new_tensor_left.reshape(ni, 2, -1)
-    #     new_tensor_right = new_tensor_right.reshape(-1, 2, nk)
-    #     self.tensors[index_left] = new_tensor_left
-    #     self.tensors[index_right] = new_tensor_right
-    #     if center_left:
-    #         self.center = index_left
-    #     else:
-    #         self.center = index_right
 
     def forward(self):
         pass
