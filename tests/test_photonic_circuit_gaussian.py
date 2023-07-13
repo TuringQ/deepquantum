@@ -2,10 +2,10 @@ import torch
 import numpy as np
 import sys
 sys.path.append("..")
-from qumode import QumodeCircuit, GaussianState, homodyne_measure, heterodyne_measure, \
+from deepquantum.photonic.circuit import QumodeCircuit, GaussianState, homodyne_measure, heterodyne_measure, \
     prob_gbs, mean_photon_number, diff_photon_number
-from gaussian.ops import Displacement
-import qumode
+from deepquantum.photonic.gaussian.ops import Displacement
+import deepquantum.photonic.circuit as circuit
 
 
 

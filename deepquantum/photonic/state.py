@@ -4,8 +4,8 @@ from string import ascii_lowercase as indices
 import numpy as np
 import torch
 from torch import nn   
-import gaussian
-import fock
+import deepquantum.photonic.gaussian as gaussian
+import deepquantum.photonic.fock as fock
 from scipy.stats import unitary_group
 from scipy.special import factorial
 from torch.distributions.categorical import Categorical
@@ -100,13 +100,14 @@ class FockState(nn.Module):
         Measures `mode` in the basis of quadrature eigenstates (rotated by phi)
         and updates remaining modes conditioned on this result.
         After measurement, the states in `mode` are reset to the vacuum.
-        Note: This method does not support gradient.
+        Note: This method does not support gradient. Collapse state conditioned on 
+            measurement result only when shots == 1,
+            otherwise this function does not change the state, self.tensor is the same as before the func call.
         Args:
             phi (float): phase angle of quadrature to measure
             mode (int): which mode to measure.
             shots (int): the number of times to measure the state, 
-                collapse state conditioned on measurement result only when shots == 1,
-                otherwise return state before the measurement.
+
 
         Returns:
             tensor: shape (batch_size, shots), returns measurements of a single mode for each different state in a batch
@@ -125,7 +126,7 @@ class FockState(nn.Module):
         batch_offset = 1
         batch_size = self._batch_size
         
-        phi = torch.tensor(phi, dtype=self._dtype2)
+        phi = torch.tensor(phi, dtype=self._dtype2, device=self.tensor.device)
         phi = fock.ops.add_batch_dim(phi, self._batch_size)
       
         # create reduced state on the mode to be measured
@@ -317,7 +318,7 @@ class FockState(nn.Module):
         return reduced
 
 
-    def quad_expectation(self, phi=0., mode=0):
+    def quad_expectation(self, phi, mode=0):
         """Compute the expectation value of the quadrature operator :math:`\hat{x}_\phi` in single mode.
         This will not change self.tensor.
         
@@ -328,6 +329,9 @@ class FockState(nn.Module):
         Returns:
             Tensor: the expectation value
         """
+        phi = torch.tensor(phi, dtype=self._dtype2, device=self.tensor.device)
+        phi = fock.ops.add_batch_dim(phi, self._batch_size)
+
         rho = self.reduced_dm(mode) 
 
         larger_cutoff = self._cutoff + 1  # start one dimension higher to avoid truncation errors
