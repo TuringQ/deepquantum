@@ -7,7 +7,9 @@ requirements = [
     'matplotlib',
     'qiskit',
     'pylatexenc',
-    'pytest'
+    'pytest',
+    'scipy',
+    'thewalrus'
 ]
 
 setup(
