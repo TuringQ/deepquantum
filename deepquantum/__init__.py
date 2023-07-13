@@ -1,4 +1,5 @@
-__version__ = '0.2.0'
+from importlib.metadata import version
+__version__ = version('deepquantum')
 
 from .operation import *
 from .qmath import *

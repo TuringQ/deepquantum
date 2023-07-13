@@ -82,6 +82,7 @@ class QubitCircuit(Operation):
             self.init_state.to(arg)
             self.operators.to(arg)
             self.observables.to(arg)
+        return self
 
     def forward(self, data=None, state=None):
         if state == None:
