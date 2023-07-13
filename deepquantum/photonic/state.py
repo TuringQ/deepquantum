@@ -319,7 +319,7 @@ class FockState(nn.Module):
 
 
     def quad_expectation(self, phi, mode=0):
-        """Compute the expectation value of the quadrature operator :math:`\hat{x}_\phi` in single mode.
+        r"""Compute the expectation value of the quadrature operator :math:`\hat{x}_\phi` in single mode.
         This will not change self.tensor.
         
         Args:

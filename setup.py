@@ -1,5 +1,4 @@
 from setuptools import setup, find_packages
-from deepquantum import __version__
 
 requirements = [
     'torch==2.0',
@@ -14,7 +13,7 @@ requirements = [
 
 setup(
     name='deepquantum',
-    version=__version__,
+    version='0.2.1',
     packages=find_packages(),
     url='',
     license='',
