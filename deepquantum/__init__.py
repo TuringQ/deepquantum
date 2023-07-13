@@ -6,3 +6,4 @@ from deepquantum.state import *
 from deepquantum.circuit import *
 from deepquantum.ansatz import *
 from deepquantum.utils import *
+from . import photonic

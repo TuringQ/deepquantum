@@ -5,7 +5,7 @@ from torch import nn
 from torch.distributions.uniform import Uniform
 from torch.distributions.multivariate_normal  import MultivariateNormal
 import numbers
-import gaussian.util as util
+import deepquantum.photonic.gaussian.utils as utils
 
 from thewalrus import hafnian
 import itertools
@@ -170,10 +170,10 @@ class Gaussian:
         # get the covairance matrix and displacement vector in quadrature representation
         dis, cov = self.annihilation_to_quadrature(self._displacement, self._covariance)
         # get the cov and dis in xpxp ordering
-        dis, cov = util.xxpp_to_xpxp(dis, cov, self._mode_number, self._dtype)
+        dis, cov = utils.xxpp_to_xpxp(dis, cov, self._mode_number, self._dtype)
         
         # get the commutation matrix in xpxp ordering
-        lamb = util.lambda_xpxp(self._mode_number, self._dtype)
+        lamb = utils.lambda_xpxp(self._mode_number, self._dtype)
         
         # return characteristic function
         factor1 = torch.unsqueeze(x, 1) @ (lamb @ cov @ lamb.T) @ torch.unsqueeze(x, 2)
@@ -496,9 +496,9 @@ class Gaussian:
         quad_ids = torch.cat([mode, mode + self._mode_number], dim=0)
         
         # split the covariance of quadrature into three parts 
-        (cov_a, cov_b, cov_c) = util.split_covariance(quad_cov, quad_ids)
+        (cov_a, cov_b, cov_c) = utils.split_covariance(quad_cov, quad_ids)
         # split the mean vector
-        (mean_a, mean_c) = util.split_mean(quad_mean, quad_ids)
+        (mean_a, mean_c) = utils.split_mean(quad_mean, quad_ids)
         # sample the measured results 
         res = MultivariateNormal(mean_c.real, (cov_c+covariance).real).sample()
         
@@ -506,10 +506,10 @@ class Gaussian:
         # the covariance matrix
         
         v = cov_a - cov_b @ torch.inverse(cov_c + covariance) @ torch.transpose(cov_b, 1, 2)
-        full_v = util.embed_to_covariance(v, quad_ids, self._dtype)
+        full_v = utils.embed_to_covariance(v, quad_ids, self._dtype)
         # mean vector
         w = mean_a + torch.squeeze(cov_b @ torch.inverse(cov_c + covariance) @ torch.unsqueeze((res - mean_c), dim=2), dim=2)
-        full_w = util.embed_to_mean(w, quad_ids, self._dtype)
+        full_w = utils.embed_to_mean(w, quad_ids, self._dtype)
         # update the state
         new_mean, new_cov = self.quadrature_to_annihilation(full_w, full_v)
         self.update(new_mean, new_cov)
@@ -656,16 +656,16 @@ class Gaussian:
         # get the covairance matrix and displacement vector in quadrature representation
         dis, cov = self.annihilation_to_quadrature(self._displacement, self._covariance)
         # get the cov and dis in xpxp ordering
-        dis, cov = util.xxpp_to_xpxp(dis, cov, self._mode_number, self._dtype)
+        dis, cov = utils.xxpp_to_xpxp(dis, cov, self._mode_number, self._dtype)
         
         # get the commutation matrix in xpxp ordering
-        lamb = util.lambda_xpxp(self._mode_number, self._dtype)
+        lamb = utils.lambda_xpxp(self._mode_number, self._dtype)
         cov = lamb @ cov @ lamb.T
         dis = dis @ lamb.T
         
         # the indices of variables in xpxp ordering of quadrature representation
         i, j = 2*mode_id, 2*mode_id + 1
-        t = util.double_partial(dis, cov, i) + util.double_partial(dis, cov, j)
+        t = utils.double_partial(dis, cov, i) + utils.double_partial(dis, cov, j)
     
         return -(1 + t) / 2
     
@@ -679,21 +679,21 @@ class Gaussian:
         # get the covairance matrix and displacement vector in quadrature representation
         dis, cov = self.annihilation_to_quadrature(self._displacement, self._covariance)
         # get the cov and dis in xpxp ordering
-        dis, cov = util.xxpp_to_xpxp(dis, cov, self._mode_number, self._dtype)
+        dis, cov = utils.xxpp_to_xpxp(dis, cov, self._mode_number, self._dtype)
         
         # get the commutation matrix in xpxp ordering
-        lamb = util.lambda_xpxp(self._mode_number, self._dtype)
+        lamb = utils.lambda_xpxp(self._mode_number, self._dtype)
         cov = lamb @ cov @ lamb.T
         dis = dis @ lamb.T
         
         # the indices of variables in xpxp ordering of quadrature representation
         i, j, k, l = 2*mode1, 2*mode1 + 1, 2*mode2, 2*mode2 + 1
         # calculate the double derivatives
-        t = util.two_double_partial(dis, cov, i, i) + util.two_double_partial(dis, cov, j, j) \
-            + util.two_double_partial(dis, cov, k, k) + util.two_double_partial(dis, cov, l, l) \
-            + 2 * (util.two_double_partial(dis, cov, i, j) - util.two_double_partial(dis, cov, i, k)\
-            - util.two_double_partial(dis, cov, i, l) - util.two_double_partial(dis, cov, j, k)\
-            - util.two_double_partial(dis, cov, j, l) + util.two_double_partial(dis, cov, k, l))
+        t = utils.two_double_partial(dis, cov, i, i) + utils.two_double_partial(dis, cov, j, j) \
+            + utils.two_double_partial(dis, cov, k, k) + utils.two_double_partial(dis, cov, l, l) \
+            + 2 * (utils.two_double_partial(dis, cov, i, j) - utils.two_double_partial(dis, cov, i, k)\
+            - utils.two_double_partial(dis, cov, i, l) - utils.two_double_partial(dis, cov, j, k)\
+            - utils.two_double_partial(dis, cov, j, l) + utils.two_double_partial(dis, cov, k, l))
         #t = torch.sqrt(t * torch.conj(t)).real
         return t / 4 - 1 / 2
         
