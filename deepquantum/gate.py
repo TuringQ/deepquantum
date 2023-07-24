@@ -1,6 +1,12 @@
+"""
+Quantum gates
+"""
+
 from copy import copy
+
 import torch
-import torch.nn as nn
+from torch import nn
+
 from .operation import Gate
 from .qmath import multi_kron, is_unitary, SVD
 
@@ -9,7 +15,7 @@ svd = SVD.apply
 
 
 class SingleGate(Gate):
-    def __init__(self, name=None, nqubit=1, wires=[0], controls=None, den_mat=False, tsr_mode=False):
+    def __init__(self, name=None, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         assert len(self.wires) == 1
@@ -34,11 +40,13 @@ class SingleGate(Gate):
 
 
 class DoubleGate(Gate):
-    def __init__(self, name=None, nqubit=2, wires=[0,1], controls=None, den_mat=False, tsr_mode=False):
+    def __init__(self, name=None, nqubit=2, wires=None, controls=None, den_mat=False, tsr_mode=False):
+        if wires is None:
+            wires = [0, 1]
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         assert len(self.wires) == 2
-    
+
     def get_unitary(self):
         matrix = self.update_matrix()
         identity = torch.eye(2, dtype=matrix.dtype, device=matrix.device)
@@ -95,7 +103,7 @@ class DoubleGate(Gate):
 
 
 class DoubleControlGate(DoubleGate):
-    def __init__(self, name=None, nqubit=2, wires=[0,1], den_mat=False, tsr_mode=False):
+    def __init__(self, name=None, nqubit=2, wires=None, den_mat=False, tsr_mode=False):
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=None,
                          den_mat=den_mat, tsr_mode=tsr_mode)
 
@@ -106,16 +114,18 @@ class DoubleControlGate(DoubleGate):
         oneone   = torch.tensor([[0, 0], [0, 1]], dtype=matrix.dtype, device=matrix.device)
         lst1 = [identity] * self.nqubit
         lst2 = [identity] * self.nqubit
-        
+
         lst1[self.wires[0]] = zerozero
-        
+
         lst2[self.wires[0]] = oneone
         lst2[self.wires[1]] = matrix[2:4, 2:4]
         return multi_kron(lst1) + multi_kron(lst2)
 
 
 class TripleGate(Gate):
-    def __init__(self, name=None, nqubit=3, wires=[0,1,2], controls=None, den_mat=False, tsr_mode=False):
+    def __init__(self, name=None, nqubit=3, wires=None, controls=None, den_mat=False, tsr_mode=False):
+        if wires is None:
+            wires = [0, 1, 2]
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         assert len(self.wires) == 3
@@ -123,12 +133,12 @@ class TripleGate(Gate):
 
 class ArbitraryGate(Gate):
     def __init__(self, name=None, nqubit=1, wires=None, minmax=None, den_mat=False, tsr_mode=False):
-        if type(wires) == int:
+        if isinstance(wires, int):
             wires = [wires]
-        if wires == None:
-            if minmax == None:
+        if wires is None:
+            if minmax is None:
                 minmax = [0, nqubit - 1]
-            assert type(minmax) == list
+            assert isinstance(minmax, list)
             assert len(minmax) == 2
             assert all(isinstance(i, int) for i in minmax)
             assert minmax[0] > -1 and minmax[0] <= minmax[1] and minmax[1] < nqubit
@@ -137,9 +147,9 @@ class ArbitraryGate(Gate):
         self.inv_mode = False
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=None,
                          den_mat=den_mat, tsr_mode=tsr_mode)
-        
+
     def get_unitary(self):
-        if self.minmax != None:
+        if self.minmax is not None:
             matrix = self.update_matrix()
             identity = torch.eye(2, dtype=matrix.dtype, device=matrix.device)
             lst = [identity] * (self.nqubit - len(self.wires) + 1)
@@ -150,9 +160,9 @@ class ArbitraryGate(Gate):
             identity = torch.eye(2 ** self.nqubit, dtype=matrix.dtype, device=matrix.device)
             identity = identity.reshape([2 ** self.nqubit] + [2] * self.nqubit)
             return self.op_state_base(identity, matrix).reshape(2 ** self.nqubit, 2 ** self.nqubit).T
-        
+
     def inverse(self):
-        if type(self.name) == str:
+        if isinstance(self.name, str):
             name = self.name + '_dagger'
         else:
             name = self.name
@@ -160,13 +170,13 @@ class ArbitraryGate(Gate):
         gate.inv_mode = not self.inv_mode
         gate.name = name
         return gate
-        
+
     def qasm(self):
         return self.qasm_customized(self.name)
 
 
 class ParametricSingleGate(SingleGate):
-    def __init__(self, name=None, inputs=None, nqubit=1, wires=[0], controls=None,
+    def __init__(self, name=None, inputs=None, nqubit=1, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
@@ -176,11 +186,11 @@ class ParametricSingleGate(SingleGate):
         self.init_para(inputs=inputs)
 
     def inputs_to_tensor(self, inputs=None):
-        while type(inputs) == list:
+        while isinstance(inputs, list):
             inputs = inputs[0]
-        if inputs == None:
+        if inputs is None:
             inputs = torch.rand(1)[0] * 4 * torch.pi
-        elif type(inputs) != torch.Tensor and type(inputs) != torch.nn.parameter.Parameter:
+        elif not isinstance(inputs, (torch.Tensor, nn.Parameter)):
             inputs = torch.tensor(inputs, dtype=torch.float)
         return inputs
 
@@ -192,7 +202,7 @@ class ParametricSingleGate(SingleGate):
         matrix = self.get_matrix(theta)
         self.matrix = matrix.detach()
         return matrix
-        
+
     def init_para(self, inputs=None):
         theta = self.inputs_to_tensor(inputs=inputs)
         if self.requires_grad:
@@ -219,7 +229,7 @@ class ParametricSingleGate(SingleGate):
 
 
 class ParametricDoubleGate(DoubleGate):
-    def __init__(self, name=None, inputs=None, nqubit=2, wires=[0,1], controls=None,
+    def __init__(self, name=None, inputs=None, nqubit=2, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
@@ -229,11 +239,11 @@ class ParametricDoubleGate(DoubleGate):
         self.init_para(inputs=inputs)
 
     def inputs_to_tensor(self, inputs=None):
-        while type(inputs) == list:
+        while isinstance(inputs, list):
             inputs = inputs[0]
-        if inputs == None:
+        if inputs is None:
             inputs = torch.rand(1)[0] * 4 * torch.pi
-        elif type(inputs) != torch.Tensor and type(inputs) != torch.nn.parameter.Parameter:
+        elif not isinstance(inputs, (torch.Tensor, nn.Parameter)):
             inputs = torch.tensor(inputs, dtype=torch.float)
         return inputs
 
@@ -245,7 +255,7 @@ class ParametricDoubleGate(DoubleGate):
         matrix = self.get_matrix(theta)
         self.matrix = matrix.detach()
         return matrix
-        
+
     def init_para(self, inputs=None):
         theta = self.inputs_to_tensor(inputs=inputs)
         if self.requires_grad:
@@ -272,14 +282,14 @@ class ParametricDoubleGate(DoubleGate):
 
 
 class U3Gate(ParametricSingleGate):
-    def __init__(self, inputs=None, nqubit=1, wires=[0], controls=None,
+    def __init__(self, inputs=None, nqubit=1, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name='U3Gate', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
         self.npara = 3
 
     def inputs_to_tensor(self, inputs=None):
-        if inputs == None:
+        if inputs is None:
             theta = torch.rand(1)[0] * torch.pi
             phi   = torch.rand(1)[0] * 2 * torch.pi
             lambd = torch.rand(1)[0] * 2 * torch.pi
@@ -287,11 +297,11 @@ class U3Gate(ParametricSingleGate):
             theta = inputs[0]
             phi   = inputs[1]
             lambd = inputs[2]
-        if type(theta) != torch.Tensor and type(theta) != torch.nn.parameter.Parameter:
+        if not isinstance(theta, (torch.Tensor, nn.Parameter)):
             theta = torch.tensor(theta, dtype=torch.float)
-        if type(phi) != torch.Tensor and type(phi) != torch.nn.parameter.Parameter:
+        if not isinstance(phi, (torch.Tensor, nn.Parameter)):
             phi = torch.tensor(phi, dtype=torch.float)
-        if type(lambd) != torch.Tensor and type(lambd) != torch.nn.parameter.Parameter:
+        if not isinstance(lambd, (torch.Tensor, nn.Parameter)):
             lambd = torch.tensor(lambd, dtype=torch.float)
         return theta, phi, lambd
 
@@ -362,26 +372,26 @@ class U3Gate(ParametricSingleGate):
 
 
 class PhaseShift(ParametricSingleGate):
-    def __init__(self, inputs=None, nqubit=1, wires=[0], controls=None,
+    def __init__(self, inputs=None, nqubit=1, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name='PhaseShift', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
-    
+
     def inputs_to_tensor(self, inputs=None):
-        while type(inputs) == list:
+        while isinstance(inputs, list):
             inputs = inputs[0]
-        if inputs == None:
+        if inputs is None:
             inputs = torch.rand(1)[0] * 2 * torch.pi
-        elif type(inputs) != torch.Tensor and type(inputs) != torch.nn.parameter.Parameter:
+        elif not isinstance(inputs, (torch.Tensor, nn.Parameter)):
             inputs = torch.tensor(inputs, dtype=torch.float)
         return inputs
-    
+
     def get_matrix(self, theta):
         theta = self.inputs_to_tensor(theta)
         m1 = torch.eye(1, dtype=theta.dtype, device=theta.device)
         e_it = torch.exp(1j * theta)
         return torch.block_diag(m1, e_it)
-    
+
     def qasm(self):
         if self.inv_mode:
             theta = -self.theta
@@ -396,20 +406,20 @@ class PhaseShift(ParametricSingleGate):
 
 
 class Identity(Gate):
-    def __init__(self, nqubit=1, wires=[0], den_mat=False, tsr_mode=False):
+    def __init__(self, nqubit=1, wires=None, den_mat=False, tsr_mode=False):
         super().__init__(name='Identity', nqubit=nqubit, wires=wires, controls=None,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.eye(2 ** self.nqubit, dtype=torch.cfloat))
-        
+
     def get_unitary(self):
         return self.matrix
-        
+
     def forward(self, x):
         return x
 
 
 class PauliX(SingleGate):
-    def __init__(self, nqubit=1, wires=[0], controls=None, den_mat=False, tsr_mode=False):
+    def __init__(self, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='PauliX', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[0, 1], [1, 0]], dtype=torch.cfloat))
@@ -426,7 +436,7 @@ class PauliX(SingleGate):
 
 
 class PauliY(SingleGate):
-    def __init__(self, nqubit=1, wires=[0], controls=None, den_mat=False, tsr_mode=False):
+    def __init__(self, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='PauliY', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[0, -1j], [1j, 0]]))
@@ -440,7 +450,7 @@ class PauliY(SingleGate):
             return self.qasm_customized('y')
 
 class PauliZ(SingleGate):
-    def __init__(self, nqubit=1, wires=[0], controls=None, den_mat=False, tsr_mode=False):
+    def __init__(self, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='PauliZ', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0], [0, -1]], dtype=torch.cfloat))
@@ -455,7 +465,7 @@ class PauliZ(SingleGate):
 
 
 class Hadamard(SingleGate):
-    def __init__(self, nqubit=1, wires=[0], controls=None, den_mat=False, tsr_mode=False):
+    def __init__(self, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='Hadamard', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 1], [1, -1]], dtype=torch.cfloat) / 2 ** 0.5)
@@ -470,7 +480,7 @@ class Hadamard(SingleGate):
 
 
 class SGate(SingleGate):
-    def __init__(self, nqubit=1, wires=[0], controls=None, den_mat=False, tsr_mode=False):
+    def __init__(self, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='SGate', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0], [0, 1j]]))
@@ -494,7 +504,7 @@ class SGate(SingleGate):
 
 
 class SDaggerGate(SingleGate):
-    def __init__(self, nqubit=1, wires=[0], controls=None, den_mat=False, tsr_mode=False):
+    def __init__(self, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='SDaggerGate', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0], [0, -1j]]))
@@ -518,7 +528,7 @@ class SDaggerGate(SingleGate):
 
 
 class TGate(SingleGate):
-    def __init__(self, nqubit=1, wires=[0], controls=None, den_mat=False, tsr_mode=False):
+    def __init__(self, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='TGate', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0], [0, (1 + 1j) / 2 ** 0.5]]))
@@ -535,7 +545,7 @@ class TGate(SingleGate):
 
 
 class TDaggerGate(SingleGate):
-    def __init__(self, nqubit=1, wires=[0], controls=None, den_mat=False, tsr_mode=False):
+    def __init__(self, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='TDaggerGate', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0], [0, (1 - 1j) / 2 ** 0.5]]))
@@ -552,11 +562,11 @@ class TDaggerGate(SingleGate):
 
 
 class Rx(ParametricSingleGate):
-    def __init__(self, inputs=None, nqubit=1, wires=[0], controls=None,
+    def __init__(self, inputs=None, nqubit=1, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name='Rx', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
-    
+
     def get_matrix(self, theta):
         theta = self.inputs_to_tensor(theta)
         cos  = torch.cos(theta / 2)
@@ -577,7 +587,7 @@ class Rx(ParametricSingleGate):
 
 
 class Ry(ParametricSingleGate):
-    def __init__(self, inputs=None, nqubit=1, wires=[0], controls=None,
+    def __init__(self, inputs=None, nqubit=1, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name='Ry', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
@@ -587,7 +597,7 @@ class Ry(ParametricSingleGate):
         cos = torch.cos(theta / 2)
         sin = torch.sin(theta / 2)
         return torch.stack([cos, -sin, sin, cos]).reshape(2, 2) + 0j
-    
+
     def qasm(self):
         if self.inv_mode:
             theta = -self.theta
@@ -602,7 +612,7 @@ class Ry(ParametricSingleGate):
 
 
 class Rz(ParametricSingleGate):
-    def __init__(self, inputs=None, nqubit=1, wires=[0], controls=None,
+    def __init__(self, inputs=None, nqubit=1, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name='Rz', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
@@ -612,7 +622,7 @@ class Rz(ParametricSingleGate):
         e_m_it = torch.exp(-1j * theta / 2)
         e_it = torch.exp(1j * theta / 2)
         return torch.stack([e_m_it, e_it]).reshape(-1).diag_embed()
-    
+
     def qasm(self):
         if self.inv_mode:
             theta = -self.theta
@@ -627,7 +637,7 @@ class Rz(ParametricSingleGate):
 
 
 class CombinedSingleGate(SingleGate):
-    def __init__(self, gatelist, name=None, nqubit=1, wires=[0], controls=None,
+    def __init__(self, gatelist, name=None, nqubit=1, wires=None, controls=None,
                  den_mat=False, tsr_mode=False):
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
@@ -638,7 +648,7 @@ class CombinedSingleGate(SingleGate):
     def get_matrix(self):
         matrix = None
         for gate in self.gatelist:
-            if matrix == None:
+            if matrix is None:
                 matrix = gate.update_matrix()
             else:
                 matrix = gate.update_matrix() @ matrix
@@ -653,7 +663,7 @@ class CombinedSingleGate(SingleGate):
         self.npara = 0
         for gate in self.gatelist:
             self.npara += gate.npara
-        
+
     def add(self, gate: SingleGate):
         self.gatelist.append(gate)
         self.matrix = gate.matrix @ self.matrix
@@ -674,7 +684,7 @@ class CombinedSingleGate(SingleGate):
 
 
 class CNOT(DoubleControlGate):
-    def __init__(self, nqubit=2, wires=[0,1], den_mat=False, tsr_mode=False):
+    def __init__(self, nqubit=2, wires=None, den_mat=False, tsr_mode=False):
         super().__init__(name='CNOT', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0, 0, 0],
                                                      [0, 1, 0, 0],
@@ -686,7 +696,7 @@ class CNOT(DoubleControlGate):
 
 
 class Swap(DoubleGate):
-    def __init__(self, nqubit=2, wires=[0,1], controls=None, den_mat=False, tsr_mode=False):
+    def __init__(self, nqubit=2, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='Swap', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0, 0, 0],
@@ -704,11 +714,11 @@ class Swap(DoubleGate):
 
 
 class Rxx(ParametricDoubleGate):
-    def __init__(self, inputs=None, nqubit=2, wires=[0,1], controls=None,
+    def __init__(self, inputs=None, nqubit=2, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name='Rxx', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
-    
+
     def get_matrix(self, theta):
         theta = self.inputs_to_tensor(theta)
         cos  = torch.cos(theta / 2)
@@ -716,7 +726,7 @@ class Rxx(ParametricDoubleGate):
         m1 = torch.stack([cos, cos, cos, cos]).reshape(-1).diag_embed()
         m2 = torch.stack([-isin, -isin, -isin, -isin]).reshape(-1).diag_embed().fliplr()
         return m1 + m2
-    
+
     def qasm(self):
         if self.inv_mode:
             theta = -self.theta
@@ -729,7 +739,7 @@ class Rxx(ParametricDoubleGate):
 
 
 class Ryy(ParametricDoubleGate):
-    def __init__(self, inputs=None, nqubit=2, wires=[0,1], controls=None,
+    def __init__(self, inputs=None, nqubit=2, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name='Ryy', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
@@ -741,7 +751,7 @@ class Ryy(ParametricDoubleGate):
         m1 = torch.stack([cos, cos, cos, cos]).reshape(-1).diag_embed()
         m2 = torch.stack([isin, -isin, -isin, isin]).reshape(-1).diag_embed().fliplr()
         return m1 + m2
-    
+
     def qasm(self):
         if self.inv_mode:
             theta = -self.theta
@@ -751,6 +761,7 @@ class Ryy(ParametricDoubleGate):
             qasm_str1 = ''
             qasm_str2 = f'ryy({theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
             if 'ryy' not in Gate.qasm_new_gate:
+                # pylint: disable=line-too-long
                 qasm_str1 += 'gate ryy(param0) q0,q1 { rx(pi/2) q0; rx(pi/2) q1; cx q0,q1; rz(param0) q1; cx q0,q1; rx(-pi/2) q0; rx(-pi/2) q1; }\n'
                 Gate.qasm_new_gate.append('ryy')
             return qasm_str1 + qasm_str2
@@ -759,7 +770,7 @@ class Ryy(ParametricDoubleGate):
 
 
 class Rzz(ParametricDoubleGate):
-    def __init__(self, inputs=None, nqubit=2, wires=[0,1], controls=None,
+    def __init__(self, inputs=None, nqubit=2, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name='Rzz', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
@@ -769,7 +780,7 @@ class Rzz(ParametricDoubleGate):
         e_m_it = torch.exp(-1j * theta / 2)
         e_it = torch.exp(1j * theta / 2)
         return torch.stack([e_m_it, e_it, e_it, e_m_it]).reshape(-1).diag_embed()
-    
+
     def qasm(self):
         if self.inv_mode:
             theta = -self.theta
@@ -782,7 +793,7 @@ class Rzz(ParametricDoubleGate):
 
 
 class Rxy(ParametricDoubleGate):
-    def __init__(self, inputs=None, nqubit=2, wires=[0,1], controls=None,
+    def __init__(self, inputs=None, nqubit=2, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name='Rxy', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
@@ -794,13 +805,13 @@ class Rxy(ParametricDoubleGate):
         m1 = torch.eye(1, dtype=theta.dtype, device=theta.device)
         m2 = torch.stack([cos, -isin, -isin, cos]).reshape(2, 2)
         return torch.block_diag(m1, m2, m1)
-    
+
     def qasm(self):
         return self.qasm_customized('rxy')
 
 
 class Toffoli(TripleGate):
-    def __init__(self, nqubit=3, wires=[0,1,2], den_mat=False, tsr_mode=False):
+    def __init__(self, nqubit=3, wires=None, den_mat=False, tsr_mode=False):
         super().__init__(name='Toffoli', nqubit=nqubit, wires=wires, controls=None,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0, 0, 0, 0, 0, 0, 0],
@@ -827,13 +838,13 @@ class Toffoli(TripleGate):
         lst3[self.wires[1]] = oneone
         lst3[self.wires[2]] = matrix[-2:, -2:]
         return multi_kron(lst1) - multi_kron(lst2) + multi_kron(lst3)
-    
+
     def qasm(self):
         return f'ccx q[{self.wires[0]}],q[{self.wires[1]}],q[{self.wires[2]}];\n'
 
 
 class Fredkin(TripleGate):
-    def __init__(self, nqubit=3, wires=[0,1,2], den_mat=False, tsr_mode=False):
+    def __init__(self, nqubit=3, wires=None, den_mat=False, tsr_mode=False):
         super().__init__(name='Fredkin', nqubit=nqubit, wires=wires, controls=None,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0, 0, 0, 0, 0, 0, 0],
@@ -857,7 +868,7 @@ class Fredkin(TripleGate):
         lst3 = [identity] * self.nqubit
         lst4 = [identity] * self.nqubit
         lst5 = [identity] * self.nqubit
-        
+
         lst1[self.wires[0]] = zerozero
 
         lst2[self.wires[0]] = oneone
@@ -876,7 +887,7 @@ class Fredkin(TripleGate):
         lst5[self.wires[1]] = oneone
         lst5[self.wires[2]] = matrix[-2:, -2:]
         return multi_kron(lst1) + multi_kron(lst2) + multi_kron(lst3) + multi_kron(lst4) + multi_kron(lst5)
-    
+
     def qasm(self):
         return f'cswap q[{self.wires[0]}],q[{self.wires[1]}],q[{self.wires[2]}];\n'
 
@@ -886,10 +897,10 @@ class UAnyGate(ArbitraryGate):
                  tsr_mode=False):
         super().__init__(name=name, nqubit=nqubit, wires=wires, minmax=minmax, den_mat=den_mat,
                          tsr_mode=tsr_mode)
-        if type(unitary) != torch.Tensor:
+        if not isinstance(unitary, torch.Tensor):
             unitary = torch.tensor(unitary, dtype=torch.cfloat).reshape(-1, 2 ** len(self.wires))
         assert unitary.dtype in (torch.cfloat, torch.cdouble)
-        assert unitary.shape[-1] == 2 ** len(self.wires) and unitary.shape[-2] == 2 ** len(self.wires)
+        assert unitary.shape[-1] == unitary.shape[-2] == 2 ** len(self.wires)
         assert is_unitary(unitary)
         self.register_buffer('matrix', unitary)
 
@@ -909,13 +920,13 @@ class LatentGate(ArbitraryGate):
         self.init_para(inputs=inputs)
 
     def inputs_to_tensor(self, inputs=None):
-        if inputs == None:
+        if inputs is None:
             inputs = torch.randn(2 ** len(self.wires), 2 ** len(self.wires))
-        elif type(inputs) != torch.Tensor and type(inputs) != torch.nn.parameter.Parameter:
+        elif not isinstance(inputs, (torch.Tensor, nn.Parameter)):
             inputs = torch.tensor(inputs, dtype=torch.float)
-        assert inputs.shape[-1] == 2 ** len(self.wires) and inputs.shape[-2] == 2 ** len(self.wires)
+        assert inputs.shape[-1] == inputs.shape[-2] == 2 ** len(self.wires)
         return inputs
-    
+
     def get_matrix(self, inputs):
         latent = self.inputs_to_tensor(inputs) + 0j
         u, _, vh = svd(latent)
@@ -929,7 +940,7 @@ class LatentGate(ArbitraryGate):
         matrix = self.get_matrix(latent)
         self.matrix = matrix.detach()
         return matrix
-        
+
     def init_para(self, inputs=None):
         latent = self.inputs_to_tensor(inputs=inputs)
         if self.requires_grad:
@@ -941,14 +952,14 @@ class LatentGate(ArbitraryGate):
 
 
 class Barrier(Gate):
-    def __init__(self, nqubit=1, wires=[0]):
+    def __init__(self, nqubit=1, wires=None):
         super().__init__(name='Barrier', nqubit=nqubit, wires=wires)
 
     def forward(self, x):
         return x
-    
+
     def qasm(self):
-        qasm_str = 'barrier '
+        qasm_lst = ['barrier ']
         for wire in self.wires:
-            qasm_str += f'q[{wire}],'
-        return qasm_str[:-1] + ';\n'
+            qasm_lst.append(f'q[{wire}],')
+        return ''.join(qasm_lst)[:-1] + ';\n'

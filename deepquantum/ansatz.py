@@ -1,33 +1,40 @@
-import torch
-from .qmath import int_to_bitstring
-from .gate import *
-from .circuit import QubitCircuit
+"""
+Ansatze: various quantum circuits
+"""
+
 import random
+
+import torch
+
+from .qmath import int_to_bitstring
+from .gate import U3Gate, Rxx, Ryy, Rzz
+from .circuit import QubitCircuit
 
 
 class Ansatz(QubitCircuit):
     def __init__(self, nqubit, wires=None, minmax=None, ancilla=None, controls=None, init_state='zeros',
                  name=None, den_mat=False, mps=False, chi=None):
         super().__init__(nqubit=nqubit, init_state=init_state, name=name, den_mat=den_mat, mps=mps, chi=chi)
-        if type(wires) == int:
+        if isinstance(wires, int):
             wires = [wires]
-        if wires == None:
-            if minmax == None:
+        if wires is None:
+            if minmax is None:
                 minmax = [0, nqubit - 1]
-            assert type(minmax) == list
+            assert isinstance(minmax, list)
             assert len(minmax) == 2
             assert all(isinstance(i, int) for i in minmax)
-            assert minmax[0] > -1 and minmax[0] <= minmax[1] and minmax[1] < nqubit
+            assert -1 < minmax[0] <= minmax[1] < nqubit
             wires = list(range(minmax[0], minmax[1] + 1))
-        if type(ancilla) == int:
+        if isinstance(ancilla, int):
             ancilla = [ancilla]
-        if ancilla == None:
+        if ancilla is None:
             ancilla = []
-        if type(controls) == int:
+        if isinstance(controls, int):
             controls = [controls]
-        if controls == None:
+        if controls is None:
             controls = []
-        assert type(wires) == list and type(ancilla) == list and type(controls) == list, 'Invalid input type'
+        # pylint: disable=line-too-long
+        assert isinstance(wires, list) and isinstance(ancilla, list) and isinstance(controls, list), 'Invalid input type'
         assert all(isinstance(i, int) for i in wires), 'Invalid input type'
         assert all(isinstance(i, int) for i in ancilla), 'Invalid input type'
         assert all(isinstance(i, int) for i in controls), 'Invalid input type'
@@ -50,13 +57,13 @@ class ControlledMultiplier(Ansatz):
     # See https://arxiv.org/pdf/quant-ph/0205095.pdf Fig.6
     def __init__(self, nqubit, a, mod, minmax=None, nqubitx=None, ancilla=None, controls=None,
                  den_mat=False, mps=False, chi=None, debug=False):
-        assert type(a) == int
-        assert type(mod) == int
-        if minmax == None:
+        assert isinstance(a, int)
+        assert isinstance(mod, int)
+        if minmax is None:
             minmax = [0, nqubit - 2]
-        if nqubitx == None:
+        if nqubitx is None:
             nqubitx = len(bin(mod)) - 2
-        if ancilla == None:
+        if ancilla is None:
             ancilla = [minmax[1] + 1]
         super().__init__(nqubit=nqubit, wires=None, minmax=minmax, ancilla=ancilla, controls=controls,
                          init_state='zeros', name='ControlledMultiplier', den_mat=den_mat, mps=mps, chi=chi)
@@ -82,15 +89,15 @@ class ControlledMultiplier(Ansatz):
 
 class ControlledUa(Ansatz):
     # See https://arxiv.org/pdf/quant-ph/0205095.pdf Fig.7
-    # `a` has a modular inverse only if `a` is coprime to `mod` 
+    # `a` has a modular inverse only if `a` is coprime to `mod`
     def __init__(self, nqubit, a, mod, minmax=None, ancilla=None, controls=None, den_mat=False,
                  mps=False, chi=None, debug=False):
         # |x> with n bits, |0> with n+1 bits and one extra ancilla bit
         nregister = len(bin(mod)) - 2
         nancilla = len(bin(mod))
-        if minmax == None:
+        if minmax is None:
             minmax = [0, nregister - 1]
-        if ancilla == None:
+        if ancilla is None:
             ancilla = list(range(minmax[1] + 1, minmax[1] + 1 + nancilla))
         super().__init__(nqubit=nqubit, wires=None, minmax=minmax, ancilla=ancilla, controls=controls,
                          init_state='zeros', name='ControlledUa', den_mat=den_mat, mps=mps, chi=chi)
@@ -140,9 +147,9 @@ class PhiModularAdder(Ansatz):
     # See https://arxiv.org/pdf/quant-ph/0205095.pdf Fig.5
     def __init__(self, nqubit, number, mod, minmax=None, ancilla=None, controls=None, den_mat=False,
                  mps=False, chi=None, debug=False):
-        if minmax == None:
+        if minmax is None:
             minmax = [0, nqubit - 2]
-        if ancilla == None:
+        if ancilla is None:
             ancilla = [minmax[1] + 1]
         super().__init__(nqubit=nqubit, wires=None, minmax=minmax, ancilla=ancilla, controls=controls,
                          init_state='zeros', name='PhiModularAdder', den_mat=den_mat, mps=mps, chi=chi)
@@ -230,7 +237,7 @@ class QuantumFourierTransform(Ansatz):
         if not reverse:
             for i in range(len(self.wires) // 2):
                 self.swap([self.wires[i], self.wires[-1 - i]])
-        
+
     def qft_block(self, n):
         self.h(n)
         k = 2

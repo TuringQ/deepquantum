@@ -1,3 +1,8 @@
+"""
+This is the top level module from which all basic functions and classes of
+DeepQuantum can be directly imported.
+"""
+
 from importlib.metadata import version
 __version__ = version('deepquantum')
 

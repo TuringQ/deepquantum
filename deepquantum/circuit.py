@@ -1,24 +1,58 @@
+"""
+Quantum circuit
+"""
+
+from typing import Optional, Any
 from copy import copy
+
 import numpy as np
 import torch
-import torch.nn as nn
-from torch import vmap
-from .state import QubitState, MatrixProductState
-from .operation import Operation
-from .gate import *
-from .layer import *
-from .qmath import amplitude_encoding, measure, expectation
+from torch import nn, vmap
 from qiskit import QuantumCircuit
+
+from .state import QubitState, MatrixProductState
+from .operation import Operation, Gate, Layer
+from .gate import U3Gate, PhaseShift, PauliX, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, TGate, TDaggerGate
+from .gate import Rx, Ry, Rz, CNOT, Swap, Rxx, Ryy, Rzz, Rxy, Toffoli, Fredkin, UAnyGate, LatentGate, Barrier
+from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer, RyLayer, RzLayer, CnotLayer, CnotRing
+from .qmath import amplitude_encoding, measure, expectation
 
 
 class QubitCircuit(Operation):
-    def __init__(self, nqubit, init_state='zeros', name=None, den_mat=False, reupload=False,
-                 mps=False, chi=None):
+    """Quantum circuit for qubits.
+
+    This class inherits from the `Operation` class and implements methods for creating, manipulating,
+    and measuring quantum states.
+
+    Args:
+        nqubit (int): The number of qubits in the circuit.
+        init_state (Any, optional): The initial state of the circuit.
+            Default: ``'zeros'``
+        name (str or None, optional): The name of the circuit. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
+        reupload (bool, optional): Whether to use data re-uploading. Default: ``False``
+        mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
+        chi (int or None, optional): The bond dimension for matrix product state representation.
+            Default: ``None``
+
+    Raises:
+        AssertionError: If the type or dimension of `init_state` does not match `nqubit` or `den_mat`.
+    """
+    def __init__(
+        self,
+        nqubit: int,
+        init_state: Any = 'zeros',
+        name: Optional[str] = None,
+        den_mat: bool = False,
+        reupload: bool = False,
+        mps: bool = False,
+        chi: Optional[int] = None
+    ) -> None:
         super().__init__(name=name, nqubit=nqubit, wires=None, den_mat=den_mat)
-        if type(init_state) in (QubitState, MatrixProductState):
+        if isinstance(init_state, (QubitState, MatrixProductState)):
             assert nqubit == init_state.nqubit
-            if type(init_state) == MatrixProductState:
-                assert den_mat == False, 'Currently, DO NOT support MPS for density matrix'
+            if isinstance(init_state, MatrixProductState):
+                assert not den_mat, 'Currently, DO NOT support MPS for density matrix'
             else:
                 assert den_mat == init_state.den_mat
             self.init_state = init_state
@@ -39,7 +73,7 @@ class QubitCircuit(Operation):
         self.chi = chi
         self.wires_measure = None
 
-    def __add__(self, rhs):
+    def __add__(self, rhs: 'QubitCircuit') -> 'QubitCircuit':
         assert self.nqubit == rhs.nqubit
         cir = QubitCircuit(nqubit=self.nqubit, name=self.name, den_mat=self.den_mat, reupload=self.reupload,
                            mps=self.mps, chi=self.chi)
@@ -53,7 +87,7 @@ class QubitCircuit(Operation):
         cir.wires_measure = rhs.wires_measure
         return cir
 
-    def to(self, arg):
+    def to(self, arg: Any) -> 'QubitCircuit':
         if arg == torch.float:
             self.init_state.to(torch.cfloat)
             for op in self.operators:
@@ -84,14 +118,15 @@ class QubitCircuit(Operation):
             self.observables.to(arg)
         return self
 
+    # pylint: disable=arguments-renamed
     def forward(self, data=None, state=None):
-        if state == None:
+        if state is None:
             state = self.init_state
-        if type(state) == MatrixProductState:
+        if isinstance(state, MatrixProductState):
             state = state.tensors
-        elif type(state) == QubitState:
+        elif isinstance(state, QubitState):
             state = state.state
-        if data == None:
+        if data is None:
             self.state = self.forward_helper(state=state)
             if not self.mps:
                 if self.state.ndim == 2:
@@ -119,14 +154,14 @@ class QubitCircuit(Operation):
 
     def forward_helper(self, data=None, state=None):
         self.encode(data)
-        if state == None:
+        if state is None:
             state = self.init_state
         if self.mps:
-            if type(state) != MatrixProductState:
+            if not isinstance(state, MatrixProductState):
                 state = MatrixProductState(nqubit=self.nqubit, state=state, chi=self.chi,
                                            normalize=self.init_state.normalize)
             return self.operators(state).tensors
-        if type(state) == QubitState:
+        if isinstance(state, QubitState):
             state = state.state
         x = self.operators(self.tensor_rep(state))
         if self.den_mat:
@@ -136,7 +171,7 @@ class QubitCircuit(Operation):
         return x.squeeze(0)
 
     def encode(self, data):
-        if data == None:
+        if data is None:
             return
         if not self.reupload:
             assert len(data) >= self.ndata, 'The circuit needs more data, or consider data re-uploading'
@@ -160,10 +195,10 @@ class QubitCircuit(Operation):
             op.init_para()
 
     def reset(self, init_state='zeros'):
-        if type(init_state) in (QubitState, MatrixProductState):
+        if isinstance(init_state, (QubitState, MatrixProductState)):
             assert self.nqubit == init_state.nqubit
-            if type(init_state) == MatrixProductState:
-                assert self.den_mat == False, 'Currently, DO NOT support MPS for density matrix'
+            if isinstance(init_state, MatrixProductState):
+                assert not self.den_mat, 'Currently, DO NOT support MPS for density matrix'
                 self.mps = True
                 self.chi = init_state.chi
             else:
@@ -185,7 +220,7 @@ class QubitCircuit(Operation):
 
     def amplitude_encoding(self, data):
         return amplitude_encoding(data, self.nqubit)
-    
+
     def observable(self, wires=None, basis='z'):
         observable = Observable(nqubit=self.nqubit, wires=wires, basis=basis,
                                 den_mat=self.den_mat, tsr_mode=False)
@@ -195,25 +230,25 @@ class QubitCircuit(Operation):
         self.observables = nn.ModuleList()
 
     def measure(self, shots=1024, with_prob=False, wires=None):
-        if wires == None:
+        if wires is None:
             self.wires_measure = list(range(self.nqubit))
         else:
-            assert type(wires) in (int, list)
-            if type(wires) == int:
+            assert isinstance(wires, (int, list))
+            if isinstance(wires, int):
                 wires = [wires]
             self.wires_measure = wires
-        if self.state == None:
+        if self.state is None:
             return
         else:
             return measure(self.state, shots=shots, with_prob=with_prob, wires=wires)
 
     def expectation(self):
         assert len(self.observables) > 0, 'There is no observable'
-        if type(self.state) == list:
+        if isinstance(self.state, list):
             assert all(isinstance(i, torch.Tensor) for i in self.state), 'Invalid final state'
             assert len(self.state) == self.nqubit, 'Invalid final state'
         else:
-            assert type(self.state) == torch.Tensor, 'There is no final state'
+            assert isinstance(self.state, torch.Tensor), 'There is no final state'
         out = []
         for observable in self.observables:
             expval = expectation(self.state, observable=observable, den_mat=self.den_mat, chi=self.chi)
@@ -224,18 +259,18 @@ class QubitCircuit(Operation):
     def get_unitary(self):
         u = None
         for op in self.operators:
-            if type(op) == Barrier:
+            if isinstance(op, Barrier):
                 continue
-            if u == None:
+            if u is None:
                 u = op.get_unitary()
             else:
                 u = op.get_unitary() @ u
         return u
-    
+
     def inverse(self, encode=False):
         # ATTENTION: The inversed circuit shares the parameters with the original circuit.
         # You should ONLY encode data onto the original circuit.
-        if type(self.name) == str:
+        if isinstance(self.name, str):
             name = self.name + '_inverse'
         else:
             name = self.name
@@ -253,40 +288,40 @@ class QubitCircuit(Operation):
         else:
             cir.ndata = 0
         return cir
-    
+
     @property
     def max_depth(self):
         return max(self.depth)
-    
+
     def qasm(self):
-        qasm_str = 'OPENQASM 2.0;\n' + 'include "qelib1.inc";\n'
-        if self.wires_measure == None:
-            qasm_str += f'qreg q[{self.nqubit}];\n'
+        qasm_lst = ['OPENQASM 2.0;\n' + 'include "qelib1.inc";\n']
+        if self.wires_measure is None:
+            qasm_lst.append(f'qreg q[{self.nqubit}];\n')
         else:
-            qasm_str += f'qreg q[{self.nqubit}];\n' + f'creg c[{self.nqubit}];\n'
+            qasm_lst.append(f'qreg q[{self.nqubit}];\n' + f'creg c[{self.nqubit}];\n')
         for op in self.operators:
-            qasm_str += op.qasm()
-        if self.wires_measure != None:
+            qasm_lst.append(op.qasm())
+        if self.wires_measure is not None:
             for wire in self.wires_measure:
-                qasm_str += f'measure q[{wire}] -> c[{wire}];\n'
+                qasm_lst.append(f'measure q[{wire}] -> c[{wire}];\n')
         Gate.reset_qasm_new_gate()
-        return qasm_str
-        
+        return ''.join(qasm_lst)
+
     def draw(self, output='mpl', **kwargs):
         qc = QuantumCircuit.from_qasm_str(self.qasm())
         return qc.draw(output=output, **kwargs)
 
     def add(self, op, encode=False, wires=None, controls=None):
         assert isinstance(op, Operation)
-        if wires != None:
+        if wires is not None:
             assert isinstance(op, Gate)
-            if type(wires) == int:
+            if isinstance(wires, int):
                 wires = [wires]
-            if type(controls) == int:
+            if isinstance(controls, int):
                 controls = [controls]
-            if controls == None:
+            if controls is None:
                 controls = []
-            assert type(wires) == list and type(controls) == list, 'Invalid input type'
+            assert isinstance(wires, list) and isinstance(controls, list), 'Invalid input type'
             assert all(isinstance(i, int) for i in wires), 'Invalid input type'
             assert all(isinstance(i, int) for i in controls), 'Invalid input type'
             assert min(wires) > -1 and max(wires) < self.nqubit, 'Invalid input'
@@ -324,11 +359,11 @@ class QubitCircuit(Operation):
                 self.encoders.append(op)
                 self.ndata += op.npara
             else:
-                self.npara += op.npara    
+                self.npara += op.npara
 
     def u3(self, wires, inputs=None, controls=None, encode=False):
         requires_grad = not encode
-        if inputs != None:
+        if inputs is not None:
             requires_grad = False
         u3 = U3Gate(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls,
                     den_mat=self.den_mat, requires_grad=requires_grad)
@@ -336,7 +371,7 @@ class QubitCircuit(Operation):
 
     def cu(self, control, target, inputs=None, encode=False):
         requires_grad = not encode
-        if inputs != None:
+        if inputs is not None:
             requires_grad = False
         cu = U3Gate(inputs=inputs, nqubit=self.nqubit, wires=[target], controls=[control],
                     den_mat=self.den_mat, requires_grad=requires_grad)
@@ -344,7 +379,7 @@ class QubitCircuit(Operation):
 
     def p(self, wires, inputs=None, controls=None, encode=False):
         requires_grad = not encode
-        if inputs != None:
+        if inputs is not None:
             requires_grad = False
         p = PhaseShift(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls,
                        den_mat=self.den_mat, requires_grad=requires_grad)
@@ -352,7 +387,7 @@ class QubitCircuit(Operation):
 
     def cp(self, control, target, inputs=None, encode=False):
         requires_grad = not encode
-        if inputs != None:
+        if inputs is not None:
             requires_grad = False
         cp = PhaseShift(inputs=inputs, nqubit=self.nqubit, wires=[target], controls=[control],
                         den_mat=self.den_mat, requires_grad=requires_grad)
@@ -412,7 +447,7 @@ class QubitCircuit(Operation):
 
     def rx(self, wires, inputs=None, controls=None, encode=False):
         requires_grad = not encode
-        if inputs != None:
+        if inputs is not None:
             requires_grad = False
         rx = Rx(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls,
                 den_mat=self.den_mat, requires_grad=requires_grad)
@@ -420,7 +455,7 @@ class QubitCircuit(Operation):
 
     def ry(self, wires, inputs=None, controls=None, encode=False):
         requires_grad = not encode
-        if inputs != None:
+        if inputs is not None:
             requires_grad = False
         ry = Ry(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls,
                 den_mat=self.den_mat, requires_grad=requires_grad)
@@ -428,7 +463,7 @@ class QubitCircuit(Operation):
 
     def rz(self, wires, inputs=None, controls=None, encode=False):
         requires_grad = not encode
-        if inputs != None:
+        if inputs is not None:
             requires_grad = False
         rz = Rz(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls,
                 den_mat=self.den_mat, requires_grad=requires_grad)
@@ -436,7 +471,7 @@ class QubitCircuit(Operation):
 
     def crx(self, control, target, inputs=None, encode=False):
         requires_grad = not encode
-        if inputs != None:
+        if inputs is not None:
             requires_grad = False
         crx = Rx(inputs=inputs, nqubit=self.nqubit, wires=[target], controls=[control],
                  den_mat=self.den_mat, requires_grad=requires_grad)
@@ -444,7 +479,7 @@ class QubitCircuit(Operation):
 
     def cry(self, control, target, inputs=None, encode=False):
         requires_grad = not encode
-        if inputs != None:
+        if inputs is not None:
             requires_grad = False
         cry = Ry(inputs=inputs, nqubit=self.nqubit, wires=[target], controls=[control],
                  den_mat=self.den_mat, requires_grad=requires_grad)
@@ -452,7 +487,7 @@ class QubitCircuit(Operation):
 
     def crz(self, control, target, inputs=None, encode=False):
         requires_grad = not encode
-        if inputs != None:
+        if inputs is not None:
             requires_grad = False
         crz = Rz(inputs=inputs, nqubit=self.nqubit, wires=[target], controls=[control],
                  den_mat=self.den_mat, requires_grad=requires_grad)
@@ -480,7 +515,7 @@ class QubitCircuit(Operation):
 
     def rxx(self, wires, inputs=None, controls=None, encode=False):
         requires_grad = not encode
-        if inputs != None:
+        if inputs is not None:
             requires_grad = False
         rxx = Rxx(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls,
                   den_mat=self.den_mat, requires_grad=requires_grad)
@@ -488,7 +523,7 @@ class QubitCircuit(Operation):
 
     def ryy(self, wires, inputs=None, controls=None, encode=False):
         requires_grad = not encode
-        if inputs != None:
+        if inputs is not None:
             requires_grad = False
         ryy = Ryy(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls,
                   den_mat=self.den_mat, requires_grad=requires_grad)
@@ -496,7 +531,7 @@ class QubitCircuit(Operation):
 
     def rzz(self, wires, inputs=None, controls=None, encode=False):
         requires_grad = not encode
-        if inputs != None:
+        if inputs is not None:
             requires_grad = False
         rzz = Rzz(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls,
                   den_mat=self.den_mat, requires_grad=requires_grad)
@@ -504,7 +539,7 @@ class QubitCircuit(Operation):
 
     def rxy(self, wires, inputs=None, controls=None, encode=False):
         requires_grad = not encode
-        if inputs != None:
+        if inputs is not None:
             requires_grad = False
         rxy = Rxy(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls,
                   den_mat=self.den_mat, requires_grad=requires_grad)
@@ -512,7 +547,7 @@ class QubitCircuit(Operation):
 
     def crxx(self, control, target1, target2, inputs=None, encode=False):
         requires_grad = not encode
-        if inputs != None:
+        if inputs is not None:
             requires_grad = False
         crxx = Rxx(inputs=inputs, nqubit=self.nqubit, wires=[target1, target2], controls=[control],
                    den_mat=self.den_mat, requires_grad=requires_grad)
@@ -520,7 +555,7 @@ class QubitCircuit(Operation):
 
     def cryy(self, control, target1, target2, inputs=None, encode=False):
         requires_grad = not encode
-        if inputs != None:
+        if inputs is not None:
             requires_grad = False
         cryy = Ryy(inputs=inputs, nqubit=self.nqubit, wires=[target1, target2], controls=[control],
                    den_mat=self.den_mat, requires_grad=requires_grad)
@@ -528,7 +563,7 @@ class QubitCircuit(Operation):
 
     def crzz(self, control, target1, target2, inputs=None, encode=False):
         requires_grad = not encode
-        if inputs != None:
+        if inputs is not None:
             requires_grad = False
         crzz = Rzz(inputs=inputs, nqubit=self.nqubit, wires=[target1, target2], controls=[control],
                    den_mat=self.den_mat, requires_grad=requires_grad)
@@ -536,7 +571,7 @@ class QubitCircuit(Operation):
 
     def crxy(self, control, target1, target2, inputs=None, encode=False):
         requires_grad = not encode
-        if inputs != None:
+        if inputs is not None:
             requires_grad = False
         crxy = Rxy(inputs=inputs, nqubit=self.nqubit, wires=[target1, target2], controls=[control],
                    den_mat=self.den_mat, requires_grad=requires_grad)
@@ -565,7 +600,7 @@ class QubitCircuit(Operation):
 
     def latent(self, wires=None, minmax=None, inputs=None, encode=False, name='latent'):
         requires_grad = not encode
-        if inputs != None:
+        if inputs is not None:
             requires_grad = False
         latent = LatentGate(inputs=inputs, nqubit=self.nqubit, wires=wires, minmax=minmax, name=name,
                             den_mat=self.den_mat, requires_grad=requires_grad)
@@ -589,15 +624,15 @@ class QubitCircuit(Operation):
 
     def rxlayer(self, wires=None, inputs=None, encode=False):
         requires_grad = not encode
-        if inputs != None:
+        if inputs is not None:
             requires_grad = False
         rxl = RxLayer(nqubit=self.nqubit, wires=wires, inputs=inputs, den_mat=self.den_mat,
                       requires_grad=requires_grad)
         self.add(rxl, encode=encode)
-    
+
     def rylayer(self, wires=None, inputs=None, encode=False):
         requires_grad = not encode
-        if inputs != None:
+        if inputs is not None:
             requires_grad = False
         ryl = RyLayer(nqubit=self.nqubit, wires=wires, inputs=inputs, den_mat=self.den_mat,
                       requires_grad=requires_grad)
@@ -605,7 +640,7 @@ class QubitCircuit(Operation):
 
     def rzlayer(self, wires=None, inputs=None, encode=False):
         requires_grad = not encode
-        if inputs != None:
+        if inputs is not None:
             requires_grad = False
         rzl = RzLayer(nqubit=self.nqubit, wires=wires, inputs=inputs, den_mat=self.den_mat,
                       requires_grad=requires_grad)
@@ -613,7 +648,7 @@ class QubitCircuit(Operation):
 
     def u3layer(self, wires=None, inputs=None, encode=False):
         requires_grad = not encode
-        if inputs != None:
+        if inputs is not None:
             requires_grad = False
         u3l = U3Layer(nqubit=self.nqubit, wires=wires, inputs=inputs, den_mat=self.den_mat,
                       requires_grad=requires_grad)
@@ -628,7 +663,7 @@ class QubitCircuit(Operation):
         self.add(cxr)
 
     def barrier(self, wires=None):
-        if wires == None:
+        if wires is None:
             wires = list(range(self.nqubit))
         br = Barrier(nqubit=self.nqubit, wires=wires)
         self.add(br)

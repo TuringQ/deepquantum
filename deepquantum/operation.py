@@ -1,10 +1,17 @@
-import torch
-import torch.nn as nn
+"""
+Base classes
+"""
+
+from copy import copy
+# pylint: disable=unused-import
+import warnings
+
 import numpy as np
+import torch
+from torch import nn
+
 from .qmath import inverse_permutation, state_to_tensors
 from .state import MatrixProductState
-import warnings
-from copy import copy
 
 
 class Operation(nn.Module):
@@ -19,7 +26,7 @@ class Operation(nn.Module):
 
     def tensor_rep(self, x):
         if self.den_mat:
-            assert x.shape[-1] == 2 ** self.nqubit and x.shape[-2] == 2 ** self.nqubit
+            assert x.shape[-1] == x.shape[-2] == 2 ** self.nqubit
             return x.reshape([-1] + [2] * 2 * self.nqubit)
         else:
             if x.ndim == 1:
@@ -36,7 +43,7 @@ class Operation(nn.Module):
 
     def get_unitary(self):
         raise NotImplementedError
-        
+
     def init_para(self):
         pass
 
@@ -54,14 +61,16 @@ class Gate(Operation):
     # include default names in QASM
     qasm_new_gate = ['c3x', 'c4x']
 
-    def __init__(self, name=None, nqubit=1, wires=[0], controls=None, den_mat=False, tsr_mode=False):
-        if type(wires) == int:
-            wires = [wires]
-        if type(controls) == int:
-            controls = [controls]
-        if controls == None:
+    def __init__(self, name=None, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
+        if wires is None:
+            wires = [0]
+        if controls is None:
             controls = []
-        assert type(wires) == list and type(controls) == list, 'Invalid input type'
+        if isinstance(wires, int):
+            wires = [wires]
+        if isinstance(controls, int):
+            controls = [controls]
+        assert isinstance(wires, list) and isinstance(controls, list), 'Invalid input type'
         assert all(isinstance(i, int) for i in wires), 'Invalid input type'
         assert all(isinstance(i, int) for i in controls), 'Invalid input type'
         assert min(wires) > -1 and max(wires) < nqubit, 'Invalid input'
@@ -86,7 +95,7 @@ class Gate(Operation):
         if not self.tsr_mode:
             x = self.vector_rep(x).squeeze(0)
         return x
-    
+
     def op_state_base(self, x, matrix):
         nt = len(self.wires)
         wires = [i + 1 for i in self.wires]
@@ -98,7 +107,7 @@ class Gate(Operation):
         x = (matrix @ x).reshape([2] * nt + [-1] + [2] * (self.nqubit - nt))
         x = x.permute(inverse_permutation(pm_shape))
         return x
-    
+
     def op_state_control(self, x, matrix):
         nt = len(self.wires)
         nc = len(self.controls)
@@ -116,7 +125,7 @@ class Gate(Operation):
         state1 = state1.reshape([2] * nt + [-1] + [2] * (self.nqubit - nt - nc) + [2] * nc)
         x = state1.permute(inverse_permutation(pm_shape))
         return x
-    
+
     def op_den_mat(self, x):
         matrix = self.update_matrix()
         if self.controls == []:
@@ -126,7 +135,7 @@ class Gate(Operation):
         if not self.tsr_mode:
             x = self.matrix_rep(x).squeeze(0)
         return x
-        
+
     def op_den_mat_base(self, x, matrix):
         nt = len(self.wires)
         # left multiply
@@ -148,7 +157,7 @@ class Gate(Operation):
         x = (matrix.conj() @ x).reshape([2] * nt + [-1] + [2] * (2 * self.nqubit - nt))
         x = x.permute(inverse_permutation(pm_shape))
         return x
-    
+
     def op_den_mat_control(self, x, matrix):
         nt = len(self.wires)
         nc = len(self.controls)
@@ -183,7 +192,7 @@ class Gate(Operation):
         return x
 
     def forward(self, x):
-        if type(x) == MatrixProductState:
+        if isinstance(x, MatrixProductState):
             return self.op_mps(x)
         if not self.tsr_mode:
             x = self.tensor_rep(x)
@@ -193,7 +202,7 @@ class Gate(Operation):
         else:
             assert x.ndim == self.nqubit + 1
             return self.op_state(x)
-        
+
     def inverse(self):
         return self
 
@@ -203,11 +212,11 @@ class Gate(Operation):
             return s
         else:
             return s + f', controls={self.controls}'
-    
+
     @staticmethod
     def reset_qasm_new_gate():
         Gate.qasm_new_gate = ['c3x', 'c4x']
-    
+
     def qasm_customized(self, name):
         name = name.lower()
         if len(self.controls) > 2:
@@ -215,16 +224,13 @@ class Gate(Operation):
         else:
             name = 'c' * len(self.controls) + f'{name}'
         # warnings.warn(f'{name} is an empty gate and should be only used to draw circuit.')
-        qasm_str1 = f'gate {name} '
-        qasm_str2 = f'{name} '
-        for i, wire in enumerate(self.controls):
-            qasm_str1 += f'q{i},'
-            qasm_str2 += f'q[{wire}],'
-        for i, wire in enumerate(self.wires):
-            qasm_str1 += f'q{len(self.controls) + i},'
-            qasm_str2 += f'q[{wire}],'
-        qasm_str1 = qasm_str1[:-1] + ' { }\n'
-        qasm_str2 = qasm_str2[:-1] + ';\n'
+        qasm_lst1 = [f'gate {name} ']
+        qasm_lst2 = [f'{name} ']
+        for i, wire in enumerate(self.controls + self.wires):
+            qasm_lst1.append(f'q{i},')
+            qasm_lst2.append(f'q[{wire}],')
+        qasm_str1 = ''.join(qasm_lst1)[:-1] + ' { }\n'
+        qasm_str2 = ''.join(qasm_lst2)[:-1] + ';\n'
         if name not in Gate.qasm_new_gate:
             Gate.qasm_new_gate.append(name)
             return qasm_str1 + qasm_str2
@@ -276,7 +282,7 @@ class Gate(Operation):
             tensors.append(main_tensor.reshape(nleft, 2, 2, nright))
             previous_i = i
         return tensors, index_left
-    
+
     def op_mps(self, mps: MatrixProductState):
         # use TEBD algorithm
         #
@@ -319,10 +325,12 @@ class Gate(Operation):
 
 
 class Layer(Operation):
-    def __init__(self, name=None, nqubit=1, wires=[[0]], den_mat=False, tsr_mode=False):
-        if type(wires) == int:
+    def __init__(self, name=None, nqubit=1, wires=None, den_mat=False, tsr_mode=False):
+        if wires is None:
+            wires = [[0]]
+        if isinstance(wires, int):
             wires = [[wires]]
-        assert type(wires) == list, 'Invalid input type'
+        assert isinstance(wires, list), 'Invalid input type'
         if all(isinstance(i, int) for i in wires):
             wires = [[i] for i in wires]
         assert all(isinstance(i, list) for i in wires), 'Invalid input type'
@@ -336,7 +344,7 @@ class Layer(Operation):
     def get_unitary(self):
         u = None
         for gate in self.gates:
-            if u == None:
+            if u is None:
                 u = gate.get_unitary()
             else:
                 u = gate.get_unitary() @ u
@@ -345,19 +353,19 @@ class Layer(Operation):
     def init_para(self, inputs=None):
         count = 0
         for gate in self.gates:
-            if inputs == None:
+            if inputs is None:
                 gate.init_para()
             else:
                 gate.init_para(inputs[count:count+gate.npara])
             count += gate.npara
-    
+
     def update_npara(self):
         self.npara = 0
         for gate in self.gates:
             self.npara += gate.npara
 
     def forward(self, x):
-        if type(x) == MatrixProductState:
+        if isinstance(x, MatrixProductState):
             return self.gates(x)
         if not self.tsr_mode:
             x = self.tensor_rep(x)
@@ -371,9 +379,9 @@ class Layer(Operation):
 
     def inverse(self):
         return self
-    
+
     def qasm(self):
-        s = ''
+        lst = []
         for gate in self.gates:
-            s += gate.qasm()
-        return s
+            lst.append(gate.qasm())
+        return ''.join(lst)

@@ -1,5 +1,10 @@
+"""
+Quantum states
+"""
+
 import torch
-import torch.nn as nn
+from torch import nn
+
 from .qmath import is_density_matrix, amplitude_encoding, inner_product_mps, SVD, QR
 
 
@@ -31,7 +36,7 @@ class QubitState(nn.Module):
                 state = state @ state.mH
             self.register_buffer('state', state)
         else:
-            if type(state) != torch.Tensor:
+            if not isinstance(state, torch.Tensor):
                 state = torch.tensor(state, dtype=torch.cfloat)
             ndim = state.ndim
             s = state.shape
@@ -52,7 +57,7 @@ class QubitState(nn.Module):
 class MatrixProductState(nn.Module):
     def __init__(self, nqubit=1, state='zeros', chi=None, qudit=2, normalize=True) -> None:
         super().__init__()
-        if chi == None:
+        if chi is None:
             chi = 10 * nqubit
         self.nqubit = nqubit
         self.chi = chi
@@ -81,7 +86,7 @@ class MatrixProductState(nn.Module):
                 tensor = tensor.reshape(chi, qudit, 1)
                 tensors.append(tensor)
         else:
-            assert type(state) == list, 'Invalid input type'
+            assert isinstance(state, list), 'Invalid input type'
             assert all(isinstance(i, torch.Tensor) for i in state), 'Invalid input type'
             assert len(state) == nqubit
             tensors = state
@@ -94,11 +99,11 @@ class MatrixProductState(nn.Module):
         # Please modify the tensors through buffers.
         tensors = []
         for j in range(self.nqubit):
-            tensors.append(self.__getattr__(f'tensor{j}'))
+            tensors.append(getattr(self, f'tensor{j}'))
         return tensors
 
     def set_tensors(self, tensors):
-        assert type(tensors) == list, 'Invalid input type'
+        assert isinstance(tensors, list), 'Invalid input type'
         assert all(isinstance(i, torch.Tensor) for i in tensors), 'Invalid input type'
         assert len(tensors) == self.nqubit
         for i in range(self.nqubit):
@@ -147,10 +152,10 @@ class MatrixProductState(nn.Module):
                         print('Site ' + str(i) + ': ', err[i])
                         err_av += err[i]
                 print('-' * 35)
-                print('Average error = %g' % (err_av / (self.nqubit - 1)))
+                print(f'Average error = {err_av / (self.nqubit - 1)}')
                 print('=' * 35)
             return err
-        
+
     def full_tensor(self):
         assert self.nqubit < 24
         tensors = self.tensors
@@ -160,10 +165,10 @@ class MatrixProductState(nn.Module):
             s = psi.shape
             psi = psi.reshape(-1, s[-4], s[-3]*s[-2], s[-1])
         return psi.squeeze()
-    
+
     def inner(self, tensors, form='norm'):
         # form: 'log' or 'list'
-        if type(tensors) is list:
+        if isinstance(tensors, list):
             return inner_product_mps(self.tensors, tensors, form=form)
         else:
             return inner_product_mps(self.tensors, tensors.tensors, form=form)
@@ -186,10 +191,7 @@ class MatrixProductState(nn.Module):
             batch = 1
         else:
             batch = shape[0]
-        if 0 < dc < shape[-1]:
-            if_trun = True
-        else:
-            if_trun = False
+        if_trun = 0 < dc < shape[-1]
         if if_trun:
             u, s, vh = svd(tensors[site].reshape(batch, -1, shape[-1]))
             u = u[:, :, :dc]
@@ -205,7 +207,7 @@ class MatrixProductState(nn.Module):
             tensors = self.tensors
             self._buffers[f'tensor{site}'] = tensors[site].squeeze(0)
             self._buffers[f'tensor{site + 1}'] = tensors[site + 1].squeeze(0)
-    
+
     def orthogonalize_right2left(self, site, dc=-1, normalize=False):
         # no truncation if dc=-1
         assert site > 0
@@ -215,10 +217,7 @@ class MatrixProductState(nn.Module):
             batch = 1
         else:
             batch = shape[0]
-        if 0 < dc < shape[-3]:
-            if_trun = True
-        else:
-            if_trun = False
+        if_trun = 0 < dc < shape[-3]
         if if_trun:
             u, s, vh = svd(tensors[site].reshape(batch, shape[-3], -1))
             vh = vh[:, :dc, :]
@@ -236,7 +235,7 @@ class MatrixProductState(nn.Module):
             tensors = self.tensors
             self._buffers[f'tensor{site}'] = tensors[site].squeeze(0)
             self._buffers[f'tensor{site - 1}'] = tensors[site - 1].squeeze(0)
-    
+
     def orthogonalize_n1_n2(self, n1, n2, dc, normalize):
         if n1 < n2:
             for site in range(n1, n2, 1):
