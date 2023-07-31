@@ -8,13 +8,11 @@ import torch
 from torch import nn
 
 from .operation import Gate
-from .qmath import multi_kron, is_unitary, SVD
-
-
-svd = SVD.apply
+from .qmath import multi_kron, is_unitary, svd
 
 
 class SingleGate(Gate):
+    """A base class for single-qubit gates."""
     def __init__(self, name=None, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
@@ -40,6 +38,7 @@ class SingleGate(Gate):
 
 
 class DoubleGate(Gate):
+    """A base class for two-qubit gates."""
     def __init__(self, name=None, nqubit=2, wires=None, controls=None, den_mat=False, tsr_mode=False):
         if wires is None:
             wires = [0, 1]
@@ -103,6 +102,7 @@ class DoubleGate(Gate):
 
 
 class DoubleControlGate(DoubleGate):
+    """A base class for two-qubit controlled gates."""
     def __init__(self, name=None, nqubit=2, wires=None, den_mat=False, tsr_mode=False):
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=None,
                          den_mat=den_mat, tsr_mode=tsr_mode)
@@ -123,6 +123,7 @@ class DoubleControlGate(DoubleGate):
 
 
 class TripleGate(Gate):
+    """A base class for three-qubit gates."""
     def __init__(self, name=None, nqubit=3, wires=None, controls=None, den_mat=False, tsr_mode=False):
         if wires is None:
             wires = [0, 1, 2]
@@ -132,6 +133,7 @@ class TripleGate(Gate):
 
 
 class ArbitraryGate(Gate):
+    """A base class for customized gates."""
     def __init__(self, name=None, nqubit=1, wires=None, minmax=None, den_mat=False, tsr_mode=False):
         if isinstance(wires, int):
             wires = [wires]
@@ -171,11 +173,12 @@ class ArbitraryGate(Gate):
         gate.name = name
         return gate
 
-    def qasm(self):
-        return self.qasm_customized(self.name)
+    def _qasm(self):
+        return self._qasm_customized(self.name)
 
 
 class ParametricSingleGate(SingleGate):
+    """A base class for single-qubit gates with parameters."""
     def __init__(self, name=None, inputs=None, nqubit=1, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
@@ -229,6 +232,7 @@ class ParametricSingleGate(SingleGate):
 
 
 class ParametricDoubleGate(DoubleGate):
+    """A base class for two-qubit gates with parameters."""
     def __init__(self, name=None, inputs=None, nqubit=2, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
@@ -282,6 +286,7 @@ class ParametricDoubleGate(DoubleGate):
 
 
 class U3Gate(ParametricSingleGate):
+    """U3 gate."""
     def __init__(self, inputs=None, nqubit=1, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name='U3Gate', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
@@ -354,7 +359,7 @@ class U3Gate(ParametricSingleGate):
         else:
             return s + f', controls={self.controls}'
 
-    def qasm(self):
+    def _qasm(self):
         if self.inv_mode:
             theta = -self.theta
             phi   = -self.lambd
@@ -368,10 +373,11 @@ class U3Gate(ParametricSingleGate):
         elif len(self.controls) == 1:
             return f'cu({theta.item()},{phi.item()},{lambd.item()},0.0) q{self.controls},q{self.wires};\n'
         else:
-            return self.qasm_customized('u')
+            return self._qasm_customized('u')
 
 
 class PhaseShift(ParametricSingleGate):
+    """Phase shift gate."""
     def __init__(self, inputs=None, nqubit=1, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name='PhaseShift', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
@@ -392,7 +398,7 @@ class PhaseShift(ParametricSingleGate):
         e_it = torch.exp(1j * theta)
         return torch.block_diag(m1, e_it)
 
-    def qasm(self):
+    def _qasm(self):
         if self.inv_mode:
             theta = -self.theta
         else:
@@ -402,10 +408,11 @@ class PhaseShift(ParametricSingleGate):
         elif len(self.controls) == 1:
             return f'cp({theta.item()}) q{self.controls},q{self.wires};\n'
         else:
-            return self.qasm_customized('p')
+            return self._qasm_customized('p')
 
 
 class Identity(Gate):
+    """Identity."""
     def __init__(self, nqubit=1, wires=None, den_mat=False, tsr_mode=False):
         super().__init__(name='Identity', nqubit=nqubit, wires=wires, controls=None,
                          den_mat=den_mat, tsr_mode=tsr_mode)
@@ -419,12 +426,13 @@ class Identity(Gate):
 
 
 class PauliX(SingleGate):
+    """Pauli-X gate."""
     def __init__(self, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='PauliX', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[0, 1], [1, 0]], dtype=torch.cfloat))
 
-    def qasm(self):
+    def _qasm(self):
         if self.controls == []:
             return f'x q{self.wires};\n'
         elif len(self.controls) == 1:
@@ -432,54 +440,58 @@ class PauliX(SingleGate):
         elif len(self.controls) == 2:
             return f'ccx q[{self.controls[0]}],q[{self.controls[1]}],q{self.wires};\n'
         else:
-            return self.qasm_customized('x')
+            return self._qasm_customized('x')
 
 
 class PauliY(SingleGate):
+    """Pauli-Y gate."""
     def __init__(self, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='PauliY', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[0, -1j], [1j, 0]]))
 
-    def qasm(self):
+    def _qasm(self):
         if self.controls == []:
             return f'y q{self.wires};\n'
         elif len(self.controls) == 1:
             return f'cy q{self.controls},q{self.wires};\n'
         else:
-            return self.qasm_customized('y')
+            return self._qasm_customized('y')
 
 class PauliZ(SingleGate):
+    """Pauli-Z gate."""
     def __init__(self, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='PauliZ', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0], [0, -1]], dtype=torch.cfloat))
 
-    def qasm(self):
+    def _qasm(self):
         if self.controls == []:
             return f'z q{self.wires};\n'
         elif len(self.controls) == 1:
             return f'cz q{self.controls},q{self.wires};\n'
         else:
-            return self.qasm_customized('z')
+            return self._qasm_customized('z')
 
 
 class Hadamard(SingleGate):
+    """Hadamard gate."""
     def __init__(self, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='Hadamard', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 1], [1, -1]], dtype=torch.cfloat) / 2 ** 0.5)
 
-    def qasm(self):
+    def _qasm(self):
         if self.controls == []:
             return f'h q{self.wires};\n'
         elif len(self.controls) == 1:
             return f'ch q{self.controls},q{self.wires};\n'
         else:
-            return self.qasm_customized('h')
+            return self._qasm_customized('h')
 
 
 class SGate(SingleGate):
+    """S gate."""
     def __init__(self, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='SGate', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
@@ -489,7 +501,7 @@ class SGate(SingleGate):
         return SDaggerGate(nqubit=self.nqubit, wires=self.wires, controls=self.controls,
                            den_mat=self.den_mat, tsr_mode=self.tsr_mode)
 
-    def qasm(self):
+    def _qasm(self):
         if self.controls == []:
             return f's q{self.wires};\n'
         elif len(self.controls) == 1:
@@ -500,10 +512,11 @@ class SGate(SingleGate):
                 Gate.qasm_new_gate.append('cs')
             return qasm_str1 + qasm_str2
         else:
-            return self.qasm_customized('s')
+            return self._qasm_customized('s')
 
 
 class SDaggerGate(SingleGate):
+    """S dagger gate."""
     def __init__(self, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='SDaggerGate', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
@@ -513,7 +526,7 @@ class SDaggerGate(SingleGate):
         return SGate(nqubit=self.nqubit, wires=self.wires, controls=self.controls,
                      den_mat=self.den_mat, tsr_mode=self.tsr_mode)
 
-    def qasm(self):
+    def _qasm(self):
         if self.controls == []:
             return f'sdg q{self.wires};\n'
         elif len(self.controls) == 1:
@@ -524,10 +537,11 @@ class SDaggerGate(SingleGate):
                 Gate.qasm_new_gate.append('csdg')
             return qasm_str1 + qasm_str2
         else:
-            return self.qasm_customized('sdg')
+            return self._qasm_customized('sdg')
 
 
 class TGate(SingleGate):
+    """T gate."""
     def __init__(self, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='TGate', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
@@ -537,14 +551,15 @@ class TGate(SingleGate):
         return TDaggerGate(nqubit=self.nqubit, wires=self.wires, controls=self.controls,
                            den_mat=self.den_mat, tsr_mode=self.tsr_mode)
 
-    def qasm(self):
+    def _qasm(self):
         if self.controls == []:
             return f't q{self.wires};\n'
         else:
-            return self.qasm_customized('t')
+            return self._qasm_customized('t')
 
 
 class TDaggerGate(SingleGate):
+    """T dagger gate."""
     def __init__(self, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='TDaggerGate', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
@@ -554,14 +569,15 @@ class TDaggerGate(SingleGate):
         return TGate(nqubit=self.nqubit, wires=self.wires, controls=self.controls,
                      den_mat=self.den_mat, tsr_mode=self.tsr_mode)
 
-    def qasm(self):
+    def _qasm(self):
         if self.controls == []:
             return f'tdg q{self.wires};\n'
         else:
-            return self.qasm_customized('tdg')
+            return self._qasm_customized('tdg')
 
 
 class Rx(ParametricSingleGate):
+    """Rx gate."""
     def __init__(self, inputs=None, nqubit=1, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name='Rx', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
@@ -573,7 +589,7 @@ class Rx(ParametricSingleGate):
         isin = torch.sin(theta / 2) * 1j
         return torch.stack([cos, -isin, -isin, cos]).reshape(2, 2)
 
-    def qasm(self):
+    def _qasm(self):
         if self.inv_mode:
             theta = -self.theta
         else:
@@ -583,10 +599,11 @@ class Rx(ParametricSingleGate):
         elif len(self.controls) == 1:
             return f'crx({theta.item()}) q{self.controls},q{self.wires};\n'
         else:
-            return self.qasm_customized('rx')
+            return self._qasm_customized('rx')
 
 
 class Ry(ParametricSingleGate):
+    """Ry gate."""
     def __init__(self, inputs=None, nqubit=1, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name='Ry', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
@@ -598,7 +615,7 @@ class Ry(ParametricSingleGate):
         sin = torch.sin(theta / 2)
         return torch.stack([cos, -sin, sin, cos]).reshape(2, 2) + 0j
 
-    def qasm(self):
+    def _qasm(self):
         if self.inv_mode:
             theta = -self.theta
         else:
@@ -608,10 +625,11 @@ class Ry(ParametricSingleGate):
         elif len(self.controls) == 1:
             return f'cry({theta.item()}) q{self.controls},q{self.wires};\n'
         else:
-            return self.qasm_customized('ry')
+            return self._qasm_customized('ry')
 
 
 class Rz(ParametricSingleGate):
+    """Rz gate."""
     def __init__(self, inputs=None, nqubit=1, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name='Rz', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
@@ -623,7 +641,7 @@ class Rz(ParametricSingleGate):
         e_it = torch.exp(1j * theta / 2)
         return torch.stack([e_m_it, e_it]).reshape(-1).diag_embed()
 
-    def qasm(self):
+    def _qasm(self):
         if self.inv_mode:
             theta = -self.theta
         else:
@@ -633,10 +651,11 @@ class Rz(ParametricSingleGate):
         elif len(self.controls) == 1:
             return f'crz({theta.item()}) q{self.controls},q{self.wires};\n'
         else:
-            return self.qasm_customized('rz')
+            return self._qasm_customized('rz')
 
 
 class CombinedSingleGate(SingleGate):
+    """Combined single-qubit gate."""
     def __init__(self, gatelist, name=None, nqubit=1, wires=None, controls=None,
                  den_mat=False, tsr_mode=False):
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
@@ -676,14 +695,16 @@ class CombinedSingleGate(SingleGate):
         return CombinedSingleGate(gatelist=gatelist, name=self.name, nqubit=self.nqubit, wires=self.wires,
                                   controls=self.controls, den_mat=self.den_mat, tsr_mode=self.tsr_mode)
 
-    def qasm(self):
-        s = ''
+    def _qasm(self):
+        lst = []
         for gate in self.gatelist:
-            s += gate.qasm()
-        return s
+            # pylint: disable=protected-access
+            lst.append(gate._qasm())
+        return ''.join(lst)
 
 
 class CNOT(DoubleControlGate):
+    """CNOT gate."""
     def __init__(self, nqubit=2, wires=None, den_mat=False, tsr_mode=False):
         super().__init__(name='CNOT', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0, 0, 0],
@@ -691,11 +712,12 @@ class CNOT(DoubleControlGate):
                                                      [0, 0, 0, 1],
                                                      [0, 0, 1, 0]]) + 0j)
 
-    def qasm(self):
+    def _qasm(self):
         return f'cx q[{self.wires[0]}],q[{self.wires[1]}];\n'
 
 
 class Swap(DoubleGate):
+    """Swap gate."""
     def __init__(self, nqubit=2, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='Swap', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
@@ -704,16 +726,17 @@ class Swap(DoubleGate):
                                                      [0, 1, 0, 0],
                                                      [0, 0, 0, 1]]) + 0j)
 
-    def qasm(self):
+    def _qasm(self):
         if self.controls == []:
             return f'swap q[{self.wires[0]}],q[{self.wires[1]}];\n'
         elif len(self.controls) == 1:
             return f'cswap q{self.controls},q[{self.wires[0]}],q[{self.wires[1]}];\n'
         else:
-            return self.qasm_customized('swap')
+            return self._qasm_customized('swap')
 
 
 class Rxx(ParametricDoubleGate):
+    """Rxx gate."""
     def __init__(self, inputs=None, nqubit=2, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name='Rxx', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
@@ -727,7 +750,7 @@ class Rxx(ParametricDoubleGate):
         m2 = torch.stack([-isin, -isin, -isin, -isin]).reshape(-1).diag_embed().fliplr()
         return m1 + m2
 
-    def qasm(self):
+    def _qasm(self):
         if self.inv_mode:
             theta = -self.theta
         else:
@@ -735,10 +758,11 @@ class Rxx(ParametricDoubleGate):
         if self.controls == []:
             return f'rxx({theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
         else:
-            return self.qasm_customized('rxx')
+            return self._qasm_customized('rxx')
 
 
 class Ryy(ParametricDoubleGate):
+    """Ryy gate."""
     def __init__(self, inputs=None, nqubit=2, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name='Ryy', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
@@ -752,7 +776,7 @@ class Ryy(ParametricDoubleGate):
         m2 = torch.stack([isin, -isin, -isin, isin]).reshape(-1).diag_embed().fliplr()
         return m1 + m2
 
-    def qasm(self):
+    def _qasm(self):
         if self.inv_mode:
             theta = -self.theta
         else:
@@ -766,10 +790,11 @@ class Ryy(ParametricDoubleGate):
                 Gate.qasm_new_gate.append('ryy')
             return qasm_str1 + qasm_str2
         else:
-            return self.qasm_customized('ryy')
+            return self._qasm_customized('ryy')
 
 
 class Rzz(ParametricDoubleGate):
+    """Rzz gate."""
     def __init__(self, inputs=None, nqubit=2, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name='Rzz', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
@@ -781,7 +806,7 @@ class Rzz(ParametricDoubleGate):
         e_it = torch.exp(1j * theta / 2)
         return torch.stack([e_m_it, e_it, e_it, e_m_it]).reshape(-1).diag_embed()
 
-    def qasm(self):
+    def _qasm(self):
         if self.inv_mode:
             theta = -self.theta
         else:
@@ -789,10 +814,11 @@ class Rzz(ParametricDoubleGate):
         if self.controls == []:
             return f'rzz({theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
         else:
-            return self.qasm_customized('rzz')
+            return self._qasm_customized('rzz')
 
 
 class Rxy(ParametricDoubleGate):
+    """Rxy gate."""
     def __init__(self, inputs=None, nqubit=2, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name='Rxy', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
@@ -806,11 +832,12 @@ class Rxy(ParametricDoubleGate):
         m2 = torch.stack([cos, -isin, -isin, cos]).reshape(2, 2)
         return torch.block_diag(m1, m2, m1)
 
-    def qasm(self):
-        return self.qasm_customized('rxy')
+    def _qasm(self):
+        return self._qasm_customized('rxy')
 
 
 class Toffoli(TripleGate):
+    """Toffoli gate."""
     def __init__(self, nqubit=3, wires=None, den_mat=False, tsr_mode=False):
         super().__init__(name='Toffoli', nqubit=nqubit, wires=wires, controls=None,
                          den_mat=den_mat, tsr_mode=tsr_mode)
@@ -839,11 +866,12 @@ class Toffoli(TripleGate):
         lst3[self.wires[2]] = matrix[-2:, -2:]
         return multi_kron(lst1) - multi_kron(lst2) + multi_kron(lst3)
 
-    def qasm(self):
+    def _qasm(self):
         return f'ccx q[{self.wires[0]}],q[{self.wires[1]}],q[{self.wires[2]}];\n'
 
 
 class Fredkin(TripleGate):
+    """Fredkin gate."""
     def __init__(self, nqubit=3, wires=None, den_mat=False, tsr_mode=False):
         super().__init__(name='Fredkin', nqubit=nqubit, wires=wires, controls=None,
                          den_mat=den_mat, tsr_mode=tsr_mode)
@@ -888,11 +916,12 @@ class Fredkin(TripleGate):
         lst5[self.wires[2]] = matrix[-2:, -2:]
         return multi_kron(lst1) + multi_kron(lst2) + multi_kron(lst3) + multi_kron(lst4) + multi_kron(lst5)
 
-    def qasm(self):
+    def _qasm(self):
         return f'cswap q[{self.wires[0]}],q[{self.wires[1]}],q[{self.wires[2]}];\n'
 
 
 class UAnyGate(ArbitraryGate):
+    """Arbitrary unitary gate."""
     def __init__(self, unitary, nqubit=1, wires=None, minmax=None, name='UAnyGate', den_mat=False,
                  tsr_mode=False):
         super().__init__(name=name, nqubit=nqubit, wires=wires, minmax=minmax, den_mat=den_mat,
@@ -912,6 +941,7 @@ class UAnyGate(ArbitraryGate):
 
 
 class LatentGate(ArbitraryGate):
+    """Latent gate."""
     def __init__(self, inputs=None, nqubit=1, wires=None, minmax=None, name='LatentGate',
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name=name, nqubit=nqubit, wires=wires, minmax=minmax, den_mat=den_mat,
@@ -952,13 +982,16 @@ class LatentGate(ArbitraryGate):
 
 
 class Barrier(Gate):
+    """Barrier."""
     def __init__(self, nqubit=1, wires=None):
+        if wires is None:
+            wires = list(range(nqubit))
         super().__init__(name='Barrier', nqubit=nqubit, wires=wires)
 
     def forward(self, x):
         return x
 
-    def qasm(self):
+    def _qasm(self):
         qasm_lst = ['barrier ']
         for wire in self.wires:
             qasm_lst.append(f'q[{wire}],')

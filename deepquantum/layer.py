@@ -3,6 +3,7 @@ Quantum layers
 """
 
 from copy import deepcopy
+from typing import List, Union
 
 import torch
 from torch import nn
@@ -13,6 +14,7 @@ from .qmath import multi_kron
 
 
 class SingleLayer(Layer):
+    """A base class for layers of single-qubit gates."""
     def __init__(self, name=None, nqubit=1, wires=None, den_mat=False, tsr_mode=False):
         if wires is None:
             wires = [[i] for i in range(nqubit)]
@@ -30,6 +32,7 @@ class SingleLayer(Layer):
 
 
 class DoubleLayer(Layer):
+    """A base class for layers of two-qubit gates."""
     def __init__(self, name=None, nqubit=2, wires=None, den_mat=False, tsr_mode=False):
         if wires is None:
             wires = [[i, i + 1] for i in range(0, nqubit - 1, 2)]
@@ -39,7 +42,26 @@ class DoubleLayer(Layer):
 
 
 class Observable(SingleLayer):
-    def __init__(self, nqubit=1, wires=None, basis='z', den_mat=False, tsr_mode=False):
+    """A `Layer` that represents an observable which can be expressed by Pauli string.
+
+    Args:
+        nqubit (int, optional): The number of qubits in the quantum circuit. Default: 1
+        wires (int, List[int] or None, optional): The wires to measure. Default: ``None`` (which means all 
+            wires are measured)
+        basis (str, optional): The measurement basis for each wire. It can be 'x', 'y', or 'z'. If only one
+            character is given, it is repeated for all wires. Default: ``'z'``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
+        tsr_mode (bool, optional): Whether the input and output are represented by a tensor of
+            shape (batch, 2, ..., 2). Default: ``False``
+    """
+    def __init__(
+        self,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        basis: str = 'z',
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
         super().__init__(name='Observable', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         basis = basis.lower()
         if len(basis) == 1:
@@ -60,6 +82,7 @@ class Observable(SingleLayer):
 
 
 class U3Layer(SingleLayer):
+    """A layer of U3 gates."""
     def __init__(self, nqubit=1, wires=None, inputs=None, den_mat=False, tsr_mode=False, requires_grad=True):
         super().__init__(name='U3Layer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         for i, wire in enumerate(self.wires):
@@ -83,6 +106,7 @@ class U3Layer(SingleLayer):
 
 
 class XLayer(SingleLayer):
+    """A layer of Pauli-X gates."""
     def __init__(self, nqubit=1, wires=None, den_mat=False, tsr_mode=False):
         super().__init__(name='XLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         for wire in self.wires:
@@ -91,6 +115,7 @@ class XLayer(SingleLayer):
 
 
 class YLayer(SingleLayer):
+    """A layer of Pauli-Y gates."""
     def __init__(self, nqubit=1, wires=None, den_mat=False, tsr_mode=False):
         super().__init__(name='YLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         for wire in self.wires:
@@ -99,6 +124,7 @@ class YLayer(SingleLayer):
 
 
 class ZLayer(SingleLayer):
+    """A layer of Pauli-Z gates."""
     def __init__(self, nqubit=1, wires=None, den_mat=False, tsr_mode=False):
         super().__init__(name='ZLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         for wire in self.wires:
@@ -107,6 +133,7 @@ class ZLayer(SingleLayer):
 
 
 class HLayer(SingleLayer):
+    """A layer of Hadamard gates."""
     def __init__(self, nqubit=1, wires=None, den_mat=False, tsr_mode=False):
         super().__init__(name='HLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         for wire in self.wires:
@@ -115,6 +142,7 @@ class HLayer(SingleLayer):
 
 
 class RxLayer(SingleLayer):
+    """A layer of Rx gates."""
     def __init__(self, nqubit=1, wires=None, inputs=None, den_mat=False, tsr_mode=False, requires_grad=True):
         super().__init__(name='RxLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         for i, wire in enumerate(self.wires):
@@ -138,6 +166,7 @@ class RxLayer(SingleLayer):
 
 
 class RyLayer(SingleLayer):
+    """A layer of Ry gates."""
     def __init__(self, nqubit=1, wires=None, inputs=None, den_mat=False, tsr_mode=False, requires_grad=True):
         super().__init__(name='RyLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         for i, wire in enumerate(self.wires):
@@ -161,6 +190,7 @@ class RyLayer(SingleLayer):
 
 
 class RzLayer(SingleLayer):
+    """A layer of Rz gates."""
     def __init__(self, nqubit=1, wires=None, inputs=None, den_mat=False, tsr_mode=False, requires_grad=True):
         super().__init__(name='RzLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         for i, wire in enumerate(self.wires):
@@ -184,6 +214,7 @@ class RzLayer(SingleLayer):
 
 
 class CnotLayer(DoubleLayer):
+    """A layer of CNOT gates."""
     def __init__(self, nqubit=2, wires=None, name='CnotLayer', den_mat=False, tsr_mode=False):
         super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         for wire in self.wires:
@@ -199,6 +230,7 @@ class CnotLayer(DoubleLayer):
 
 
 class CnotRing(CnotLayer):
+    """A layer of CNOT gates in a cyclic way."""
     def __init__(self, nqubit=2, minmax=None, step=1, reverse=False, den_mat=False, tsr_mode=False):
         if minmax is None:
             minmax = [0, nqubit-1]

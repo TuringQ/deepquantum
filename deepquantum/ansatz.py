@@ -12,6 +12,7 @@ from .circuit import QubitCircuit
 
 
 class Ansatz(QubitCircuit):
+    """A base class for Ansatz."""
     def __init__(self, nqubit, wires=None, minmax=None, ancilla=None, controls=None, init_state='zeros',
                  name=None, den_mat=False, mps=False, chi=None):
         super().__init__(nqubit=nqubit, init_state=init_state, name=name, den_mat=den_mat, mps=mps, chi=chi)
@@ -54,7 +55,10 @@ class Ansatz(QubitCircuit):
 
 
 class ControlledMultiplier(Ansatz):
-    # See https://arxiv.org/pdf/quant-ph/0205095.pdf Fig.6
+    """Controlled multiplier.
+
+    See https://arxiv.org/pdf/quant-ph/0205095.pdf Fig.6
+    """
     def __init__(self, nqubit, a, mod, minmax=None, nqubitx=None, ancilla=None, controls=None,
                  den_mat=False, mps=False, chi=None, debug=False):
         assert isinstance(a, int)
@@ -88,8 +92,11 @@ class ControlledMultiplier(Ansatz):
 
 
 class ControlledUa(Ansatz):
-    # See https://arxiv.org/pdf/quant-ph/0205095.pdf Fig.7
-    # `a` has a modular inverse only if `a` is coprime to `mod`
+    """Controlled Ua gate.
+
+    `a` has a modular inverse only if `a` is coprime to `mod`.
+    See https://arxiv.org/pdf/quant-ph/0205095.pdf Fig.7
+    """
     def __init__(self, nqubit, a, mod, minmax=None, ancilla=None, controls=None, den_mat=False,
                  mps=False, chi=None, debug=False):
         # |x> with n bits, |0> with n+1 bits and one extra ancilla bit
@@ -117,6 +124,7 @@ class ControlledUa(Ansatz):
 
 
 class NumberEncoder(Ansatz):
+    """Convert number to corresponding encoding circuit."""
     def __init__(self, nqubit, number, minmax=None, den_mat=False, mps=False, chi=None):
         super().__init__(nqubit=nqubit, wires=None, minmax=minmax, ancilla=None, controls=None,
                          init_state='zeros', name='NumberEncoder', den_mat=den_mat, mps=mps, chi=chi)
@@ -127,7 +135,10 @@ class NumberEncoder(Ansatz):
 
 
 class PhiAdder(Ansatz):
-    # See https://arxiv.org/pdf/quant-ph/0205095.pdf Fig.2 and Fig.3
+    """Phi adder.
+
+    See https://arxiv.org/pdf/quant-ph/0205095.pdf Fig.2 and Fig.3
+    """
     def __init__(self, nqubit, number, minmax=None, controls=None, den_mat=False, mps=False, chi=None, debug=False):
         super().__init__(nqubit=nqubit, wires=None, minmax=minmax, ancilla=None, controls=controls,
                          init_state='zeros', name='PhiAdder', den_mat=den_mat, mps=mps, chi=chi)
@@ -144,7 +155,10 @@ class PhiAdder(Ansatz):
 
 
 class PhiModularAdder(Ansatz):
-    # See https://arxiv.org/pdf/quant-ph/0205095.pdf Fig.5
+    """Phi modular adder.
+
+    See https://arxiv.org/pdf/quant-ph/0205095.pdf Fig.5
+    """
     def __init__(self, nqubit, number, mod, minmax=None, ancilla=None, controls=None, den_mat=False,
                  mps=False, chi=None, debug=False):
         if minmax is None:
@@ -181,8 +195,11 @@ class PhiModularAdder(Ansatz):
 
 
 class QuantumConvolutionalNeuralNetwork(Ansatz):
-    # See https://readpaper.com/paper/4554418257818296321 Fig.1
-    # or https://pennylane.ai/qml/demos/tutorial_learning_few_data
+    """Quantum convolutional neural network.
+
+    See https://readpaper.com/paper/4554418257818296321 Fig.1
+    or https://pennylane.ai/qml/demos/tutorial_learning_few_data
+    """
     def __init__(self, nqubit, nlayer, minmax=None, init_state='zeros', den_mat=False, requires_grad=True,
                  mps=False, chi=None):
         super().__init__(nqubit=nqubit, wires=None, minmax=minmax, ancilla=None, controls=None,
@@ -222,6 +239,7 @@ class QuantumConvolutionalNeuralNetwork(Ansatz):
 
 
 class QuantumFourierTransform(Ansatz):
+    """Quantum Fourier transform."""
     def __init__(self, nqubit, minmax=None, reverse=False, init_state='zeros', den_mat=False,
                  mps=False, chi=None, show_barrier=False):
         super().__init__(nqubit=nqubit, wires=None, minmax=minmax, ancilla=None, controls=None,
@@ -247,6 +265,7 @@ class QuantumFourierTransform(Ansatz):
 
 
 class QuantumPhaseEstimationSingleQubit(Ansatz):
+    """Quantum phase estimation for single-qubit gate."""
     def __init__(self, t, phase, den_mat=False, mps=False, chi=None):
         nqubit = t + 1
         self.phase = phase
@@ -263,6 +282,7 @@ class QuantumPhaseEstimationSingleQubit(Ansatz):
 
 
 class RandomCircuitG3(Ansatz):
+    """Random circuit of G3 family."""
     def __init__(self, nqubit, ngate, wires=None, minmax=None, init_state='zeros', den_mat=False,
                  mps=False, chi=None):
         super().__init__(nqubit=nqubit, wires=wires, minmax=minmax, ancilla=None, controls=None,
@@ -284,6 +304,7 @@ class RandomCircuitG3(Ansatz):
 
 
 class ShorCircuit(Ansatz):
+    """Circuit for Shor's algorithm."""
     def __init__(self, mod, ncount, a, den_mat=False, mps=False, chi=None, debug=False):
         nreg = len(bin(mod)) - 2
         nqubit = ncount + 2 * nreg + 2
@@ -310,6 +331,7 @@ class ShorCircuit(Ansatz):
 
 
 class ShorCircuitFor15(Ansatz):
+    """Circuit for Shor's algorithm to factor number 15."""
     def __init__(self, ncount, a, den_mat=False, mps=False, chi=None):
         mod = 15
         nreg = len(bin(mod)) - 2

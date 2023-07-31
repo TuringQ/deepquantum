@@ -4,9 +4,11 @@ Utilities
 
 from functools import wraps
 import time
+from typing import Callable
 
 
-def record_time(func):
+def record_time(func: Callable) -> Callable:
+    """A decorator that records the running time of a function."""
     @wraps(func)
     def wrapped_function(*args, **kwargs):
         t1 = time.time()
@@ -18,10 +20,11 @@ def record_time(func):
 
 
 class Time(object):
+    """A decorator that records the running time of a function."""
     def __init__(self) -> None:
         pass
 
-    def __call__(self, func):
+    def __call__(self, func: Callable) -> Callable:
         @wraps(func)
         def wrapped_function(*args, **kwargs):
             t1 = time.time()

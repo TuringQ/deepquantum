@@ -2,17 +2,25 @@
 Quantum states
 """
 
+from typing import Any, List, Optional, Union
+
 import torch
 from torch import nn
 
-from .qmath import is_density_matrix, amplitude_encoding, inner_product_mps, SVD, QR
+from .qmath import is_density_matrix, amplitude_encoding, inner_product_mps, svd, qr
 
-
-svd = SVD.apply
-qr = QR.apply
 
 class QubitState(nn.Module):
-    def __init__(self, nqubit=1, state='zeros', den_mat=False) -> None:
+    """A quantum state of n qubits, including both pure states and density matrices.
+
+    Args:
+        nqubit (int, optional): The number of qubits in the state. Default: 1
+        state (Any, optional): The state of the qubits. It can be one of the following strings: 'zeros',
+            'equal', 'entangle', 'GHZ', or 'ghz'. Alternatively, it can be a tensor that represents a custom
+            state vector or density matrix. Default: ``'zeros'``
+        den_mat (bool, optional): Whether the state is a density matrix or not. Default: ``False``
+    """
+    def __init__(self, nqubit: int = 1, state: Any = 'zeros', den_mat=False) -> None:
         super().__init__()
         self.nqubit = nqubit
         self.den_mat = den_mat
@@ -55,7 +63,30 @@ class QubitState(nn.Module):
 
 
 class MatrixProductState(nn.Module):
-    def __init__(self, nqubit=1, state='zeros', chi=None, qudit=2, normalize=True) -> None:
+    """A matrix product state (MPS) for quantum systems.
+
+    A matrix product state is a way of representing a quantum state as a product of local tensors.
+    Each tensor has one physical index and one or two bond indices. The physical index corresponds to
+    the local Hilbert space dimension of the qudit, while the bond indices correspond to the entanglement
+    between qudits.
+
+    Args:
+        nqubit (int, optional): The number of qubits in the quantum system. Default: 1
+        state (str or List[torch.Tensor], optional): The initial state of the MPS. If 'zeros', the MPS is
+            initialized to the all-zero state. If a list of tensors, the MPS is initialized to the given
+            tensors. The tensors must have the correct shape and dtype. Default: ``'zeros'``
+        chi (int or None, optional): The maximum bond dimension of the MPS. Default: 10 * nqubit
+        qudit (int, optional): The local Hilbert space dimension of each qudit. Default: 2
+        normalize (bool, optional): Whether to normalize the MPS after each operation. Default: ``True``
+    """
+    def __init__(
+        self,
+        nqubit: int = 1,
+        state: Union[str, List[torch.Tensor]] = 'zeros',
+        chi: Optional[int] = None,
+        qudit: int = 2,
+        normalize: bool = True
+    ) -> None:
         super().__init__()
         if chi is None:
             chi = 10 * nqubit
@@ -94,22 +125,26 @@ class MatrixProductState(nn.Module):
             self.register_buffer(f'tensor{i}', tensors[i])
 
     @property
-    def tensors(self):
-        # ATTENTION: This output is provided for reading only.
-        # Please modify the tensors through buffers.
+    def tensors(self) -> List[torch.Tensor]:
+        """Get the tensors of the matrix product state.
+
+        Note:
+            This output is provided for reading only.
+            Please modify the tensors through buffers.
+        """
         tensors = []
         for j in range(self.nqubit):
             tensors.append(getattr(self, f'tensor{j}'))
         return tensors
 
-    def set_tensors(self, tensors):
+    def set_tensors(self, tensors: List[torch.Tensor]) -> None:
         assert isinstance(tensors, list), 'Invalid input type'
         assert all(isinstance(i, torch.Tensor) for i in tensors), 'Invalid input type'
         assert len(tensors) == self.nqubit
         for i in range(self.nqubit):
             self.register_buffer(f'tensor{i}', tensors[i])
 
-    def center_orthogonalization(self, c, dc=-1, normalize=False):
+    def center_orthogonalization(self, c: int, dc: int = -1, normalize: bool = False) -> None:
         if c == -1:
             c = self.nqubit - 1
         if self.center < -0.5:
@@ -121,7 +156,7 @@ class MatrixProductState(nn.Module):
         if normalize:
             self.normalize_central_tensor()
 
-    def check_center_orthogonality(self, prt=False):
+    def check_center_orthogonality(self, prt: bool = False) -> List[torch.Tensor]:
         tensors = self.tensors
         assert tensors[0].ndim == 3
         if self.center < -0.5:

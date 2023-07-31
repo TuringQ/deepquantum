@@ -2,16 +2,17 @@
 Common functions
 """
 
-import random
 from collections import Counter
-from typing import List, Tuple
+import random
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
 from torch import nn, vmap
 
 
-def is_power_of_two(n):
+def is_power_of_two(n: int) -> bool:
+    """Check if an integer is power of two."""
     def f(x):
         if x < 2:
             return False
@@ -22,7 +23,8 @@ def is_power_of_two(n):
     return np.vectorize(f)(n)
 
 
-def int_to_bitstring(x, n, debug=False):
+def int_to_bitstring(x: int, n: int, debug: bool = False) -> str:
+    """Convert from integer to bit string"""
     assert isinstance(x, int)
     assert isinstance(n, int)
     if x < 2 ** n:
@@ -37,22 +39,31 @@ def int_to_bitstring(x, n, debug=False):
     return s
 
 
-def inverse_permutation(permute_shape):
-    # permute_shape is a list of integers
-    # return a list of integers that is the inverse of permute_shape
+def inverse_permutation(permute_shape: List[int]) -> List[int]:
+    """Calculate the inversed permutation.
+
+    Args:
+        permute_shape (List[int]): Shape of permutation.
+
+    Returns:
+        List[int]: A list of integers that is the inverse of `permute_shape`.
+    """
     # find the index of each element in the range of the list length
     return [permute_shape.index(i) for i in range(len(permute_shape))]
 
 
-def is_unitary(matrix, rtol=1e-5, atol=1e-6):
-    # matrix is a torch tensor of complex numbers
-    # return True if matrix is unitary, False otherwise
-    # calculate the conjugate transpose of matrix
+def is_unitary(matrix: torch.Tensor, rtol: float = 1e-5, atol: float = 1e-6) -> bool:
+    """Check if a tensor is a unitary matrix. 
+
+    Args:
+        matrix (torch.Tensor): Square matrix.
+
+    Returns:
+        bool: `True` if `matrix` is unitary, `False` otherwise.
+    """
     assert matrix.shape[-1] == matrix.shape[-2]
     conj_trans = matrix.t().conj()
-    # calculate the product of matrix and conj_trans
     product = torch.matmul(matrix, conj_trans)
-    # compare product and identity matrix using torch.allclose function
     return torch.allclose(product, torch.eye(matrix.shape[0], dtype=matrix.dtype, device=matrix.device),
                           rtol=rtol, atol=atol)
 
@@ -67,10 +78,10 @@ def is_density_matrix(rho: torch.Tensor) -> bool:
             is assumed to be the batch dimension.
 
     Returns:
-        bool: True if the tensor is a density matrix, False otherwise.
+        bool: `True` if the tensor is a density matrix, `False` otherwise.
 
     Raises:
-        AssertionError: If the tensor is not of type torch.Tensor or has an invalid number of dimensions.
+        AssertionError: If the tensor is not of type `torch.Tensor` or has an invalid number of dimensions.
     """
     assert isinstance(rho, torch.Tensor)
     assert rho.ndim in (2, 3)
@@ -92,7 +103,8 @@ def is_density_matrix(rho: torch.Tensor) -> bool:
     return True
 
 
-def safe_inverse(x, epsilon=1e-12):
+def safe_inverse(x: Any, epsilon: float = 1e-12) -> Any:
+    """Safe inversion."""
     return x / (x ** 2 + epsilon)
 
 
@@ -251,6 +263,7 @@ svd = SVD.apply
 qr = QR.apply
 
 def split_tensor(tensor: torch.Tensor, center_left: bool = True) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Split a tensor by QR."""
     if center_left:
         q, r = qr(tensor.mH)
         return r.mH, q.mH
@@ -259,6 +272,7 @@ def split_tensor(tensor: torch.Tensor, center_left: bool = True) -> Tuple[torch.
 
 
 def state_to_tensors(state: torch.Tensor, nqubit: int, qudit: int = 2) -> List[torch.Tensor]:
+    """Convert a quantum state to a list of tensors."""
     state = state.reshape([qudit] * nqubit)
     tensors = []
     nleft = 1
@@ -276,10 +290,10 @@ def multi_kron(lst: List[torch.Tensor]) -> torch.Tensor:
     """Calculate the Kronecker/tensor/outer product for a list of tensors.
 
     Args:
-        lst: a list of tensors
+        lst (List[torch.Tensor]): A list of tensors
 
     Returns:
-        torch.Tensor: the Kronecker/tensor/outer product of the input
+        torch.Tensor: The Kronecker/tensor/outer product of the input
     """
     n = len(lst)
     if n == 1:
@@ -290,16 +304,16 @@ def multi_kron(lst: List[torch.Tensor]) -> torch.Tensor:
         return rst
 
 
-def partial_trace(rho: torch.Tensor, nqubit: int, trace_lst: List) -> torch.Tensor:
+def partial_trace(rho: torch.Tensor, nqubit: int, trace_lst: List[int]) -> torch.Tensor:
     """Calculate the partial trace for a batch of density matrices.
 
     Args:
-        rho: density matrices with the shape of (batch, 2^nqubit, 2^nqubit)
-        nqubit: total number of qubits
-        trace_lst: a list of qubits to be traced
+        rho (torch.Tensor): Density matrices with the shape of (batch, 2^nqubit, 2^nqubit)
+        nqubit (int): Total number of qubits
+        trace_lst (List[int]): A list of qubits to be traced
 
     Returns:
-        torch.Tensor: reduced density matrices with the shape of (batch, 2^n, 2^n)
+        torch.Tensor: Reduced density matrices
     """
     if rho.ndim == 2:
         rho = rho.unsqueeze(0)
@@ -319,22 +333,22 @@ def partial_trace(rho: torch.Tensor, nqubit: int, trace_lst: List) -> torch.Tens
     return rho.reshape(b, 2 ** (nqubit - n), 2 ** (nqubit - n)).squeeze(0)
 
 
-def amplitude_encoding(data, nqubit: int) -> torch.Tensor:
+def amplitude_encoding(data: Any, nqubit: int) -> torch.Tensor:
     """Encode data into quantum states using amplitude encoding.
 
     This function takes a batch of data and encodes each sample into a quantum state
     using amplitude encoding. The quantum state is represented by a complex-valued tensor
-    of shape (batch_size, 2**nqubit). The data is normalized to have unit norm along the last dimension
-    before encoding. If the data size is smaller than 2**nqubit, the remaining amplitudes are set to zero.
-    If the data size is larger than 2**nqubit, only the first 2**nqubit elements are used.
+    of shape (batch, 2^nqubit). The data is normalized to have unit norm along the last dimension
+    before encoding. If the data size is smaller than 2^nqubit, the remaining amplitudes are set to zero.
+    If the data size is larger than 2^nqubit, only the first 2^nqubit elements are used.
 
     Args:
-        data (torch.Tensor or array-like): The input data to be encoded. It should have shape (batch_size, ...)
+        data (torch.Tensor or array-like): The input data to be encoded. It should have shape (batch, ...)
             where ... can be any dimensions. If it is not a torch.Tensor object, it will be converted to one.
         nqubit (int): The number of qubits to use for encoding.
 
     Returns:
-        torch.Tensor: The encoded quantum states as complex-valued tensors of shape (batch_size, 2**nqubit, 1).
+        torch.Tensor: The encoded quantum states as complex-valued tensors of shape (batch, 2^nqubit, 1).
 
     Examples::
         >>> data = [[0.5, 0.5], [0.7, 0.3]]
@@ -364,11 +378,41 @@ def amplitude_encoding(data, nqubit: int) -> torch.Tensor:
     if n > size:
         state[:, :size] = data[:, :]
     else:
-        state[:, :] = data[:, :size]
+        state[:, :] = data[:, :]
     return state.unsqueeze(-1)
 
 
-def measure(state, shots=1024, with_prob=False, wires=None):
+def measure(
+    state: torch.Tensor,
+    shots: int = 1024,
+    with_prob: bool = False,
+    wires: Union[int, List[int], None] = None
+) -> Union[Dict, List[Dict]]:
+    """A function that performs a measurement on a quantum state and returns the results.
+
+    The measurement is done by sampling from the probability distribution of the quantum state. The results
+    are given as a dictionary or a list of dictionaries, where each key is a bit string representing the
+    measurement outcome, and each value is either the number of occurrences or a tuple of the number of
+    occurrences and the probability.
+
+    Args:
+        state (torch.Tensor): The quantum state to measure. It can be a tensor of shape (2^n,) or (2^n, 1)
+            representing a state vector, or a tensor of shape (batch, 2^n) or (batch, 2^n, 1) representing
+            a batch of state vectors.
+        shots (int, optional): The number of times to sample from the quantum state. Default: 1024
+        with_prob (bool, optional): A flag that indicates whether to return the probabilities along with
+            the number of occurrences. Default: ``False``
+        wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
+            integers specifying the indices of the wires. Default: ``None`` (which means all wires are
+            measured)
+
+    Returns:
+        Union[Dict, List[Dict]]: The measurement results. If the state is a single state vector, it returns
+            a dictionary where each key is a bit string representing the measurement outcome, and each value
+            is either the number of occurrences or a tuple of the number of occurrences and the probability.
+            If the state is a batch of state vectors, it returns a list of dictionaries with the same format
+            for each state vector in the batch.
+    """
     if state.ndim == 1 or (state.ndim == 2 and state.shape[-1] == 1):
         batch = 1
     else:
@@ -406,22 +450,26 @@ def measure(state, shots=1024, with_prob=False, wires=None):
         return results_tot
 
 
-def expectation(state, observable, den_mat=False, chi=None):
-    # pylint: disable=import-outside-toplevel
-    if isinstance(state, list):
-        from .state import MatrixProductState
-        mps = MatrixProductState(nqubit=len(state), state=state, chi=chi)
-        return inner_product_mps(state, observable(mps).tensors).real
-    if den_mat:
-        expval = (observable.get_unitary() @ state).diagonal(dim1=-2, dim2=-1).sum(-1).real
-    else:
-        expval = state.mH @ observable(state)
-        expval = expval.squeeze(-1).squeeze(-1).real
-    return expval
-
-
 def inner_product_mps(tensors0, tensors1, form='norm'):
-    # form: 'log' or 'list'
+    """ Computes the inner product of two matrix product states.
+
+    Args:
+        tensors0 (List[torch.Tensor]): The tensors of the first MPS, each with shape (..., d0, d1, d2),
+            where d0 is the bond dimension of the left site, d1 is the physical dimension, and d2 is the
+            bond dimension of the right site.
+        tensors1 (List[torch.Tensor]): The tensors of the second MPS, each with shape (..., d0, d1, d2),
+            where d0 is the bond dimension of the left site, d1 is the physical dimension, and d2 is the
+            bond dimension of the right site.
+        form (str, optional): The form of the output. If 'log', returns the logarithm of the absolute value
+            of the inner product. If 'list', returns a list of norms at each step. Otherwise, returns the
+            inner product as a scalar. Default: ``'norm'``
+
+    Returns:
+        torch.Tensor or List[torch.Tensor]: The inner product of the two MPS, or a list of norms at each step.
+
+    Raises:
+        AssertionError: If the tensors have incompatible shapes or lengths.
+    """
     assert tensors0[0].shape[-3] == tensors0[-1].shape[-1]
     assert tensors1[0].shape[-3] == tensors1[-1].shape[-1]
     assert len(tensors0) == len(tensors1)
@@ -454,16 +502,56 @@ def inner_product_mps(tensors0, tensors1, form='norm'):
     return norm
 
 
+# pylint: disable=wrong-import-position
+from .layer import Observable
+
+def expectation(
+    state: torch.Tensor or List[torch.Tensor],
+    observable: Observable,
+    den_mat: bool = False,
+    chi: Optional[int] = None
+) -> torch.Tensor:
+    """A function that calculates the expectation value of an observable on a quantum state.
+
+    The expectation value is the average measurement outcome of the observable on the quantum state.
+    It is a real number that represents the mean of the probability distribution of the measurement outcomes.
+
+    Args:
+        state (torch.Tensor or List[torch.Tensor]): The quantum state to measure. It can be a list of tensors
+            representing a matrix product state, or a tensor representing a density matrix or a state vector.
+        observable (Observable): The observable to measure. It is an instance of `Observable` class that
+            implements the measurement basis and the corresponding gates.
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
+        chi (int or None, optional): The bond dimension of the matrix product state. It is only used
+            when the state is a list of tensors. Default: ``None`` (which means no truncation)
+
+    Returns:
+        torch.Tensor: The expectation value of the observable on the quantum state. It is a scalar tensor
+            with real values.
+    """
+    # pylint: disable=import-outside-toplevel
+    if isinstance(state, list):
+        from .state import MatrixProductState
+        mps = MatrixProductState(nqubit=len(state), state=state, chi=chi)
+        return inner_product_mps(state, observable(mps).tensors).real
+    if den_mat:
+        expval = (observable.get_unitary() @ state).diagonal(dim1=-2, dim2=-1).sum(-1).real
+    else:
+        expval = state.mH @ observable(state)
+        expval = expval.squeeze(-1).squeeze(-1).real
+    return expval
+
+
 def meyer_wallach_measure(state_tsr: torch.Tensor) -> torch.Tensor:
     """Calculate Meyer-Wallach entanglement measure.
 
     See https://readpaper.com/paper/2945680873 Eq.(19)
 
     Args:
-        state_tsr: input with the shape of (batch, 2, ..., 2)
+        state_tsr (torch.Tensor): Input with the shape of (batch, 2, ..., 2)
 
     Returns:
-        torch.Tensor: the value of Meyer-Wallach measure
+        torch.Tensor: The value of Meyer-Wallach measure
     """
     nqubit = len(state_tsr.shape) - 1
     batch = state_tsr.shape[0]
@@ -485,12 +573,12 @@ def linear_map_mw(state_tsr: torch.Tensor, j: int, b: int) -> torch.Tensor:
         See https://arxiv.org/pdf/quant-ph/0305094.pdf Eq.(2)
 
     Args:
-        state_tsr: input with the shape of (batch, 2, ..., 2)
-        j: the `j`th qubit to project on, from 0 to nqubit - 1
-        b: the project basis, |0> or |1>
+        state_tsr (torch.Tensor): Input with the shape of (batch, 2, ..., 2)
+        j (int): The `j`th qubit to project on, from 0 to nqubit - 1
+        b (int): The project basis, |0> or |1>
 
     Returns:
-        torch.Tensor: non-normalized state tensor after the linear mapping
+        torch.Tensor: Non-normalized state tensor after the linear mapping
     """
     assert b in (0, 1), 'b must be 0 or 1'
     n = len(state_tsr.shape)
@@ -508,11 +596,11 @@ def generalized_distance(state1: torch.Tensor, state2: torch.Tensor) -> torch.Te
     Implemented according to https://arxiv.org/pdf/quant-ph/0310137.pdf Eq.(4)
 
     Args:
-        state1: input with the shape of (batch, 2^n, 1)
-        state2: input with the shape of (batch, 2^n, 1)
+        state1 (torch.Tensor): Input with the shape of (batch, 2^n, 1)
+        state2 (torch.Tensor): Input with the shape of (batch, 2^n, 1)
 
     Returns:
-        torch.Tensor: the generalized distance
+        torch.Tensor: The generalized distance
     """
     return ((state1.mH @ state1) * (state2.mH @ state2) - (state1.mH @ state2) * (state2.mH @ state1)).real
 
@@ -526,10 +614,10 @@ def meyer_wallach_measure_brennen(state_tsr: torch.Tensor) -> torch.Tensor:
         This implementation is slower than `meyer_wallach_measure` when nqubit >= 8
 
     Args:
-        state_tsr: input with the shape of (batch, 2, ..., 2)
+        state_tsr (torch.Tensor): Input with the shape of (batch, 2, ..., 2)
 
     Returns:
-        torch.Tensor: the value of Meyer-Wallach measure
+        torch.Tensor: The value of Meyer-Wallach measure
     """
     nqubit = len(state_tsr.shape) - 1
     batch = state_tsr.shape[0]
