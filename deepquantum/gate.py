@@ -377,13 +377,38 @@ class U3Gate(ParametricSingleGate):
 
 
 class PhaseShift(ParametricSingleGate):
-    """Phase shift gate."""
+    r"""Phase shift gate.
+
+      **Matrix Representation:**
+      .. math::
+
+        P(\theta) =
+            \begin{pmatrix}
+                1 & 0 \\
+                0 & e^{i\theta}
+            \end{pmatrix}
+
+    Args:
+        inputs(float List or,optional): the phase angle parameter for phase shift. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls(int, List or None, optional): The indices of the controlling qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+
+
+        
+
+    """
     def __init__(self, inputs=None, nqubit=1, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name='PhaseShift', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
 
-    def inputs_to_tensor(self, inputs=None):
+    def inputs_to_tensor(self, inputs=None): 
         while isinstance(inputs, list):
             inputs = inputs[0]
         if inputs is None:
@@ -412,7 +437,28 @@ class PhaseShift(ParametricSingleGate):
 
 
 class Identity(Gate):
-    """Identity."""
+    r"""Identity gate.
+
+     **Examples:**
+
+        .. math::
+
+           I(nqubit=1)=
+            \begin{pmatrix}
+                1 & 0 \\
+                0 & 1
+            \end{pmatrix}
+
+        .. math::
+
+            I(nqubit=2)=
+            \begin{pmatrix}
+                1 & 0 & 0 & 0 \\
+                0 & 1 & 0 & 0 \\
+                0 & 0 & 1 & 0 \\
+                0 & 0 & 0 & 1 
+            \end{pmatrix}
+    """
     def __init__(self, nqubit=1, wires=None, den_mat=False, tsr_mode=False):
         super().__init__(name='Identity', nqubit=nqubit, wires=wires, controls=None,
                          den_mat=den_mat, tsr_mode=tsr_mode)
@@ -426,7 +472,28 @@ class Identity(Gate):
 
 
 class PauliX(SingleGate):
-    """Pauli-X gate."""
+    r"""Pauli-X gate.
+    **Examples:**
+
+        .. math::
+
+           PauliX(nqubit=1)=
+            \begin{pmatrix}
+                0 & 1 \\
+                1 & 0
+            \end{pmatrix}
+
+        .. math::
+
+            PauliX(nqubit=2)=
+            \begin{pmatrix}
+                0 & 0 & 1 & 0 \\
+                0 & 0 & 0 & 1 \\
+                1 & 0 & 0 & 0 \\
+                0 & 1 & 0 & 0 
+            \end{pmatrix}
+
+    """
     def __init__(self, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='PauliX', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
@@ -444,7 +511,30 @@ class PauliX(SingleGate):
 
 
 class PauliY(SingleGate):
-    """Pauli-Y gate."""
+    r"""Pauli-Y gate.
+
+    **Examples:**
+
+        .. math::
+
+           PauliY(nqubit=1)=
+            \begin{pmatrix}
+                0 & -j \\
+                j & 0
+            \end{pmatrix}
+
+        .. math::
+
+            PauliY(nqubit=2)=
+            \begin{pmatrix}
+                0 & 0 & -j & 0 \\
+                0 & 0 & 0 & -j \\
+                j & 0 & 0 & 0 \\
+                0 & j & 0 & 0 
+            \end{pmatrix}
+
+    
+    """
     def __init__(self, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='PauliY', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
@@ -459,7 +549,28 @@ class PauliY(SingleGate):
             return self._qasm_customized('y')
 
 class PauliZ(SingleGate):
-    """Pauli-Z gate."""
+    r"""Pauli-Z gate.
+
+    **Examples:**
+
+        .. math::
+
+           PauliZ(nqubit=1)=
+            \begin{pmatrix}
+                1 & 0\\
+                0 & -1
+            \end{pmatrix}
+
+        .. math::
+
+            PauliZ(nqubit=2)=
+            \begin{pmatrix}
+                1 & 0 & 0 & 0 \\
+                0 & 1 & 0 & 0 \\
+                0 & 0 & 0 & 0 \\
+                0 & 0 & 0 & -1 
+            \end{pmatrix}
+    """
     def __init__(self, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='PauliZ', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
@@ -475,7 +586,27 @@ class PauliZ(SingleGate):
 
 
 class Hadamard(SingleGate):
-    """Hadamard gate."""
+    r"""Hadamard gate.
+     **Examples:**
+
+        .. math::
+
+           Hadamard(nqubit=1)=
+            \begin{pmatrix}
+                \frac{\sqrt{2}}{2} & \frac{\sqrt{2}}{2}\\
+                \frac{\sqrt{2}}{2} & -\frac{\sqrt{2}}{2}
+            \end{pmatrix}
+
+        .. math::
+
+            Hadamard(nqubit=2)=
+            \begin{pmatrix}
+                \frac{\sqrt{2}}{2} & 0 & \frac{\sqrt{2}}{2} & 0 \\
+                0 & \frac{\sqrt{2}}{2} & 0 & \frac{\sqrt{2}}{2} \\
+                \frac{\sqrt{2}}{2} & 0 & -\frac{\sqrt{2}}{2} & 0 \\
+                0 & \frac{\sqrt{2}}{2} & 0 & -\frac{\sqrt{2}}{2} 
+            \end{pmatrix}
+    """
     def __init__(self, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='Hadamard', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
@@ -491,7 +622,28 @@ class Hadamard(SingleGate):
 
 
 class SGate(SingleGate):
-    """S gate."""
+    r"""S gate.
+
+    **Examples:**
+
+        .. math::
+
+            SGate(nqubit=1)=
+            \begin{pmatrix}
+                1 & 0\\
+                0 & j
+            \end{pmatrix}
+
+        .. math::
+
+            SGate(nqubit=2)=
+            \begin{pmatrix}
+                1 & 0 & 0 & 0 \\
+                0 & 1 & 0 & 0 \\
+                0 & 0 & j & 0 \\
+                0 & 0 & 0 & j 
+            \end{pmatrix}
+    """
     def __init__(self, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='SGate', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
@@ -516,7 +668,28 @@ class SGate(SingleGate):
 
 
 class SDaggerGate(SingleGate):
-    """S dagger gate."""
+    r"""S dagger gate.
+
+    **Examples:**
+
+        .. math::
+
+            SDaggerGate(nqubit=1)=
+            \begin{pmatrix}
+                1 & 0\\
+                0 & -j
+            \end{pmatrix}
+
+        .. math::
+
+            SDaggerGate(nqubit=2)=
+            \begin{pmatrix}
+                1 & 0 & 0 & 0 \\
+                0 & 1 & 0 & 0 \\
+                0 & 0 & -j & 0 \\
+                0 & 0 & 0 & -j 
+            \end{pmatrix}
+    """
     def __init__(self, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='SDaggerGate', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
@@ -541,7 +714,28 @@ class SDaggerGate(SingleGate):
 
 
 class TGate(SingleGate):
-    """T gate."""
+    r"""T gate.
+
+     **Examples:**
+
+        .. math::
+
+            TGate(nqubit=1)=
+            \begin{pmatrix}
+                1 & 0 \\
+                0 & e^{i\pi/4}
+            \end{pmatrix}
+
+        .. math::
+
+            TGate(nqubit=2)=
+            \begin{pmatrix}
+                1 & 0 & 0 & 0 \\
+                0 & 1 & 0 & 0 \\
+                0 & 0 & e^{i\pi/4} & 0 \\
+                0 & 0 & 0 & e^{i\pi/4}
+            \end{pmatrix}
+    """
     def __init__(self, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='TGate', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
@@ -559,7 +753,28 @@ class TGate(SingleGate):
 
 
 class TDaggerGate(SingleGate):
-    """T dagger gate."""
+    r"""T dagger gate.
+
+    **Examples:**
+
+        .. math::
+
+            TGate(nqubit=1)=
+            \begin{pmatrix}
+                1 & 0 \\
+                0 & e^{-i\pi/4}
+            \end{pmatrix}
+
+        .. math::
+
+            TGate(nqubit=2)=
+            \begin{pmatrix}
+                1 & 0 & 0 & 0 \\
+                0 & 1 & 0 & 0 \\
+                0 & 0 & e^{-i\pi/4} & 0 \\
+                0 & 0 & 0 & e^{-i\pi/4}
+            \end{pmatrix}
+    """
     def __init__(self, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='TDaggerGate', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
@@ -577,7 +792,7 @@ class TDaggerGate(SingleGate):
 
 
 class Rx(ParametricSingleGate):
-    """Rx gate."""
+    """Rx gate,Rotation around X axis"""
     def __init__(self, inputs=None, nqubit=1, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name='Rx', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
@@ -603,7 +818,7 @@ class Rx(ParametricSingleGate):
 
 
 class Ry(ParametricSingleGate):
-    """Ry gate."""
+    """Ry gate,Rotation around Y axis"""
     def __init__(self, inputs=None, nqubit=1, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name='Ry', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
@@ -629,7 +844,7 @@ class Ry(ParametricSingleGate):
 
 
 class Rz(ParametricSingleGate):
-    """Rz gate."""
+    """Rz gate,Rotation around Z axis"""
     def __init__(self, inputs=None, nqubit=1, wires=None, controls=None,
                  den_mat=False, tsr_mode=False, requires_grad=False):
         super().__init__(name='Rz', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
@@ -704,7 +919,17 @@ class CombinedSingleGate(SingleGate):
 
 
 class CNOT(DoubleControlGate):
-    """CNOT gate."""
+    r"""CNOT gate.
+    **Matrix Representation:**
+
+        .. math::
+           \begin{pmatrix}
+                1 & 0 & 0 & 0 \\
+                0 & 1 & 0 & 0 \\
+                0 & 0 & 0 & 1 \\
+                0 & 0 & 1 & 0
+            \end{pmatrix}
+    """
     def __init__(self, nqubit=2, wires=None, den_mat=False, tsr_mode=False):
         super().__init__(name='CNOT', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0, 0, 0],
@@ -717,7 +942,18 @@ class CNOT(DoubleControlGate):
 
 
 class Swap(DoubleGate):
-    """Swap gate."""
+    r"""Swap gate.
+    
+    **Matrix Representation:**
+
+        .. math::
+           \begin{pmatrix}
+                1 & 0 & 0 & 0 \\
+                0 & 0 & 1 & 0 \\
+                0 & 1 & 0 & 0 \\
+                0 & 0 & 0 & 1
+            \end{pmatrix}
+    """
     def __init__(self, nqubit=2, wires=None, controls=None, den_mat=False, tsr_mode=False):
         super().__init__(name='Swap', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
