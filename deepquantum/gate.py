@@ -13,8 +13,29 @@ from .qmath import multi_kron, is_unitary, svd
 
 
 class SingleGate(Gate):
-    """A base class for single-qubit gates."""
-    def __init__(self, name=None, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
+    """A base class for single-qubit gates.
+    
+    Args:
+        name (str, optional): The given name of `SingleGate`. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+    
+    """
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         assert len(self.wires) == 1
@@ -39,8 +60,30 @@ class SingleGate(Gate):
 
 
 class DoubleGate(Gate):
-    """A base class for two-qubit gates."""
-    def __init__(self, name=None, nqubit=2, wires=None, controls=None, den_mat=False, tsr_mode=False):
+    """A base class for two-qubit gates.
+
+    Args:
+        name (str, optional): The given name of `DoubleGate`. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 2
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+
+    """
+
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        nqubit: int = 2,
+        wires: Union[int, List[int], None] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) ->None:
         if wires is None:
             wires = [0, 1]
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
@@ -103,8 +146,26 @@ class DoubleGate(Gate):
 
 
 class DoubleControlGate(DoubleGate):
-    """A base class for two-qubit controlled gates."""
-    def __init__(self, name=None, nqubit=2, wires=None, den_mat=False, tsr_mode=False):
+    """A base class for two-qubit controlled gates.
+
+    Args:
+        name (str, optional): The given name of `DoubleControlGate`. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 2
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+    """
+    def __init__(
+        self,
+        name: Optional[str]=None,
+        nqubit: int = 2,
+        wires: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) ->None:
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=None,
                          den_mat=den_mat, tsr_mode=tsr_mode)
 
@@ -124,8 +185,28 @@ class DoubleControlGate(DoubleGate):
 
 
 class TripleGate(Gate):
-    """A base class for three-qubit gates."""
-    def __init__(self, name=None, nqubit=3, wires=None, controls=None, den_mat=False, tsr_mode=False):
+    """A base class for three-qubit gates.
+
+    Args:
+        name (str, optional): The given name of `Triple`. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 3
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+    """
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        nqubit: int = 3,
+        wires: Union[int, List[int], None] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
         if wires is None:
             wires = [0, 1, 2]
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
@@ -134,8 +215,29 @@ class TripleGate(Gate):
 
 
 class ArbitraryGate(Gate):
-    """A base class for customized gates."""
-    def __init__(self, name=None, nqubit=1, wires=None, minmax=None, den_mat=False, tsr_mode=False):
+    """A base class for customized gates.
+
+     Args:
+        name (str, optional): The given name of `Arbitrary`. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        minmax (List or None, optional): The minmum and maximum indices of qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+
+    """
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        minmax: Optional[List[int]] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) ->None:
         if isinstance(wires, int):
             wires = [wires]
         if wires is None:
@@ -179,9 +281,33 @@ class ArbitraryGate(Gate):
 
 
 class ParametricSingleGate(SingleGate):
-    """A base class for single-qubit gates with parameters."""
-    def __init__(self, name=None, inputs=None, nqubit=1, wires=None, controls=None,
-                 den_mat=False, tsr_mode=False, requires_grad=False):
+    """A base class for single-qubit gates with parameters.
+
+    Args:
+        name (str, optional): The given name of `ParametricSingleGate`. Default: ``None``
+        inputs (Any, optional): The parameter for `ParametricSingleGate` . Default: ``None``
+        nqubit (int, optional): The number of qubits that the `ParametricSingleGate` acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+        requires_grad (bool, optional): Is `True` if the parameter of `ParametricSingleGate`  is 
+            variational (nn.Parameter),  `False` if the parameter is buffer.
+    """
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        inputs: Any = None,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False,
+        requires_grad: bool = False
+    ) ->None:
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.npara = 1
@@ -233,9 +359,34 @@ class ParametricSingleGate(SingleGate):
 
 
 class ParametricDoubleGate(DoubleGate):
-    """A base class for two-qubit gates with parameters."""
-    def __init__(self, name=None, inputs=None, nqubit=2, wires=None, controls=None,
-                 den_mat=False, tsr_mode=False, requires_grad=False):
+    """A base class for two-qubit gates with parameters.
+
+    Args:
+        name (str, optional): The given name of `ParametricDoubleGate`. Default: ``None``
+        inputs (Any, optional): The parameter for `ParametricDoubleGate`. Default: ``None``
+        nqubit (int, optional): The number of qubits that the `ParametricDoubleGate` acts on. Default: 2
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+        requires_grad (bool, optional): Is `True` if the parameter of `ParametricDoubleGate` 
+            is variational (nn.Parameter), `False` if the parameter is buffer.
+
+    """
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        inputs: Any = None,
+        nqubit: int = 2,
+        wires: Union[int, List[int], None] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False,
+        requires_grad: bool = False
+    ) ->None:
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.npara = 1
@@ -287,9 +438,44 @@ class ParametricDoubleGate(DoubleGate):
 
 
 class U3Gate(ParametricSingleGate):
-    """U3 gate."""
-    def __init__(self, inputs=None, nqubit=1, wires=None, controls=None,
-                 den_mat=False, tsr_mode=False, requires_grad=False):
+    r"""U3 gate, a generic single-qubit rotation gate with 3 Euler angles.
+
+    **Matrix Representation:**
+
+    .. math::
+
+        \newcommand{\th}{\frac{\theta}{2}}
+
+        U3(\theta, \phi, \lambda) =
+            \begin{pmatrix}
+                \cos\left(\th\right)          & -e^{i\lambda}\sin\left(\th\right) \\
+                e^{i\phi}\sin\left(\th\right) & e^{i(\phi+\lambda)}\cos\left(\th\right)
+            \end{pmatrix}
+    
+            
+    Args:
+        inputs (Any, optional): 3 rotation Euler angles [\theta, \phi, \lambda]. Default: ``None``
+        nqubit (int, optional): The number of qubits that the `ParametricDoubleGate` acts on. Default: 2
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+        requires_grad (bool, optional): Is `True` if the parameter of `ParametricDoubleGate` 
+            is variational (nn.Parameter), `False` if the parameter is buffer.
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False,
+        requires_grad: bool = False
+    ) ->None:
         super().__init__(name='U3Gate', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
         self.npara = 3
@@ -1363,7 +1549,7 @@ class Rzz(ParametricDoubleGate):
             \end{pmatrix}
 
     Args:
-        inputs (Any, optional): The rotation angle parameter for `Rzz` . Default: ``None``
+        inputs (Any, optional): The rotation angle parameter for `Rzz`. Default: ``None``
         nqubit (int, optional): The number of qubits that the `Rzz` gate acts on. Default: 2
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
@@ -1533,7 +1719,7 @@ class Toffoli(TripleGate):
 
 class Fredkin(TripleGate):
     r"""Fredkin gate.
-    
+
     **Matrix Representation:**
 
     .. math::

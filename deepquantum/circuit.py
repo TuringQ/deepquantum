@@ -491,7 +491,8 @@ class QubitCircuit(Operation):
         controls: Union[int, List[int], None] = None,
         encode: bool = False
     ) -> None:
-        """Add a phase shift gate."""
+        """Add a phase shift gate.
+        """
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
@@ -580,7 +581,7 @@ class QubitCircuit(Operation):
         controls: Union[int, List[int], None] = None,
         encode: bool = False
     ) -> None:
-        """Add an Rx gate."""
+        """Add a Rx gate."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
@@ -595,7 +596,7 @@ class QubitCircuit(Operation):
         controls: Union[int, List[int], None] = None,
         encode: bool = False
     ) -> None:
-        """Add an Ry gate."""
+        """Add a Ry gate."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
@@ -610,7 +611,7 @@ class QubitCircuit(Operation):
         controls: Union[int, List[int], None] = None,
         encode: bool = False
     ) -> None:
-        """Add an Rz gate."""
+        """Add a Rz gate."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
@@ -677,7 +678,7 @@ class QubitCircuit(Operation):
         controls: Union[int, List[int], None] = None,
         encode: bool = False
     ) -> None:
-        """Add an Rxx gate."""
+        """Add a Rxx gate."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
@@ -692,7 +693,7 @@ class QubitCircuit(Operation):
         controls: Union[int, List[int], None] = None,
         encode: bool = False
     ) -> None:
-        """Add an Ryy gate."""
+        """Add a Ryy gate."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
@@ -707,7 +708,7 @@ class QubitCircuit(Operation):
         controls: Union[int, List[int], None] = None,
         encode: bool = False
     ) -> None:
-        """Add an Rzz gate."""
+        """Add a Rzz gate."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
@@ -722,7 +723,7 @@ class QubitCircuit(Operation):
         controls: Union[int, List[int], None] = None,
         encode: bool = False
     ) -> None:
-        """Add an Rxy gate."""
+        """Add a Rxy gate."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False

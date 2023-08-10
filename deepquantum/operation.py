@@ -78,11 +78,30 @@ class Operation(nn.Module):
 
 
 class Gate(Operation):
-    """A base class for quantum gates."""
+    """A base class for quantum gates.
+
+     Args:
+        name (str, optional): The given name of `Gate`. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+    """
     # include default names in QASM
     qasm_new_gate = ['c3x', 'c4x']
 
-    def __init__(self, name=None, nqubit=1, wires=None, controls=None, den_mat=False, tsr_mode=False):
+    def __init__(self,
+        name: Optional[str] = None,
+        nqubit: int = 1,
+        wires: Union[int, List, None] = None,
+        controls: Union[int, List, None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
         if wires is None:
             wires = [0]
         if controls is None:
@@ -359,8 +378,26 @@ class Gate(Operation):
 
 
 class Layer(Operation):
-    """A base class for quantum layers."""
-    def __init__(self, name=None, nqubit=1, wires=None, den_mat=False, tsr_mode=False):
+    """A base class for quantum layers.
+    
+    Args:
+        name (str, optional): The name of the quantum operation. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+    """
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        nqubit: int = 1,
+        wires: Union[int, List, None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
         if wires is None:
             wires = [[0]]
         if isinstance(wires, int):

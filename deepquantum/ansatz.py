@@ -14,8 +14,9 @@ from .circuit import QubitCircuit
 class Ansatz(QubitCircuit):
     """A base class for Ansatz."""
     def __init__(self, nqubit, wires=None, minmax=None, ancilla=None, controls=None, init_state='zeros',
-                 name=None, den_mat=False, mps=False, chi=None):
-        super().__init__(nqubit=nqubit, init_state=init_state, name=name, den_mat=den_mat, mps=mps, chi=chi)
+                 name=None, den_mat=False, reupload=False, mps=False, chi=None):
+        super().__init__(nqubit=nqubit, init_state=init_state, name=name, den_mat=den_mat,
+                         reupload=reupload, mps=mps, chi=chi)
         if isinstance(wires, int):
             wires = [wires]
         if wires is None:
