@@ -237,7 +237,7 @@ class ArbitraryGate(Gate):
         minmax: Optional[List[int]] = None,
         den_mat: bool = False,
         tsr_mode: bool = False
-    ) ->None:
+    ) -> None:
         if isinstance(wires, int):
             wires = [wires]
         if wires is None:
@@ -294,8 +294,8 @@ class ParametricSingleGate(SingleGate):
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
             and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
-        requires_grad (bool, optional): Is `True` if the parameter of `ParametricSingleGate`  is 
-            variational (nn.Parameter),  `False` if the parameter is buffer.
+        requires_grad (bool, optional): Whether the parameter of `ParametricSingleGate` is `nn.Parameter` or `buffer`.
+            Default: ``False`` (which means the parameter is `buffer`).
     """
     def __init__(
         self,
@@ -307,7 +307,7 @@ class ParametricSingleGate(SingleGate):
         den_mat: bool = False,
         tsr_mode: bool = False,
         requires_grad: bool = False
-    ) ->None:
+    ) -> None:
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.npara = 1
@@ -372,8 +372,8 @@ class ParametricDoubleGate(DoubleGate):
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
             and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
-        requires_grad (bool, optional): Is `True` if the parameter of `ParametricDoubleGate` 
-            is variational (nn.Parameter), `False` if the parameter is buffer.
+        requires_grad (bool, optional): Whether the parameter of `ParametricDoubleGate` is `nn.Parameter` or `buffer`.
+            Default: ``False`` (which means the parameter is `buffer`).
 
     """
     def __init__(
@@ -386,7 +386,7 @@ class ParametricDoubleGate(DoubleGate):
         den_mat: bool = False,
         tsr_mode: bool = False,
         requires_grad: bool = False
-    ) ->None:
+    ) -> None:
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.npara = 1
@@ -463,8 +463,8 @@ class U3Gate(ParametricSingleGate):
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
             and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
-        requires_grad (bool, optional): Is `True` if the parameter of `ParametricDoubleGate` 
-            is variational (nn.Parameter), `False` if the parameter is buffer.
+        requires_grad (bool, optional): Whether the parameter of `U3Gate` is `nn.Parameter` or `buffer`.
+            Default: ``False`` (which means the parameter is `buffer`).
     """
     def __init__(
         self,
@@ -475,7 +475,7 @@ class U3Gate(ParametricSingleGate):
         den_mat: bool = False,
         tsr_mode: bool = False,
         requires_grad: bool = False
-    ) ->None:
+    ) -> None:
         super().__init__(name='U3Gate', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
         self.npara = 3
@@ -586,8 +586,8 @@ class PhaseShift(ParametricSingleGate):
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
             and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
-        requires_grad (bool, optional): Is `True` if the `PhaseShift` parameter is variational (nn.Parameter),  
-             `False` if the parameter is buffer.
+        requires_grad (bool, optional): Whether the parameter of `PhaseShift` is `nn.Parameter` or `buffer`.
+            Default: ``False`` (which means the parameter is `buffer`).
 
     """
     def __init__(
@@ -1075,8 +1075,8 @@ class Rx(ParametricSingleGate):
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
             and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
-        requires_grad (bool, optional): Is `True` if the parameter of `Rx`  is variational (nn.Parameter),  
-             `False` if the parameter is buffer.
+        requires_grad (bool, optional): Whether the parameter of `Rx` is `nn.Parameter` or `buffer`.
+            Default: ``False`` (which means the parameter is `buffer`).
     """
     def __init__(
         self,
@@ -1135,8 +1135,8 @@ class Ry(ParametricSingleGate):
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
             and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
-        requires_grad (bool, optional): Is `True` if the parameter of `Ry`  is variational (nn.Parameter),  
-             `False` if the parameter is buffer.
+        requires_grad (bool, optional): Whether the parameter of `Ry` is `nn.Parameter` or `buffer`.
+            Default: ``False`` (which means the parameter is `buffer`).
     """
 
     def __init__(
@@ -1194,8 +1194,8 @@ class Rz(ParametricSingleGate):
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
             and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
-        requires_grad (bool, optional): Is `True` if the parameter of `Rz`  is variational (nn.Parameter),  
-             `False` if the parameter is buffer.    
+        requires_grad (bool, optional): Whether the parameter of `Rz` is `nn.Parameter` or `buffer`.
+            Default: ``False`` (which means the parameter is `buffer`).  
     """
     def __init__(
         self,
@@ -1425,8 +1425,8 @@ class Rxx(ParametricDoubleGate):
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
             and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
-        requires_grad (bool, optional): Is `True` if the parameter of `Rxx`  is variational (nn.Parameter),  
-             `False` if the parameter is buffer.
+        requires_grad (bool, optional): Whether the parameter of `Rxx` is `nn.Parameter` or `buffer`.
+            Default: ``False`` (which means the parameter is `buffer`).
 
     """
 
@@ -1489,8 +1489,8 @@ class Ryy(ParametricDoubleGate):
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
             and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
-        requires_grad (bool, optional): Is `True` if the parameter of `Ryy`  is variational (nn.Parameter),  
-             `False` if the parameter is buffer.
+        requires_grad (bool, optional): Whether the parameter of `Ryy` is `nn.Parameter` or `buffer`.
+            Default: ``False`` (which means the parameter is `buffer`).
     
     """
     def __init__(
@@ -1558,8 +1558,8 @@ class Rzz(ParametricDoubleGate):
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
             and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
-        requires_grad (bool, optional): Is `True` if the parameter of `Rzz`  is variational (nn.Parameter),  
-             `False` if the parameter is buffer.
+        requires_grad (bool, optional): Whether the parameter of `Rzz` is `nn.Parameter` or `buffer`.
+            Default: ``False`` (which means the parameter is `buffer`).
     """
 
     def __init__(
@@ -1619,8 +1619,8 @@ class Rxy(ParametricDoubleGate):
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
             and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
-        requires_grad (bool, optional): Is `True` if the parameter of `Rxy`  is variational (nn.Parameter),  
-             `False` if the parameter is buffer.
+        requires_grad (bool, optional): Whether the parameter of `Rxy` is `nn.Parameter` or `buffer`.
+            Default: ``False`` (which means the parameter is `buffer`).
     
     """
     def __init__(
