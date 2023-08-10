@@ -142,6 +142,7 @@ class U3Layer(SingleLayer):
         requires_grad: bool = True
     ) -> None:
         super().__init__(name='U3Layer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
+        self.requires_grad = requires_grad
         for i, wire in enumerate(self.wires):
             if inputs is None:
                 thetas = None
@@ -282,6 +283,7 @@ class RxLayer(SingleLayer):
         requires_grad: bool = True
     ) -> None:
         super().__init__(name='RxLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
+        self.requires_grad = requires_grad
         for i, wire in enumerate(self.wires):
             if inputs is None:
                 theta = None
@@ -326,6 +328,7 @@ class RyLayer(SingleLayer):
         requires_grad: bool = True
     ) -> None:
         super().__init__(name='RyLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
+        self.requires_grad = requires_grad
         for i, wire in enumerate(self.wires):
             if inputs is None:
                 theta = None
@@ -370,6 +373,7 @@ class RzLayer(SingleLayer):
         requires_grad: bool = True
     ) -> None:
         super().__init__(name='RzLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
+        self.requires_grad = requires_grad
         for i, wire in enumerate(self.wires):
             if inputs is None:
                 theta = None

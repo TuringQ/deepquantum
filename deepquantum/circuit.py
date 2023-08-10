@@ -13,7 +13,8 @@ from qiskit import QuantumCircuit
 from .state import QubitState, MatrixProductState
 from .operation import Operation, Gate, Layer
 from .gate import U3Gate, PhaseShift, PauliX, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, TGate, TDaggerGate
-from .gate import Rx, Ry, Rz, CNOT, Swap, Rxx, Ryy, Rzz, Rxy, Toffoli, Fredkin, UAnyGate, LatentGate, Barrier
+from .gate import Rx, Ry, Rz, CNOT, Swap, Rxx, Ryy, Rzz, Rxy, ReconfigurableBeamSplitter, Toffoli, Fredkin
+from .gate import UAnyGate, LatentGate, Barrier
 from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer, RyLayer, RzLayer, CnotLayer, CnotRing
 from .qmath import amplitude_encoding, measure, expectation
 
@@ -455,6 +456,7 @@ class QubitCircuit(Operation):
                     for i in wire:
                         self.depth[i] += 1
             if encode:
+                assert not op.requires_grad, 'Please set requires_grad of the operation to be False'
                 self.encoders.append(op)
                 self.ndata += op.npara
             else:
@@ -729,6 +731,21 @@ class QubitCircuit(Operation):
         rxy = Rxy(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls,
                   den_mat=self.den_mat, requires_grad=requires_grad)
         self.add(rxy, encode=encode)
+
+    def rbs(
+        self,
+        wires: List[int],
+        inputs: Any = None,
+        controls: Union[int, List[int], None] = None,
+        encode: bool = False
+    ) -> None:
+        """Add a Reconfigurable Beam Splitter gate."""
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        rbs = ReconfigurableBeamSplitter(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls,
+                                         den_mat=self.den_mat, requires_grad=requires_grad)
+        self.add(rbs, encode=encode)
 
     def crxx(self, control: int, target1: int, target2: int, inputs: Any = None, encode: bool = False) -> None:
         """Add a controlled Rxx gate."""

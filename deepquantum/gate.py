@@ -1066,7 +1066,7 @@ class Rx(ParametricSingleGate):
                 \end{pmatrix}
 
     Args:
-        inputs (Any, optional): The rotation angle parameter for `Rx` . Default: ``None``
+        inputs (Any, optional): The rotation angle parameter for `Rx`. Default: ``None``
         nqubit (int, optional): The number of qubits that the `Rx` gate acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
@@ -1126,7 +1126,7 @@ class Ry(ParametricSingleGate):
                 \end{pmatrix}
 
     Args:
-        inputs (Any, optional): The rotation angle parameter for `Ry` . Default: ``None``
+        inputs (Any, optional): The rotation angle parameter for `Ry`. Default: ``None``
         nqubit (int, optional): The number of qubits that the `Ry` gate acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
@@ -1185,7 +1185,7 @@ class Rz(ParametricSingleGate):
                 \end{pmatrix}
 
     Args:
-        inputs (Any, optional): The rotation angle parameter for `Rz` . Default: ``None``
+        inputs (Any, optional): The rotation angle parameter for `Rz`. Default: ``None``
         nqubit (int, optional): The number of qubits that the `Rz` gate acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
@@ -1648,6 +1648,70 @@ class Rxy(ParametricDoubleGate):
         return self._qasm_customized('rxy')
 
 
+class ReconfigurableBeamSplitter(ParametricDoubleGate):
+    r"""Reconfigurable Beam Splitter gate.
+
+    **Matrix Representation:**
+
+    .. math::
+
+        RBS(\theta) =
+            \begin{pmatrix}
+                1  & 0                        & 0                       & 0 \\
+                0  & \cos\left(\theta\right)  & \sin\left(\theta\right) & 0 \\
+                0  & -\sin\left(\theta\right) & \cos\left(\theta\right) & 0 \\
+                0  & 0                        & 0                       & 1
+            \end{pmatrix}
+
+    Args:
+        inputs (Any, optional): The rotation angle parameter for `ReconfigurableBeamSplitter`.
+            Default: ``None``
+        nqubit (int, optional): The number of qubits that the `ReconfigurableBeamSplitter` gate acts on.
+            Default: 2
+        wires (List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+        requires_grad (bool, optional): Whether the parameter of `ReconfigurableBeamSplitter` is `nn.Parameter`
+            or `buffer`. Default: ``False`` (which means the parameter is `buffer`).
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nqubit: int = 2,
+        wires: Union[List[int], None] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False,
+        requires_grad: bool = False
+    ) -> None:
+        super().__init__(name='ReconfigurableBeamSplitter', inputs=inputs, nqubit=nqubit, wires=wires,
+                         controls=controls, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
+
+    def inputs_to_tensor(self, inputs=None):
+        while isinstance(inputs, list):
+            inputs = inputs[0]
+        if inputs is None:
+            inputs = torch.rand(1)[0] * 2 * torch.pi
+        elif not isinstance(inputs, (torch.Tensor, nn.Parameter)):
+            inputs = torch.tensor(inputs, dtype=torch.float)
+        return inputs
+
+    def get_matrix(self, theta):
+        theta = self.inputs_to_tensor(theta)
+        cos = torch.cos(theta)
+        sin = torch.sin(theta)
+        m1 = torch.eye(1, dtype=theta.dtype, device=theta.device)
+        m2 = torch.stack([cos, sin, -sin, cos]).reshape(2, 2) + 0j
+        return torch.block_diag(m1, m2, m1)
+
+    def _qasm(self):
+        return self._qasm_customized('rbs')
+
+
 class Toffoli(TripleGate):
     r"""Toffoli gate.
 
@@ -1847,7 +1911,7 @@ class LatentGate(ArbitraryGate):
     """Latent gate.
 
      Args:
-        inputs (Any, optional): Any given real  matrix.
+        inputs (Any, optional): Any given real matrix.
         nqubit (int, optional): The number of qubits that the input gate acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
