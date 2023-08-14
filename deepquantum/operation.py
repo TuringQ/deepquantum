@@ -338,7 +338,7 @@ class Gate(Operation):
         Note:
             Use TEBD algorithm
 
-                contract tensor
+                contract tensor( contract local operators with local states)
                       a
                       |
                 i-----O-----j            a

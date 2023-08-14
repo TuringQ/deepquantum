@@ -65,7 +65,7 @@ class DoubleGate(Gate):
     Args:
         name (str, optional): The given name of `DoubleGate`. Default: ``None``
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 2
-        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+        wires (List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
         controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
@@ -79,7 +79,7 @@ class DoubleGate(Gate):
         self,
         name: Optional[str] = None,
         nqubit: int = 2,
-        wires: Union[int, List[int], None] = None,
+        wires: Optional[List[int]] = None,
         controls: Union[int, List[int], None] = None,
         den_mat: bool = False,
         tsr_mode: bool = False
