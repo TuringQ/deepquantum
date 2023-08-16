@@ -104,7 +104,7 @@ class MatrixProductState(nn.Module):
                 tensors.append(tensor)
             else:
                 for i in range(0, nqubit):
-                    temp = [0]*qudit
+                    temp = [0] * qudit
                     temp[0] = 1.
                     tensor = torch.tensor(temp, dtype=torch.cfloat)
                     # here the bond dimension `chi` is 1
@@ -216,8 +216,8 @@ class MatrixProductState(nn.Module):
     def orthogonalize_left2right(self, site, dc=-1, normalize=False):
         r"""Orthogonalize the tensor at `site` and update the next one at `site`+1.
 
-        It uses the QR or SVD decomposition, i.e. :math:`T = ur` for QR decomposition and
-        :math:`T = usv^{\text{h}} = ur` for SVD decomposition. The tensor at `site` is
+        It uses the QR decomposition or SVD, i.e. :math:`T = ur` for QR decomposition and
+        :math:`T = usv^{\text{h}} = ur` for SVD. The tensor at `site` is
         replaced by :math:`u`. The tensor at `site`+1 is updated by :math:`r`.
 
         Args:
@@ -254,15 +254,15 @@ class MatrixProductState(nn.Module):
     def orthogonalize_right2left(self, site, dc=-1, normalize=False):
         r"""Orthogonalize the tensor at `site` and update the next one at `site`-1.
 
-        It uses the QR or SVD decomposition, i.e. :math:`T* = qr` for QR decomposition, 
-        it gives :math:`T = r*q* = lv^{\text{h}}`, 
-        :math:`T = usv^{\text{h}} = lv^{\text{h}}` for SVD decomposition.
+        It uses the QR decomposition or SVD, i.e. :math:`T* = qr` for QR decomposition, 
+        which gives :math:`T = r*q* = lv^{\text{h}}`, 
+        and :math:`T = usv^{\text{h}} = lv^{\text{h}}` for SVD.
         The tensor at `site` is replaced by :math:`v^{\text{h}}`. The tensor at `site`-1
         is updated by :math:`l`.
 
         Args:
             site (int): The site of tensor for orthogonalization.
-            dc (int): Keep the first dc singular values afer truncation.
+            dc (int): Keep the first `dc` singular values afer truncation.
                 Default: -1 (which means no truncation)
             normalize (bool): Whether to normalize the tensor :math:`l`. Default: ``False``
         """
