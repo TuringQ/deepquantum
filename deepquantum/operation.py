@@ -3,7 +3,7 @@ Base classes
 """
 
 from copy import copy
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Tuple, Union
 # pylint: disable=unused-import
 import warnings
 
@@ -81,11 +81,11 @@ class Gate(Operation):
     """A base class for quantum gates.
 
      Args:
-        name (str, optional): The given name of `Gate`. Default: ``None``
+        name (str, optional): The name of the gate. Default: ``None``
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (int, List or None, optional): The indices of the qubits that the quantum operation acts on.
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
-        controls (int, List or None, optional): The indices of the control qubits. Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
@@ -97,8 +97,8 @@ class Gate(Operation):
     def __init__(self,
         name: Optional[str] = None,
         nqubit: int = 1,
-        wires: Union[int, List, None] = None,
-        controls: Union[int, List, None] = None,
+        wires: Union[int, List[int], None] = None,
+        controls: Union[int, List[int], None] = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -126,7 +126,7 @@ class Gate(Operation):
     def update_matrix(self):
         return self.matrix
 
-    def op_state(self, x):
+    def op_state(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass for state vectors."""
         matrix = self.update_matrix()
         if self.controls == []:
@@ -137,7 +137,7 @@ class Gate(Operation):
             x = self.vector_rep(x).squeeze(0)
         return x
 
-    def op_state_base(self, x, matrix):
+    def op_state_base(self, x: torch.Tensor, matrix: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass of a gate for state vectors."""
         nt = len(self.wires)
         wires = [i + 1 for i in self.wires]
@@ -150,7 +150,7 @@ class Gate(Operation):
         x = x.permute(inverse_permutation(pm_shape))
         return x
 
-    def op_state_control(self, x, matrix):
+    def op_state_control(self, x: torch.Tensor, matrix: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass of a controlled gate for state vectors."""
         nt = len(self.wires)
         nc = len(self.controls)
@@ -169,7 +169,7 @@ class Gate(Operation):
         x = state1.permute(inverse_permutation(pm_shape))
         return x
 
-    def op_den_mat(self, x):
+    def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass for density matrices."""
         matrix = self.update_matrix()
         if self.controls == []:
@@ -180,7 +180,7 @@ class Gate(Operation):
             x = self.matrix_rep(x).squeeze(0)
         return x
 
-    def op_den_mat_base(self, x, matrix):
+    def op_den_mat_base(self, x: torch.Tensor, matrix: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass of a gate for density matrices."""
         nt = len(self.wires)
         # left multiply
@@ -203,7 +203,7 @@ class Gate(Operation):
         x = x.permute(inverse_permutation(pm_shape))
         return x
 
-    def op_den_mat_control(self, x, matrix):
+    def op_den_mat_control(self, x: torch.Tensor, matrix: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass of a controlled gate for density matrices."""
         nt = len(self.wires)
         nc = len(self.controls)
@@ -237,7 +237,7 @@ class Gate(Operation):
         x = state1.permute(inverse_permutation(pm_shape))
         return x
 
-    def forward(self, x):
+    def forward(self, x: Union[torch.Tensor, MatrixProductState]) -> Union[torch.Tensor, MatrixProductState]:
         """Perform a forward pass."""
         if isinstance(x, MatrixProductState):
             return self.op_mps(x)
@@ -264,7 +264,7 @@ class Gate(Operation):
     def _reset_qasm_new_gate():
         Gate.qasm_new_gate = ['c3x', 'c4x']
 
-    def _qasm_customized(self, name):
+    def _qasm_customized(self, name: str) -> str:
         """Get QASM for multi-control gates."""
         name = name.lower()
         if len(self.controls) > 2:
@@ -285,7 +285,7 @@ class Gate(Operation):
         else:
             return qasm_str2
 
-    def get_mpo(self):
+    def get_mpo(self) -> Tuple[List[torch.Tensor], int]:
         r"""Convert gate to MPO form with identities at empty sites.
 
         Note:
@@ -338,7 +338,7 @@ class Gate(Operation):
         Note:
             Use TEBD algorithm
 
-                contract tensor( contract local states with local operators)
+                contract tensor (contract local states with local operators)
                       a
                       |
                 i-----O-----j            a
@@ -381,7 +381,7 @@ class Layer(Operation):
     """A base class for quantum layers.
     
     Args:
-        name (str, optional): The name of the quantum operation. Default: ``None``
+        name (str, optional): The name of the layer. Default: ``None``
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
@@ -422,7 +422,7 @@ class Layer(Operation):
                 u = gate.get_unitary() @ u
         return u
 
-    def init_para(self, inputs=None):
+    def init_para(self, inputs: Any = None):
         count = 0
         for gate in self.gates:
             if inputs is None:
@@ -436,7 +436,7 @@ class Layer(Operation):
         for gate in self.gates:
             self.npara += gate.npara
 
-    def forward(self, x):
+    def forward(self, x: Union[torch.Tensor, MatrixProductState]) -> Union[torch.Tensor, MatrixProductState]:
         if isinstance(x, MatrixProductState):
             return self.gates(x)
         if not self.tsr_mode:

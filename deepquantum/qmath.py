@@ -450,8 +450,12 @@ def measure(
         return results_tot
 
 
-def inner_product_mps(tensors0, tensors1, form='norm'):
-    """ Computes the inner product of two matrix product states.
+def inner_product_mps(
+    tensors0: List[torch.Tensor],
+    tensors1: List[torch.Tensor],
+    form: str = 'norm'
+) -> Union[torch.Tensor, List[torch.Tensor]]:
+    """Computes the inner product of two matrix product states.
 
     Args:
         tensors0 (List[torch.Tensor]): The tensors of the first MPS, each with shape (..., d0, d1, d2),

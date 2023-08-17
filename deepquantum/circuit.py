@@ -404,10 +404,10 @@ class QubitCircuit(Operation):
             encode (bool): Whether the gate or layer is to encode data. Default: ``False``
             wires (Union[int, List[int], None]): The wires to apply the gate on. It can be an integer
                 or a list of integers specifying the indices of the wires. Default: ``None`` (which means
-                the gate has its own wires attribute)
+                the gate has its own wires)
             controls (Union[int, List[int], None]): The control wires for the gate. It can be an integer
-                or a list of integers specifying the indices of the control wires. Default: ``None`` (which
-                means no control wires)
+                or a list of integers specifying the indices of the control wires. Only valid when `wires`
+                is not `None`. Default: ``None`` (which means the gate has its own control wires)
 
         Raises:
             AssertionError: If the input arguments are invalid or incompatible with the quantum circuit.

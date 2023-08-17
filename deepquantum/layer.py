@@ -17,7 +17,7 @@ class SingleLayer(Layer):
     """A base class for layers of single-qubit gates.
     
     Args:
-        name (str, optional): The given name of `SingleLayer`. Default: ``None``
+        name (str, optional): The name of the layer. Default: ``None``
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[List[int]], List[int] or None, optional): The indices of the qubits that the 
             quantum operation acts on. Default: ``None``
@@ -53,10 +53,10 @@ class DoubleLayer(Layer):
     """A base class for layers of two-qubit gates.
     
     Args:
-        name (str, optional): The given name of `DoubleLayer`. Default: ``None``
+        name (str, optional): The name of the layer. Default: ``None``
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 2
-        wires (List[List[int]] or None, optional): The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
+        wires (List[List[int]] or None, optional): The indices of the qubits that the quantum operation
+            acts on. Default: ``None``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
@@ -81,14 +81,15 @@ class Observable(SingleLayer):
     """A `Layer` that represents an observable which can be expressed by Pauli string.
 
     Args:
-        nqubit (int, optional): The number of qubits in the quantum circuit. Default: 1
+        nqubit (int, optional): The number of qubits in the circuit. Default: 1
         wires (int, List[int], List[List[int]] or None, optional): The wires to measure. Default: ``None`` 
             (which means all wires are measured)
         basis (str, optional): The measurement basis for each wire. It can be 'x', 'y', or 'z'. If only one
             character is given, it is repeated for all wires. Default: ``'z'``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        tsr_mode (bool, optional): Whether the input and output are represented by a tensor of
-            shape (batch, 2, ..., 2). Default: ``False``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
     """
     def __init__(
         self,
@@ -124,12 +125,13 @@ class U3Layer(SingleLayer):
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that 
             the quantum operation acts on. Default: ``None``
-        inputs (Any, optional):  The rotation angles. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        tsr_mode (bool, optional): Whether the input and output are represented by a tensor of
-            shape (batch, 2, ..., 2). Default: ``False``
-        requires_grad (bool, optional): Whether the parameter of `U3Layer` is `nn.Parameter` or `buffer`.
-            Default: ``True`` (which means the parameter is `nn.Parameter`)
+        inputs (Any, optional): The parameters of the layer. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+        requires_grad (bool, optional): Whether the parameters are `nn.Parameter` or `buffer`.
+            Default: ``True`` (which means `nn.Parameter`)
     """
     def __init__(
         self,
@@ -169,9 +171,10 @@ class XLayer(SingleLayer):
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that 
             the quantum operation acts on. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        tsr_mode (bool, optional): Whether the input and output are represented by a tensor of
-            shape (batch, 2, ..., 2). Default: ``False``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
     """
     def __init__(
         self,
@@ -193,9 +196,10 @@ class YLayer(SingleLayer):
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that 
             the quantum operation acts on. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        tsr_mode (bool, optional): Whether the input and output are represented by a tensor of
-            shape (batch, 2, ..., 2). Default: ``False``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
     """
     def __init__(
         self,
@@ -217,9 +221,10 @@ class ZLayer(SingleLayer):
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that 
             the quantum operation acts on. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        tsr_mode (bool, optional): Whether the input and output are represented by a tensor of
-            shape (batch, 2, ..., 2). Default: ``False``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
     """
     def __init__(
         self,
@@ -241,9 +246,10 @@ class HLayer(SingleLayer):
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that 
             the quantum operation acts on. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        tsr_mode (bool, optional): Whether the input and output are represented by a tensor of
-            shape (batch, 2, ..., 2). Default: ``False``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
     """
     def __init__(
         self,
@@ -265,12 +271,13 @@ class RxLayer(SingleLayer):
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that 
             the quantum operation acts on. Default: ``None``
-        inputs (Any, optional):  The rotation angle parameters for `RxLayer`. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        tsr_mode (bool, optional): Whether the input and output are represented by a tensor of
-            shape (batch, 2, ..., 2). Default: ``False``
-        requires_grad (bool, optional): Whether the parameter of `RxLayer` is `nn.Parameter` or `buffer`.
-            Default: ``True`` (which means the parameter is `nn.Parameter`)
+        inputs (Any, optional): The parameters of the layer. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+        requires_grad (bool, optional): Whether the parameters are `nn.Parameter` or `buffer`.
+            Default: ``True`` (which means `nn.Parameter`)
     """
     def __init__(
         self,
@@ -310,12 +317,13 @@ class RyLayer(SingleLayer):
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that 
             the quantum operation acts on. Default: ``None``
-        inputs (Any, optional):  The rotation angle parameters for `RyLayer`. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        tsr_mode (bool, optional): Whether the input and output are represented by a tensor of
-            shape (batch, 2, ..., 2). Default: ``False``
-        requires_grad (bool, optional): Whether the parameter of `RyLayer` is `nn.Parameter` or `buffer`.
-            Default: ``True`` (which means the parameter is `nn.Parameter`)
+        inputs (Any, optional): The parameters of the layer. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+        requires_grad (bool, optional): Whether the parameters are `nn.Parameter` or `buffer`.
+            Default: ``True`` (which means `nn.Parameter`)
     """
     def __init__(
         self,
@@ -355,12 +363,13 @@ class RzLayer(SingleLayer):
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that 
             the quantum operation acts on. Default: ``None``
-        inputs (Any, optional):  The rotation angle parameters for `RzLayer`. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        tsr_mode (bool, optional): Whether the input and output are represented by a tensor of
-            shape (batch, 2, ..., 2). Default: ``False``
-        requires_grad (bool, optional): Whether the parameter of `RzLayer` is `nn.Parameter` or `buffer`.
-            Default: ``True`` (which means the parameter is `nn.Parameter`)
+        inputs (Any, optional): The parameters of the layer. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+        requires_grad (bool, optional): Whether the parameters are `nn.Parameter` or `buffer`.
+            Default: ``True`` (which means `nn.Parameter`)
     """
     def __init__(
         self,
@@ -398,12 +407,13 @@ class CnotLayer(DoubleLayer):
 
      Args:
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (List[List[int]] or None, optional): The indices of the qubits that 
-            the quantum operation acts on. Default: ``None``
-        name (str): The given name of `CnotLayer`. Default: 'CnotLayer'
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        tsr_mode (bool, optional): Whether the input and output are represented by a tensor of
-            shape (batch, 2, ..., 2). Default: ``False``    
+        wires (List[List[int]] or None, optional): The indices of the qubits that the quantum operation
+            acts on. Default: ``None``
+        name (str, optional): The name of the layer. Default: ``'CnotLayer'``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
     """
     def __init__(
         self,
@@ -431,18 +441,23 @@ class CnotRing(CnotLayer):
 
     Args:
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (List[List[int]] or None, optional): The indices of the qubits that 
-            the quantum operation acts on. Default: ``None``
-        minmax (List[int] or None, optional): The minmum and maximum indices of qubits. Default: ``None``
-        step (int): The indices distance of the target qubit and control qubit. Default: 1
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        tsr_mode (bool, optional): Whether the input and output are represented by a tensor of
-            shape (batch, 2, ..., 2). Default: ``False``    
+        wires (List[List[int]] or None, optional): The indices of the qubits that the quantum operation
+            acts on. Default: ``None``
+        minmax (List[int] or None, optional): The minmum and maximum indices of qubits that the quantum 
+            operation acts on. Default: ``None``
+        step (int, optional): The distance between the control and target qubits of each CNOT gate.
+            Default: 1
+        reverse (bool, optional): Whether the CNOT gates are applied from the maximum to the minimum index
+            or vice versa. Default: ``False``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
     """
     def __init__(
         self,
         nqubit: int = 2,
-        minmax: Union[List[List[int]], None] = None,
+        minmax: Optional[List[int]] = None,
         step: int = 1,
         reverse: bool = False,
         den_mat: bool = False,
@@ -453,7 +468,7 @@ class CnotRing(CnotLayer):
         assert isinstance(minmax, list)
         assert len(minmax) == 2
         assert all(isinstance(i, int) for i in minmax)
-        assert minmax[0] > -1 and minmax[0] < minmax[1] and minmax[1] < nqubit
+        assert -1 < minmax[0] < minmax[1] < nqubit
         self.minmax = minmax
         self.step = step
         self.reverse = reverse
