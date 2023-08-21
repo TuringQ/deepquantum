@@ -1,26 +1,32 @@
-import torch
-import torch.nn as nn
-import numpy as np
-import random
+"""
+Common functions
+"""
+
 from collections import Counter
-from typing import List, Tuple
-from torch import vmap
+import random
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+import numpy as np
+import torch
+from torch import nn, vmap
 
 
-def is_power_of_two(n):
+def is_power_of_two(n: int) -> bool:
+    """Check if an integer is power of two."""
     def f(x):
         if x < 2:
             return False
         elif x & (x-1) == 0:
             return True
         return False
-    
+
     return np.vectorize(f)(n)
 
 
-def int_to_bitstring(x, n, debug=False):
-    assert type(x) == int
-    assert type(n) == int
+def int_to_bitstring(x: int, n: int, debug: bool = False) -> str:
+    """Convert from integer to bit string"""
+    assert isinstance(x, int)
+    assert isinstance(n, int)
     if x < 2 ** n:
         # remove '0b'
         s = bin(x)[2:]
@@ -33,23 +39,33 @@ def int_to_bitstring(x, n, debug=False):
     return s
 
 
-def inverse_permutation(permute_shape):
-    # permute_shape is a list of integers
-    # return a list of integers that is the inverse of permute_shape
+def inverse_permutation(permute_shape: List[int]) -> List[int]:
+    """Calculate the inversed permutation.
+
+    Args:
+        permute_shape (List[int]): Shape of permutation.
+
+    Returns:
+        List[int]: A list of integers that is the inverse of `permute_shape`.
+    """
     # find the index of each element in the range of the list length
     return [permute_shape.index(i) for i in range(len(permute_shape))]
 
 
-def is_unitary(matrix):
-    # matrix is a torch tensor of complex numbers
-    # return True if matrix is unitary, False otherwise
-    # calculate the conjugate transpose of matrix
+def is_unitary(matrix: torch.Tensor, rtol: float = 1e-5, atol: float = 1e-6) -> bool:
+    """Check if a tensor is a unitary matrix. 
+
+    Args:
+        matrix (torch.Tensor): Square matrix.
+
+    Returns:
+        bool: `True` if `matrix` is unitary, `False` otherwise.
+    """
     assert matrix.shape[-1] == matrix.shape[-2]
     conj_trans = matrix.t().conj()
-    # calculate the product of matrix and conj_trans
     product = torch.matmul(matrix, conj_trans)
-    # compare product and identity matrix using torch.allclose function
-    return torch.allclose(product, torch.eye(matrix.shape[0], dtype=matrix.dtype, device=matrix.device))
+    return torch.allclose(product, torch.eye(matrix.shape[0], dtype=matrix.dtype, device=matrix.device),
+                          rtol=rtol, atol=atol)
 
 
 def is_density_matrix(rho: torch.Tensor) -> bool:
@@ -58,15 +74,16 @@ def is_density_matrix(rho: torch.Tensor) -> bool:
     A density matrix is a positive semi-definite Hermitian matrix with trace one.
 
     Args:
-        rho (torch.Tensor): The tensor to check. It can be either 2D or 3D. If 3D, the first dimension is assumed to be the batch dimension.
+        rho (torch.Tensor): The tensor to check. It can be either 2D or 3D. If 3D, the first dimension
+            is assumed to be the batch dimension.
 
     Returns:
-        bool: True if the tensor is a density matrix, False otherwise.
+        bool: `True` if the tensor is a density matrix, `False` otherwise.
 
     Raises:
-        AssertionError: If the tensor is not of type torch.Tensor or has an invalid number of dimensions.
+        AssertionError: If the tensor is not of type `torch.Tensor` or has an invalid number of dimensions.
     """
-    assert type(rho) == torch.Tensor
+    assert isinstance(rho, torch.Tensor)
     assert rho.ndim in (2, 3)
     assert is_power_of_two(rho.shape[-2]) and is_power_of_two(rho.shape[-1])
     if rho.ndim == 2:
@@ -86,81 +103,85 @@ def is_density_matrix(rho: torch.Tensor) -> bool:
     return True
 
 
-def safe_inverse(x, epsilon=1e-12):
+def safe_inverse(x: Any, epsilon: float = 1e-12) -> Any:
+    """Safe inversion."""
     return x / (x ** 2 + epsilon)
 
 
 class SVD(torch.autograd.Function):
-    # modified from https://github.com/wangleiphy/tensorgrad/blob/master/tensornets/adlib/svd.py
-    # See https://readpaper.com/paper/2971614414
+    """Customized backward of SVD for better numerical stability.
+
+    Modified from https://github.com/wangleiphy/tensorgrad/blob/master/tensornets/adlib/svd.py
+    See https://readpaper.com/paper/2971614414
+    """
     generate_vmap_rule = True
 
+    # pylint: disable=arguments-renamed
     @staticmethod
-    def forward(A):
-        U, S, Vh = torch.linalg.svd(A, full_matrices=False)
-        S = S.to(U.dtype)
-        # ctx.save_for_backward(U, S, Vh)
-        return U, S, Vh
-    
+    def forward(a):
+        u, s, vh = torch.linalg.svd(a, full_matrices=False)
+        s = s.to(u.dtype)
+        # ctx.save_for_backward(u, s, vh)
+        return u, s, vh
+
     # setup_context is responsible for calling methods and/or assigning to
     # the ctx object. Please do not do additional compute (e.g. add
     # Tensors together) in setup_context.
     # https://pytorch.org/docs/master/notes/extending.func.html
     @staticmethod
     def setup_context(ctx, inputs, output):
-        A = inputs
-        U, S, Vh = output
-        ctx.save_for_backward(U, S, Vh)
+        # a = inputs
+        u, s, vh = output
+        ctx.save_for_backward(u, s, vh)
 
     @staticmethod
-    def backward(ctx, dU, dS, dVh):
-        U, S, Vh = ctx.saved_tensors
-        Uh = U.mH
-        V = Vh.mH
-        dV = dVh.mH
-        m = U.shape[-2]
-        n = V.shape[-2]
-        ns = S.shape[-1]
+    def backward(ctx, du, ds, dvh):
+        u, s, vh = ctx.saved_tensors
+        uh = u.mH
+        v = vh.mH
+        dv = dvh.mH
+        m = u.shape[-2]
+        n = v.shape[-2]
+        ns = s.shape[-1]
 
-        F = (S.unsqueeze(-2) ** 2 - S.unsqueeze(-1) ** 2)
-        F = safe_inverse(F)
-        F.diagonal(dim1=-2, dim2=-1).fill_(0)
+        f = s.unsqueeze(-2) ** 2 - s.unsqueeze(-1) ** 2
+        f = safe_inverse(f)
+        f.diagonal(dim1=-2, dim2=-1).fill_(0)
 
-        J = F * (Uh @ dU)
-        K = F * (Vh @ dV)
-        L = (Vh @ dV).diagonal(dim1=-2, dim2=-1).diag_embed()
-        S_inv = safe_inverse(S).diag_embed()
-        dA = U @ (dS.diag_embed() + (J + J.mH) @ S.diag_embed() + S.diag_embed() @ (K + K.mH) + S_inv @ (L.mH - L) / 2) @ Vh
-        if (m > ns):
-            dA += (torch.eye(m, dtype=dU.dtype, device=dU.device) - U @ Uh) @ dU @ S_inv @ Vh 
-        if (n > ns):
-            dA += U @ S_inv @ dVh @ (torch.eye(n, dtype=dU.dtype, device=dU.device) - V @ Vh)
-        return dA
+        j = f * (uh @ du)
+        k = f * (vh @ dv)
+        l = (vh @ dv).diagonal(dim1=-2, dim2=-1).diag_embed()
+        s_inv = safe_inverse(s).diag_embed()
+        # pylint: disable=line-too-long
+        da = u @ (ds.diag_embed() + (j + j.mH) @ s.diag_embed() + s.diag_embed() @ (k + k.mH) + s_inv @ (l.mH - l) / 2) @ vh
+        if m > ns:
+            da += (torch.eye(m, dtype=du.dtype, device=du.device) - u @ uh) @ du @ s_inv @ vh
+        if n > ns:
+            da += u @ s_inv @ dvh @ (torch.eye(n, dtype=du.dtype, device=du.device) - v @ vh)
+        return da
 
 
 # from tensorcircuit
 def torchqr_grad(a, q, r, dq, dr):
-    """Get the gradient for Qr."""
+    """Get the gradient for QR."""
     qr_epsilon = 1e-8
 
     if r.shape[-2] > r.shape[-1] and q.shape[-2] == q.shape[-1]:
         raise NotImplementedError(
-            "QrGrad not implemented when nrows > ncols "
-            "and full_matrices is true. Received r.shape="
-            f"{r.shape} with nrows={r.shape[-2]}"
-            f"and ncols={r.shape[-1]}."
+            'QrGrad not implemented when nrows > ncols '
+            'and full_matrices is true. Received r.shape='
+            f'{r.shape} with nrows={r.shape[-2]}'
+            f'and ncols={r.shape[-1]}.'
         )
 
-    def _TriangularSolve(x, r):
+    def _triangular_solve(x, r):
         """Equivalent to matmul(x, adjoint(matrix_inverse(r))) if r is upper-tri."""
         return torch.linalg.solve_triangular(
             r, x.adjoint(), upper=True, unitriangular=False
         ).adjoint()
 
-    def _QrGradSquareAndDeepMatrices(q, r, dq, dr):
-        """
-        Get the gradient for matrix orders num_rows >= num_cols and full_matrices is false.
-        """
+    def _qr_grad_square_and_deep_matrices(q, r, dq, dr):
+        """Get the gradient for matrix orders num_rows >= num_cols and full_matrices is false."""
 
         # Modification begins
         rdiag = torch.linalg.diagonal(r)
@@ -178,8 +199,8 @@ def torchqr_grad(a, q, r, dq, dr):
         rdr_ = rdr - rdr.adjoint()
         tril = torch.tril(qdq_ + rdr_)
 
-        grad_a = torch.matmul(q, dr + _TriangularSolve(tril, r))
-        grad_b = _TriangularSolve(dq - torch.matmul(q, qdq), r)
+        grad_a = torch.matmul(q, dr + _triangular_solve(tril, r))
+        grad_b = _triangular_solve(dq - torch.matmul(q, qdq), r)
         ret = grad_a + grad_b
 
         if q.is_complex():
@@ -188,34 +209,33 @@ def torchqr_grad(a, q, r, dq, dr):
                 torch.zeros_like(m), torch.linalg.diagonal(m), dim1=-2, dim2=-1
             )
             correction = eyem - torch.real(eyem).to(dtype=q.dtype)
-            ret = ret + _TriangularSolve(torch.matmul(q, correction.adjoint()), r)
+            ret = ret + _triangular_solve(torch.matmul(q, correction.adjoint()), r)
 
         return ret
 
     num_rows, num_cols = q.shape[-2], r.shape[-1]
 
     if num_rows >= num_cols:
-        return _QrGradSquareAndDeepMatrices(q, r, dq, dr)
+        return _qr_grad_square_and_deep_matrices(q, r, dq, dr)
 
     y = a[..., :, num_rows:]
     u = r[..., :, :num_rows]
     dv = dr[..., :, num_rows:]
     du = dr[..., :, :num_rows]
     dy = torch.matmul(q, dv)
-    dx = _QrGradSquareAndDeepMatrices(q, u, dq + torch.matmul(y, dv.adjoint()), du)
+    dx = _qr_grad_square_and_deep_matrices(q, u, dq + torch.matmul(y, dv.adjoint()), du)
     return torch.cat([dx, dy], dim=-1)
 
 
 # from tensorcircuit
 class QR(torch.autograd.Function):
-    """
-    Customized backward of qr for better numerical stability
-    """
+    """Customized backward of QR for better numerical stability."""
     generate_vmap_rule = True
-    
+
+    # pylint: disable=arguments-renamed
     @staticmethod
     def forward(a):
-        q, r = torch.linalg.qr(a, mode="reduced")
+        q, r = torch.linalg.qr(a, mode='reduced')
         # ctx.save_for_backward(a, q, r)
         return q, r
 
@@ -243,11 +263,7 @@ svd = SVD.apply
 qr = QR.apply
 
 def split_tensor(tensor: torch.Tensor, center_left: bool = True) -> Tuple[torch.Tensor, torch.Tensor]:
-    # u, s, vh = svd(tensor)
-    # if center_left:
-    #     return u @ s.diag_embed(), vh
-    # else:
-    #     return u, s.diag_embed() @ vh
+    """Split a tensor by QR."""
     if center_left:
         q, r = qr(tensor.mH)
         return r.mH, q.mH
@@ -256,6 +272,7 @@ def split_tensor(tensor: torch.Tensor, center_left: bool = True) -> Tuple[torch.
 
 
 def state_to_tensors(state: torch.Tensor, nqubit: int, qudit: int = 2) -> List[torch.Tensor]:
+    """Convert a quantum state to a list of tensors."""
     state = state.reshape([qudit] * nqubit)
     tensors = []
     nleft = 1
@@ -270,13 +287,13 @@ def state_to_tensors(state: torch.Tensor, nqubit: int, qudit: int = 2) -> List[t
 
 
 def multi_kron(lst: List[torch.Tensor]) -> torch.Tensor:
-    """Calculate the Kronecker/tensor/outer product for a list of tensors
-    
+    """Calculate the Kronecker/tensor/outer product for a list of tensors.
+
     Args:
-        lst: a list of tensors
-    
+        lst (List[torch.Tensor]): A list of tensors
+
     Returns:
-        torch.Tensor: the Kronecker/tensor/outer product of the input
+        torch.Tensor: The Kronecker/tensor/outer product of the input
     """
     n = len(lst)
     if n == 1:
@@ -287,73 +304,67 @@ def multi_kron(lst: List[torch.Tensor]) -> torch.Tensor:
         return rst
 
 
-def partial_trace(rho: torch.Tensor, N: int, trace_lst: List) -> torch.Tensor:
-    """Calculate the partial trace for a batch of density matrices
-    
+def partial_trace(rho: torch.Tensor, nqubit: int, trace_lst: List[int]) -> torch.Tensor:
+    """Calculate the partial trace for a batch of density matrices.
+
     Args:
-        rho: density matrices with the shape of (batch, 2^N, 2^N)
-        N: total number of qubits
-        trace_lst: a list of qubits to be traced
-    
+        rho (torch.Tensor): Density matrices with the shape of (batch, 2^nqubit, 2^nqubit)
+        nqubit (int): Total number of qubits
+        trace_lst (List[int]): A list of qubits to be traced
+
     Returns:
-        torch.Tensor: reduced density matrices with the shape of (batch, 2^n, 2^n)
+        torch.Tensor: Reduced density matrices
     """
     if rho.ndim == 2:
         rho = rho.unsqueeze(0)
     assert rho.ndim == 3
-    assert rho.shape[1] == 2 ** N and rho.shape[2] == 2 ** N
+    assert rho.shape[1] == rho.shape[2] == 2 ** nqubit
     b = rho.shape[0]
     n = len(trace_lst)
     trace_lst = [i + 1 for i in trace_lst]
-    trace_lst2 = [i + N for i in trace_lst]
-    trace_lst = trace_lst + trace_lst2
-    permute_shape = list(range(2 * N + 1))
+    trace_lst2 = [i + nqubit for i in trace_lst]
+    trace_lst += trace_lst2
+    permute_shape = list(range(2 * nqubit + 1))
     for i in trace_lst:
         permute_shape.remove(i)
-    permute_shape = permute_shape + trace_lst
-    rho = rho.reshape([b] + [2] * 2 * N).permute(permute_shape).reshape(-1, 2 ** n, 2 ** n)
+    permute_shape += trace_lst
+    rho = rho.reshape([b] + [2] * 2 * nqubit).permute(permute_shape).reshape(-1, 2 ** n, 2 ** n)
     rho = rho.diagonal(dim1=-2, dim2=-1).sum(-1)
-    return rho.reshape(b, 2 ** (N - n), 2 ** (N - n)).squeeze(0)
+    return rho.reshape(b, 2 ** (nqubit - n), 2 ** (nqubit - n)).squeeze(0)
 
 
-def amplitude_encoding(data, nqubit: int) -> torch.Tensor:
+def amplitude_encoding(data: Any, nqubit: int) -> torch.Tensor:
     """Encode data into quantum states using amplitude encoding.
 
     This function takes a batch of data and encodes each sample into a quantum state
     using amplitude encoding. The quantum state is represented by a complex-valued tensor
-    of shape (batch_size, 2**nqubit). The data is normalized to have unit norm along the last dimension
-    before encoding. If the data size is smaller than 2**nqubit, the remaining amplitudes are set to zero.
-    If the data size is larger than 2**nqubit, only the first 2**nqubit elements are used.
+    of shape (batch, 2^nqubit). The data is normalized to have unit norm along the last dimension
+    before encoding. If the data size is smaller than 2^nqubit, the remaining amplitudes are set to zero.
+    If the data size is larger than 2^nqubit, only the first 2^nqubit elements are used.
 
-    Parameters
-    ----------
-    data : torch.Tensor or array-like
-        The input data to be encoded. It should have shape (batch_size, ...) where ... can be any dimensions.
-        If it is not a torch.Tensor object, it will be converted to one.
-    nqubit : int
-        The number of qubits to use for encoding.
+    Args:
+        data (torch.Tensor or array-like): The input data to be encoded. It should have shape (batch, ...)
+            where ... can be any dimensions. If it is not a torch.Tensor object, it will be converted to one.
+        nqubit (int): The number of qubits to use for encoding.
 
-    Returns
-    -------
-    torch.Tensor
-        The encoded quantum states as complex-valued tensors of shape (batch_size, 2**nqubit, 1).
+    Returns:
+        torch.Tensor: The encoded quantum states as complex-valued tensors of shape (batch, 2^nqubit, 1).
 
-    Examples
-    --------
-    >>> data = [[0.5, 0.5], [0.7, 0.3]]
-    >>> amplitude_encoding(data, nqubit=2)
-    tensor([[[0.7071+0.j],
-             [0.7071+0.j],
-             [0.0000+0.j],
-             [0.0000+0.j]],
+    Examples::
+        >>> data = [[0.5, 0.5], [0.7, 0.3]]
+        >>> amplitude_encoding(data, nqubit=2)
+        tensor([[[0.7071+0.j],
+                [0.7071+0.j],
+                [0.0000+0.j],
+                [0.0000+0.j]],
 
-            [[0.9487+0.j],
-             [0.3162+0.j],
-             [0.0000+0.j],
-             [0.0000+0.j]]])
-    
+                [[0.9487+0.j],
+                [0.3162+0.j],
+                [0.0000+0.j],
+                [0.0000+0.j]]])
+
     """
-    if type(data) != torch.Tensor and type(data) != torch.nn.parameter.Parameter:
+    if not isinstance(data, (torch.Tensor, nn.Parameter)):
         data = torch.tensor(data)
     if data.ndim == 1 or (data.ndim == 2 and data.shape[-1] == 1):
         batch = 1
@@ -367,11 +378,41 @@ def amplitude_encoding(data, nqubit: int) -> torch.Tensor:
     if n > size:
         state[:, :size] = data[:, :]
     else:
-        state[:, :] = data[:, :size]
+        state[:, :] = data[:, :]
     return state.unsqueeze(-1)
 
 
-def measure(state, shots=1024, with_prob=False, wires=None):
+def measure(
+    state: torch.Tensor,
+    shots: int = 1024,
+    with_prob: bool = False,
+    wires: Union[int, List[int], None] = None
+) -> Union[Dict, List[Dict]]:
+    """A function that performs a measurement on a quantum state and returns the results.
+
+    The measurement is done by sampling from the probability distribution of the quantum state. The results
+    are given as a dictionary or a list of dictionaries, where each key is a bit string representing the
+    measurement outcome, and each value is either the number of occurrences or a tuple of the number of
+    occurrences and the probability.
+
+    Args:
+        state (torch.Tensor): The quantum state to measure. It can be a tensor of shape (2^n,) or (2^n, 1)
+            representing a state vector, or a tensor of shape (batch, 2^n) or (batch, 2^n, 1) representing
+            a batch of state vectors.
+        shots (int, optional): The number of times to sample from the quantum state. Default: 1024
+        with_prob (bool, optional): A flag that indicates whether to return the probabilities along with
+            the number of occurrences. Default: ``False``
+        wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
+            integers specifying the indices of the wires. Default: ``None`` (which means all wires are
+            measured)
+
+    Returns:
+        Union[Dict, List[Dict]]: The measurement results. If the state is a single state vector, it returns
+            a dictionary where each key is a bit string representing the measurement outcome, and each value
+            is either the number of occurrences or a tuple of the number of occurrences and the probability.
+            If the state is a batch of state vectors, it returns a list of dictionaries with the same format
+            for each state vector in the batch.
+    """
     if state.ndim == 1 or (state.ndim == 2 and state.shape[-1] == 1):
         batch = 1
     else:
@@ -379,17 +420,17 @@ def measure(state, shots=1024, with_prob=False, wires=None):
     state = state.reshape(batch, -1)
     assert is_power_of_two(state.shape[-1]), 'The length of the quantum state is not in the form of 2^n'
     n = int(np.log2(state.shape[-1]))
-    if wires == None:
+    if wires is None:
         bit_strings = [format(i, f'0{n}b') for i in range(2 ** n)]
     else:
-        assert type(wires) in (int, list)
-        if type(wires) == int:
+        assert isinstance(wires, (int, list))
+        if isinstance(wires, int):
             wires = [wires]
         bit_strings = [format(i, f'0{len(wires)}b') for i in range(2 ** len(wires))]
     results_tot = []
     for i in range(batch):
         probs = torch.abs(state[i]) ** 2
-        if wires != None:
+        if wires is not None:
             wires.sort()
             pm_shape = list(range(n))
             for w in wires:
@@ -409,21 +450,30 @@ def measure(state, shots=1024, with_prob=False, wires=None):
         return results_tot
 
 
-def expectation(state, observable, den_mat=False, chi=None):
-    if type(state) == list:
-        from deepquantum.state import MatrixProductState
-        mps = MatrixProductState(nqubit=len(state), state=state, chi=chi)
-        return inner_product_mps(state, observable(mps).tensors).real
-    if den_mat:
-        expval = (observable.get_unitary() @ state).diagonal(dim1=-2, dim2=-1).sum(-1).real
-    else:
-        expval = state.mH @ observable(state)
-        expval = expval.squeeze(-1).squeeze(-1).real
-    return expval
+def inner_product_mps(
+    tensors0: List[torch.Tensor],
+    tensors1: List[torch.Tensor],
+    form: str = 'norm'
+) -> Union[torch.Tensor, List[torch.Tensor]]:
+    """Computes the inner product of two matrix product states.
 
+    Args:
+        tensors0 (List[torch.Tensor]): The tensors of the first MPS, each with shape (..., d0, d1, d2),
+            where d0 is the bond dimension of the left site, d1 is the physical dimension, and d2 is the
+            bond dimension of the right site.
+        tensors1 (List[torch.Tensor]): The tensors of the second MPS, each with shape (..., d0, d1, d2),
+            where d0 is the bond dimension of the left site, d1 is the physical dimension, and d2 is the
+            bond dimension of the right site.
+        form (str, optional): The form of the output. If 'log', returns the logarithm of the absolute value
+            of the inner product. If 'list', returns a list of norms at each step. Otherwise, returns the
+            inner product as a scalar. Default: ``'norm'``
 
-def inner_product_mps(tensors0, tensors1, form='norm'):
-    # form: 'log' or 'list'
+    Returns:
+        torch.Tensor or List[torch.Tensor]: The inner product of the two MPS, or a list of norms at each step.
+
+    Raises:
+        AssertionError: If the tensors have incompatible shapes or lengths.
+    """
     assert tensors0[0].shape[-3] == tensors0[-1].shape[-1]
     assert tensors1[0].shape[-3] == tensors1[-1].shape[-1]
     assert len(tensors0) == len(tensors1)
@@ -456,29 +506,69 @@ def inner_product_mps(tensors0, tensors1, form='norm'):
     return norm
 
 
-def Meyer_Wallach_measure(state_tsr: torch.Tensor) -> torch.Tensor:
-    """Calculate Meyer-Wallach entanglement measure
-    
-    See https://readpaper.com/paper/2945680873 Eq.(19)
-    
+# pylint: disable=wrong-import-position
+from .layer import Observable
+
+def expectation(
+    state: torch.Tensor or List[torch.Tensor],
+    observable: Observable,
+    den_mat: bool = False,
+    chi: Optional[int] = None
+) -> torch.Tensor:
+    """A function that calculates the expectation value of an observable on a quantum state.
+
+    The expectation value is the average measurement outcome of the observable on the quantum state.
+    It is a real number that represents the mean of the probability distribution of the measurement outcomes.
+
     Args:
-        state_tsr: input with the shape of (batch, 2, ..., 2)
-    
+        state (torch.Tensor or List[torch.Tensor]): The quantum state to measure. It can be a list of tensors
+            representing a matrix product state, or a tensor representing a density matrix or a state vector.
+        observable (Observable): The observable to measure. It is an instance of `Observable` class that
+            implements the measurement basis and the corresponding gates.
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
+        chi (int or None, optional): The bond dimension of the matrix product state. It is only used
+            when the state is a list of tensors. Default: ``None`` (which means no truncation)
+
     Returns:
-        torch.Tensor: the value of Meyer-Wallach measure
+        torch.Tensor: The expectation value of the observable on the quantum state. It is a scalar tensor
+            with real values.
+    """
+    # pylint: disable=import-outside-toplevel
+    if isinstance(state, list):
+        from .state import MatrixProductState
+        mps = MatrixProductState(nqubit=len(state), state=state, chi=chi)
+        return inner_product_mps(state, observable(mps).tensors).real
+    if den_mat:
+        expval = (observable.get_unitary() @ state).diagonal(dim1=-2, dim2=-1).sum(-1).real
+    else:
+        expval = state.mH @ observable(state)
+        expval = expval.squeeze(-1).squeeze(-1).real
+    return expval
+
+
+def meyer_wallach_measure(state_tsr: torch.Tensor) -> torch.Tensor:
+    """Calculate Meyer-Wallach entanglement measure.
+
+    See https://readpaper.com/paper/2945680873 Eq.(19)
+
+    Args:
+        state_tsr (torch.Tensor): Input with the shape of (batch, 2, ..., 2)
+
+    Returns:
+        torch.Tensor: The value of Meyer-Wallach measure
     """
     nqubit = len(state_tsr.shape) - 1
     batch = state_tsr.shape[0]
     rst = 0
     for i in range(nqubit):
-        s1 = linear_map_MW(state_tsr, i, 0).reshape(batch, -1, 1)
-        s2 = linear_map_MW(state_tsr, i, 1).reshape(batch, -1, 1)
+        s1 = linear_map_mw(state_tsr, i, 0).reshape(batch, -1, 1)
+        s2 = linear_map_mw(state_tsr, i, 1).reshape(batch, -1, 1)
         rst += generalized_distance(s1, s2).reshape(-1)
     return rst * 4 / nqubit
 
 
-def linear_map_MW(state_tsr: torch.Tensor, j: int, b: int) -> torch.Tensor:
-    """Calculate the linear mapping for Meyer-Wallach measure
+def linear_map_mw(state_tsr: torch.Tensor, j: int, b: int) -> torch.Tensor:
+    """Calculate the linear mapping for Meyer-Wallach measure.
 
     See https://readpaper.com/paper/2945680873 Eq.(18)
 
@@ -487,14 +577,14 @@ def linear_map_MW(state_tsr: torch.Tensor, j: int, b: int) -> torch.Tensor:
         See https://arxiv.org/pdf/quant-ph/0305094.pdf Eq.(2)
 
     Args:
-        state_tsr: input with the shape of (batch, 2, ..., 2)
-        j: the `j`th qubit to project on, from 0 to nqubit - 1
-        b: the project basis, |0> or |1>
-    
+        state_tsr (torch.Tensor): Input with the shape of (batch, 2, ..., 2)
+        j (int): The `j`th qubit to project on, from 0 to nqubit - 1
+        b (int): The project basis, |0> or |1>
+
     Returns:
-        torch.Tensor: non-normalized state tensor after the linear mapping
+        torch.Tensor: Non-normalized state tensor after the linear mapping
     """
-    assert b == 0 or b == 1, 'b must be 0 or 1'
+    assert b in (0, 1), 'b must be 0 or 1'
     n = len(state_tsr.shape)
     assert j < n - 1, 'j can not exceed nqubit'
     permute_shape = list(range(n))
@@ -504,34 +594,34 @@ def linear_map_MW(state_tsr: torch.Tensor, j: int, b: int) -> torch.Tensor:
 
 
 def generalized_distance(state1: torch.Tensor, state2: torch.Tensor) -> torch.Tensor:
-    """Calculate the generalized distance
+    """Calculate the generalized distance.
 
     See https://readpaper.com/paper/2945680873 Eq.(20)
     Implemented according to https://arxiv.org/pdf/quant-ph/0310137.pdf Eq.(4)
-    
+
     Args:
-        state1: input with the shape of (batch, 2^n, 1)
-        state2: input with the shape of (batch, 2^n, 1)
+        state1 (torch.Tensor): Input with the shape of (batch, 2^n, 1)
+        state2 (torch.Tensor): Input with the shape of (batch, 2^n, 1)
 
     Returns:
-        torch.Tensor: the generalized distance
+        torch.Tensor: The generalized distance
     """
     return ((state1.mH @ state1) * (state2.mH @ state2) - (state1.mH @ state2) * (state2.mH @ state1)).real
 
 
-def Meyer_Wallach_measure_Brennen(state_tsr: torch.Tensor) -> torch.Tensor:
-    """Calculate Meyer-Wallach entanglement measure, proposed by Brennen
-    
+def meyer_wallach_measure_brennen(state_tsr: torch.Tensor) -> torch.Tensor:
+    """Calculate Meyer-Wallach entanglement measure, proposed by Brennen.
+
     See https://arxiv.org/pdf/quant-ph/0305094.pdf Eq.(6)
 
     Note:
-        This implementation is slower than `Meyer_Wallach_measure` when nqubit >= 8
-    
+        This implementation is slower than `meyer_wallach_measure` when nqubit >= 8
+
     Args:
-        state_tsr: input with the shape of (batch, 2, ..., 2)
-    
+        state_tsr (torch.Tensor): Input with the shape of (batch, 2, ..., 2)
+
     Returns:
-        torch.Tensor: the value of Meyer-Wallach measure
+        torch.Tensor: The value of Meyer-Wallach measure
     """
     nqubit = len(state_tsr.shape) - 1
     batch = state_tsr.shape[0]

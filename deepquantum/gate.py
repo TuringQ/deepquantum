@@ -1,15 +1,40 @@
+"""
+Quantum gates
+"""
+
 from copy import copy
+from typing import Any, List, Optional, Union
+
 import torch
-import torch.nn as nn
+from torch import nn
+
 from .operation import Gate
-from .qmath import multi_kron, is_unitary, SVD
-
-
-svd = SVD.apply
+from .qmath import multi_kron, is_unitary, svd
 
 
 class SingleGate(Gate):
-    def __init__(self, name=None, nqubit=1, wires=[0], controls=None, den_mat=False, tsr_mode=False):
+    """A base class for single-qubit gates.
+
+    Args:
+        name (str, optional): The name of the gate. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+    """
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         assert len(self.wires) == 1
@@ -34,11 +59,34 @@ class SingleGate(Gate):
 
 
 class DoubleGate(Gate):
-    def __init__(self, name=None, nqubit=2, wires=[0,1], controls=None, den_mat=False, tsr_mode=False):
+    """A base class for two-qubit gates.
+
+    Args:
+        name (str, optional): The name of the gate. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 2
+        wires (List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+    """
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        nqubit: int = 2,
+        wires: Optional[List[int]] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
+        if wires is None:
+            wires = [0, 1]
+        assert len(wires) == 2
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
-        assert len(self.wires) == 2
-    
+
     def get_unitary(self):
         matrix = self.update_matrix()
         identity = torch.eye(2, dtype=matrix.dtype, device=matrix.device)
@@ -95,7 +143,26 @@ class DoubleGate(Gate):
 
 
 class DoubleControlGate(DoubleGate):
-    def __init__(self, name=None, nqubit=2, wires=[0,1], den_mat=False, tsr_mode=False):
+    """A base class for two-qubit controlled gates.
+
+    Args:
+        name (str, optional): The name of the gate. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 2
+        wires (List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+    """
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        nqubit: int = 2,
+        wires: Optional[List[int]] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=None,
                          den_mat=den_mat, tsr_mode=tsr_mode)
 
@@ -106,40 +173,91 @@ class DoubleControlGate(DoubleGate):
         oneone   = torch.tensor([[0, 0], [0, 1]], dtype=matrix.dtype, device=matrix.device)
         lst1 = [identity] * self.nqubit
         lst2 = [identity] * self.nqubit
-        
+
         lst1[self.wires[0]] = zerozero
-        
+
         lst2[self.wires[0]] = oneone
         lst2[self.wires[1]] = matrix[2:4, 2:4]
         return multi_kron(lst1) + multi_kron(lst2)
 
 
 class TripleGate(Gate):
-    def __init__(self, name=None, nqubit=3, wires=[0,1,2], controls=None, den_mat=False, tsr_mode=False):
+    """A base class for three-qubit gates.
+
+    Args:
+        name (str, optional): The name of the gate. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 3
+        wires (List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+    """
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        nqubit: int = 3,
+        wires: Optional[List[int]] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
+        if wires is None:
+            wires = [0, 1, 2]
+        assert len(wires) == 3
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
-        assert len(self.wires) == 3
 
 
 class ArbitraryGate(Gate):
-    def __init__(self, name=None, nqubit=1, wires=None, minmax=None, den_mat=False, tsr_mode=False):
-        if type(wires) == int:
+    """A base class for customized gates.
+
+     Args:
+        name (str or None, optional): The name of the gate. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum 
+            operation acts on. Only valid when `wires` is `None`. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+    """
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        minmax: Optional[List[int]] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
+        if isinstance(wires, int):
             wires = [wires]
-        if wires == None:
-            if minmax == None:
+        if wires is None:
+            if minmax is None:
                 minmax = [0, nqubit - 1]
-            assert type(minmax) == list
+            assert isinstance(minmax, list)
             assert len(minmax) == 2
             assert all(isinstance(i, int) for i in minmax)
-            assert minmax[0] > -1 and minmax[0] <= minmax[1] and minmax[1] < nqubit
+            assert -1 < minmax[0] <= minmax[1] < nqubit
             wires = list(range(minmax[0], minmax[1] + 1))
-        self.minmax = minmax
-        self.inv_mode = False
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=None,
                          den_mat=den_mat, tsr_mode=tsr_mode)
-        
+        self.minmax = [min(self.wires), max(self.wires)]
+        # whether the wires are consecutive integers
+        self.local = True
+        for i in range(len(self.wires) - 1):
+            if self.wires[i + 1] - self.wires[i] != 1:
+                self.local = False
+                break
+        self.inv_mode = False
+
     def get_unitary(self):
-        if self.minmax != None:
+        if self.local:
             matrix = self.update_matrix()
             identity = torch.eye(2, dtype=matrix.dtype, device=matrix.device)
             lst = [identity] * (self.nqubit - len(self.wires) + 1)
@@ -150,9 +268,9 @@ class ArbitraryGate(Gate):
             identity = torch.eye(2 ** self.nqubit, dtype=matrix.dtype, device=matrix.device)
             identity = identity.reshape([2 ** self.nqubit] + [2] * self.nqubit)
             return self.op_state_base(identity, matrix).reshape(2 ** self.nqubit, 2 ** self.nqubit).T
-        
+
     def inverse(self):
-        if type(self.name) == str:
+        if isinstance(self.name, str):
             name = self.name + '_dagger'
         else:
             name = self.name
@@ -160,14 +278,39 @@ class ArbitraryGate(Gate):
         gate.inv_mode = not self.inv_mode
         gate.name = name
         return gate
-        
-    def qasm(self):
-        return self.qasm_customized(self.name)
+
+    def _qasm(self):
+        return self._qasm_customized(self.name)
 
 
 class ParametricSingleGate(SingleGate):
-    def __init__(self, name=None, inputs=None, nqubit=1, wires=[0], controls=None,
-                 den_mat=False, tsr_mode=False, requires_grad=False):
+    """A base class for single-qubit gates with parameters.
+
+    Args:
+        name (str, optional): The name of the gate. Default: ``None``
+        inputs (Any, optional): The parameters of the gate. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+        requires_grad (bool, optional): Whether the parameters are `nn.Parameter` or `buffer`.
+            Default: ``False`` (which means `buffer`)
+    """
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        inputs: Any = None,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False,
+        requires_grad: bool = False
+    ) -> None:
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.npara = 1
@@ -175,12 +318,12 @@ class ParametricSingleGate(SingleGate):
         self.inv_mode = False
         self.init_para(inputs=inputs)
 
-    def inputs_to_tensor(self, inputs=None):
-        while type(inputs) == list:
+    def inputs_to_tensor(self, inputs: Any = None):
+        while isinstance(inputs, list):
             inputs = inputs[0]
-        if inputs == None:
+        if inputs is None:
             inputs = torch.rand(1)[0] * 4 * torch.pi
-        elif type(inputs) != torch.Tensor and type(inputs) != torch.nn.parameter.Parameter:
+        elif not isinstance(inputs, (torch.Tensor, nn.Parameter)):
             inputs = torch.tensor(inputs, dtype=torch.float)
         return inputs
 
@@ -192,8 +335,8 @@ class ParametricSingleGate(SingleGate):
         matrix = self.get_matrix(theta)
         self.matrix = matrix.detach()
         return matrix
-        
-    def init_para(self, inputs=None):
+
+    def init_para(self, inputs: Any = None):
         theta = self.inputs_to_tensor(inputs=inputs)
         if self.requires_grad:
             self.theta = nn.Parameter(theta)
@@ -219,8 +362,33 @@ class ParametricSingleGate(SingleGate):
 
 
 class ParametricDoubleGate(DoubleGate):
-    def __init__(self, name=None, inputs=None, nqubit=2, wires=[0,1], controls=None,
-                 den_mat=False, tsr_mode=False, requires_grad=False):
+    """A base class for two-qubit gates with parameters.
+
+    Args:
+        name (str, optional): The name of the gate. Default: ``None``
+        inputs (Any, optional): The parameters of the gate. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 2
+        wires (List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+        requires_grad (bool, optional): Whether the parameters are `nn.Parameter` or `buffer`.
+            Default: ``False`` (which means `buffer`)
+    """
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        inputs: Any = None,
+        nqubit: int = 2,
+        wires: Optional[List[int]] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False,
+        requires_grad: bool = False
+    ) -> None:
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.npara = 1
@@ -228,12 +396,12 @@ class ParametricDoubleGate(DoubleGate):
         self.inv_mode = False
         self.init_para(inputs=inputs)
 
-    def inputs_to_tensor(self, inputs=None):
-        while type(inputs) == list:
+    def inputs_to_tensor(self, inputs: Any = None):
+        while isinstance(inputs, list):
             inputs = inputs[0]
-        if inputs == None:
+        if inputs is None:
             inputs = torch.rand(1)[0] * 4 * torch.pi
-        elif type(inputs) != torch.Tensor and type(inputs) != torch.nn.parameter.Parameter:
+        elif not isinstance(inputs, (torch.Tensor, nn.Parameter)):
             inputs = torch.tensor(inputs, dtype=torch.float)
         return inputs
 
@@ -245,8 +413,8 @@ class ParametricDoubleGate(DoubleGate):
         matrix = self.get_matrix(theta)
         self.matrix = matrix.detach()
         return matrix
-        
-    def init_para(self, inputs=None):
+
+    def init_para(self, inputs: Any = None):
         theta = self.inputs_to_tensor(inputs=inputs)
         if self.requires_grad:
             self.theta = nn.Parameter(theta)
@@ -272,14 +440,49 @@ class ParametricDoubleGate(DoubleGate):
 
 
 class U3Gate(ParametricSingleGate):
-    def __init__(self, inputs=None, nqubit=1, wires=[0], controls=None,
-                 den_mat=False, tsr_mode=False, requires_grad=False):
+    r"""U3 gate, a generic single-qubit rotation gate with 3 angles.
+
+    **Matrix Representation:**
+
+    .. math::
+
+        \newcommand{\th}{\frac{\theta}{2}}
+
+        U3(\theta, \phi, \lambda) =
+            \begin{pmatrix}
+                \cos\left(\th\right)          & -e^{i\lambda}\sin\left(\th\right) \\
+                e^{i\phi}\sin\left(\th\right) & e^{i(\phi+\lambda)}\cos\left(\th\right)
+            \end{pmatrix}
+
+    Args:
+        inputs (Any, optional): The parameters of the gate (\theta, \phi and \lambda). Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 2
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+        requires_grad (bool, optional): Whether the parameters are `nn.Parameter` or `buffer`.
+            Default: ``False`` (which means `buffer`)
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False,
+        requires_grad: bool = False
+    ) -> None:
         super().__init__(name='U3Gate', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
         self.npara = 3
 
-    def inputs_to_tensor(self, inputs=None):
-        if inputs == None:
+    def inputs_to_tensor(self, inputs: Any = None):
+        if inputs is None:
             theta = torch.rand(1)[0] * torch.pi
             phi   = torch.rand(1)[0] * 2 * torch.pi
             lambd = torch.rand(1)[0] * 2 * torch.pi
@@ -287,15 +490,15 @@ class U3Gate(ParametricSingleGate):
             theta = inputs[0]
             phi   = inputs[1]
             lambd = inputs[2]
-        if type(theta) != torch.Tensor and type(theta) != torch.nn.parameter.Parameter:
+        if not isinstance(theta, (torch.Tensor, nn.Parameter)):
             theta = torch.tensor(theta, dtype=torch.float)
-        if type(phi) != torch.Tensor and type(phi) != torch.nn.parameter.Parameter:
+        if not isinstance(phi, (torch.Tensor, nn.Parameter)):
             phi = torch.tensor(phi, dtype=torch.float)
-        if type(lambd) != torch.Tensor and type(lambd) != torch.nn.parameter.Parameter:
+        if not isinstance(lambd, (torch.Tensor, nn.Parameter)):
             lambd = torch.tensor(lambd, dtype=torch.float)
         return theta, phi, lambd
 
-    def get_matrix(self, theta, phi, lambd):
+    def get_matrix(self, theta: Any, phi: Any, lambd: Any) -> torch.Tensor:
         theta, phi, lambd = self.inputs_to_tensor([theta, phi, lambd])
         cos_t = torch.cos(theta / 2)
         sin_t = torch.sin(theta / 2)
@@ -317,7 +520,7 @@ class U3Gate(ParametricSingleGate):
         self.matrix = matrix.detach()
         return matrix
 
-    def init_para(self, inputs=None):
+    def init_para(self, inputs: Any = None):
         theta, phi, lambd = self.inputs_to_tensor(inputs=inputs)
         if self.requires_grad:
             self.theta = nn.Parameter(theta)
@@ -344,7 +547,7 @@ class U3Gate(ParametricSingleGate):
         else:
             return s + f', controls={self.controls}'
 
-    def qasm(self):
+    def _qasm(self):
         if self.inv_mode:
             theta = -self.theta
             phi   = -self.lambd
@@ -358,31 +561,64 @@ class U3Gate(ParametricSingleGate):
         elif len(self.controls) == 1:
             return f'cu({theta.item()},{phi.item()},{lambd.item()},0.0) q{self.controls},q{self.wires};\n'
         else:
-            return self.qasm_customized('u')
+            return self._qasm_customized('u')
 
 
 class PhaseShift(ParametricSingleGate):
-    def __init__(self, inputs=None, nqubit=1, wires=[0], controls=None,
-                 den_mat=False, tsr_mode=False, requires_grad=False):
+    r"""Phase shift gate.
+
+      **Matrix Representation:**
+
+      .. math::
+
+        P(\theta) =
+            \begin{pmatrix}
+                1 & 0 \\
+                0 & e^{i\theta}
+            \end{pmatrix}
+
+    Args:
+        inputs (Any, optional): The parameter of the gate. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+        requires_grad (bool, optional): Whether the parameter is `nn.Parameter` or `buffer`.
+            Default: ``False`` (which means `buffer`)
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False,
+        requires_grad: bool = False
+    ) -> None:
         super().__init__(name='PhaseShift', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
-    
+
     def inputs_to_tensor(self, inputs=None):
-        while type(inputs) == list:
+        while isinstance(inputs, list):
             inputs = inputs[0]
-        if inputs == None:
+        if inputs is None:
             inputs = torch.rand(1)[0] * 2 * torch.pi
-        elif type(inputs) != torch.Tensor and type(inputs) != torch.nn.parameter.Parameter:
+        elif not isinstance(inputs, (torch.Tensor, nn.Parameter)):
             inputs = torch.tensor(inputs, dtype=torch.float)
         return inputs
-    
-    def get_matrix(self, theta):
+
+    def get_matrix(self, theta: Any) -> torch.Tensor:
         theta = self.inputs_to_tensor(theta)
         m1 = torch.eye(1, dtype=theta.dtype, device=theta.device)
         e_it = torch.exp(1j * theta)
         return torch.block_diag(m1, e_it)
-    
-    def qasm(self):
+
+    def _qasm(self):
         if self.inv_mode:
             theta = -self.theta
         else:
@@ -392,29 +628,83 @@ class PhaseShift(ParametricSingleGate):
         elif len(self.controls) == 1:
             return f'cp({theta.item()}) q{self.controls},q{self.wires};\n'
         else:
-            return self.qasm_customized('p')
+            return self._qasm_customized('p')
 
 
 class Identity(Gate):
-    def __init__(self, nqubit=1, wires=[0], den_mat=False, tsr_mode=False):
+    r"""Identity gate.
+
+     **Matrix Representation:**
+
+    .. math::
+
+        I = \begin{pmatrix}
+                1 & 0 \\
+                0 & 1
+            \end{pmatrix}
+
+    Args:
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+    """
+    def __init__(
+        self,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
         super().__init__(name='Identity', nqubit=nqubit, wires=wires, controls=None,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.eye(2 ** self.nqubit, dtype=torch.cfloat))
-        
+
     def get_unitary(self):
         return self.matrix
-        
+
     def forward(self, x):
         return x
 
 
 class PauliX(SingleGate):
-    def __init__(self, nqubit=1, wires=[0], controls=None, den_mat=False, tsr_mode=False):
+    r"""PauliX gate.
+
+    **Matrix Representation:**
+
+    .. math::
+
+        X = \begin{pmatrix}
+                0 & 1 \\
+                1 & 0
+            \end{pmatrix}
+
+    Args:
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+    """
+    def __init__(
+        self,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
         super().__init__(name='PauliX', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[0, 1], [1, 0]], dtype=torch.cfloat))
 
-    def qasm(self):
+    def _qasm(self):
         if self.controls == []:
             return f'x q{self.wires};\n'
         elif len(self.controls) == 1:
@@ -422,55 +712,168 @@ class PauliX(SingleGate):
         elif len(self.controls) == 2:
             return f'ccx q[{self.controls[0]}],q[{self.controls[1]}],q{self.wires};\n'
         else:
-            return self.qasm_customized('x')
+            return self._qasm_customized('x')
 
 
 class PauliY(SingleGate):
-    def __init__(self, nqubit=1, wires=[0], controls=None, den_mat=False, tsr_mode=False):
+    r"""PauliY gate.
+
+    **Matrix Representation:**
+
+    .. math::
+
+        Y = \begin{pmatrix}
+                0 & -i \\
+                i & 0
+            \end{pmatrix}
+
+    Args:
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+    """
+    def __init__(
+        self,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
         super().__init__(name='PauliY', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[0, -1j], [1j, 0]]))
 
-    def qasm(self):
+    def _qasm(self):
         if self.controls == []:
             return f'y q{self.wires};\n'
         elif len(self.controls) == 1:
             return f'cy q{self.controls},q{self.wires};\n'
         else:
-            return self.qasm_customized('y')
+            return self._qasm_customized('y')
 
 class PauliZ(SingleGate):
-    def __init__(self, nqubit=1, wires=[0], controls=None, den_mat=False, tsr_mode=False):
+    r"""PauliZ gate.
+
+    **Matrix Representation:**
+
+    .. math::
+
+        Z = \begin{pmatrix}
+                1 & 0 \\
+                0 & -1
+            \end{pmatrix}
+
+    Args:
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+    """
+    def __init__(
+        self,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
         super().__init__(name='PauliZ', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0], [0, -1]], dtype=torch.cfloat))
 
-    def qasm(self):
+    def _qasm(self):
         if self.controls == []:
             return f'z q{self.wires};\n'
         elif len(self.controls) == 1:
             return f'cz q{self.controls},q{self.wires};\n'
         else:
-            return self.qasm_customized('z')
+            return self._qasm_customized('z')
 
 
 class Hadamard(SingleGate):
-    def __init__(self, nqubit=1, wires=[0], controls=None, den_mat=False, tsr_mode=False):
+    r"""Hadamard gate.
+
+     **Matrix Representation:**
+
+    .. math::
+
+        H = \frac{1}{\sqrt{2}}
+            \begin{pmatrix}
+                1 & 1 \\
+                1 & -1
+            \end{pmatrix}
+
+    Args:
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+    """
+    def __init__(
+        self,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
         super().__init__(name='Hadamard', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 1], [1, -1]], dtype=torch.cfloat) / 2 ** 0.5)
 
-    def qasm(self):
+    def _qasm(self):
         if self.controls == []:
             return f'h q{self.wires};\n'
         elif len(self.controls) == 1:
             return f'ch q{self.controls},q{self.wires};\n'
         else:
-            return self.qasm_customized('h')
+            return self._qasm_customized('h')
 
 
 class SGate(SingleGate):
-    def __init__(self, nqubit=1, wires=[0], controls=None, den_mat=False, tsr_mode=False):
+    r"""S gate.
+
+    **Matrix Representation:**
+
+    .. math::
+
+        S = \begin{pmatrix}
+                1 & 0 \\
+                0 & i
+            \end{pmatrix}
+
+    Args:
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+    """
+    def __init__(
+        self,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
         super().__init__(name='SGate', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0], [0, 1j]]))
@@ -479,7 +882,7 @@ class SGate(SingleGate):
         return SDaggerGate(nqubit=self.nqubit, wires=self.wires, controls=self.controls,
                            den_mat=self.den_mat, tsr_mode=self.tsr_mode)
 
-    def qasm(self):
+    def _qasm(self):
         if self.controls == []:
             return f's q{self.wires};\n'
         elif len(self.controls) == 1:
@@ -490,11 +893,40 @@ class SGate(SingleGate):
                 Gate.qasm_new_gate.append('cs')
             return qasm_str1 + qasm_str2
         else:
-            return self.qasm_customized('s')
+            return self._qasm_customized('s')
 
 
 class SDaggerGate(SingleGate):
-    def __init__(self, nqubit=1, wires=[0], controls=None, den_mat=False, tsr_mode=False):
+    r"""S dagger gate.
+
+    **Matrix Representation:**
+
+    .. math::
+
+        S^{\dag} =
+            \begin{pmatrix}
+                1 & 0 \\
+                0 & -i
+            \end{pmatrix}
+
+    Args:
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+    """
+    def __init__(
+        self,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
         super().__init__(name='SDaggerGate', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0], [0, -1j]]))
@@ -503,7 +935,7 @@ class SDaggerGate(SingleGate):
         return SGate(nqubit=self.nqubit, wires=self.wires, controls=self.controls,
                      den_mat=self.den_mat, tsr_mode=self.tsr_mode)
 
-    def qasm(self):
+    def _qasm(self):
         if self.controls == []:
             return f'sdg q{self.wires};\n'
         elif len(self.controls) == 1:
@@ -514,11 +946,39 @@ class SDaggerGate(SingleGate):
                 Gate.qasm_new_gate.append('csdg')
             return qasm_str1 + qasm_str2
         else:
-            return self.qasm_customized('sdg')
+            return self._qasm_customized('sdg')
 
 
 class TGate(SingleGate):
-    def __init__(self, nqubit=1, wires=[0], controls=None, den_mat=False, tsr_mode=False):
+    r"""T gate.
+
+     **Matrix Representation:**
+
+    .. math::
+
+        T = \begin{pmatrix}
+                1 & 0 \\
+                0 & e^{i\pi/4}
+            \end{pmatrix}
+
+    Args:
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+    """
+    def __init__(
+        self,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
         super().__init__(name='TGate', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0], [0, (1 + 1j) / 2 ** 0.5]]))
@@ -527,15 +987,44 @@ class TGate(SingleGate):
         return TDaggerGate(nqubit=self.nqubit, wires=self.wires, controls=self.controls,
                            den_mat=self.den_mat, tsr_mode=self.tsr_mode)
 
-    def qasm(self):
+    def _qasm(self):
         if self.controls == []:
             return f't q{self.wires};\n'
         else:
-            return self.qasm_customized('t')
+            return self._qasm_customized('t')
 
 
 class TDaggerGate(SingleGate):
-    def __init__(self, nqubit=1, wires=[0], controls=None, den_mat=False, tsr_mode=False):
+    r"""T dagger gate.
+
+    **Matrix Representation:**
+
+    .. math::
+
+        T^{\dag} =
+            \begin{pmatrix}
+                1 & 0 \\
+                0 & e^{-i\pi/4}
+            \end{pmatrix}
+    
+    Args:
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+    """
+    def __init__(
+        self,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
         super().__init__(name='TDaggerGate', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0], [0, (1 - 1j) / 2 ** 0.5]]))
@@ -544,26 +1033,61 @@ class TDaggerGate(SingleGate):
         return TGate(nqubit=self.nqubit, wires=self.wires, controls=self.controls,
                      den_mat=self.den_mat, tsr_mode=self.tsr_mode)
 
-    def qasm(self):
+    def _qasm(self):
         if self.controls == []:
             return f'tdg q{self.wires};\n'
         else:
-            return self.qasm_customized('tdg')
+            return self._qasm_customized('tdg')
 
 
 class Rx(ParametricSingleGate):
-    def __init__(self, inputs=None, nqubit=1, wires=[0], controls=None,
-                 den_mat=False, tsr_mode=False, requires_grad=False):
+    r"""Rx gate, rotation around x-axis.
+
+     **Matrix Representation:**
+
+    .. math::
+
+        \newcommand{\th}{\frac{\theta}{2}}
+
+        Rx(\theta) =
+            \begin{pmatrix}
+                \cos\left(\th\right)   & -i\sin\left(\th\right) \\
+                -i\sin\left(\th\right) & \cos\left(\th\right)
+            \end{pmatrix}
+
+    Args:
+        inputs (Any, optional): The parameter of the gate. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+        requires_grad (bool, optional): Whether the parameter is `nn.Parameter` or `buffer`.
+            Default: ``False`` (which means `buffer`)
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False,
+        requires_grad: bool = False
+    ) -> None:
         super().__init__(name='Rx', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
-    
-    def get_matrix(self, theta):
+
+    def get_matrix(self, theta: Any) -> torch.Tensor:
         theta = self.inputs_to_tensor(theta)
         cos  = torch.cos(theta / 2)
         isin = torch.sin(theta / 2) * 1j
         return torch.stack([cos, -isin, -isin, cos]).reshape(2, 2)
 
-    def qasm(self):
+    def _qasm(self):
         if self.inv_mode:
             theta = -self.theta
         else:
@@ -573,22 +1097,57 @@ class Rx(ParametricSingleGate):
         elif len(self.controls) == 1:
             return f'crx({theta.item()}) q{self.controls},q{self.wires};\n'
         else:
-            return self.qasm_customized('rx')
+            return self._qasm_customized('rx')
 
 
 class Ry(ParametricSingleGate):
-    def __init__(self, inputs=None, nqubit=1, wires=[0], controls=None,
-                 den_mat=False, tsr_mode=False, requires_grad=False):
+    r"""Ry gate, rotation around y-axis.
+
+    **Matrix Representation:**
+
+    .. math::
+
+        \newcommand{\th}{\frac{\theta}{2}}
+
+        Ry(\theta) =
+            \begin{pmatrix}
+                \cos\left(\th\right) & -\sin\left(\th\right) \\
+                \sin\left(\th\right) & \cos\left(\th\right)
+            \end{pmatrix}
+
+    Args:
+        inputs (Any, optional): The parameter of the gate. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+        requires_grad (bool, optional): Whether the parameter is `nn.Parameter` or `buffer`.
+            Default: ``False`` (which means `buffer`)
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False,
+        requires_grad: bool = False
+    ) -> None:
         super().__init__(name='Ry', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
 
-    def get_matrix(self, theta):
+    def get_matrix(self, theta: Any) -> torch.Tensor:
         theta = self.inputs_to_tensor(theta)
         cos = torch.cos(theta / 2)
         sin = torch.sin(theta / 2)
         return torch.stack([cos, -sin, sin, cos]).reshape(2, 2) + 0j
-    
-    def qasm(self):
+
+    def _qasm(self):
         if self.inv_mode:
             theta = -self.theta
         else:
@@ -598,22 +1157,55 @@ class Ry(ParametricSingleGate):
         elif len(self.controls) == 1:
             return f'cry({theta.item()}) q{self.controls},q{self.wires};\n'
         else:
-            return self.qasm_customized('ry')
+            return self._qasm_customized('ry')
 
 
 class Rz(ParametricSingleGate):
-    def __init__(self, inputs=None, nqubit=1, wires=[0], controls=None,
-                 den_mat=False, tsr_mode=False, requires_grad=False):
+    r"""Rz gate, rotation around z-axis.
+
+     **Matrix Representation:**
+
+    .. math::
+
+        Rz(\theta) =
+            \begin{pmatrix}
+                e^{-i\frac{\theta}{2}} & 0 \\
+                0                      & e^{i\frac{\theta}{2}}
+            \end{pmatrix}
+
+    Args:
+        inputs (Any, optional): The parameter of the gate. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+        requires_grad (bool, optional): Whether the parameter is `nn.Parameter` or `buffer`.
+            Default: ``False`` (which means `buffer`)
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False,
+        requires_grad: bool = False
+    ) -> None:
         super().__init__(name='Rz', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
 
-    def get_matrix(self, theta):
+    def get_matrix(self, theta: Any) -> torch.Tensor:
         theta = self.inputs_to_tensor(theta)
         e_m_it = torch.exp(-1j * theta / 2)
         e_it = torch.exp(1j * theta / 2)
         return torch.stack([e_m_it, e_it]).reshape(-1).diag_embed()
-    
-    def qasm(self):
+
+    def _qasm(self):
         if self.inv_mode:
             theta = -self.theta
         else:
@@ -623,22 +1215,44 @@ class Rz(ParametricSingleGate):
         elif len(self.controls) == 1:
             return f'crz({theta.item()}) q{self.controls},q{self.wires};\n'
         else:
-            return self.qasm_customized('rz')
+            return self._qasm_customized('rz')
 
 
 class CombinedSingleGate(SingleGate):
-    def __init__(self, gatelist, name=None, nqubit=1, wires=[0], controls=None,
-                 den_mat=False, tsr_mode=False):
+    r"""Combined single-qubit gate.
+
+    Args:
+        gatelist (List[SingleGate]): The list of single-qubit gates.
+        name (str, optional): The name of the gate. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+    """
+    def __init__(
+        self,
+        gatelist: List[SingleGate],
+        name: Optional[str] = None,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.gatelist = nn.ModuleList(gatelist)
         self.update_npara()
         self.update_matrix()
 
-    def get_matrix(self):
+    def get_matrix(self) -> torch.Tensor:
         matrix = None
         for gate in self.gatelist:
-            if matrix == None:
+            if matrix is None:
                 matrix = gate.update_matrix()
             else:
                 matrix = gate.update_matrix() @ matrix
@@ -653,7 +1267,7 @@ class CombinedSingleGate(SingleGate):
         self.npara = 0
         for gate in self.gatelist:
             self.npara += gate.npara
-        
+
     def add(self, gate: SingleGate):
         self.gatelist.append(gate)
         self.matrix = gate.matrix @ self.matrix
@@ -666,27 +1280,87 @@ class CombinedSingleGate(SingleGate):
         return CombinedSingleGate(gatelist=gatelist, name=self.name, nqubit=self.nqubit, wires=self.wires,
                                   controls=self.controls, den_mat=self.den_mat, tsr_mode=self.tsr_mode)
 
-    def qasm(self):
-        s = ''
+    def _qasm(self):
+        lst = []
         for gate in self.gatelist:
-            s += gate.qasm()
-        return s
+            # pylint: disable=protected-access
+            lst.append(gate._qasm())
+        return ''.join(lst)
 
 
 class CNOT(DoubleControlGate):
-    def __init__(self, nqubit=2, wires=[0,1], den_mat=False, tsr_mode=False):
+    r"""CNOT gate.
+
+    **Matrix Representation:**
+
+    .. math::
+
+        CNOT =
+            \begin{pmatrix}
+                1 & 0 & 0 & 0 \\
+                0 & 1 & 0 & 0 \\
+                0 & 0 & 0 & 1 \\
+                0 & 0 & 1 & 0
+            \end{pmatrix}
+    
+    Args:
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 2
+        wires (List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``    
+    """
+    def __init__(
+        self,
+        nqubit: int = 2,
+        wires: Optional[List[int]] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
         super().__init__(name='CNOT', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0, 0, 0],
                                                      [0, 1, 0, 0],
                                                      [0, 0, 0, 1],
                                                      [0, 0, 1, 0]]) + 0j)
 
-    def qasm(self):
+    def _qasm(self):
         return f'cx q[{self.wires[0]}],q[{self.wires[1]}];\n'
 
 
 class Swap(DoubleGate):
-    def __init__(self, nqubit=2, wires=[0,1], controls=None, den_mat=False, tsr_mode=False):
+    r"""Swap gate.
+    
+    **Matrix Representation:**
+
+    .. math::
+        Swap =
+            \begin{pmatrix}
+                1 & 0 & 0 & 0 \\
+                0 & 0 & 1 & 0 \\
+                0 & 1 & 0 & 0 \\
+                0 & 0 & 0 & 1
+            \end{pmatrix}
+
+    Args:
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 2
+        wires (List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+    """
+    def __init__(
+        self,
+        nqubit: int = 2,
+        wires: Optional[List[int]] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
         super().__init__(name='Swap', nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0, 0, 0],
@@ -694,30 +1368,67 @@ class Swap(DoubleGate):
                                                      [0, 1, 0, 0],
                                                      [0, 0, 0, 1]]) + 0j)
 
-    def qasm(self):
+    def _qasm(self):
         if self.controls == []:
             return f'swap q[{self.wires[0]}],q[{self.wires[1]}];\n'
         elif len(self.controls) == 1:
             return f'cswap q{self.controls},q[{self.wires[0]}],q[{self.wires[1]}];\n'
         else:
-            return self.qasm_customized('swap')
+            return self._qasm_customized('swap')
 
 
 class Rxx(ParametricDoubleGate):
-    def __init__(self, inputs=None, nqubit=2, wires=[0,1], controls=None,
-                 den_mat=False, tsr_mode=False, requires_grad=False):
+    r"""Rxx gate.
+    
+    **Matrix Representation:**
+
+    .. math::
+
+        \newcommand{\th}{\frac{\theta}{2}}
+
+        R_{xx}(\theta) = \exp\left(-i \th X{\otimes}X\right) =
+            \begin{pmatrix}
+                \cos\left(\th\right)   & 0                      & 0                      & -i\sin\left(\th\right) \\
+                0                      & \cos\left(\th\right)   & -i\sin\left(\th\right) & 0                      \\
+                0                      & -i\sin\left(\th\right) & \cos\left(\th\right)   & 0                      \\
+                -i\sin\left(\th\right) & 0                      & 0                      & \cos\left(\th\right)
+            \end{pmatrix}
+
+    Args:
+        inputs (Any, optional): The parameter of the gate. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 2
+        wires (List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+        requires_grad (bool, optional): Whether the parameter is `nn.Parameter` or `buffer`.
+            Default: ``False`` (which means `buffer`)
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nqubit: int = 2,
+        wires: Optional[List[int]] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False,
+        requires_grad: bool = False
+    ) -> None:
         super().__init__(name='Rxx', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
-    
-    def get_matrix(self, theta):
+
+    def get_matrix(self, theta: Any) -> torch.Tensor:
         theta = self.inputs_to_tensor(theta)
         cos  = torch.cos(theta / 2)
         isin = torch.sin(theta / 2) * 1j
         m1 = torch.stack([cos, cos, cos, cos]).reshape(-1).diag_embed()
         m2 = torch.stack([-isin, -isin, -isin, -isin]).reshape(-1).diag_embed().fliplr()
         return m1 + m2
-    
-    def qasm(self):
+
+    def _qasm(self):
         if self.inv_mode:
             theta = -self.theta
         else:
@@ -725,24 +1436,61 @@ class Rxx(ParametricDoubleGate):
         if self.controls == []:
             return f'rxx({theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
         else:
-            return self.qasm_customized('rxx')
+            return self._qasm_customized('rxx')
 
 
 class Ryy(ParametricDoubleGate):
-    def __init__(self, inputs=None, nqubit=2, wires=[0,1], controls=None,
-                 den_mat=False, tsr_mode=False, requires_grad=False):
+    r"""Ryy gate.
+
+    **Matrix Representation:**
+
+    .. math::
+
+        \newcommand{\th}{\frac{\theta}{2}}
+
+        R_{yy}(\theta) = \exp\left(-i \th Y{\otimes}Y\right) =
+            \begin{pmatrix}
+                \cos\left(\th\right)  & 0                      & 0                      & i\sin\left(\th\right) \\
+                0                     & \cos\left(\th\right)   & -i\sin\left(\th\right) & 0                     \\
+                0                     & -i\sin\left(\th\right) & \cos\left(\th\right)   & 0                     \\
+                i\sin\left(\th\right) & 0                      & 0                      & \cos\left(\th\right)
+            \end{pmatrix}
+
+    Args:
+        inputs (Any, optional): The parameter of the gate. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 2
+        wires (List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+        requires_grad (bool, optional): Whether the parameter is `nn.Parameter` or `buffer`.
+            Default: ``False`` (which means `buffer`)
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nqubit: int = 2,
+        wires: Optional[List[int]] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False,
+        requires_grad: bool = False
+    ) -> None:
         super().__init__(name='Ryy', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
 
-    def get_matrix(self, theta):
+    def get_matrix(self, theta: Any) -> torch.Tensor:
         theta = self.inputs_to_tensor(theta)
         cos  = torch.cos(theta / 2)
         isin = torch.sin(theta / 2) * 1j
         m1 = torch.stack([cos, cos, cos, cos]).reshape(-1).diag_embed()
         m2 = torch.stack([isin, -isin, -isin, isin]).reshape(-1).diag_embed().fliplr()
         return m1 + m2
-    
-    def qasm(self):
+
+    def _qasm(self):
         if self.inv_mode:
             theta = -self.theta
         else:
@@ -751,26 +1499,64 @@ class Ryy(ParametricDoubleGate):
             qasm_str1 = ''
             qasm_str2 = f'ryy({theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
             if 'ryy' not in Gate.qasm_new_gate:
+                # pylint: disable=line-too-long
                 qasm_str1 += 'gate ryy(param0) q0,q1 { rx(pi/2) q0; rx(pi/2) q1; cx q0,q1; rz(param0) q1; cx q0,q1; rx(-pi/2) q0; rx(-pi/2) q1; }\n'
                 Gate.qasm_new_gate.append('ryy')
             return qasm_str1 + qasm_str2
         else:
-            return self.qasm_customized('ryy')
+            return self._qasm_customized('ryy')
 
 
 class Rzz(ParametricDoubleGate):
-    def __init__(self, inputs=None, nqubit=2, wires=[0,1], controls=None,
-                 den_mat=False, tsr_mode=False, requires_grad=False):
+    r"""Rzz gate.
+
+    **Matrix Representation:**
+
+    .. math::
+
+        \newcommand{\th}{\frac{\theta}{2}}
+
+        R_{zz}(\theta) = \exp\left(-i \th Z{\otimes}Z\right) =
+            \begin{pmatrix}
+                e^{-i \th} & 0         & 0         & 0 \\
+                0          & e^{i \th} & 0         & 0 \\
+                0          & 0         & e^{i \th} & 0 \\
+                0          & 0         & 0         & e^{-i \th}
+            \end{pmatrix}
+
+    Args:
+        inputs (Any, optional): The parameter of the gate. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 2
+        wires (List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+        requires_grad (bool, optional): Whether the parameter is `nn.Parameter` or `buffer`.
+            Default: ``False`` (which means `buffer`)
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nqubit: int = 2,
+        wires: Optional[List[int]] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False,
+        requires_grad: bool = False
+    ) -> None:
         super().__init__(name='Rzz', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
 
-    def get_matrix(self, theta):
+    def get_matrix(self, theta: Any) -> torch.Tensor:
         theta = self.inputs_to_tensor(theta)
         e_m_it = torch.exp(-1j * theta / 2)
         e_it = torch.exp(1j * theta / 2)
         return torch.stack([e_m_it, e_it, e_it, e_m_it]).reshape(-1).diag_embed()
-    
-    def qasm(self):
+
+    def _qasm(self):
         if self.inv_mode:
             theta = -self.theta
         else:
@@ -778,29 +1564,160 @@ class Rzz(ParametricDoubleGate):
         if self.controls == []:
             return f'rzz({theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
         else:
-            return self.qasm_customized('rzz')
+            return self._qasm_customized('rzz')
 
 
 class Rxy(ParametricDoubleGate):
-    def __init__(self, inputs=None, nqubit=2, wires=[0,1], controls=None,
-                 den_mat=False, tsr_mode=False, requires_grad=False):
+    r"""Rxy gate.
+    
+    **Matrix Representation:**
+
+    .. math::
+
+        \newcommand{\th}{\frac{\theta}{2}}
+
+        R_{xy}(\theta) = \exp\left(-i \th X{\otimes}Y\right) =
+            \begin{pmatrix}
+                1 & 0                      & 0                      & 0 \\
+                0 & \cos\left(\th\right)   & -i\sin\left(\th\right) & 0 \\
+                0 & -i\sin\left(\th\right) & \cos\left(\th\right)   & 0 \\
+                0 & 0                      & 0                      & 1
+            \end{pmatrix}
+
+    Args:
+        inputs (Any, optional): The parameter of the gate. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 2
+        wires (List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+        requires_grad (bool, optional): Whether the parameter is `nn.Parameter` or `buffer`.
+            Default: ``False`` (which means `buffer`)
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nqubit: int = 2,
+        wires: Optional[List[int]] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False,
+        requires_grad: bool = False
+    ) -> None:
         super().__init__(name='Rxy', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
 
-    def get_matrix(self, theta):
+    def get_matrix(self, theta: Any) -> torch.Tensor:
         theta = self.inputs_to_tensor(theta)
         cos  = torch.cos(theta / 2)
         isin = torch.sin(theta / 2) * 1j
         m1 = torch.eye(1, dtype=theta.dtype, device=theta.device)
         m2 = torch.stack([cos, -isin, -isin, cos]).reshape(2, 2)
         return torch.block_diag(m1, m2, m1)
-    
-    def qasm(self):
-        return self.qasm_customized('rxy')
+
+    def _qasm(self):
+        return self._qasm_customized('rxy')
+
+
+class ReconfigurableBeamSplitter(ParametricDoubleGate):
+    r"""Reconfigurable Beam Splitter gate.
+
+    **Matrix Representation:**
+
+    .. math::
+
+        RBS(\theta) =
+            \begin{pmatrix}
+                1 & 0                        & 0                       & 0 \\
+                0 & \cos\left(\theta\right)  & \sin\left(\theta\right) & 0 \\
+                0 & -\sin\left(\theta\right) & \cos\left(\theta\right) & 0 \\
+                0 & 0                        & 0                       & 1
+            \end{pmatrix}
+
+    Args:
+        inputs (Any, optional): The parameter of the gate. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 2
+        wires (List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+        requires_grad (bool, optional): Whether the parameter is `nn.Parameter` or `buffer`.
+            Default: ``False`` (which means `buffer`)
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nqubit: int = 2,
+        wires: Optional[List[int]] = None,
+        controls: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False,
+        requires_grad: bool = False
+    ) -> None:
+        super().__init__(name='ReconfigurableBeamSplitter', inputs=inputs, nqubit=nqubit, wires=wires,
+                         controls=controls, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
+
+    def inputs_to_tensor(self, inputs: Any = None):
+        while isinstance(inputs, list):
+            inputs = inputs[0]
+        if inputs is None:
+            inputs = torch.rand(1)[0] * 2 * torch.pi
+        elif not isinstance(inputs, (torch.Tensor, nn.Parameter)):
+            inputs = torch.tensor(inputs, dtype=torch.float)
+        return inputs
+
+    def get_matrix(self, theta: Any) -> torch.Tensor:
+        theta = self.inputs_to_tensor(theta)
+        cos = torch.cos(theta)
+        sin = torch.sin(theta)
+        m1 = torch.eye(1, dtype=theta.dtype, device=theta.device)
+        m2 = torch.stack([cos, sin, -sin, cos]).reshape(2, 2) + 0j
+        return torch.block_diag(m1, m2, m1)
+
+    def _qasm(self):
+        return self._qasm_customized('rbs')
 
 
 class Toffoli(TripleGate):
-    def __init__(self, nqubit=3, wires=[0,1,2], den_mat=False, tsr_mode=False):
+    r"""Toffoli gate.
+
+    **Matrix Representation:**
+
+    .. math::
+        Toffoli =
+           \begin{pmatrix}
+                1 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
+                0 & 1 & 0 & 0 & 0 & 0 & 0 & 0 \\
+                0 & 0 & 1 & 0 & 0 & 0 & 0 & 0 \\
+                0 & 0 & 0 & 1 & 0 & 0 & 0 & 0 \\
+                0 & 0 & 0 & 0 & 1 & 0 & 0 & 0 \\
+                0 & 0 & 0 & 0 & 0 & 1 & 0 & 0 \\
+                0 & 0 & 0 & 0 & 0 & 0 & 0 & 1 \\
+                0 & 0 & 0 & 0 & 0 & 0 & 1 & 0
+            \end{pmatrix}
+
+    Args:
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 3
+        wires (List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+    """
+    def __init__(
+        self,
+        nqubit: int = 3,
+        wires: Optional[List[int]] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
         super().__init__(name='Toffoli', nqubit=nqubit, wires=wires, controls=None,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0, 0, 0, 0, 0, 0, 0],
@@ -827,13 +1744,45 @@ class Toffoli(TripleGate):
         lst3[self.wires[1]] = oneone
         lst3[self.wires[2]] = matrix[-2:, -2:]
         return multi_kron(lst1) - multi_kron(lst2) + multi_kron(lst3)
-    
-    def qasm(self):
+
+    def _qasm(self):
         return f'ccx q[{self.wires[0]}],q[{self.wires[1]}],q[{self.wires[2]}];\n'
 
 
 class Fredkin(TripleGate):
-    def __init__(self, nqubit=3, wires=[0,1,2], den_mat=False, tsr_mode=False):
+    r"""Fredkin gate.
+
+    **Matrix Representation:**
+
+    .. math::
+        Fredkin =
+           \begin{pmatrix}
+                1 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
+                0 & 1 & 0 & 0 & 0 & 0 & 0 & 0 \\
+                0 & 0 & 1 & 0 & 0 & 0 & 0 & 0 \\
+                0 & 0 & 0 & 1 & 0 & 0 & 0 & 0 \\
+                0 & 0 & 0 & 0 & 1 & 0 & 0 & 0 \\
+                0 & 0 & 0 & 0 & 0 & 0 & 1 & 0 \\
+                0 & 0 & 0 & 0 & 0 & 1 & 0 & 0 \\
+                0 & 0 & 0 & 0 & 0 & 0 & 0 & 1
+            \end{pmatrix}
+
+    Args:
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 3
+        wires (List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+    """
+    def __init__(
+        self,
+        nqubit: int = 3,
+        wires: Optional[List[int]] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
         super().__init__(name='Fredkin', nqubit=nqubit, wires=wires, controls=None,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 0, 0, 0, 0, 0, 0, 0],
@@ -857,7 +1806,7 @@ class Fredkin(TripleGate):
         lst3 = [identity] * self.nqubit
         lst4 = [identity] * self.nqubit
         lst5 = [identity] * self.nqubit
-        
+
         lst1[self.wires[0]] = zerozero
 
         lst2[self.wires[0]] = oneone
@@ -876,20 +1825,43 @@ class Fredkin(TripleGate):
         lst5[self.wires[1]] = oneone
         lst5[self.wires[2]] = matrix[-2:, -2:]
         return multi_kron(lst1) + multi_kron(lst2) + multi_kron(lst3) + multi_kron(lst4) + multi_kron(lst5)
-    
-    def qasm(self):
+
+    def _qasm(self):
         return f'cswap q[{self.wires[0]}],q[{self.wires[1]}],q[{self.wires[2]}];\n'
 
 
 class UAnyGate(ArbitraryGate):
-    def __init__(self, unitary, nqubit=1, wires=None, minmax=None, name='UAnyGate', den_mat=False,
-                 tsr_mode=False):
+    """Arbitrary unitary gate.
+
+    Args:
+        unitaty (Any, optional): Any given unitary matrix.
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum 
+            operation acts on. Only valid when `wires` is `None`. Default: ``None``
+        name (str, optional): The name of the gate. Default: ``'UAnyGate'``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+    """
+    def __init__(
+        self,
+        unitary: Any,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        minmax: Optional[List[int]] = None,
+        name: str = 'UAnyGate',
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
         super().__init__(name=name, nqubit=nqubit, wires=wires, minmax=minmax, den_mat=den_mat,
                          tsr_mode=tsr_mode)
-        if type(unitary) != torch.Tensor:
+        if not isinstance(unitary, torch.Tensor):
             unitary = torch.tensor(unitary, dtype=torch.cfloat).reshape(-1, 2 ** len(self.wires))
         assert unitary.dtype in (torch.cfloat, torch.cdouble)
-        assert unitary.shape[-1] == 2 ** len(self.wires) and unitary.shape[-2] == 2 ** len(self.wires)
+        assert unitary.shape[-1] == unitary.shape[-2] == 2 ** len(self.wires)
         assert is_unitary(unitary)
         self.register_buffer('matrix', unitary)
 
@@ -901,22 +1873,48 @@ class UAnyGate(ArbitraryGate):
 
 
 class LatentGate(ArbitraryGate):
-    def __init__(self, inputs=None, nqubit=1, wires=None, minmax=None, name='LatentGate',
-                 den_mat=False, tsr_mode=False, requires_grad=False):
+    """Latent gate.
+
+     Args:
+        inputs (Any, optional): Any given real matrix.
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum 
+            operation acts on. Only valid when `wires` is `None`. Default: ``None``
+        name (str, optional): The name of the gate. Default: ``'LatentGate'``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+        requires_grad (bool, optional): Whether the parameters are `nn.Parameter` or `buffer`.
+            Default: ``False`` (which means `buffer`)
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        minmax: Optional[List[int]] = None,
+        name: str = 'LatentGate',
+        den_mat: bool = False,
+        tsr_mode: bool = False,
+        requires_grad: bool = False
+    ) -> None:
         super().__init__(name=name, nqubit=nqubit, wires=wires, minmax=minmax, den_mat=den_mat,
                          tsr_mode=tsr_mode)
         self.requires_grad = requires_grad
         self.init_para(inputs=inputs)
 
-    def inputs_to_tensor(self, inputs=None):
-        if inputs == None:
+    def inputs_to_tensor(self, inputs: Any = None):
+        if inputs is None:
             inputs = torch.randn(2 ** len(self.wires), 2 ** len(self.wires))
-        elif type(inputs) != torch.Tensor and type(inputs) != torch.nn.parameter.Parameter:
+        elif not isinstance(inputs, (torch.Tensor, nn.Parameter)):
             inputs = torch.tensor(inputs, dtype=torch.float)
-        assert inputs.shape[-1] == 2 ** len(self.wires) and inputs.shape[-2] == 2 ** len(self.wires)
+        assert inputs.shape[-1] == inputs.shape[-2] == 2 ** len(self.wires)
         return inputs
-    
-    def get_matrix(self, inputs):
+
+    def get_matrix(self, inputs: Any) -> torch.Tensor:
         latent = self.inputs_to_tensor(inputs) + 0j
         u, _, vh = svd(latent)
         return u @ vh
@@ -929,8 +1927,8 @@ class LatentGate(ArbitraryGate):
         matrix = self.get_matrix(latent)
         self.matrix = matrix.detach()
         return matrix
-        
-    def init_para(self, inputs=None):
+
+    def init_para(self, inputs: Any = None):
         latent = self.inputs_to_tensor(inputs=inputs)
         if self.requires_grad:
             self.latent = nn.Parameter(latent)
@@ -941,14 +1939,23 @@ class LatentGate(ArbitraryGate):
 
 
 class Barrier(Gate):
-    def __init__(self, nqubit=1, wires=[0]):
+    """Barrier.
+
+     Args:
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+    """
+    def __init__(self, nqubit: int = 1, wires: Union[int, List[int], None] = None) -> None:
+        if wires is None:
+            wires = list(range(nqubit))
         super().__init__(name='Barrier', nqubit=nqubit, wires=wires)
 
-    def forward(self, x):
+    def forward(self, x: Any) -> Any:
         return x
-    
-    def qasm(self):
-        qasm_str = 'barrier '
+
+    def _qasm(self):
+        qasm_lst = ['barrier ']
         for wire in self.wires:
-            qasm_str += f'q[{wire}],'
-        return qasm_str[:-1] + ';\n'
+            qasm_lst.append(f'q[{wire}],')
+        return ''.join(qasm_lst)[:-1] + ';\n'

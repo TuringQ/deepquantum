@@ -1,6 +1,7 @@
 import pytest
 import math
 from fractions import Fraction
+
 import deepquantum as dq
 
 
