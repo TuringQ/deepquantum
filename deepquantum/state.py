@@ -1,13 +1,26 @@
+"""
+Quantum states
+"""
+
+from typing import Any, List, Optional, Union
+
 import torch
-import torch.nn as nn
-from .qmath import is_density_matrix, amplitude_encoding, inner_product_mps, SVD, QR
+from torch import nn
 
+from .qmath import is_density_matrix, amplitude_encoding, inner_product_mps, svd, qr
 
-svd = SVD.apply
-qr = QR.apply
 
 class QubitState(nn.Module):
-    def __init__(self, nqubit=1, state='zeros', den_mat=False) -> None:
+    """A quantum state of n qubits, including both pure states and density matrices.
+
+    Args:
+        nqubit (int, optional): The number of qubits in the state. Default: 1
+        state (Any, optional): The initial state. It can be one of the following strings: 'zeros', 'equal',
+            'entangle', 'GHZ', or 'ghz'. Alternatively, it can be a tensor that represents a custom state
+            vector or density matrix. Default: ``'zeros'``
+        den_mat (bool, optional): Whether the state is a density matrix or not. Default: ``False``
+    """
+    def __init__(self, nqubit: int = 1, state: Any = 'zeros', den_mat: bool = False) -> None:
         super().__init__()
         self.nqubit = nqubit
         self.den_mat = den_mat
@@ -31,7 +44,7 @@ class QubitState(nn.Module):
                 state = state @ state.mH
             self.register_buffer('state', state)
         else:
-            if type(state) != torch.Tensor:
+            if not isinstance(state, torch.Tensor):
                 state = torch.tensor(state, dtype=torch.cfloat)
             ndim = state.ndim
             s = state.shape
@@ -50,38 +63,48 @@ class QubitState(nn.Module):
 
 
 class MatrixProductState(nn.Module):
-    def __init__(self, nqubit=1, state='zeros', chi=None, qudit=2, normalize=True) -> None:
+    """A matrix product state (MPS) for quantum systems.
+
+    A matrix product state is a way of representing a quantum state as a product of local tensors.
+    Each tensor has one physical index and one or two bond indices. The physical index corresponds to
+    the local Hilbert space dimension of the qudit, while the bond indices correspond to the entanglement
+    between qudits.
+
+    Args:
+        nqubit (int, optional): The number of qubits in the quantum system. Default: 1
+        state (str or List[torch.Tensor], optional): The initial state of the MPS. If 'zeros', the MPS is
+            initialized to the all-zero state. If a list of tensors, the MPS is initialized to the given
+            tensors. The tensors must have the correct shape and dtype. Default: ``'zeros'``
+        chi (int or None, optional): The maximum bond dimension of the MPS. Default: `10 * nqubit`
+        qudit (int, optional): The local Hilbert space dimension of each qudit. Default: 2
+        normalize (bool, optional): Whether to normalize the MPS after each operation. Default: ``True``
+    """
+    def __init__(
+        self,
+        nqubit: int = 1,
+        state: Union[str, List[torch.Tensor]] = 'zeros',
+        chi: Optional[int] = None,
+        qudit: int = 2,
+        normalize: bool = True
+    ) -> None:
         super().__init__()
-        if chi == None:
+        if chi is None:
             chi = 10 * nqubit
         self.nqubit = nqubit
         self.chi = chi
         self.qudit = qudit
         self.normalize = normalize
         self.center = -1
-        tensors = []
         if state == 'zeros':
-            if nqubit == 1:
+            tensors = []
+            for _ in range(0, nqubit):
                 tensor = torch.zeros(qudit, dtype=torch.cfloat)
                 tensor[0] = 1.
+                # the bond dimension is 1
                 tensor = tensor.reshape(1, qudit, 1)
                 tensors.append(tensor)
-            else:
-                tensor = torch.zeros(qudit * chi, dtype=torch.cfloat)
-                tensor[0] = 1.
-                tensor = tensor.reshape(1, qudit, chi)
-                tensors.append(tensor)
-                for i in range(1, nqubit - 1):
-                    tensor = torch.zeros(chi * qudit * chi, dtype=torch.cfloat)
-                    tensor[0] = 1.
-                    tensor = tensor.reshape(chi, qudit, chi)
-                    tensors.append(tensor)
-                tensor = torch.zeros(qudit * chi, dtype=torch.cfloat)
-                tensor[0] = 1.
-                tensor = tensor.reshape(chi, qudit, 1)
-                tensors.append(tensor)
         else:
-            assert type(state) == list, 'Invalid input type'
+            assert isinstance(state, list), 'Invalid input type'
             assert all(isinstance(i, torch.Tensor) for i in state), 'Invalid input type'
             assert len(state) == nqubit
             tensors = state
@@ -89,22 +112,28 @@ class MatrixProductState(nn.Module):
             self.register_buffer(f'tensor{i}', tensors[i])
 
     @property
-    def tensors(self):
-        # ATTENTION: This output is provided for reading only.
-        # Please modify the tensors through buffers.
+    def tensors(self) -> List[torch.Tensor]:
+        """Get the tensors of the matrix product state.
+
+        Note:
+            This output is provided for reading only.
+            Please modify the tensors through buffers.
+        """
         tensors = []
         for j in range(self.nqubit):
-            tensors.append(self.__getattr__(f'tensor{j}'))
+            tensors.append(getattr(self, f'tensor{j}'))
         return tensors
 
-    def set_tensors(self, tensors):
-        assert type(tensors) == list, 'Invalid input type'
+    def set_tensors(self, tensors: List[torch.Tensor]) -> None:
+        """Set the tensors of the matrix product state."""
+        assert isinstance(tensors, list), 'Invalid input type'
         assert all(isinstance(i, torch.Tensor) for i in tensors), 'Invalid input type'
         assert len(tensors) == self.nqubit
         for i in range(self.nqubit):
             self.register_buffer(f'tensor{i}', tensors[i])
 
-    def center_orthogonalization(self, c, dc=-1, normalize=False):
+    def center_orthogonalization(self, c: int, dc: int = -1, normalize: bool = False) -> None:
+        """Get the center-orthogonalization form of the MPS with center `c`."""
         if c == -1:
             c = self.nqubit - 1
         if self.center < -0.5:
@@ -116,7 +145,8 @@ class MatrixProductState(nn.Module):
         if normalize:
             self.normalize_central_tensor()
 
-    def check_center_orthogonality(self, prt=False):
+    def check_center_orthogonality(self, prt: bool = False) -> List[torch.Tensor]:
+        """Check if the MPS is in center-orthogonal form."""
         tensors = self.tensors
         assert tensors[0].ndim == 3
         if self.center < -0.5:
@@ -147,11 +177,12 @@ class MatrixProductState(nn.Module):
                         print('Site ' + str(i) + ': ', err[i])
                         err_av += err[i]
                 print('-' * 35)
-                print('Average error = %g' % (err_av / (self.nqubit - 1)))
+                print(f'Average error = {err_av / (self.nqubit - 1)}')
                 print('=' * 35)
             return err
-        
-    def full_tensor(self):
+
+    def full_tensor(self) -> torch.Tensor:
+        """Get the full tensor product of the state."""
         assert self.nqubit < 24
         tensors = self.tensors
         psi = tensors[0]
@@ -160,15 +191,21 @@ class MatrixProductState(nn.Module):
             s = psi.shape
             psi = psi.reshape(-1, s[-4], s[-3]*s[-2], s[-1])
         return psi.squeeze()
-    
-    def inner(self, tensors, form='norm'):
+
+    def inner(
+        self,
+        tensors: Union[List[torch.Tensor], 'MatrixProductState'],
+        form: str = 'norm'
+    ) -> Union[torch.Tensor, List[torch.Tensor]]:
+        """Get the inner product with another matrix product state."""
         # form: 'log' or 'list'
-        if type(tensors) is list:
+        if isinstance(tensors, list):
             return inner_product_mps(self.tensors, tensors, form=form)
         else:
             return inner_product_mps(self.tensors, tensors.tensors, form=form)
 
-    def normalize_central_tensor(self):
+    def normalize_central_tensor(self) -> None:
+        """Normalize the center tensor."""
         assert self.center in list(range(self.nqubit))
         tensors = self.tensors
         if tensors[self.center].ndim == 3:
@@ -177,8 +214,19 @@ class MatrixProductState(nn.Module):
             norm = tensors[self.center].norm(p=2, dim=[1,2,3], keepdim=True)
         self._buffers[f'tensor{self.center}'] = self._buffers[f'tensor{self.center}'] / norm
 
-    def orthogonalize_left2right(self, site, dc=-1, normalize=False):
-        # no truncation if dc=-1
+    def orthogonalize_left2right(self, site: int, dc: int = -1, normalize: bool = False) -> None:
+        r"""Orthogonalize the tensor at `site` and update the next one at `site`+1.
+
+        It uses the QR decomposition or SVD, i.e. :math:`T = ur` for the QR decomposition and
+        :math:`T = usv^{\text{h}} = ur` for SVD. The tensor at `site` is replaced by :math:`u`.
+        The tensor at `site`+1 is updated by :math:`r`.
+
+        Args:
+            site (int): The site of tensor to be orthogonalized.
+            dc (int, optional): Keep the first `dc` singular values after truncation.
+                Default: -1 (which means no truncation)
+            normalize (bool, optional): Whether to normalize the tensor :math:`r`. Default: ``False``
+        """
         assert site < self.nqubit - 1
         tensors = self.tensors
         shape = tensors[site].shape
@@ -186,10 +234,7 @@ class MatrixProductState(nn.Module):
             batch = 1
         else:
             batch = shape[0]
-        if 0 < dc < shape[-1]:
-            if_trun = True
-        else:
-            if_trun = False
+        if_trun = 0 < dc < shape[-1]
         if if_trun:
             u, s, vh = svd(tensors[site].reshape(batch, -1, shape[-1]))
             u = u[:, :, :dc]
@@ -205,9 +250,22 @@ class MatrixProductState(nn.Module):
             tensors = self.tensors
             self._buffers[f'tensor{site}'] = tensors[site].squeeze(0)
             self._buffers[f'tensor{site + 1}'] = tensors[site + 1].squeeze(0)
-    
-    def orthogonalize_right2left(self, site, dc=-1, normalize=False):
-        # no truncation if dc=-1
+
+
+    def orthogonalize_right2left(self, site: int, dc: int = -1, normalize: bool = False) -> None:
+        r"""Orthogonalize the tensor at `site` and update the next one at `site`-1.
+
+        It uses the QR decomposition or SVD, i.e. :math:`T* = qr` for the QR decomposition, 
+        which gives :math:`T = r*q* = lv^{\text{h}}`, and :math:`T = usv^{\text{h}} = lv^{\text{h}}`
+        for SVD. The tensor at `site` is replaced by :math:`v^{\text{h}}`. The tensor at `site`-1
+        is updated by :math:`l`.
+
+        Args:
+            site (int): The site of tensor to be orthogonalized.
+            dc (int, optional): Keep the first `dc` singular values after truncation.
+                Default: -1 (which means no truncation)
+            normalize (bool, optional): Whether to normalize the tensor :math:`l`. Default: ``False``
+        """
         assert site > 0
         tensors = self.tensors
         shape = tensors[site].shape
@@ -215,10 +273,7 @@ class MatrixProductState(nn.Module):
             batch = 1
         else:
             batch = shape[0]
-        if 0 < dc < shape[-3]:
-            if_trun = True
-        else:
-            if_trun = False
+        if_trun = 0 < dc < shape[-3]
         if if_trun:
             u, s, vh = svd(tensors[site].reshape(batch, shape[-3], -1))
             vh = vh[:, :dc, :]
@@ -236,8 +291,9 @@ class MatrixProductState(nn.Module):
             tensors = self.tensors
             self._buffers[f'tensor{site}'] = tensors[site].squeeze(0)
             self._buffers[f'tensor{site - 1}'] = tensors[site - 1].squeeze(0)
-    
-    def orthogonalize_n1_n2(self, n1, n2, dc, normalize):
+
+    def orthogonalize_n1_n2(self, n1: int, n2: int, dc: int, normalize: bool) -> None:
+        """Orthogonalize the MPS from site `n1` to site `n2`."""
         if n1 < n2:
             for site in range(n1, n2, 1):
                 self.orthogonalize_left2right(site, dc, normalize)
