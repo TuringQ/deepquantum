@@ -243,7 +243,7 @@ class PhiAdder(Ansatz):
 
     Args:
         nqubit (int): The number of qubits in the circuit.
-        number (int): Number `a` in `\Phi(a+b)`.
+        number (int): Number `a` in :math:`\Phi(a+b)` .
         minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum 
             operation acts on. Default: ``None``
         controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
@@ -285,8 +285,8 @@ class PhiModularAdder(Ansatz):
 
     Args:
         nqubit (int): The number of qubits in the circuit.
-        number (int): Number `a` in `\Phi(a+b mod N)`.
-        mod (int): The modulus in `\Phi(a+b mod N)`.
+        number (int): Number `a` in :math:`\Phi(a+b \mod N)`.
+        mod (int): The modulus in :math:`\Phi(a+b \mod N)`.
         minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum 
             operation acts on. Default: ``None``
         ancilla (int, List[int] or None, optional): The indices of the ancilla qubits. Default: ``None``
@@ -417,8 +417,8 @@ class QuantumFourierTransform(Ansatz):
         minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum 
             operation acts on. Default: ``None``
         reverse (bool, optional): Whether to reverse the output order. Default: ``False`` (which means
-            the default output order of phase is x/2, ..., x/2**n. If `reverse=True`, the output order
-            of phase is x/2**n, ..., x/2)
+            the default output order of phase is :math:`x/2, ..., x/2^n`. If `reverse=True`, the output order
+            of phase is :math:`x/2^n, ..., x/2`)
         init_state (Any, optional): The initial state of the circuit. Default: ``'zeros'``
         den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         mps (bool, optional): Whether to use matrix product state representation. Default: ``False``

@@ -143,8 +143,8 @@ class QubitCircuit(Operation):
                 The initial state for the quantum circuit. Default: ``None``
 
         Returns:
-            torch.Tensor or List[torch.Tensor]: The final state of the quantum circuit after
-                applying the `operators`.
+            data (torch.Tensor or List[torch.Tensor]): The final state of the quantum circuit after 
+            applying the `operators`.
         """
         if state is None:
             state = self.init_state
@@ -204,17 +204,17 @@ class QubitCircuit(Operation):
     def encode(self, data: torch.Tensor) -> None:
         """Encode the input data into the quantum circuit parameters.
 
-        This method iterates over the `encoders` of the quantum circuit and initializes their parameters
-        with the input data. If `reupload` is `False`, the input data must be at least as long as the number
-        of parameters in the `encoders`. If `reupload` is `True`, the input data can be repeated to fill up
+        This method iterates over the ``encoders`` of the quantum circuit and initializes their parameters
+        with the input data. If ``reupload`` is ``False``, the input data must be at least as long as the number
+        of parameters in the ``encoders``. If ``reupload`` is ``True``, the input data can be repeated to fill up
         the parameters.
 
         Args:
-            data (torch.Tensor): The input data for the `encoders`, must be a 1D tensor.
+            data (torch.Tensor): The input data for the ``encoders``, must be a 1D tensor.
 
         Raises:
-            AssertionError: If `reupload` is `False` and the input data is shorter than the number of 
-                parameters in the `encoders`.
+            AssertionError: If ``reupload`` is ``False`` and the input data is shorter than the number of 
+                parameters in the ``encoders``.
         """
         if data is None:
             return
@@ -232,17 +232,17 @@ class QubitCircuit(Operation):
             count = count_up % len(data)
 
     def init_para(self) -> None:
-        """Initialize the parameters of the `operators`."""
+        """Initialize the parameters of the ``operators``."""
         for op in self.operators:
             op.init_para()
 
     def init_encoder(self) -> None: # deal with the problem of state_dict() with vmap
-        """Initialize the parameters of the `encoders`."""
+        """Initialize the parameters of the ``encoders``."""
         for op in self.encoders:
             op.init_para()
 
     def reset(self, init_state: Any = 'zeros') -> None:
-        """Reset the `QubitCircuit` according to `init_state`."""
+        """Reset the `QubitCircuit` according to ``init_state``."""
         if isinstance(init_state, (QubitState, MatrixProductState)):
             assert self.nqubit == init_state.nqubit
             if isinstance(init_state, MatrixProductState):
@@ -276,7 +276,7 @@ class QubitCircuit(Operation):
         Args:
             wires (int, List[int] or None, optional): The wires to measure. Default: ``None`` (which means
                 all wires are measured)
-            basis (str, optional): The measurement basis for each wire. It can be 'x', 'y', or 'z'. If only
+            basis (str, optional): The measurement basis for each wire. It can be ``'x'``, ``'y'``, or ``'z'``. If only
                 one character is given, it is repeated for all wires. Default: ``'z'``
         """
         observable = Observable(nqubit=self.nqubit, wires=wires, basis=basis,
@@ -284,7 +284,7 @@ class QubitCircuit(Operation):
         self.observables.append(observable)
 
     def reset_observable(self) -> None:
-        """Reset the `observables`."""
+        """Reset the ``observables``."""
         self.observables = nn.ModuleList()
 
     def measure(
@@ -307,7 +307,7 @@ class QubitCircuit(Operation):
             return measure(self.state, shots=shots, with_prob=with_prob, wires=wires)
 
     def expectation(self) -> torch.Tensor:
-        """Get the expectation value according to the final state and `observables`."""
+        """Get the expectation value according to the final state and ``observables``."""
         assert len(self.observables) > 0, 'There is no observable'
         if isinstance(self.state, list):
             assert all(isinstance(i, torch.Tensor) for i in self.state), 'Invalid final state'
@@ -339,7 +339,7 @@ class QubitCircuit(Operation):
         Note:
             The inversed circuit shares the parameters with the original circuit.
             You should ONLY encode data onto the original circuit.
-            If you want to encode data onto the inversed circuit, set `encode` to be `True`.
+            If you want to encode data onto the inversed circuit, set ``encode`` to be ``True``.
         """
         if isinstance(self.name, str):
             name = self.name + '_inverse'
@@ -396,18 +396,18 @@ class QubitCircuit(Operation):
         """A method that adds an operation to the quantum circuit.
 
         The operation can be a gate, a layer, or another quantum circuit. The method also updates the
-        attributes of the quantum circuit. If `wires` is specified, the parameters of gates are shared.
+        attributes of the quantum circuit. If ``wires`` is specified, the parameters of gates are shared.
 
         Args:
             op (Operation): The operation to add. It is an instance of `Operation` class or its subclasses,
-                such as `Gate`, `Layer`, or `QubitCircuit`.
+                such as ``Gate``, ``Layer``, or ``QubitCircuit``.
             encode (bool): Whether the gate or layer is to encode data. Default: ``False``
             wires (Union[int, List[int], None]): The wires to apply the gate on. It can be an integer
                 or a list of integers specifying the indices of the wires. Default: ``None`` (which means
                 the gate has its own wires)
             controls (Union[int, List[int], None]): The control wires for the gate. It can be an integer
-                or a list of integers specifying the indices of the control wires. Only valid when `wires`
-                is not `None`. Default: ``None`` (which means the gate has its own control wires)
+                or a list of integers specifying the indices of the control wires. Only valid when ``wires``
+                is not ``None``. Default: ``None`` (which means the gate has its own control wires)
 
         Raises:
             AssertionError: If the input arguments are invalid or incompatible with the quantum circuit.

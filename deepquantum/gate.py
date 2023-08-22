@@ -40,6 +40,7 @@ class SingleGate(Gate):
         assert len(self.wires) == 1
 
     def get_unitary(self):
+        """Get the global unitary matrix."""
         matrix = self.update_matrix()
         identity = torch.eye(2, dtype=matrix.dtype, device=matrix.device)
         if self.controls == []:
@@ -88,6 +89,7 @@ class DoubleGate(Gate):
                          den_mat=den_mat, tsr_mode=tsr_mode)
 
     def get_unitary(self):
+        """Get the global unitary matrix."""
         matrix = self.update_matrix()
         identity = torch.eye(2, dtype=matrix.dtype, device=matrix.device)
         zerozero = torch.tensor([[1, 0], [0, 0]], dtype=matrix.dtype, device=matrix.device)
@@ -167,6 +169,7 @@ class DoubleControlGate(DoubleGate):
                          den_mat=den_mat, tsr_mode=tsr_mode)
 
     def get_unitary(self):
+        """Get the global unitary matrix."""
         matrix = self.update_matrix()
         identity = torch.eye(2, dtype=matrix.dtype, device=matrix.device)
         zerozero = torch.tensor([[1, 0], [0, 0]], dtype=matrix.dtype, device=matrix.device)
@@ -257,6 +260,7 @@ class ArbitraryGate(Gate):
         self.inv_mode = False
 
     def get_unitary(self):
+        """Get the global unitary matrix."""
         if self.local:
             matrix = self.update_matrix()
             identity = torch.eye(2, dtype=matrix.dtype, device=matrix.device)
@@ -270,6 +274,7 @@ class ArbitraryGate(Gate):
             return self.op_state_base(identity, matrix).reshape(2 ** self.nqubit, 2 ** self.nqubit).T
 
     def inverse(self):
+        """Get the inversed gate."""
         if isinstance(self.name, str):
             name = self.name + '_dagger'
         else:
@@ -319,6 +324,7 @@ class ParametricSingleGate(SingleGate):
         self.init_para(inputs=inputs)
 
     def inputs_to_tensor(self, inputs: Any = None):
+        """Convert inputs to torch.Tensor."""
         while isinstance(inputs, list):
             inputs = inputs[0]
         if inputs is None:
@@ -328,6 +334,7 @@ class ParametricSingleGate(SingleGate):
         return inputs
 
     def update_matrix(self):
+        """Update the local unitary matrix."""
         if self.inv_mode:
             theta = -self.theta
         else:
@@ -337,6 +344,7 @@ class ParametricSingleGate(SingleGate):
         return matrix
 
     def init_para(self, inputs: Any = None):
+        """Initialize the parameters."""
         theta = self.inputs_to_tensor(inputs=inputs)
         if self.requires_grad:
             self.theta = nn.Parameter(theta)
@@ -345,6 +353,7 @@ class ParametricSingleGate(SingleGate):
         self.update_matrix()
 
     def inverse(self):
+        """Get the inversed gate."""
         gate = copy(self)
         gate.inv_mode = not self.inv_mode
         return gate
