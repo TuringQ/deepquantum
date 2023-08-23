@@ -86,14 +86,14 @@ class Ansatz(QubitCircuit):
 
 
 class ControlledMultiplier(Ansatz):
-    """Controlled multiplier.
+    r"""Controlled multiplier.
 
     See https://arxiv.org/pdf/quant-ph/0205095.pdf Fig.6
 
     Args:
         nqubit (int): The number of qubits in the circuit.
-        a (int): Number `a` in `b+a*x mod N`.
-        mod (int): The modulus in `b+a*x mod N`.
+        a (int): Number ``a`` in :math:`b+a*x \mod N`.
+        mod (int): The modulus in :math:`b+a*x \mod N`.
         minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum 
             operation acts on. Default: ``None``
         ancilla (int, List[int] or None, optional): The indices of the ancilla qubits. Default: ``None``
@@ -150,15 +150,15 @@ class ControlledMultiplier(Ansatz):
 
 
 class ControlledUa(Ansatz):
-    """Controlled Ua gate.
+    r"""Controlled Ua gate.
 
-    `a` has a modular inverse only if `a` is coprime to `mod`.
+    ``a`` has a modular inverse only if ``a`` is coprime to ``mod``.
     See https://arxiv.org/pdf/quant-ph/0205095.pdf Fig.7
 
     Args:
         nqubit (int): The number of qubits in the circuit.
-        a (int): Number a in `a*x mod N`.
-        mod (int): The modulus in `a*x mod N`.
+        a (int): Number ``a`` in :math:`a*x \mod N`.
+        mod (int): The modulus in :math:`a*x \mod N`.
         minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum 
             operation acts on. Default: ``None``
         ancilla (int, List[int] or None, optional): The indices of the ancilla qubits. Default: ``None``
@@ -243,7 +243,7 @@ class PhiAdder(Ansatz):
 
     Args:
         nqubit (int): The number of qubits in the circuit.
-        number (int): Number `a` in :math:`\Phi(a+b)` .
+        number (int): Number ``a`` in :math:`\Phi(a+b)` .
         minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum 
             operation acts on. Default: ``None``
         controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
@@ -285,7 +285,7 @@ class PhiModularAdder(Ansatz):
 
     Args:
         nqubit (int): The number of qubits in the circuit.
-        number (int): Number `a` in :math:`\Phi(a+b \mod N)`.
+        number (int): Number ``a`` in :math:`\Phi(a+b \mod N)`.
         mod (int): The modulus in :math:`\Phi(a+b \mod N)`.
         minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum 
             operation acts on. Default: ``None``
@@ -417,7 +417,7 @@ class QuantumFourierTransform(Ansatz):
         minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum 
             operation acts on. Default: ``None``
         reverse (bool, optional): Whether to reverse the output order. Default: ``False`` (which means
-            the default output order of phase is :math:`x/2, ..., x/2^n`. If `reverse=True`, the output order
+            the default output order of phase is :math:`x/2, ..., x/2^n`. If ``reverse=True``, the output order
             of phase is :math:`x/2^n, ..., x/2`)
         init_state (Any, optional): The initial state of the circuit. Default: ``'zeros'``
         den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
@@ -499,7 +499,7 @@ class RandomCircuitG3(Ansatz):
         wires (List[int] or None, optional): The indices of the qubits that the random gates act on.
             Default: ``None``
         minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum 
-            operation acts on. Only valid when `wires` is `None`. Default: ``None``
+            operation acts on. Only valid when ``wires`` is ``None``. Default: ``None``
         init_state (Any, optional): The initial state of the circuit. Default: ``'zeros'``
         den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
@@ -541,7 +541,7 @@ class ShorCircuit(Ansatz):
     Args:
         mod (int): The odd integer to be factored.
         ncount (int): The number of counting qubits.
-        a (int): Any integer that satisfies `1 < a < N` and `gcd(a, N) = 1`.
+        a (int): Any integer that satisfies :math:`1 < a < N` and :math:`gcd(a, N) = 1`.
         den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
         chi (int or None, optional): The bond dimension for matrix product state representation.
@@ -589,7 +589,7 @@ class ShorCircuitFor15(Ansatz):
 
     Args:
         ncount (int): The number of counting qubits.
-        a (int): Any integer that satisfies `1 < a < N` and `gcd(a, N) = 1`.
+        a (int): Any integer that satisfies :math:`1 < a < N` and :math:`gcd(a, N) = 1`.
         den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
         chi (int or None, optional): The bond dimension for matrix product state representation.

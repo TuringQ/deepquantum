@@ -16,7 +16,7 @@ from .state import MatrixProductState
 
 
 class Operation(nn.Module):
-    """A base class for quantum operations.
+    r"""A base class for quantum operations.
 
     Args:
         name (str, optional): The name of the quantum operation. Default: ``None``
@@ -26,7 +26,7 @@ class Operation(nn.Module):
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+            and output are represented by a tensor of shape :math:`(\text{batch}, \text{2, ..., 2})`. Default: ``False``
     """
     def __init__(
         self,
@@ -45,6 +45,7 @@ class Operation(nn.Module):
         self.npara = 0
 
     def tensor_rep(self, x: torch.Tensor) -> torch.Tensor:
+        """Get the tensor representation of the state."""
         if self.den_mat:
             assert x.shape[-1] == x.shape[-2] == 2 ** self.nqubit
             return x.reshape([-1] + [2] * 2 * self.nqubit)
@@ -56,15 +57,19 @@ class Operation(nn.Module):
             return x.reshape([-1] + [2] * self.nqubit)
 
     def vector_rep(self, x: torch.Tensor) -> torch.Tensor:
+        """Get the vector representation of the state."""
         return x.reshape(-1, 2 ** self.nqubit, 1)
 
     def matrix_rep(self, x: torch.Tensor) -> torch.Tensor:
+        """Get the density matrix representation of the state."""
         return x.reshape(-1, 2 ** self.nqubit, 2 ** self.nqubit)
 
     def get_unitary(self):
+        """Get the global unitary matrix."""
         raise NotImplementedError
 
     def init_para(self):
+        """Initialize the parameters."""
         pass
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -78,9 +83,9 @@ class Operation(nn.Module):
 
 
 class Gate(Operation):
-    """A base class for quantum gates.
+    r"""A base class for quantum gates.
 
-     Args:
+    Args:
         name (str, optional): The name of the gate. Default: ``None``
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
@@ -89,7 +94,7 @@ class Gate(Operation):
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+            and output are represented by a tensor of shape :math:`(\text{batch}, \text{2, ..., 2})`. Default: ``False``
     """
     # include default names in QASM
     qasm_new_gate = ['c3x', 'c4x']
@@ -124,6 +129,7 @@ class Gate(Operation):
         super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
 
     def update_matrix(self):
+        """Update the local unitary matrix."""
         return self.matrix
 
     def op_state(self, x: torch.Tensor) -> torch.Tensor:
@@ -251,6 +257,7 @@ class Gate(Operation):
             return self.op_state(x)
 
     def inverse(self):
+        """Get the inversed gate."""
         return self
 
     def extra_repr(self):
@@ -289,16 +296,16 @@ class Gate(Operation):
         r"""Convert gate to MPO form with identities at empty sites.
 
         Note:
-            If sites are not adjacent, insert identities in the middle, i.e.
-              |       |             |   |   |
-            --A---x---B--   ->    --A---I---B--
-              |       |             |   |   |
+                If sites are not adjacent, insert identities in the middle, i.e.
+            >>>      |       |             |   |   |
+            >>>    --A---x---B--   ->    --A---I---B--
+            >>>      |       |             |   |   |
             where
-                 a
-                 |
-            --i--I--j-- = \delta_{i,j} \delta_{a,b}
-                 |
-                 b
+            >>>         a
+            >>>         |
+            >>>    --i--I--j-- = \delta_{i,j} \delta_{a,b}
+            >>>         |
+            >>>         b
         """
         index = self.wires + self.controls
         index_left = min(index)
@@ -333,19 +340,19 @@ class Gate(Operation):
         return tensors, index_left
 
     def op_mps(self, mps: MatrixProductState) -> MatrixProductState:
-        """Perform a forward pass for the `MatrixProductState`.
+        """Perform a forward pass for the ``MatrixProductState``.
 
         Note:
             Use TEBD algorithm
 
                 contract tensor (contract local states with local operators)
-                      a
-                      |
-                i-----O-----j            a
-                      |        ->        |
-                      b             ik---X---jl
-                      |
-                k-----T-----l
+            >>>          a
+            >>>          |
+            >>>    i-----O-----j            a
+            >>>          |        ->        |
+            >>>          b             ik---X---jl
+            >>>          |
+            >>>    k-----T-----l
         """
         mpo_tensors, left = self.get_mpo()
         right = left + len(mpo_tensors) - 1
@@ -378,7 +385,7 @@ class Gate(Operation):
 
 
 class Layer(Operation):
-    """A base class for quantum layers.
+    r"""A base class for quantum layers.
     
     Args:
         name (str, optional): The name of the layer. Default: ``None``
@@ -388,7 +395,7 @@ class Layer(Operation):
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+            and output are represented by a tensor of shape :math:`(\text{batch}, \text{2, ..., 2})`. Default: ``False``
     """
     def __init__(
         self,
@@ -414,6 +421,7 @@ class Layer(Operation):
         self.gates = nn.Sequential()
 
     def get_unitary(self):
+        """Get the global unitary matrix."""
         u = None
         for gate in self.gates:
             if u is None:
@@ -423,6 +431,7 @@ class Layer(Operation):
         return u
 
     def init_para(self, inputs: Any = None):
+        """Initialize the parameters."""
         count = 0
         for gate in self.gates:
             if inputs is None:
@@ -432,6 +441,7 @@ class Layer(Operation):
             count += gate.npara
 
     def update_npara(self):
+        """Update the number of parameters."""
         self.npara = 0
         for gate in self.gates:
             self.npara += gate.npara
@@ -450,6 +460,7 @@ class Layer(Operation):
         return x
 
     def inverse(self):
+        """Get the inversed gate."""
         return self
 
     def _qasm(self):

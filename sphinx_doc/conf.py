@@ -32,8 +32,7 @@ templates_path = ['_templates']
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 
 autodoc_default_options = {
-    # 'members': 'var1, var2', # 只包含var1和var2,排除其他成员
-    'exclude-members': 'training, extra_repr', # 排除fun1和fun2方法
+    'exclude-members': 'training, extra_repr',
     'member-order': 'bysource'
 }
 

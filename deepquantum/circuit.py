@@ -22,7 +22,7 @@ from .qmath import amplitude_encoding, measure, expectation
 class QubitCircuit(Operation):
     """Quantum circuit for qubits.
 
-    This class inherits from the `Operation` class and implements methods for creating, manipulating,
+    This class inherits from the ``Operation`` class and implements methods for creating, manipulating,
     and measuring quantum states.
 
     Args:
@@ -36,7 +36,7 @@ class QubitCircuit(Operation):
             Default: ``None``
 
     Raises:
-        AssertionError: If the type or dimension of `init_state` does not match `nqubit` or `den_mat`.
+        AssertionError: If the type or dimension of ``init_state`` does not match ``nqubit`` or ``den_mat``.
     """
     def __init__(
         self,
@@ -76,8 +76,8 @@ class QubitCircuit(Operation):
     def __add__(self, rhs: 'QubitCircuit') -> 'QubitCircuit':
         """Addition of the `QubitCircuit`.
 
-        The initial state is the same as the first `QubitCircuit`.
-        The information of observables and measurements is the same as the second `QubitCircuit`.
+        The initial state is the same as the first ``QubitCircuit``.
+        The information of observables and measurements is the same as the second ``QubitCircuit``.
         """
         assert self.nqubit == rhs.nqubit
         cir = QubitCircuit(nqubit=self.nqubit, name=self.name, den_mat=self.den_mat, reupload=self.reupload,
@@ -93,7 +93,7 @@ class QubitCircuit(Operation):
         return cir
 
     def to(self, arg: Any) -> 'QubitCircuit':
-        """Set dtype or device of the `QubitCircuit`."""
+        """Set dtype or device of the ``QubitCircuit``."""
         if arg == torch.float:
             self.init_state.to(torch.cfloat)
             for op in self.operators:
@@ -132,19 +132,19 @@ class QubitCircuit(Operation):
     ) -> Union[torch.Tensor, List[torch.Tensor]]:
         """Perform a forward pass of the quantum circuit and return the final state.
 
-        This method applies the `operators` of the quantum circuit to the initial state or the given state
-        and returns the resulting state. If `data` is given, it is used as the input for the `encoders`.
-        The `state` can be either a `MatrixProductState` or a `QubitState` object, or a tensor representation
-        of them. The `data` must be a 1D or 2D tensor.
+        This method applies the ``operators`` of the quantum circuit to the initial state or the given state
+        and returns the resulting state. If ``data`` is given, it is used as the input for the ``encoders``.
+        The ``state`` can be either a ``MatrixProductState`` or a ``QubitState`` object, or a tensor representation
+        of them. The ``data`` must be a 1D or 2D tensor.
 
         Args:
-            data (torch.Tensor or None, optional): The input data for the `encoders`. Default: ``None``
+            data (torch.Tensor or None, optional): The input data for the ``encoders``. Default: ``None``
             state (torch.Tensor, QubitState, List[torch.Tensor], MatrixProductState or None, optional):
                 The initial state for the quantum circuit. Default: ``None``
 
         Returns:
             data (torch.Tensor or List[torch.Tensor]): The final state of the quantum circuit after 
-            applying the `operators`.
+            applying the ``operators``.
         """
         if state is None:
             state = self.init_state
@@ -242,7 +242,7 @@ class QubitCircuit(Operation):
             op.init_para()
 
     def reset(self, init_state: Any = 'zeros') -> None:
-        """Reset the `QubitCircuit` according to ``init_state``."""
+        """Reset the ``QubitCircuit`` according to ``init_state``."""
         if isinstance(init_state, (QubitState, MatrixProductState)):
             assert self.nqubit == init_state.nqubit
             if isinstance(init_state, MatrixProductState):
@@ -271,7 +271,7 @@ class QubitCircuit(Operation):
         return amplitude_encoding(data, self.nqubit)
 
     def observable(self, wires: Union[int, List[int], None] = None, basis: str = 'z') -> None:
-        """Add an `Observable`.
+        """Add an ``Observable``.
 
         Args:
             wires (int, List[int] or None, optional): The wires to measure. Default: ``None`` (which means
