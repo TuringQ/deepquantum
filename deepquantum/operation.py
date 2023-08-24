@@ -64,11 +64,11 @@ class Operation(nn.Module):
         """Get the density matrix representation of the state."""
         return x.reshape(-1, 2 ** self.nqubit, 2 ** self.nqubit)
 
-    def get_unitary(self):
+    def get_unitary(self) -> torch.Tensor:
         """Get the global unitary matrix."""
         raise NotImplementedError
 
-    def init_para(self):
+    def init_para(self) -> None:
         """Initialize the parameters."""
         pass
 
@@ -92,7 +92,7 @@ class Operation(nn.Module):
             assert min(indices) > -1 and max(indices) < self.nqubit, 'Invalid input'
         assert len(set(indices)) == len(indices), 'Invalid input'
         return indices
-    
+
     def _check_minmax(self, minmax: List[int]) -> None:
         """Check the minmum and maximum indices of the qubits."""
         assert isinstance(minmax, list)
@@ -139,7 +139,7 @@ class Gate(Operation):
         self.controls = controls
         self.nwire = len(wires) + len(controls)
 
-    def update_matrix(self):
+    def update_matrix(self) -> torch.Tensor:
         """Update the local unitary matrix."""
         return self.matrix
 
@@ -267,11 +267,11 @@ class Gate(Operation):
             assert x.ndim == self.nqubit + 1
             return self.op_state(x)
 
-    def inverse(self):
+    def inverse(self) -> 'Gate':
         """Get the inversed gate."""
         return self
 
-    def extra_repr(self):
+    def extra_repr(self) -> str:
         s = f'wires={self.wires}'
         if self.controls == []:
             return s
@@ -279,7 +279,7 @@ class Gate(Operation):
             return s + f', controls={self.controls}'
 
     @staticmethod
-    def _reset_qasm_new_gate():
+    def _reset_qasm_new_gate() -> None:
         Gate._qasm_new_gate = ['c3x', 'c4x']
 
     def _qasm_customized(self, name: str) -> str:
@@ -307,7 +307,7 @@ class Gate(Operation):
         r"""Convert gate to MPO form with identities at empty sites.
 
         Note:
-            If sites are not adjacent, insert identities in the middle, i.e.
+            If sites are not adjacent, insert identities in the middle, i.e.,
 
             >>>      |       |             |   |   |
             >>>    --A---x---B--   ->    --A---I---B--
@@ -323,7 +323,6 @@ class Gate(Operation):
 
             means :math:`\delta_{i,j} \delta_{a,b}`
         """
-
         index = self.wires + self.controls
         index_left = min(index)
         nindex = len(index)
@@ -360,7 +359,7 @@ class Gate(Operation):
         """Perform a forward pass for the ``MatrixProductState``.
 
         Note:
-            Use TEBD algorithm to contract tensors (contract local states with local operators), i.e.
+            Use TEBD algorithm to contract tensors (contract local states with local operators), i.e.,
 
             >>>          a
             >>>          |
@@ -427,7 +426,7 @@ class Layer(Operation):
         self.wires = self._convert_indices(wires)
         self.gates = nn.Sequential()
 
-    def get_unitary(self):
+    def get_unitary(self) -> torch.Tensor:
         """Get the global unitary matrix."""
         u = None
         for gate in self.gates:
@@ -437,7 +436,7 @@ class Layer(Operation):
                 u = gate.get_unitary() @ u
         return u
 
-    def init_para(self, inputs: Any = None):
+    def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
         count = 0
         for gate in self.gates:
@@ -447,7 +446,7 @@ class Layer(Operation):
                 gate.init_para(inputs[count:count+gate.npara])
             count += gate.npara
 
-    def update_npara(self):
+    def update_npara(self) -> None:
         """Update the number of parameters."""
         self.npara = 0
         for gate in self.gates:
@@ -467,7 +466,7 @@ class Layer(Operation):
                 return self.vector_rep(x).squeeze(0)
         return x
 
-    def inverse(self):
+    def inverse(self) -> 'Layer':
         """Get the inversed gate."""
         return self
 
@@ -484,7 +483,7 @@ class Layer(Operation):
             assert len(set(idx)) == len(idx), 'Invalid input'
         return indices
 
-    def _qasm(self):
+    def _qasm(self) -> str:
         lst = []
         for gate in self.gates:
             # pylint: disable=protected-access

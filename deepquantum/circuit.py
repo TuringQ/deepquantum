@@ -74,7 +74,7 @@ class QubitCircuit(Operation):
         self.wires_measure = None
 
     def __add__(self, rhs: 'QubitCircuit') -> 'QubitCircuit':
-        """Addition of the `QubitCircuit`.
+        """Addition of the ``QubitCircuit``.
 
         The initial state is the same as the first ``QubitCircuit``.
         The information of observables and measurements is the same as the second ``QubitCircuit``.
@@ -134,7 +134,7 @@ class QubitCircuit(Operation):
 
         This method applies the ``operators`` of the quantum circuit to the initial state or the given state
         and returns the resulting state. If ``data`` is given, it is used as the input for the ``encoders``.
-        The ``state`` can be either a ``MatrixProductState`` or a ``QubitState`` object, or a tensor 
+        The ``state`` can be either a ``MatrixProductState`` or a ``QubitState`` object, or a tensor
         representation of them. The ``data`` must be a 1D or 2D tensor.
 
         Args:
@@ -143,7 +143,7 @@ class QubitCircuit(Operation):
                 The initial state for the quantum circuit. Default: ``None``
 
         Returns:
-            data (torch.Tensor or List[torch.Tensor]): The final state of the quantum circuit after 
+            Union[torch.Tensor, List[torch.Tensor]]: The final state of the quantum circuit after
             applying the ``operators``.
         """
         if state is None:
@@ -213,7 +213,7 @@ class QubitCircuit(Operation):
             data (torch.Tensor): The input data for the ``encoders``, must be a 1D tensor.
 
         Raises:
-            AssertionError: If ``reupload`` is ``False`` and the input data is shorter than the number of 
+            AssertionError: If ``reupload`` is ``False`` and the input data is shorter than the number of
                 parameters in the ``encoders``.
         """
         if data is None:
@@ -357,7 +357,7 @@ class QubitCircuit(Operation):
         return cir
 
     @property
-    def max_depth(self):
+    def max_depth(self) -> int:
         """Get the max number of gates on the wires."""
         return max(self.depth)
 
@@ -395,7 +395,7 @@ class QubitCircuit(Operation):
         attributes of the quantum circuit. If ``wires`` is specified, the parameters of gates are shared.
 
         Args:
-            op (Operation): The operation to add. It is an instance of `Operation` class or its subclasses,
+            op (Operation): The operation to add. It is an instance of ``Operation`` class or its subclasses,
                 such as ``Gate``, ``Layer``, or ``QubitCircuit``.
             encode (bool): Whether the gate or layer is to encode data. Default: ``False``
             wires (Union[int, List[int], None]): The wires to apply the gate on. It can be an integer

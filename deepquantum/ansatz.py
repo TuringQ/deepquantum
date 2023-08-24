@@ -19,8 +19,8 @@ class Ansatz(QubitCircuit):
         nqubit (int): The number of qubits in the circuit.
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum 
-            operation acts on. Only valid when `wires` is `None`. Default: ``None``
+        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
+            operation acts on. Only valid when ``wires`` is ``None``. Default: ``None``
         ancilla (int, List[int] or None, optional): The indices of the ancilla qubits. Default: ``None``
         controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
         init_state (Any, optional): The initial state of the circuit. Default: ``'zeros'``
@@ -76,7 +76,7 @@ class ControlledMultiplier(Ansatz):
         nqubit (int): The number of qubits in the circuit.
         a (int): Number ``a`` in :math:`b+a*x \mod N`.
         mod (int): The modulus in :math:`b+a*x \mod N`.
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum 
+        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
             operation acts on. Default: ``None``
         ancilla (int, List[int] or None, optional): The indices of the ancilla qubits. Default: ``None``
         nqubitx (int or None, optional): The number of qubits in the register x.
@@ -85,7 +85,7 @@ class ControlledMultiplier(Ansatz):
         mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
         chi (int or None, optional): The bond dimension for matrix product state representation.
             Default: ``None``
-        debug (bool, optional): Whether to print the debug infos. Default: ``False``
+        debug (bool, optional): Whether to print the debug information. Default: ``False``
     """
     def __init__(
         self,
@@ -141,7 +141,7 @@ class ControlledUa(Ansatz):
         nqubit (int): The number of qubits in the circuit.
         a (int): Number ``a`` in :math:`a*x \mod N`.
         mod (int): The modulus in :math:`a*x \mod N`.
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum 
+        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
             operation acts on. Default: ``None``
         ancilla (int, List[int] or None, optional): The indices of the ancilla qubits. Default: ``None``
         controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
@@ -149,7 +149,7 @@ class ControlledUa(Ansatz):
         mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
         chi (int or None, optional): The bond dimension for matrix product state representation.
             Default: ``None``
-        debug (bool, optional): Whether to print the debug infos. Default: ``False``
+        debug (bool, optional): Whether to print the debug information. Default: ``False``
     """
     def __init__(
         self,
@@ -194,7 +194,7 @@ class NumberEncoder(Ansatz):
     Args:
         nqubit (int): The number of qubits in the circuit.
         number (int): The integer for converting to bit string.
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum 
+        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
             operation acts on. Default: ``None``
         den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
@@ -226,14 +226,14 @@ class PhiAdder(Ansatz):
     Args:
         nqubit (int): The number of qubits in the circuit.
         number (int): Number ``a`` in :math:`\Phi(a+b)` .
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum 
+        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
             operation acts on. Default: ``None``
         controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
         den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
         chi (int or None, optional): The bond dimension for matrix product state representation.
             Default: ``None``
-        debug (bool, optional): Whether to print the debug infos. Default: ``False``
+        debug (bool, optional): Whether to print the debug information. Default: ``False``
     """
     def __init__(
         self,
@@ -269,7 +269,7 @@ class PhiModularAdder(Ansatz):
         nqubit (int): The number of qubits in the circuit.
         number (int): Number ``a`` in :math:`\Phi(a+b \mod N)`.
         mod (int): The modulus in :math:`\Phi(a+b \mod N)`.
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum 
+        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
             operation acts on. Default: ``None``
         ancilla (int, List[int] or None, optional): The indices of the ancilla qubits. Default: ``None``
         controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
@@ -277,7 +277,7 @@ class PhiModularAdder(Ansatz):
         mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
         chi (int or None, optional): The bond dimension for matrix product state representation.
             Default: ``None``
-        debug (bool, optional): Whether to print the debug infos. Default: ``False``
+        debug (bool, optional): Whether to print the debug information. Default: ``False``
     """
     def __init__(
         self,
@@ -334,12 +334,12 @@ class QuantumConvolutionalNeuralNetwork(Ansatz):
     Args:
         nqubit (int): The number of qubits in the circuit.
         nlayer (int): The number of layers.
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum 
+        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
             operation acts on. Default: ``None``
         init_state (Any, optional): The initial state of the circuit. Default: ``'zeros'``
         den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        requires_grad (bool, optional): Whether the parameters are `nn.Parameter` or `buffer`.
-            Default: ``True`` (which means `nn.Parameter`)
+        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
+            Default: ``True`` (which means ``nn.Parameter``)
         mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
         chi (int or None, optional): The bond dimension for matrix product state representation.
             Default: ``None``
@@ -371,7 +371,7 @@ class QuantumConvolutionalNeuralNetwork(Ansatz):
             wires = wires[::2]
         self.latent(wires=wires)
 
-    def conv(self, wires):
+    def conv(self, wires: List[int]) -> None:
         rxx = Rxx(nqubit=self.nqubit, den_mat=self.den_mat, requires_grad=self.requires_grad)
         ryy = Ryy(nqubit=self.nqubit, den_mat=self.den_mat, requires_grad=self.requires_grad)
         rzz = Rzz(nqubit=self.nqubit, den_mat=self.den_mat, requires_grad=self.requires_grad)
@@ -385,7 +385,7 @@ class QuantumConvolutionalNeuralNetwork(Ansatz):
                 self.add(u1, wires=wires[2 * i + start - 1])
                 self.add(u2, wires=wire)
 
-    def pool(self, wires):
+    def pool(self, wires: List[int]) -> None:
         cu = U3Gate(nqubit=self.nqubit, den_mat=self.den_mat, requires_grad=self.requires_grad)
         for i, wire in enumerate(wires[1::2]):
             self.add(cu, wires=wires[2 * i], controls=wire)
@@ -396,7 +396,7 @@ class QuantumFourierTransform(Ansatz):
 
     Args:
         nqubit (int): The number of qubits in the circuit.
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum 
+        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
             operation acts on. Default: ``None``
         reverse (bool, optional): Whether to reverse the output order. Default: ``False`` (which means
             the default output order of phase is :math:`x/2, ..., x/2^n`. If ``reverse=True``, the output order
@@ -406,7 +406,7 @@ class QuantumFourierTransform(Ansatz):
         mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
         chi (int or None, optional): The bond dimension for matrix product state representation.
             Default: ``None``
-        show_barrier (bool, optional): Whether to show the barrier in the circuit. Default: ``False``
+        show_barrier (bool, optional): Whether to show the barriers in the circuit. Default: ``False``
     """
     def __init__(
         self,
@@ -431,7 +431,7 @@ class QuantumFourierTransform(Ansatz):
             for i in range(len(self.wires) // 2):
                 self.swap([self.wires[i], self.wires[-1 - i]])
 
-    def qft_block(self, n):
+    def qft_block(self, n: int) -> None:
         self.h(n)
         k = 2
         for i in range(n, self.minmax[1]):
@@ -480,7 +480,7 @@ class RandomCircuitG3(Ansatz):
         ngate (int): The number of random gates in the circuit.
         wires (List[int] or None, optional): The indices of the qubits that the random gates act on.
             Default: ``None``
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum 
+        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
             operation acts on. Only valid when ``wires`` is ``None``. Default: ``None``
         init_state (Any, optional): The initial state of the circuit. Default: ``'zeros'``
         den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
@@ -523,12 +523,12 @@ class ShorCircuit(Ansatz):
     Args:
         mod (int): The odd integer to be factored.
         ncount (int): The number of counting qubits.
-        a (int): Any integer that satisfies :math:`1 < a < N` and :math:`gcd(a, N) = 1`.
+        a (int): Any integer that satisfies :math:`1 < a < N` and :math:`\gcd(a, N) = 1`.
         den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
         chi (int or None, optional): The bond dimension for matrix product state representation.
             Default: ``None``
-        debug (bool, optional): Whether to print the debug infos. Default: ``False``
+        debug (bool, optional): Whether to print the debug information. Default: ``False``
     """
     def __init__(
         self,
@@ -571,7 +571,7 @@ class ShorCircuitFor15(Ansatz):
 
     Args:
         ncount (int): The number of counting qubits.
-        a (int): Any integer that satisfies :math:`1 < a < N` and :math:`gcd(a, N) = 1`.
+        a (int): Any integer that satisfies :math:`1 < a < N` and :math:`\gcd(a, N) = 1`.
         den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
         chi (int or None, optional): The bond dimension for matrix product state representation.
@@ -602,7 +602,7 @@ class ShorCircuitFor15(Ansatz):
                                        den_mat=self.den_mat, mps=self.mps, chi=self.chi).inverse()
         self.add(iqft)
 
-    def cua(self, a, power, controls):
+    def cua(self, a: int, power: int, controls: Union[int, List[int], None]) -> None:
         assert a in [2, 4, 7, 8, 11, 13]
         for _ in range(power):
             if a in [2, 13]:

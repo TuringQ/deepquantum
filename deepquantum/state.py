@@ -15,9 +15,9 @@ class QubitState(nn.Module):
 
     Args:
         nqubit (int, optional): The number of qubits in the state. Default: 1
-        state (Any, optional): The initial state. It can be one of the following strings: ``'zeros'``, ``'equal'``,
-            ``'entangle'``, ``'GHZ'``, or ``'ghz'``. Alternatively, it can be a tensor that represents a custom state
-            vector or density matrix. Default: ``'zeros'``
+        state (Any, optional): The initial state. It can be one of the following strings: ``'zeros'``,
+            ``'equal'``, ``'entangle'``, ``'GHZ'``, or ``'ghz'``. Alternatively, it can be a tensor that
+            represents a custom state vector or density matrix. Default: ``'zeros'``
         den_mat (bool, optional): Whether the state is a density matrix or not. Default: ``False``
     """
     def __init__(self, nqubit: int = 1, state: Any = 'zeros', den_mat: bool = False) -> None:
@@ -58,7 +58,8 @@ class QubitState(nn.Module):
                     state = state @ state.mH
                 self.register_buffer('state', state)
 
-    def forward(self):
+    def forward(self) -> None:
+        """Pass."""
         pass
 
 
@@ -72,10 +73,10 @@ class MatrixProductState(nn.Module):
 
     Args:
         nqubit (int, optional): The number of qubits in the quantum system. Default: 1
-        state (str or List[torch.Tensor], optional): The initial state of the MPS. If ``'zeros'``, the MPS is
-            initialized to the all-zero state. If a list of tensors, the MPS is initialized to the given
+        state (str or List[torch.Tensor], optional): The initial state of the MPS. If ``'zeros'``, the MPS
+            is initialized to the all-zero state. If a list of tensors, the MPS is initialized to the given
             tensors. The tensors must have the correct shape and dtype. Default: ``'zeros'``
-        chi (int or None, optional): The maximum bond dimension of the MPS. Default: `10 * nqubit`
+        chi (int or None, optional): The maximum bond dimension of the MPS. Default: 10 * ``nqubit``
         qudit (int, optional): The local Hilbert space dimension of each qudit. Default: 2
         normalize (bool, optional): Whether to normalize the MPS after each operation. Default: ``True``
     """
@@ -215,11 +216,11 @@ class MatrixProductState(nn.Module):
         self._buffers[f'tensor{self.center}'] = self._buffers[f'tensor{self.center}'] / norm
 
     def orthogonalize_left2right(self, site: int, dc: int = -1, normalize: bool = False) -> None:
-        r"""Orthogonalize the tensor at ``site`` and update the next one at ``site+1``.
+        r"""Orthogonalize the tensor at ``site`` and update the next one at ``site`` + 1.
 
-        It uses the QR decomposition or SVD, i.e. :math:`T = UR` for the QR decomposition and
-        :math:`T = USV^{\text{H}} = UR` for SVD. The tensor at ``site`` is
-        replaced by :math:`U`. The tensor at ``site+1`` is updated by :math:`R`.
+        It uses the QR decomposition or SVD, i.e., :math:`T = UR` for the QR decomposition and
+        :math:`T = USV^{\dagger} = UR` for SVD. The tensor at ``site`` is replaced by :math:`U`.
+        The tensor at ``site`` + 1 is updated by :math:`R`.
 
         Args:
             site (int): The site of tensor to be orthogonalized.
@@ -253,12 +254,12 @@ class MatrixProductState(nn.Module):
 
 
     def orthogonalize_right2left(self, site: int, dc: int = -1, normalize: bool = False) -> None:
-        r"""Orthogonalize the tensor at ``site`` and update the next one at ``site-1``.
+        r"""Orthogonalize the tensor at ``site`` and update the next one at ``site`` - 1.
 
-        It uses the QR decomposition or SVD, i.e. :math:`T^{\dagger} = QR` for the QR decomposition,
-        which gives :math:`T = R^{\dagger}Q^{\dagger} = LV^{\dagger}`, and
-        :math:`T = USV^{\dagger} = LV^{\dagger}` for SVD. The tensor at ``site`` is
-        replaced by :math:`V^{\dagger}`. The tensor at ``site-1`` is updated by :math:`L`.
+        It uses the QR decomposition or SVD, i.e., :math:`T^{\dagger} = QR` for the QR decomposition, which
+        gives :math:`T = R^{\dagger}Q^{\dagger} = LV^{\dagger}`, and :math:`T = USV^{\dagger} = LV^{\dagger}`
+        for SVD. The tensor at ``site`` is replaced by :math:`V^{\dagger}`. The tensor at ``site`` - 1 is
+        updated by :math:`L`.
 
         Args:
             site (int): The site of tensor to be orthogonalized.
@@ -301,5 +302,6 @@ class MatrixProductState(nn.Module):
             for site in range(n1, n2, -1):
                 self.orthogonalize_right2left(site, dc, normalize)
 
-    def forward(self):
+    def forward(self) -> None:
+        """Pass."""
         pass
