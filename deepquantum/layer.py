@@ -24,7 +24,7 @@ class SingleLayer(Layer):
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, \text{2, ..., 2})`. Default: ``False``
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
     def __init__(
         self,
@@ -61,7 +61,7 @@ class DoubleLayer(Layer):
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, \text{2, ..., 2})`. Default: ``False``
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
     def __init__(
         self,
@@ -90,7 +90,7 @@ class Observable(SingleLayer):
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, \text{2, ..., 2})`. Default: ``False``
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
     def __init__(
         self,
@@ -130,7 +130,7 @@ class U3Layer(SingleLayer):
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, \text{2, ..., 2})`. Default: ``False``
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``True`` (which means ``nn.Parameter``)
     """
@@ -156,7 +156,7 @@ class U3Layer(SingleLayer):
             self.npara += u3.npara
 
     def inverse(self):
-        """Get the inversed gate."""
+        """Get the inversed layer."""
         layer = deepcopy(self)
         gates = nn.Sequential()
         for gate in self.gates[::-1]:
@@ -176,7 +176,7 @@ class XLayer(SingleLayer):
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, \text{2, ..., 2})`. Default: ``False``
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
     def __init__(
         self,
@@ -201,7 +201,7 @@ class YLayer(SingleLayer):
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, \text{2, ..., 2})`. Default: ``False``
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
     def __init__(
         self,
@@ -226,7 +226,7 @@ class ZLayer(SingleLayer):
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, \text{2, ..., 2})`. Default: ``False``
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
     def __init__(
         self,
@@ -251,7 +251,7 @@ class HLayer(SingleLayer):
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, \text{2, ..., 2})`. Default: ``False``
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
     def __init__(
         self,
@@ -277,7 +277,7 @@ class RxLayer(SingleLayer):
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, \text{2, ..., 2})`. Default: ``False``
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``True`` (which means ``nn.Parameter``)
     """
@@ -303,7 +303,7 @@ class RxLayer(SingleLayer):
             self.npara += rx.npara
 
     def inverse(self):
-        """Get the inversed gate."""
+        """Get the inversed layer."""
         layer = deepcopy(self)
         gates = nn.Sequential()
         for gate in self.gates[::-1]:
@@ -324,7 +324,7 @@ class RyLayer(SingleLayer):
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, \text{2, ..., 2})`. Default: ``False``
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``True`` (which means ``nn.Parameter``)
     """
@@ -350,7 +350,7 @@ class RyLayer(SingleLayer):
             self.npara += ry.npara
 
     def inverse(self):
-        """Get the inversed gate."""
+        """Get the inversed layer."""
         layer = deepcopy(self)
         gates = nn.Sequential()
         for gate in self.gates[::-1]:
@@ -371,7 +371,7 @@ class RzLayer(SingleLayer):
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, \text{2, ..., 2})`. Default: ``False``
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``True`` (which means ``nn.Parameter``)
     """
@@ -397,7 +397,7 @@ class RzLayer(SingleLayer):
             self.npara += rz.npara
 
     def inverse(self):
-        """Get the inversed gate."""
+        """Get the inversed layer."""
         layer = deepcopy(self)
         gates = nn.Sequential()
         for gate in self.gates[::-1]:
@@ -418,7 +418,7 @@ class CnotLayer(DoubleLayer):
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, \text{2, ..., 2})`. Default: ``False``
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
     def __init__(
         self,
@@ -434,7 +434,7 @@ class CnotLayer(DoubleLayer):
             self.gates.append(cnot)
 
     def inverse(self):
-        """Get the inversed gate."""
+        """Get the inversed layer."""
         wires = []
         for wire in reversed(self.wires):
             wires.append(wire)
@@ -458,7 +458,7 @@ class CnotRing(CnotLayer):
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, \text{2, ..., 2})`. Default: ``False``
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
     def __init__(
         self,

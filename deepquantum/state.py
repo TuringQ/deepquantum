@@ -217,9 +217,9 @@ class MatrixProductState(nn.Module):
     def orthogonalize_left2right(self, site: int, dc: int = -1, normalize: bool = False) -> None:
         r"""Orthogonalize the tensor at ``site`` and update the next one at ``site+1``.
 
-        It uses the QR decomposition or SVD, i.e. :math:`T = U*R` for the QR decomposition and
-        :math:`T = U*S*V^{\text{H}} = U*R` for SVD. The tensor at ``site`` is replaced by :math:`U`.
-        The tensor at ``site+1`` is updated by :math:`R`.
+        It uses the QR decomposition or SVD, i.e. :math:`T = UR` for the QR decomposition and
+        :math:`T = USV^{\text{H}} = UR` for SVD. The tensor at ``site`` is
+        replaced by :math:`U`. The tensor at ``site+1`` is updated by :math:`R`.
 
         Args:
             site (int): The site of tensor to be orthogonalized.
@@ -255,10 +255,10 @@ class MatrixProductState(nn.Module):
     def orthogonalize_right2left(self, site: int, dc: int = -1, normalize: bool = False) -> None:
         r"""Orthogonalize the tensor at ``site`` and update the next one at ``site-1``.
 
-        It uses the QR decomposition or SVD, i.e. :math:`T^* = Q*R` for the QR decomposition, 
-        which gives :math:`T = R^**Q^* = L*V^{\text{H}}`, and :math:`T = U*S*V^{\text{H}} = L*V^{\text{H}}`
-        for SVD. The tensor at ``site`` is replaced by :math:`V^{\text{H}}`. The tensor at ``site-1``
-        is updated by :math:`L`.
+        It uses the QR decomposition or SVD, i.e. :math:`T^{\dagger} = QR` for the QR decomposition,
+        which gives :math:`T = R^{\dagger}Q^{\dagger} = LV^{\dagger}`, and
+        :math:`T = USV^{\dagger} = LV^{\dagger}` for SVD. The tensor at ``site`` is
+        replaced by :math:`V^{\dagger}`. The tensor at ``site-1`` is updated by :math:`L`.
 
         Args:
             site (int): The site of tensor to be orthogonalized.

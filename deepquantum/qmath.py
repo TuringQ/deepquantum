@@ -344,12 +344,12 @@ def amplitude_encoding(data: Any, nqubit: int) -> torch.Tensor:
     If the data size is larger than :math:`2^{\text{nqubit}}`, only the first :math:`2^{\text{nqubit}}` elements are used.
 
     Args:
-        data (torch.Tensor or array-like): The input data to be encoded. It should have shape :math:`(\text{batch, ...})`
+        data (torch.Tensor or array-like): The input data to be encoded. It should have shape :math:`(\text{batch}, ...)`
             where ... can be any dimensions. If it is not a torch.Tensor object, it will be converted to one.
         nqubit (int): The number of qubits to use for encoding.
 
     Returns:
-        torch.Tensor: The encoded quantum states as complex-valued tensors of shape :math:`(\text{batch}, 2^{\text{nqubit}}, \text{1})`.
+        torch.Tensor: The encoded quantum states as complex-valued tensors of shape :math:`(\text{batch}, 2^{\text{nqubit}}, 1)`.
 
     Examples::
         >>> data = [[0.5, 0.5], [0.7, 0.3]]
@@ -397,9 +397,9 @@ def measure(
     occurrences and the probability.
 
     Args:
-        state (torch.Tensor): The quantum state to measure. It can be a tensor of shape :math:`(2^{\text{n}},)` or :math:`(2^{\text{n}}, \text{1})`
-            representing a state vector, or a tensor of shape  :math:`(\text{batch}, 2^{\text{n}})` or  :math:`(\text{batch}, 2^{\text{n}}, \text{1})` representing
-            a batch of state vectors.
+        state (torch.Tensor): The quantum state to measure. It can be a tensor of shape :math:`(2^n,)` or :math:`(2^n, 1)`
+            representing a state vector, or a tensor of shape  :math:`(\text{batch}, 2^n)` or  :math:`(\text{batch}, 2^n, 1)`
+            representing a batch of state vectors.
         shots (int, optional): The number of times to sample from the quantum state. Default: 1024
         with_prob (bool, optional): A flag that indicates whether to return the probabilities along with
             the number of occurrences. Default: ``False``
@@ -459,11 +459,11 @@ def inner_product_mps(
     r"""Computes the inner product of two matrix product states.
 
     Args:
-        tensors0 (List[torch.Tensor]): The tensors of the first MPS, each with shape :math:`(\text{..., d0, d1, d2})`,
-            where d0 is the bond dimension of the left site, d1 is the physical dimension, and d2 is the
+        tensors0 (List[torch.Tensor]): The tensors of the first MPS, each with shape :math:`(..., d_0, d_1, d_2)`,
+            where d_0 is the bond dimension of the left site, d_1 is the physical dimension, and d_2 is the
             bond dimension of the right site.
-        tensors1 (List[torch.Tensor]): The tensors of the second MPS, each with shape :math:`(\text{..., d0, d1, d2})`,
-            where d0 is the bond dimension of the left site, d1 is the physical dimension, and d2 is the
+        tensors1 (List[torch.Tensor]): The tensors of the second MPS, each with shape :math:`(..., d_0, d_1, d_2)`,
+            where d_0 is the bond dimension of the left site, d_1 is the physical dimension, and d_2 is the
             bond dimension of the right site.
         form (str, optional): The form of the output. If ``'log'``, returns the logarithm of the absolute value
             of the inner product. If ``'list'``, returns a list of norms at each step. Otherwise, returns the
@@ -553,7 +553,7 @@ def meyer_wallach_measure(state_tsr: torch.Tensor) -> torch.Tensor:
     See https://readpaper.com/paper/2945680873 Eq.(19)
 
     Args:
-        state_tsr (torch.Tensor): Input with the shape of :math:`(\text{batch}, \text{2, ..., 2})`
+        state_tsr (torch.Tensor): Input with the shape of :math:`(\text{batch}, 2, ..., 2)`
 
     Returns:
         torch.Tensor: The value of Meyer-Wallach measure
@@ -578,8 +578,8 @@ def linear_map_mw(state_tsr: torch.Tensor, j: int, b: int) -> torch.Tensor:
         See https://arxiv.org/pdf/quant-ph/0305094.pdf Eq.(2)
 
     Args:
-        state_tsr (torch.Tensor): Input with the shape of :math:`(\text{batch}, \text{2, ..., 2})`
-        j (int): The ``j`` th qubit to project on, from :math:`0` to :math:`\text{nqubit-1}`
+        state_tsr (torch.Tensor): Input with the shape of :math:`(\text{batch}, 2, ..., 2)`
+        j (int): The ``j`` th qubit to project on, from :math:`0` to :math:`\text{nqubit}-1`
         b (int): The project basis, :math:`\ket{0}` or :math:`\ket{1}`
 
     Returns:
@@ -601,8 +601,8 @@ def generalized_distance(state1: torch.Tensor, state2: torch.Tensor) -> torch.Te
     Implemented according to https://arxiv.org/pdf/quant-ph/0310137.pdf Eq.(4)
 
     Args:
-        state1 (torch.Tensor): Input with the shape of :math:`(\text{batch}, 2^{\text{n}}, \text{1})`
-        state2 (torch.Tensor): Input with the shape of :math:`(\text{batch}, 2^{\text{n}}, \text{1})`
+        state1 (torch.Tensor): Input with the shape of :math:`(\text{batch}, 2^n, 1)`
+        state2 (torch.Tensor): Input with the shape of :math:`(\text{batch}, 2^n, 1)`
 
     Returns:
         torch.Tensor: The generalized distance
@@ -619,7 +619,7 @@ def meyer_wallach_measure_brennen(state_tsr: torch.Tensor) -> torch.Tensor:
         This implementation is slower than ``meyer_wallach_measure`` when nqubit >= 8
 
     Args:
-        state_tsr (torch.Tensor): Input with the shape of :math:`(\text{batch}, \text{2, ..., 2})`
+        state_tsr (torch.Tensor): Input with the shape of :math:`(\text{batch}, 2, ..., 2)`
 
     Returns:
         torch.Tensor: The value of Meyer-Wallach measure

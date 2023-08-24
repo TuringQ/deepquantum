@@ -134,8 +134,8 @@ class QubitCircuit(Operation):
 
         This method applies the ``operators`` of the quantum circuit to the initial state or the given state
         and returns the resulting state. If ``data`` is given, it is used as the input for the ``encoders``.
-        The ``state`` can be either a ``MatrixProductState`` or a ``QubitState`` object, or a tensor representation
-        of them. The ``data`` must be a 1D or 2D tensor.
+        The ``state`` can be either a ``MatrixProductState`` or a ``QubitState`` object, or a tensor 
+        representation of them. The ``data`` must be a 1D or 2D tensor.
 
         Args:
             data (torch.Tensor or None, optional): The input data for the ``encoders``. Default: ``None``
@@ -276,8 +276,8 @@ class QubitCircuit(Operation):
         Args:
             wires (int, List[int] or None, optional): The wires to measure. Default: ``None`` (which means
                 all wires are measured)
-            basis (str, optional): The measurement basis for each wire. It can be ``'x'``, ``'y'``, or ``'z'``. If only
-                one character is given, it is repeated for all wires. Default: ``'z'``
+            basis (str, optional): The measurement basis for each wire. It can be ``'x'``, ``'y'``, or ``'z'``.
+                If only one character is given, it is repeated for all wires. Default: ``'z'``
         """
         observable = Observable(nqubit=self.nqubit, wires=wires, basis=basis,
                                 den_mat=self.den_mat, tsr_mode=False)

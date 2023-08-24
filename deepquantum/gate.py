@@ -71,7 +71,7 @@ class DoubleGate(Gate):
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, \text{2, ..., 2}). Default: ``False``
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
     def __init__(
         self,
@@ -461,7 +461,7 @@ class U3Gate(ParametricSingleGate):
 
         \newcommand{\th}{\frac{\theta}{2}}
 
-        \text{U3}(\theta, \phi, \lambda) =
+        U_3(\theta, \phi, \lambda) =
             \begin{pmatrix}
                 \cos\left(\th\right)          & -e^{i\lambda}\sin\left(\th\right) \\
                 e^{i\phi}\sin\left(\th\right) & e^{i(\phi+\lambda)}\cos\left(\th\right)
@@ -588,7 +588,7 @@ class PhaseShift(ParametricSingleGate):
 
     .. math::
 
-        \text{P}(\theta) =
+        P(\theta) =
             \begin{pmatrix}
                 1 & 0 \\
                 0 & e^{i\theta}
@@ -657,7 +657,7 @@ class Identity(Gate):
 
     .. math::
 
-        \text{I} = \begin{pmatrix}
+        I = \begin{pmatrix}
                 1 & 0 \\
                 0 & 1
             \end{pmatrix}
@@ -697,7 +697,7 @@ class PauliX(SingleGate):
 
     .. math::
 
-        \text{X} = \begin{pmatrix}
+        X = \begin{pmatrix}
                 0 & 1 \\
                 1 & 0
             \end{pmatrix}
@@ -742,7 +742,7 @@ class PauliY(SingleGate):
 
     .. math::
 
-        \text{Y} = \begin{pmatrix}
+        Y = \begin{pmatrix}
                 0 & -i \\
                 i & 0
             \end{pmatrix}
@@ -784,7 +784,7 @@ class PauliZ(SingleGate):
 
     .. math::
 
-        \text{Z} = \begin{pmatrix}
+        Z = \begin{pmatrix}
                 1 & 0 \\
                 0 & -1
             \end{pmatrix}
@@ -827,7 +827,7 @@ class Hadamard(SingleGate):
 
     .. math::
 
-        \text{H} = \frac{1}{\sqrt{2}}
+        H = \frac{1}{\sqrt{2}}
             \begin{pmatrix}
                 1 & 1 \\
                 1 & -1
@@ -871,7 +871,7 @@ class SGate(SingleGate):
 
     .. math::
 
-        \text{S} = \begin{pmatrix}
+        S = \begin{pmatrix}
                 1 & 0 \\
                 0 & i
             \end{pmatrix}
@@ -924,7 +924,7 @@ class SDaggerGate(SingleGate):
 
     .. math::
 
-        \text{S}^{\dagger} =
+        S^{\dagger} =
             \begin{pmatrix}
                 1 & 0 \\
                 0 & -i
@@ -978,7 +978,7 @@ class TGate(SingleGate):
 
     .. math::
 
-        \text{T} = \begin{pmatrix}
+        T = \begin{pmatrix}
                 1 & 0 \\
                 0 & e^{i\pi/4}
             \end{pmatrix}
@@ -1024,7 +1024,7 @@ class TDaggerGate(SingleGate):
 
     .. math::
 
-        \text}T^{\dagger} =
+        T^{\dagger} =
             \begin{pmatrix}
                 1 & 0 \\
                 0 & e^{-i\pi/4}
@@ -1073,7 +1073,7 @@ class Rx(ParametricSingleGate):
 
         \newcommand{\th}{\frac{\theta}{2}}
 
-        \text{Rx}(\theta) =
+        Rx(\theta) =
             \begin{pmatrix}
                 \cos\left(\th\right)   & -i\sin\left(\th\right) \\
                 -i\sin\left(\th\right) & \cos\left(\th\right)
@@ -1134,7 +1134,7 @@ class Ry(ParametricSingleGate):
 
         \newcommand{\th}{\frac{\theta}{2}}
 
-        \text{Ry}(\theta) =
+        Ry(\theta) =
             \begin{pmatrix}
                 \cos\left(\th\right) & -\sin\left(\th\right) \\
                 \sin\left(\th\right) & \cos\left(\th\right)
@@ -1193,7 +1193,7 @@ class Rz(ParametricSingleGate):
 
     .. math::
 
-        \text{Rz}(\theta) =
+        Rz(\theta) =
             \begin{pmatrix}
                 e^{-i\frac{\theta}{2}} & 0 \\
                 0                      & e^{i\frac{\theta}{2}}
@@ -1366,7 +1366,7 @@ class Swap(DoubleGate):
     **Matrix Representation:**
 
     .. math::
-        \text{Swap} =
+        \text{SWAP} =
             \begin{pmatrix}
                 1 & 0 & 0 & 0 \\
                 0 & 0 & 1 & 0 \\
@@ -1417,7 +1417,7 @@ class Rxx(ParametricDoubleGate):
 
         \newcommand{\th}{\frac{\theta}{2}}
 
-        \text{R}_{xx}(\theta) = \exp\left(-i \th X{\otimes}X\right) =
+        R_{xx}(\theta) = \exp\left(-i \th X{\otimes}X\right) =
             \begin{pmatrix}
                 \cos\left(\th\right)   & 0                      & 0                      & -i\sin\left(\th\right) \\
                 0                      & \cos\left(\th\right)   & -i\sin\left(\th\right) & 0                      \\
@@ -1480,7 +1480,7 @@ class Ryy(ParametricDoubleGate):
 
         \newcommand{\th}{\frac{\theta}{2}}
 
-        \text{R}_{yy}(\theta) = \exp\left(-i \th Y{\otimes}Y\right) =
+        R_{yy}(\theta) = \exp\left(-i \th Y{\otimes}Y\right) =
             \begin{pmatrix}
                 \cos\left(\th\right)  & 0                      & 0                      & i\sin\left(\th\right) \\
                 0                     & \cos\left(\th\right)   & -i\sin\left(\th\right) & 0                     \\
@@ -1549,7 +1549,7 @@ class Rzz(ParametricDoubleGate):
 
         \newcommand{\th}{\frac{\theta}{2}}
 
-        \text{R}_{zz}(\theta) = \exp\left(-i \th Z{\otimes}Z\right) =
+        R_{zz}(\theta) = \exp\left(-i \th Z{\otimes}Z\right) =
             \begin{pmatrix}
                 e^{-i \th} & 0         & 0         & 0 \\
                 0          & e^{i \th} & 0         & 0 \\
@@ -1610,7 +1610,7 @@ class Rxy(ParametricDoubleGate):
 
         \newcommand{\th}{\frac{\theta}{2}}
 
-        \text{R}_{xy}(\theta) = \exp\left(-i \th X{\otimes}Y\right) =
+        R_{xy}(\theta) = \exp\left(-i \th X{\otimes}Y\right) =
             \begin{pmatrix}
                 1 & 0                      & 0                      & 0 \\
                 0 & \cos\left(\th\right)   & -i\sin\left(\th\right) & 0 \\

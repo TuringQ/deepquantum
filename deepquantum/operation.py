@@ -26,7 +26,7 @@ class Operation(nn.Module):
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, \text{2, ..., 2})`. Default: ``False``
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
     def __init__(
         self,
@@ -94,7 +94,7 @@ class Gate(Operation):
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, \text{2, ..., 2})`. Default: ``False``
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
     # include default names in QASM
     qasm_new_gate = ['c3x', 'c4x']
@@ -296,17 +296,23 @@ class Gate(Operation):
         r"""Convert gate to MPO form with identities at empty sites.
 
         Note:
-                If sites are not adjacent, insert identities in the middle, i.e.
+            If sites are not adjacent, insert identities in the middle, i.e.
+
             >>>      |       |             |   |   |
             >>>    --A---x---B--   ->    --A---I---B--
             >>>      |       |             |   |   |
+
             where
+
             >>>         a
             >>>         |
-            >>>    --i--I--j-- = \delta_{i,j} \delta_{a,b}
+            >>>    --i--I--j--
             >>>         |
             >>>         b
+
+            means :math:`\delta_{i,j} \delta_{a,b}`
         """
+
         index = self.wires + self.controls
         index_left = min(index)
         nindex = len(index)
@@ -343,9 +349,8 @@ class Gate(Operation):
         """Perform a forward pass for the ``MatrixProductState``.
 
         Note:
-            Use TEBD algorithm
+            Use TEBD algorithm to contract tensors (contract local states with local operators), i.e.
 
-                contract tensor (contract local states with local operators)
             >>>          a
             >>>          |
             >>>    i-----O-----j            a
@@ -395,7 +400,7 @@ class Layer(Operation):
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, \text{2, ..., 2})`. Default: ``False``
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
     def __init__(
         self,
