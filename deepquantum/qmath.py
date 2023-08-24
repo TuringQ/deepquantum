@@ -61,7 +61,8 @@ def is_unitary(matrix: torch.Tensor, rtol: float = 1e-5, atol: float = 1e-6) -> 
     Returns:
         bool: ``True`` if ``matrix`` is unitary, ``False`` otherwise.
     """
-    assert matrix.shape[-1] == matrix.shape[-2]
+    if matrix.shape[-1] != matrix.shape[-2]:
+        return False
     conj_trans = matrix.t().conj()
     product = torch.matmul(matrix, conj_trans)
     return torch.allclose(product, torch.eye(matrix.shape[0], dtype=matrix.dtype, device=matrix.device),
@@ -79,13 +80,15 @@ def is_density_matrix(rho: torch.Tensor) -> bool:
 
     Returns:
         bool: ``True`` if the tensor is a density matrix, ``False`` otherwise.
-
-    Raises:
-        AssertionError: If the tensor is not of type ``torch.Tensor`` or has an invalid number of dimensions.
     """
-    assert isinstance(rho, torch.Tensor)
-    assert rho.ndim in (2, 3)
-    assert is_power_of_two(rho.shape[-2]) and is_power_of_two(rho.shape[-1])
+    if not isinstance(rho, torch.Tensor):
+        return False
+    if rho.ndim not in (2, 3):
+        return False
+    if not is_power_of_two(rho.shape[-2]):
+        return False
+    if not is_power_of_two(rho.shape[-1]):
+        return False
     if rho.ndim == 2:
         rho = rho.unsqueeze(0)
     # Check if the tensor is Hermitian

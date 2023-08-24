@@ -471,10 +471,9 @@ class CnotRing(CnotLayer):
     ) -> None:
         if minmax is None:
             minmax = [0, nqubit-1]
-        assert isinstance(minmax, list)
-        assert len(minmax) == 2
-        assert all(isinstance(i, int) for i in minmax)
-        assert -1 < minmax[0] < minmax[1] < nqubit
+        self.nqubit = nqubit
+        self._check_minmax(minmax)
+        assert minmax[0] < minmax[1]
         self.minmax = minmax
         self.step = step
         self.reverse = reverse

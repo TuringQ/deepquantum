@@ -238,18 +238,14 @@ class ArbitraryGate(Gate):
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
-        if isinstance(wires, int):
-            wires = [wires]
+        super().__init__(name=name, nqubit=nqubit, wires=None, controls=None,
+                         den_mat=den_mat, tsr_mode=tsr_mode)
         if wires is None:
             if minmax is None:
                 minmax = [0, nqubit - 1]
-            assert isinstance(minmax, list)
-            assert len(minmax) == 2
-            assert all(isinstance(i, int) for i in minmax)
-            assert -1 < minmax[0] <= minmax[1] < nqubit
+            self._check_minmax(minmax)
             wires = list(range(minmax[0], minmax[1] + 1))
-        super().__init__(name=name, nqubit=nqubit, wires=wires, controls=None,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
+        self.wires = self._convert_indices(wires)
         self.minmax = [min(self.wires), max(self.wires)]
         # whether the wires are consecutive integers
         self.local = True
@@ -686,7 +682,8 @@ class Identity(Gate):
         """Get the global unitary matrix."""
         return self.matrix
 
-    def forward(self, x):
+    def forward(self, x: Any) -> Any:
+        """Perform a forward pass."""
         return x
 
 
@@ -1995,6 +1992,7 @@ class Barrier(Gate):
         super().__init__(name='Barrier', nqubit=nqubit, wires=wires)
 
     def forward(self, x: Any) -> Any:
+        """Perform a forward pass."""
         return x
 
     def _qasm(self):

@@ -73,6 +73,7 @@ class Operation(nn.Module):
         pass
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Perform a forward pass."""
         if self.tsr_mode:
             return self.tensor_rep(x)
         else:
@@ -80,6 +81,24 @@ class Operation(nn.Module):
                 return self.matrix_rep(x)
             else:
                 return self.vector_rep(x)
+
+    def _convert_indices(self, indices: Union[int, List[int]]) -> List[int]:
+        """Convert and check the indices of the qubits."""
+        if isinstance(indices, int):
+            indices = [indices]
+        assert isinstance(indices, list), 'Invalid input type'
+        assert all(isinstance(i, int) for i in indices), 'Invalid input type'
+        if len(indices) > 0:
+            assert min(indices) > -1 and max(indices) < self.nqubit, 'Invalid input'
+        assert len(set(indices)) == len(indices), 'Invalid input'
+        return indices
+    
+    def _check_minmax(self, minmax: List[int]) -> None:
+        """Check the minmum and maximum indices of the qubits."""
+        assert isinstance(minmax, list)
+        assert len(minmax) == 2
+        assert all(isinstance(i, int) for i in minmax)
+        assert -1 < minmax[0] <= minmax[1] < self.nqubit
 
 
 class Gate(Operation):
@@ -97,7 +116,7 @@ class Gate(Operation):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
     # include default names in QASM
-    qasm_new_gate = ['c3x', 'c4x']
+    _qasm_new_gate = ['c3x', 'c4x']
 
     def __init__(self,
         name: Optional[str] = None,
@@ -107,26 +126,18 @@ class Gate(Operation):
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
+        super().__init__(name=name, nqubit=nqubit, wires=None, den_mat=den_mat, tsr_mode=tsr_mode)
         if wires is None:
             wires = [0]
         if controls is None:
             controls = []
-        if isinstance(wires, int):
-            wires = [wires]
-        if isinstance(controls, int):
-            controls = [controls]
-        assert isinstance(wires, list) and isinstance(controls, list), 'Invalid input type'
-        assert all(isinstance(i, int) for i in wires), 'Invalid input type'
-        assert all(isinstance(i, int) for i in controls), 'Invalid input type'
-        assert min(wires) > -1 and max(wires) < nqubit, 'Invalid input'
-        if len(controls) > 0:
-            assert min(controls) > -1 and max(controls) < nqubit, 'Invalid input'
-        assert len(set(wires)) == len(wires) and len(set(controls)) == len(controls), 'Invalid input'
+        wires = self._convert_indices(wires)
+        controls = self._convert_indices(controls)
         for wire in wires:
             assert wire not in controls, 'Use repeated wires'
-        self.nwire = len(wires) + len(controls)
+        self.wires = wires
         self.controls = controls
-        super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
+        self.nwire = len(wires) + len(controls)
 
     def update_matrix(self):
         """Update the local unitary matrix."""
@@ -269,7 +280,7 @@ class Gate(Operation):
 
     @staticmethod
     def _reset_qasm_new_gate():
-        Gate.qasm_new_gate = ['c3x', 'c4x']
+        Gate._qasm_new_gate = ['c3x', 'c4x']
 
     def _qasm_customized(self, name: str) -> str:
         """Get QASM for multi-control gates."""
@@ -286,8 +297,8 @@ class Gate(Operation):
             qasm_lst2.append(f'q[{wire}],')
         qasm_str1 = ''.join(qasm_lst1)[:-1] + ' { }\n'
         qasm_str2 = ''.join(qasm_lst2)[:-1] + ';\n'
-        if name not in Gate.qasm_new_gate:
-            Gate.qasm_new_gate.append(name)
+        if name not in Gate._qasm_new_gate:
+            Gate._qasm_new_gate.append(name)
             return qasm_str1 + qasm_str2
         else:
             return qasm_str2
@@ -410,19 +421,10 @@ class Layer(Operation):
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
+        super().__init__(name=name, nqubit=nqubit, wires=None, den_mat=den_mat, tsr_mode=tsr_mode)
         if wires is None:
             wires = [[0]]
-        if isinstance(wires, int):
-            wires = [[wires]]
-        assert isinstance(wires, list), 'Invalid input type'
-        if all(isinstance(i, int) for i in wires):
-            wires = [[i] for i in wires]
-        assert all(isinstance(i, list) for i in wires), 'Invalid input type'
-        for wire in wires:
-            assert all(isinstance(i, int) for i in wire), 'Invalid input type'
-            assert min(wire) > -1 and max(wire) < nqubit, 'Invalid input'
-            assert len(set(wire)) == len(wire), 'Invalid input'
-        super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
+        self.wires = self._convert_indices(wires)
         self.gates = nn.Sequential()
 
     def get_unitary(self):
@@ -452,6 +454,7 @@ class Layer(Operation):
             self.npara += gate.npara
 
     def forward(self, x: Union[torch.Tensor, MatrixProductState]) -> Union[torch.Tensor, MatrixProductState]:
+        """Perform a forward pass."""
         if isinstance(x, MatrixProductState):
             return self.gates(x)
         if not self.tsr_mode:
@@ -467,6 +470,19 @@ class Layer(Operation):
     def inverse(self):
         """Get the inversed gate."""
         return self
+
+    def _convert_indices(self, indices: Union[int, List]) -> List[List[int]]:
+        if isinstance(indices, int):
+            indices = [[indices]]
+        assert isinstance(indices, list), 'Invalid input type'
+        if all(isinstance(i, int) for i in indices):
+            indices = [[i] for i in indices]
+        assert all(isinstance(i, list) for i in indices), 'Invalid input type'
+        for idx in indices:
+            assert all(isinstance(i, int) for i in idx), 'Invalid input type'
+            assert min(idx) > -1 and max(idx) < self.nqubit, 'Invalid input'
+            assert len(set(idx)) == len(idx), 'Invalid input'
+        return indices
 
     def _qasm(self):
         lst = []

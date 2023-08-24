@@ -295,16 +295,12 @@ class QubitCircuit(Operation):
     ) -> Union[Dict, List[Dict]]:
         """Measure the final state."""
         if wires is None:
-            self.wires_measure = list(range(self.nqubit))
-        else:
-            assert isinstance(wires, (int, list))
-            if isinstance(wires, int):
-                wires = [wires]
-            self.wires_measure = wires
+            wires = list(range(self.nqubit))
+        self.wires_measure = self._convert_indices(wires)
         if self.state is None:
             return
         else:
-            return measure(self.state, shots=shots, with_prob=with_prob, wires=wires)
+            return measure(self.state, shots=shots, with_prob=with_prob, wires=self.wires_measure)
 
     def expectation(self) -> torch.Tensor:
         """Get the expectation value according to the final state and ``observables``."""
@@ -415,19 +411,10 @@ class QubitCircuit(Operation):
         assert isinstance(op, Operation)
         if wires is not None:
             assert isinstance(op, Gate)
-            if isinstance(wires, int):
-                wires = [wires]
-            if isinstance(controls, int):
-                controls = [controls]
             if controls is None:
                 controls = []
-            assert isinstance(wires, list) and isinstance(controls, list), 'Invalid input type'
-            assert all(isinstance(i, int) for i in wires), 'Invalid input type'
-            assert all(isinstance(i, int) for i in controls), 'Invalid input type'
-            assert min(wires) > -1 and max(wires) < self.nqubit, 'Invalid input'
-            if len(controls) > 0:
-                assert min(controls) > -1 and max(controls) < self.nqubit, 'Invalid input'
-            assert len(set(wires)) == len(wires) and len(set(controls)) == len(controls), 'Invalid input'
+            wires = self._convert_indices(wires)
+            controls = self._convert_indices(controls)
             for wire in wires:
                 assert wire not in controls, 'Use repeated wires'
             assert len(wires) == len(op.wires), 'Invalid input'

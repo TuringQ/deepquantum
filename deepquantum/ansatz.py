@@ -47,36 +47,18 @@ class Ansatz(QubitCircuit):
     ) -> None:
         super().__init__(nqubit=nqubit, init_state=init_state, name=name, den_mat=den_mat,
                          reupload=reupload, mps=mps, chi=chi)
-        if isinstance(wires, int):
-            wires = [wires]
         if wires is None:
             if minmax is None:
                 minmax = [0, nqubit - 1]
-            assert isinstance(minmax, list)
-            assert len(minmax) == 2
-            assert all(isinstance(i, int) for i in minmax)
-            assert -1 < minmax[0] <= minmax[1] < nqubit
+            self._check_minmax(minmax)
             wires = list(range(minmax[0], minmax[1] + 1))
-        if isinstance(ancilla, int):
-            ancilla = [ancilla]
         if ancilla is None:
             ancilla = []
-        if isinstance(controls, int):
-            controls = [controls]
         if controls is None:
             controls = []
-        # pylint: disable=line-too-long
-        assert isinstance(wires, list) and isinstance(ancilla, list) and isinstance(controls, list), 'Invalid input type'
-        assert all(isinstance(i, int) for i in wires), 'Invalid input type'
-        assert all(isinstance(i, int) for i in ancilla), 'Invalid input type'
-        assert all(isinstance(i, int) for i in controls), 'Invalid input type'
-        assert min(wires) > -1 and max(wires) < nqubit, 'Invalid input'
-        if len(ancilla) > 0:
-            assert min(ancilla) > -1 and max(ancilla) < nqubit, 'Invalid input'
-        if len(controls) > 0:
-            assert min(controls) > -1 and max(controls) < nqubit, 'Invalid input'
-        assert len(set(wires)) == len(wires), 'Invalid input'
-        assert len(set(ancilla)) == len(ancilla) and len(set(controls)) == len(controls), 'Invalid input'
+        wires = self._convert_indices(wires)
+        ancilla = self._convert_indices(ancilla)
+        controls = self._convert_indices(controls)
         for wire in wires:
             assert wire not in ancilla and wire not in controls, 'Use repeated wires'
         self.wires = sorted(wires)
@@ -131,7 +113,7 @@ class ControlledMultiplier(Ansatz):
                          init_state='zeros', name='ControlledMultiplier', den_mat=den_mat, mps=mps, chi=chi)
         # one extra qubit to prevent overflow
         assert len(self.wires) >= nqubitx + len(bin(mod)) - 1, 'Quantum register is not enough.'
-        minmax1 = [minmax[0], minmax[0] + nqubitx - 1]
+        minmax1 = [self.minmax[0], self.minmax[0] + nqubitx - 1]
         minmax2 = [minmax1[1] + 1, minmax[1]]
         qft = QuantumFourierTransform(nqubit=nqubit, minmax=minmax2, reverse=True,
                                       den_mat=self.den_mat, mps=self.mps, chi=self.chi)
