@@ -960,9 +960,10 @@ class SGate(SingleGate):
         elif len(self.controls) == 1:
             qasm_str1 = ''
             qasm_str2 = f'cs q{self.controls},q{self.wires};\n'
-            if 'cs' not in Gate.qasm_new_gate:
+            # pylint: disable=protected-access
+            if 'cs' not in Gate._qasm_new_gate:
                 qasm_str1 = 'gate cs q0,q1 { p(pi/4) q0; cx q0,q1; p(-pi/4) q1; cx q0,q1; p(pi/4) q1; }\n'
-                Gate.qasm_new_gate.append('cs')
+                Gate._qasm_new_gate.append('cs')
             return qasm_str1 + qasm_str2
         else:
             return self._qasm_customized('s')
@@ -1019,9 +1020,10 @@ class SDaggerGate(SingleGate):
         elif len(self.controls) == 1:
             qasm_str1 = ''
             qasm_str2 = f'csdg q{self.controls},q{self.wires};\n'
-            if 'csdg' not in Gate.qasm_new_gate:
+            # pylint: disable=protected-access
+            if 'csdg' not in Gate._qasm_new_gate:
                 qasm_str1 = 'gate csdg q0,q1 { p(-pi/4) q0; cx q0,q1; p(pi/4) q1; cx q0,q1; p(-pi/4) q1; }\n'
-                Gate.qasm_new_gate.append('csdg')
+                Gate._qasm_new_gate.append('csdg')
             return qasm_str1 + qasm_str2
         else:
             return self._qasm_customized('sdg')
@@ -1643,10 +1645,11 @@ class Ryy(ParametricDoubleGate):
             theta = self.theta
         qasm_str1 = ''
         qasm_str2 = f'ryy({theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
-        if 'ryy' not in Gate.qasm_new_gate:
+        # pylint: disable=protected-access
+        if 'ryy' not in Gate._qasm_new_gate:
             # pylint: disable=line-too-long
             qasm_str1 = 'gate ryy(param0) q0,q1 { rx(pi/2) q0; rx(pi/2) q1; cx q0,q1; rz(param0) q1; cx q0,q1; rx(-pi/2) q0; rx(-pi/2) q1; }\n'
-            Gate.qasm_new_gate.append('ryy')
+            Gate._qasm_new_gate.append('ryy')
         if self.condition:
             return qasm_str1 + self._qasm_cond_measure() + qasm_str2
         if self.controls == []:
