@@ -14,7 +14,7 @@ from .state import QubitState, MatrixProductState
 from .operation import Operation, Gate, Layer
 from .gate import U3Gate, PhaseShift, PauliX, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, TGate, TDaggerGate
 from .gate import Rx, Ry, Rz, CNOT, Swap, Rxx, Ryy, Rzz, Rxy, ReconfigurableBeamSplitter, Toffoli, Fredkin
-from .gate import UAnyGate, LatentGate, Barrier
+from .gate import UAnyGate, LatentGate, HamiltonianGate, Barrier
 from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer, RyLayer, RzLayer, CnotLayer, CnotRing
 from .qmath import amplitude_encoding, measure, expectation
 
@@ -52,7 +52,7 @@ class QubitCircuit(Operation):
         if isinstance(init_state, (QubitState, MatrixProductState)):
             assert nqubit == init_state.nqubit
             if isinstance(init_state, MatrixProductState):
-                assert not den_mat, 'Currently, DO NOT support MPS for density matrix'
+                assert not den_mat, 'Currently, MPS for density matrix is NOT supported'
             else:
                 assert den_mat == init_state.den_mat
             self.init_state = init_state
@@ -249,7 +249,7 @@ class QubitCircuit(Operation):
         if isinstance(init_state, (QubitState, MatrixProductState)):
             assert self.nqubit == init_state.nqubit
             if isinstance(init_state, MatrixProductState):
-                assert not self.den_mat, 'Currently, DO NOT support MPS for density matrix'
+                assert not self.den_mat, 'Currently, MPS for density matrix is NOT supported'
                 self.mps = True
                 self.chi = init_state.chi
             else:
@@ -315,6 +315,7 @@ class QubitCircuit(Operation):
             assert len(self.state) == self.nqubit, 'Invalid final state'
         else:
             assert isinstance(self.state, torch.Tensor), 'There is no final state'
+        assert self.wires_condition == [], 'Expectation with conditional measurement is NOT supported'
         out = []
         for observable in self.observables:
             expval = expectation(self.state, observable=observable, den_mat=self.den_mat, chi=self.chi)
@@ -891,6 +892,23 @@ class QubitCircuit(Operation):
         latent = LatentGate(inputs=inputs, nqubit=self.nqubit, wires=wires, minmax=minmax, name=name,
                             den_mat=self.den_mat, requires_grad=requires_grad)
         self.add(latent, encode=encode)
+
+    def hamiltonian(
+        self,
+        hamiltonian: Any,
+        t: Any = None,
+        wires: Union[int, List[int], None] = None,
+        minmax: Optional[List[int]] = None,
+        encode: bool = False,
+        name: str = 'hamiltonian'
+    ) -> None:
+        """Add a Hamiltonian gate."""
+        requires_grad = not encode
+        if t is not None:
+            requires_grad = False
+        ham = HamiltonianGate(hamiltonian=hamiltonian, t=t, nqubit=self.nqubit, wires=wires, minmax=minmax,
+                              name=name, den_mat=self.den_mat, requires_grad=requires_grad)
+        self.add(ham, encode=encode)
 
     def xlayer(self, wires: Union[int, List[int], None] = None) -> None:
         """Add a layer of Pauli-X gates."""

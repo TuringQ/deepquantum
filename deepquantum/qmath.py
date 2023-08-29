@@ -403,7 +403,7 @@ def measure(
     Args:
         state (torch.Tensor): The quantum state to measure. It can be a tensor of shape :math:`(2^n,)` or
             :math:`(2^n, 1)` representing a state vector, or a tensor of shape :math:`(\text{batch}, 2^n)`
-            or :math:`(\text{batch}, 2^n, 1)` representing a batch of state vectors. It also can be a tensor
+            or :math:`(\text{batch}, 2^n, 1)` representing a batch of state vectors. It can also be a tensor
             of shape :math:`(2^n, 2^n)` representing a density matrix or :math:`(\text{batch}, 2^n, 2^n)`
             representing a batch of density matrices.
         shots (int, optional): The number of times to sample from the quantum state. Default: 1024

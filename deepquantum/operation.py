@@ -128,7 +128,7 @@ class Gate(Operation):
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
-        super().__init__(name=name, nqubit=nqubit, wires=None, den_mat=den_mat, tsr_mode=tsr_mode)
+        self.nqubit = nqubit
         if wires is None:
             wires = [0]
         if controls is None:
@@ -137,12 +137,11 @@ class Gate(Operation):
         controls = self._convert_indices(controls)
         for wire in wires:
             assert wire not in controls, 'Use repeated wires'
-        self.wires = wires
+        if condition:
+            assert len(controls) > 0
+        super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         self.controls = controls
-        self.nwire = len(wires) + len(controls)
         self.condition = condition
-        if self.condition:
-            assert len(self.controls) > 0
 
     def update_matrix(self) -> torch.Tensor:
         """Update the local unitary matrix."""

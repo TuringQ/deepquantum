@@ -232,7 +232,7 @@ class ArbitraryGate(Gate):
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum 
+        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
             operation acts on. Only valid when ``wires`` is ``None``. Default: ``None``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
@@ -249,14 +249,14 @@ class ArbitraryGate(Gate):
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
-        super().__init__(name=name, nqubit=nqubit, wires=None, controls=None, condition=False,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
+        self.nqubit = nqubit
         if wires is None:
             if minmax is None:
                 minmax = [0, nqubit - 1]
             self._check_minmax(minmax)
             wires = list(range(minmax[0], minmax[1] + 1))
-        self.wires = self._convert_indices(wires)
+        super().__init__(name=name, nqubit=nqubit, wires=wires, controls=None, condition=False,
+                         den_mat=den_mat, tsr_mode=tsr_mode)
         self.minmax = [min(self.wires), max(self.wires)]
         # whether the wires are consecutive integers
         self.local = True
@@ -812,6 +812,7 @@ class PauliY(SingleGate):
             return f'cy q{self.controls},q{self.wires};\n'
         else:
             return self._qasm_customized('y')
+
 
 class PauliZ(SingleGate):
     r"""PauliZ gate.
@@ -2039,7 +2040,7 @@ class UAnyGate(ArbitraryGate):
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum 
+        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
             operation acts on. Only valid when ``wires`` is ``None``. Default: ``None``
         name (str, optional): The name of the gate. Default: ``'UAnyGate'``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
@@ -2082,8 +2083,8 @@ class LatentGate(ArbitraryGate):
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum 
-            operation acts on. Only valid when `wires` is `None`. Default: ``None``
+        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
+            operation acts on. Only valid when ``wires`` is ``None``. Default: ``None``
         name (str, optional): The name of the gate. Default: ``'LatentGate'``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
@@ -2115,7 +2116,6 @@ class LatentGate(ArbitraryGate):
             inputs = torch.randn(2 ** len(self.wires), 2 ** len(self.wires))
         elif not isinstance(inputs, (torch.Tensor, nn.Parameter)):
             inputs = torch.tensor(inputs, dtype=torch.float)
-        assert inputs.shape[-1] == inputs.shape[-2] == 2 ** len(self.wires)
         return inputs
 
     def get_matrix(self, inputs: Any) -> torch.Tensor:
@@ -2131,6 +2131,7 @@ class LatentGate(ArbitraryGate):
         else:
             latent = self.latent
         matrix = self.get_matrix(latent)
+        assert matrix.shape[-1] == matrix.shape[-2] == 2 ** len(self.wires)
         self.matrix = matrix.detach()
         return matrix
 
@@ -2143,6 +2144,144 @@ class LatentGate(ArbitraryGate):
             self.register_buffer('latent', latent)
         self.update_matrix()
         self.npara = self.latent.numel()
+
+
+class HamiltonianGate(ArbitraryGate):
+    r"""Hamiltonian gate.
+
+    Args:
+        hamiltonian (Any): The Hamiltonian. It can be a list, e.g., ``[[0.5, 'x0y1'], [-1, 'z3y1']]`` for
+            :math:`0.5 * \sigma^x_0 \otimes \sigma^y_1 - \sigma^y_1 \otimes \sigma^z_3`. It can also be
+            a torch.Tensor when ``wires`` or ``minmax`` is specified.
+        t (Any, optional): The evolution time. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Only valid when ``hamiltonian`` is not a list. Default: ``None``
+        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
+            operation acts on. Only valid when ``hamiltonian`` is not a list and ``wires`` is ``None``.
+            Default: ``None``
+        name (str, optional): The name of the gate. Default: ``'HamiltonianGate'``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
+            Default: ``False``
+        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
+    """
+    def __init__(
+        self,
+        hamiltonian: Any,
+        t: Any = None,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        minmax: Optional[List[int]] = None,
+        name: str = 'HamiltonianGate',
+        den_mat: bool = False,
+        tsr_mode: bool = False,
+        requires_grad: bool = False
+    ) -> None:
+        self.nqubit = nqubit
+        self.ham_lst = None
+        if isinstance(hamiltonian, list):
+            self.ham_lst = hamiltonian
+            wires = None
+            minmax = self.get_minmax(hamiltonian=hamiltonian)
+        super().__init__(name=name, nqubit=nqubit, wires=wires, minmax=minmax, den_mat=den_mat,
+                         tsr_mode=tsr_mode)
+        self.requires_grad = requires_grad
+        self.register_buffer('x', PauliX().matrix)
+        self.register_buffer('y', PauliY().matrix)
+        self.register_buffer('z', PauliZ().matrix)
+        self.init_para(inputs=(hamiltonian, t))
+
+    def _convert_hamiltonian(self, hamiltonian: List) -> List[List]:
+        """Convert and check the list representation of the Hamiltonian."""
+        if len(hamiltonian) == 2 and isinstance(hamiltonian[1], str):
+            hamiltonian = [hamiltonian]
+        assert all(isinstance(i, list) for i in hamiltonian), 'Invalid input type'
+        for pair in hamiltonian:
+            assert isinstance(pair[1], str), 'Invalid input type'
+        return hamiltonian
+
+    def get_minmax(self, hamiltonian: List) -> List[int]:
+        """Get ``minmax`` according to the Hamiltonian."""
+        hamiltonian = self._convert_hamiltonian(hamiltonian)
+        minmax = [self.nqubit - 1, 0]
+        for pair in hamiltonian:
+            wires = pair[1][1::2]
+            for i in wires:
+                i = int(i)
+                if i < minmax[0]:
+                    minmax[0] = i
+                if i > minmax[1]:
+                    minmax[1] = i
+        return minmax
+
+    def inputs_to_tensor(self, inputs: Optional[Tuple[Any, Any]] = None) -> torch.Tensor:
+        """Convert inputs to torch.Tensor."""
+        if inputs is None:
+            t = torch.rand(1)[0]
+            return self.ham_tsr, t
+        ham, t = inputs
+        if ham is None:
+            ham = self.ham_tsr
+        if isinstance(ham, list):
+            ham = self._convert_hamiltonian(ham)
+            pauli_dict = {'x': self.x, 'y': self.y, 'z': self.z}
+            identity = torch.eye(2, dtype=self.x.dtype, device=self.x.device)
+            minmax = self.get_minmax(ham)
+            ham_tsr = None
+            for pair in ham:
+                lst = [identity] * self.nqubit
+                coeff = pair[0]
+                basis = pair[1][::2]
+                wires = pair[1][1::2]
+                for wire, key in zip(wires, basis):
+                    wire = int(wire)
+                    key = key.lower()
+                    lst[wire] = pauli_dict[key]
+                if ham_tsr is None:
+                    ham_tsr = multi_kron(lst[minmax[0]:minmax[1]+1]) * coeff
+                else:
+                    ham_tsr += multi_kron(lst[minmax[0]:minmax[1]+1]) * coeff
+        elif not isinstance(ham, torch.Tensor):
+            ham_tsr = torch.tensor(ham, dtype=self.x.dtype, device=self.x.device)
+        else:
+            ham_tsr = ham
+        assert torch.allclose(ham_tsr, ham_tsr.mH)
+        if t is None:
+            t = torch.rand(1)[0]
+        elif not isinstance(t, (torch.Tensor, nn.Parameter)):
+            t = torch.tensor(t, dtype=torch.float)
+        return ham_tsr, t
+
+    def get_matrix(self, hamiltonian: Any, t: Any) -> torch.Tensor:
+        """Get the local unitary matrix."""
+        ham, t = self.inputs_to_tensor(inputs=(hamiltonian, t))
+        matrix = torch.linalg.matrix_exp(-1j * ham * t)
+        return matrix
+
+    def update_matrix(self) -> torch.Tensor:
+        """Update the local unitary matrix."""
+        if self.inv_mode:
+            t = -self.t
+        else:
+            t = self.t
+        matrix = self.get_matrix(self.ham_tsr, t)
+        assert matrix.shape[-1] == matrix.shape[-2] == 2 ** len(self.wires)
+        self.matrix = matrix.detach()
+        return matrix
+
+    def init_para(self, inputs: Optional[Tuple[Any, Any]] = None) -> None:
+        """Initialize the parameters."""
+        ham, t = self.inputs_to_tensor(inputs=inputs)
+        self.register_buffer('ham_tsr', ham)
+        if self.requires_grad:
+            self.t = nn.Parameter(t)
+        else:
+            self.register_buffer('t', t)
+        self.update_matrix()
 
 
 class Barrier(Gate):
