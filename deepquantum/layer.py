@@ -15,7 +15,7 @@ from .qmath import multi_kron
 
 class SingleLayer(Layer):
     r"""A base class for layers of single-qubit gates.
-    
+
     Args:
         name (str, optional): The name of the layer. Default: ``None``
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
@@ -53,7 +53,7 @@ class SingleLayer(Layer):
 
 class DoubleLayer(Layer):
     r"""A base class for layers of two-qubit gates.
-    
+
     Args:
         name (str, optional): The name of the layer. Default: ``None``
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 2
@@ -224,7 +224,7 @@ class YLayer(SingleLayer):
 
 class ZLayer(SingleLayer):
     r"""A layer of Pauli-Z gates.
-    
+
     Args:
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that the
@@ -324,7 +324,7 @@ class RxLayer(SingleLayer):
 
 class RyLayer(SingleLayer):
     r"""A layer of Ry gates.
-    
+
     Args:
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that the

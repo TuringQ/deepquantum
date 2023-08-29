@@ -390,7 +390,8 @@ def measure(
     state: torch.Tensor,
     shots: int = 1024,
     with_prob: bool = False,
-    wires: Union[int, List[int], None] = None
+    wires: Union[int, List[int], None] = None,
+    den_mat: bool = False
 ) -> Union[Dict, List[Dict]]:
     r"""A function that performs a measurement on a quantum state and returns the results.
 
@@ -402,13 +403,16 @@ def measure(
     Args:
         state (torch.Tensor): The quantum state to measure. It can be a tensor of shape :math:`(2^n,)` or
             :math:`(2^n, 1)` representing a state vector, or a tensor of shape :math:`(\text{batch}, 2^n)`
-            or :math:`(\text{batch}, 2^n, 1)` representing a batch of state vectors.
+            or :math:`(\text{batch}, 2^n, 1)` representing a batch of state vectors. It also can be a tensor
+            of shape :math:`(2^n, 2^n)` representing a density matrix or :math:`(\text{batch}, 2^n, 2^n)`
+            representing a batch of density matrices.
         shots (int, optional): The number of times to sample from the quantum state. Default: 1024
         with_prob (bool, optional): A flag that indicates whether to return the probabilities along with
             the number of occurrences. Default: ``False``
         wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
             integers specifying the indices of the wires. Default: ``None`` (which means all wires are
             measured)
+        den_mat (bool, optional): Whether the state is a density matrix or not. Default: ``False``
 
     Returns:
         Union[Dict, List[Dict]]: The measurement results. If the state is a single state vector, it returns
@@ -417,6 +421,9 @@ def measure(
         If the state is a batch of state vectors, it returns a list of dictionaries with the same format
         for each state vector in the batch.
     """
+    if den_mat:
+        assert is_density_matrix(state), 'Please input density matrices'
+        state = state.diagonal(dim1=-2, dim2=-1)
     if state.ndim == 1 or (state.ndim == 2 and state.shape[-1] == 1):
         batch = 1
     else:
@@ -433,7 +440,10 @@ def measure(
         bit_strings = [format(i, f'0{len(wires)}b') for i in range(2 ** len(wires))]
     results_tot = []
     for i in range(batch):
-        probs = torch.abs(state[i]) ** 2
+        if den_mat:
+            probs = torch.abs(state[i])
+        else:
+            probs = torch.abs(state[i]) ** 2
         if wires is not None:
             wires.sort()
             pm_shape = list(range(n))

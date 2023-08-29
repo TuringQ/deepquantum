@@ -190,7 +190,7 @@ class ControlledUa(Ansatz):
 
 class NumberEncoder(Ansatz):
     """Convert number to corresponding encoding circuit.
-    
+
     Args:
         nqubit (int): The number of qubits in the circuit.
         number (int): The integer for converting to bit string.
@@ -225,7 +225,7 @@ class PhiAdder(Ansatz):
 
     Args:
         nqubit (int): The number of qubits in the circuit.
-        number (int): Number ``a`` in :math:`\Phi(a+b)` .
+        number (int): Number ``a`` in :math:`\Phi(a+b)`.
         minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
             operation acts on. Default: ``None``
         controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
@@ -441,7 +441,7 @@ class QuantumFourierTransform(Ansatz):
 
 class QuantumPhaseEstimationSingleQubit(Ansatz):
     """Quantum phase estimation for single-qubit gate.
-    
+
     Args:
         t (int): The number of counting qubits.
         phase (Any, optional): The phase to be estimated.
@@ -518,7 +518,7 @@ class RandomCircuitG3(Ansatz):
 
 
 class ShorCircuit(Ansatz):
-    """Circuit for Shor's algorithm.
+    r"""Circuit for Shor's algorithm.
 
     Args:
         mod (int): The odd integer to be factored.
@@ -565,7 +565,7 @@ class ShorCircuit(Ansatz):
 
 
 class ShorCircuitFor15(Ansatz):
-    """Circuit for Shor's algorithm to factor number 15.
+    r"""Circuit for Shor's algorithm to factor number 15.
 
     See https://learn.qiskit.org/course/ch-algorithms/shors-algorithm
 

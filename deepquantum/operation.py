@@ -110,6 +110,7 @@ class Gate(Operation):
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
         controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        condition (bool, optional): Whether to use ``controls`` as conditional measurement. Default: ``False``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
@@ -123,6 +124,7 @@ class Gate(Operation):
         nqubit: int = 1,
         wires: Union[int, List[int], None] = None,
         controls: Union[int, List[int], None] = None,
+        condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -138,6 +140,9 @@ class Gate(Operation):
         self.wires = wires
         self.controls = controls
         self.nwire = len(wires) + len(controls)
+        self.condition = condition
+        if self.condition:
+            assert len(self.controls) > 0
 
     def update_matrix(self) -> torch.Tensor:
         """Update the local unitary matrix."""
@@ -282,13 +287,20 @@ class Gate(Operation):
     def _reset_qasm_new_gate() -> None:
         Gate._qasm_new_gate = ['c3x', 'c4x']
 
+    def _qasm_cond_measure(self) -> str:
+        qasm_str = ''
+        for control in self.controls:
+            qasm_str += f'measure q[{control}] -> c[{control}];\n'
+        qasm_str += 'if(c==1) '
+        return qasm_str
+
     def _qasm_customized(self, name: str) -> str:
-        """Get QASM for multi-control gates."""
+        """Get QASM for multi-controlled gates."""
         name = name.lower()
         if len(self.controls) > 2:
-            name = f'c{len(self.controls)}{name}'
+            name = f'c{len(self.controls)}' + name
         else:
-            name = 'c' * len(self.controls) + f'{name}'
+            name = 'c' * len(self.controls) + name
         # warnings.warn(f'{name} is an empty gate and should be only used to draw circuit.')
         qasm_lst1 = [f'gate {name} ']
         qasm_lst2 = [f'{name} ']
@@ -401,7 +413,7 @@ class Gate(Operation):
 
 class Layer(Operation):
     r"""A base class for quantum layers.
-    
+
     Args:
         name (str, optional): The name of the layer. Default: ``None``
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
