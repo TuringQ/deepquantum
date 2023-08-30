@@ -35,7 +35,7 @@ def conditional_state(system, projector, mode, state_is_pure):
     mode_indices = indices[batch_offset : batch_offset + num_modes * mode_size]
     projector_indices = mode_indices[:mode_size]
     free_mode_indices = mode_indices[mode_size : num_modes * mode_size]
-    
+
     state_lhs = (
         batch_index
         + free_mode_indices[: mode * mode_size]
@@ -52,7 +52,7 @@ def conditional_state(system, projector, mode, state_is_pure):
     if not state_is_pure:
         einsum_args.append(projector)
     cond_state = torch.einsum(eqn, *einsum_args)
-    
+
     return cond_state
 
 
@@ -76,7 +76,7 @@ def add_batch_dim(tensor, batch_size=1):
 
 def mix(pure_state):
     """Converts the state from pure state (ket) to mixed state (density matrix)"""
-    
+
     batch_offset = 1
     num_modes = pure_state.ndim - batch_offset
     max_num = (max_num_indices - batch_offset) // 2
@@ -87,9 +87,9 @@ def mix(pure_state):
                 max_num
             )
         )
-    
+
     # eqn: 'abc...xyz,ABC...XYZ->aAbBcC...xXyYzZ' (lowercase belonging to 'ket' side, uppercase belonging to 'bra' side)
-    batch_index = indices[:batch_offset]  
+    batch_index = indices[:batch_offset]
     bra_indices = indices[batch_offset : batch_offset + num_modes]
     ket_indices = indices[batch_offset + num_modes : batch_offset + 2 * num_modes]
     eqn_lhs = batch_index + bra_indices + "," + batch_index + ket_indices
@@ -105,7 +105,7 @@ def partial_trace(state, mode, state_is_pure):
     Trace out subsystem 'mode' from 'state'.
     This operation always returns a mixed state, since we do not know in advance if a mode is entangled with others.
     """
-    
+
 
     batch_offset = 1
 
@@ -149,7 +149,7 @@ def reduced_density_matrix(state, modes, state_is_pure):
         reduced_state = mix(state)
     else:
         reduced_state = state
-        
+
     num_indices = len(reduced_state.shape)
     batch_offset = 1
     num_modes = (num_indices - batch_offset) // 2  # always mixed
@@ -166,7 +166,7 @@ def combine_single_modes(modes_list):
     """Group together a list of single modes (each having ndim=1 or ndim=2) into a composite mode system."""
     batch_offset = 1
     num_modes = len(modes_list)
-    
+
     if num_modes <= 1:
         raise ValueError("'modes_list' must have at least two modes")
 
@@ -178,7 +178,7 @@ def combine_single_modes(modes_list):
         # All modes are represented as pure states.
         # Can return combined state also as pure state.
         # basic form (no batch):
-        # 'a,b,c,...,x,y,z->abc...xyz' 
+        # 'a,b,c,...,x,y,z->abc...xyz'
         max_num = max_num_indices - batch_offset
         if num_modes > max_num:
             raise NotImplementedError("The max number of supported modes for this operation with pure states is currently {}".format(max_num))
@@ -201,11 +201,11 @@ def combine_single_modes(modes_list):
         mode_idxs = [indices[slice(batch_offset + idx, batch_offset + idx + 2)] for idx in range(0, 2 * num_modes, 2)] # each mode gets a pair of consecutive indices
         # mode_idxs = ['bc', 'de']
         eqn_rhs = batch_index + "".join(mode_idxs) # 'abcde'
-        eqn_idxs = [batch_index + m for m in mode_idxs] # ['abc', 'ade'] 
+        eqn_idxs = [batch_index + m for m in mode_idxs] # ['abc', 'ade']
         eqn_lhs = ",".join(eqn_idxs) #  'abc, ade'
         eqn = eqn_lhs + "->" + eqn_rhs
         einsum_inputs = modes_list
-    
+
     combined_modes = torch.einsum(eqn, *einsum_inputs)
     return combined_modes
 
@@ -218,7 +218,7 @@ def single_mode_gate(matrix, mode, in_modes, pure=True):
     """
 
     batch_offset = 1
- 
+
     batch_index = indices[:batch_offset]
     left_gate_str = indices[batch_offset : batch_offset + 2] # |a><b|
     num_indices = len(in_modes.shape)
@@ -246,7 +246,7 @@ def single_mode_gate(matrix, mode, in_modes, pure=True):
             eqn_rhs = "".join([batch_index, other_modes_indices[:mode * mode_size], left_gate_str[0], right_gate_str[1], other_modes_indices[mode * mode_size:]])
 
     eqn = eqn_lhs + "->" + eqn_rhs
-    
+
     einsum_inputs = [matrix, in_modes]
 
     if not pure:
@@ -262,7 +262,7 @@ def two_mode_gate(matrix, mode1, mode2, in_modes, pure=True):
     'abcd,ij...be...dg...xyz,efgh->ij...af...ch...xyz' (mixed state)
     """
     # pylint: disable=too-many-branches,too-many-statements
-    
+
     batch_offset = 1
     batch_index = indices[:batch_offset]
     left_gate_str = indices[batch_offset : batch_offset + 4] # |a><b| |c><d|
@@ -341,13 +341,13 @@ def two_mode_gate(matrix, mode1, mode2, in_modes, pure=True):
 
 def displacement_matrix(r, phi, cutoff, dtype, batch_size):  # pragma: no cover
     r"""Calculates the matrix elements of the displacement gate using a recurrence relation.
-    
+
     Args:
         r (torch.Tensor): batched displacement magnitude shape = (batch_size,)
         phi (torch.Tensor): batched displacement angle shape = (batch_size,)
         cutoff (int): Fock ladder cutoff
         dtype (data type): Specifies the data type used for the calculation
-    
+
     Returns:
         torch.Tensor: matrix representing the displacement operation.
     """
@@ -362,16 +362,16 @@ def displacement_matrix(r, phi, cutoff, dtype, batch_size):  # pragma: no cover
 
     D = torch.zeros((batch_size, cutoff, cutoff)).to(dtype).to(r.device)
     sqrt = torch.sqrt(torch.arange(cutoff)).to(dtype).to(r.device)
-    
+
     alpha0 = r * torch.exp(1j * phi)
     alpha1 = -r * torch.exp(-1j * phi)
-    
+
 
     D[:, 0, 0] = torch.exp(-0.5 * r**2)
-    
+
     for m in range(1, cutoff):
         D[:, m, 0] = alpha0 / sqrt[m] * D[:, m - 1, 0].clone()
- 
+
 
     for n in range(1, cutoff):
         D[:, 0, n] = alpha1 / sqrt[n] * D[:, 0, n - 1].clone()
@@ -380,7 +380,7 @@ def displacement_matrix(r, phi, cutoff, dtype, batch_size):  # pragma: no cover
     for m in range(1, cutoff):
         for n in range(1, cutoff):
             D[:, m, n] = alpha1 / sqrt[n] * D[:, m, n - 1].clone() + sqrt[m] / sqrt[n] * D[:, m - 1, n - 1].clone()
-    
+
     return D
 
 
@@ -392,7 +392,7 @@ def squeezing_matrix(r, phi, cutoff, dtype, batch_size):  # pragma: no cover
         phi (torch.Tensor): batched squeezing angle shape = (batch_size,)
         cutoff (int): Fock ladder cutoff
         dtype (data type): Specifies the data type used for the calculation
-    
+
     Returns:
         torch.Tensor: matrix representing the squeezing operation.
     """
@@ -401,12 +401,12 @@ def squeezing_matrix(r, phi, cutoff, dtype, batch_size):  # pragma: no cover
 
     r = r.to(dtype)
     phi = phi.to(dtype)
-    
+
 
     S = torch.zeros((batch_size, cutoff, cutoff)).to(dtype).to(r.device)
     sqrt = torch.sqrt(torch.arange(cutoff)).to(dtype).to(r.device)
 
-    
+
 
     eiphi_tanhr = torch.exp(1j * phi) * torch.tanh(r)
     sechr = 1.0 / torch.cosh(r)
@@ -421,27 +421,27 @@ def squeezing_matrix(r, phi, cutoff, dtype, batch_size):  # pragma: no cover
         S[:, m, 0] = sqrt[m - 1] / sqrt[m] * R_00 * S[:, m - 2, 0].clone()
 
     for n in range(2, cutoff, 2):
-        S[:, 0, n] = sqrt[n - 1] / sqrt[n] * R_11 * S[:, 0, n-2].clone() 
+        S[:, 0, n] = sqrt[n - 1] / sqrt[n] * R_11 * S[:, 0, n-2].clone()
 
     for m in range(1, cutoff):
         for n in range(1, cutoff):
             if (m + n) % 2 == 0:
                 S[:, m, n] = (
                     sqrt[n - 1] / sqrt[n] * R_11 * S[:, m, n - 2].clone()
-                    + sqrt[m] / sqrt[n] * R_01 * S[:, m - 1, n - 1].clone()  
-                )                                                    
-    return S                                                        
+                    + sqrt[m] / sqrt[n] * R_01 * S[:, m - 1, n - 1].clone()
+                )
+    return S
 
 
-def beam_splitter_matrix(theta, phi, cutoff, dtype, batch_size):  
+def beam_splitter_matrix(theta, phi, cutoff, dtype, batch_size):
     r"""Calculates the matrix elements of the beamsplitter gate using a recurrence relation.
-    
+
     Args:
         theta (torch.Tensor): transmissivity angle of the beamsplitter. The transmissivity is :math:`t=\cos(\theta)`
         phi (torch.Tensor): reflection phase of the beamsplitter
         cutoff (int): Fock ladder cutoff
         dtype (data type): Specifies the data type used for the calculation
-    
+
     Returns:
         torch.Tensor: matrix representing the beamsplitter operation.
     """
@@ -451,11 +451,11 @@ def beam_splitter_matrix(theta, phi, cutoff, dtype, batch_size):
     theta = theta.to(dtype)
     phi = phi.to(dtype)
 
-    
+
     sqrt = torch.sqrt(torch.arange(cutoff)).to(dtype).to(theta.device)
     ct = torch.cos(theta)
     st = torch.sin(theta) * torch.exp(1j * phi)
-    
+
     R_02 = ct
     R_12 = st
     R_03 = -torch.conj(st)
@@ -463,7 +463,7 @@ def beam_splitter_matrix(theta, phi, cutoff, dtype, batch_size):
 
     Z = torch.zeros((batch_size, cutoff, cutoff, cutoff, cutoff)).to(dtype).to(theta.device)
     Z[:, 0, 0, 0, 0] = 1.0
-   
+
     # rank 3
     for m in range(cutoff):
         for n in range(cutoff - m):
@@ -473,20 +473,20 @@ def beam_splitter_matrix(theta, phi, cutoff, dtype, batch_size):
                     R_02 * sqrt[m] / sqrt[p] * Z[:, m - 1, n, p - 1, 0].clone()
                     + R_12 * sqrt[n] / sqrt[p] * Z[:, m, n - 1, p - 1, 0].clone()
                 )
-           
+
 
     # rank 4
     for m in range(cutoff):
         for n in range(cutoff):
             a = m + n - (cutoff-1)
-            if a <= 0:  
+            if a <= 0:
                 for p in range(0, m+n):
                     q = m + n - p
                     Z[:, m, n, p, q] = (
                         R_03 * sqrt[m] / sqrt[q] * Z[:, m - 1, n, p, q - 1].clone()
                         + R_13 * sqrt[n] / sqrt[q] * Z[:, m, n - 1, p, q - 1].clone()
                     )
-                   
+
 
             if a > 0:
                 for p in range(m+n-cutoff,  cutoff):
@@ -496,25 +496,25 @@ def beam_splitter_matrix(theta, phi, cutoff, dtype, batch_size):
                             R_03 * sqrt[m] / sqrt[q] * Z[:, m - 1, n, p, q - 1].clone()
                             + R_13 * sqrt[n] / sqrt[q] * Z[:, m, n - 1, p, q - 1].clone()
                         )
-                   
-            
-    
-    # Z = np.transpose(Z, [0, 1, 3, 2, 4]) 
-    Z = torch.permute(Z, (0, 1, 3, 2, 4)) 
-    
-    
+
+
+
+    # Z = np.transpose(Z, [0, 1, 3, 2, 4])
+    Z = torch.permute(Z, (0, 1, 3, 2, 4))
+
+
     return Z
 
 
 def phase_shifter_matrix(phi, cutoff, dtype, batch_size):
     """Creates the single mode phase shifter matrix
-    
+
     Args:
         phi (torch.Tensor): batched angle shape = (batch_size,)
     """
     phi = add_batch_dim(phi, batch_size)
     phi = phi.to(dtype)
-   
+
     diag = [torch.exp(1j * phi * n) for n in range(cutoff)]
     diag = torch.stack(diag, dim=1)
     diag_matrix = torch.diag_embed(diag)
@@ -523,7 +523,7 @@ def phase_shifter_matrix(phi, cutoff, dtype, batch_size):
 
 def kerr_interaction_matrix(kappa, cutoff, dtype, batch_size):
     """Creates the single mode Kerr interaction matrix
-    
+
     Args:
         kappa (torch.Tensor): batched angle shape = (batch_size,)
     """
@@ -542,12 +542,12 @@ def snap_maxtrix(theta, cutoff, dtype, batch_size):
 
     Constructs the matrix for a SNAP gate operation
     that can be applied to a state.
-    
+
     Args:
         cutoff (int): Hilbert space cuttoff
-        theta (torch.Tensor): A vector of theta values to 
+        theta (torch.Tensor): A vector of theta values to
                 apply SNAP operation, shape = (batch_size, cutoff)
-    
+
     Returns:
         torch.Tensor: matrix representing the SNAP gate, shape = (batch_size, cutoff, cutoff)
     """
@@ -576,7 +576,7 @@ def snap(theta, mode, in_modes, cutoff, pure=True, dtype=torch.complex64):
     matrix = snap_maxtrix(theta, cutoff, dtype=dtype)
     output = single_mode_gate(matrix, mode, in_modes, pure)
     return output
-    
+
 
 def coherent_state(r, phi, cutoff, pure=True, dtype=torch.complex64):
     """creates a single mode coherent state"""
@@ -610,15 +610,15 @@ def coherent_state(r, phi, cutoff, pure=True, dtype=torch.complex64):
 class Displacement(nn.Module):
     """
     Parameters:
-        r (tensor): displacement magnitude 
-        phi (tesnor): displacement angle 
+        r (tensor): displacement magnitude
+        phi (tesnor): displacement angle
     """
     def __init__(self, mode=0):
         super().__init__()
         self.mode = mode
         self.is_r_set  = False
         self.is_phi_set  = False
-        
+
     def forward(self, state):
         # state in, state out, this is in-place operation
         self.auto_params(dtype=state._dtype2, device=state.tensor.device)
@@ -626,7 +626,7 @@ class Displacement(nn.Module):
         self.matirx = displacement_matrix(self.r, self.phi, state._cutoff, state._dtype, state._batch_size)
         state.tensor = single_mode_gate(self.matirx, self.mode, state.tensor, state._pure)
         return state
-    
+
     def set_params(self, r=None, phi=None):
         """set r, phi to tensor independently"""
         if r != None:
@@ -635,7 +635,7 @@ class Displacement(nn.Module):
         if phi != None:
             self.register_buffer('phi', phi)
             self.is_phi_set = True
-        
+
 
     def auto_params(self, dtype, device):
         """automatically set None parameter as nn.Paramter for users"""
@@ -650,21 +650,21 @@ class Displacement(nn.Module):
         s = f'mode={self.mode}'
         return s
 
-        
+
 
 
 class Squeezing(nn.Module):
     """
     Parameters:
-        r (tensor): squeezing magnitude 
-        phi (tesnor): squeezing angle 
+        r (tensor): squeezing magnitude
+        phi (tesnor): squeezing angle
     """
     def __init__(self, mode=0):
         super().__init__()
         self.mode = mode
         self.is_r_set  = False
         self.is_phi_set  = False
-        
+
     def forward(self, state):
         # state in, state out, this is in-place operation
         self.auto_params(dtype=state._dtype2, device=state.tensor.device)
@@ -672,7 +672,7 @@ class Squeezing(nn.Module):
         self.matirx = squeezing_matrix(self.r, self.phi, state._cutoff, state._dtype, state._batch_size)
         state.tensor = single_mode_gate(self.matirx, self.mode, state.tensor, state._pure)
         return state
-    
+
     def set_params(self, r=None, phi=None):
         """set r, phi to tensor independently"""
         if r != None:
@@ -700,13 +700,13 @@ class Squeezing(nn.Module):
 class PhaseShifter(nn.Module):
     """
     Parameters:
-        phi (tesnor): phase shift angle 
+        phi (tesnor): phase shift angle
     """
     def __init__(self, mode=0):
         super().__init__()
         self.mode = mode
         self.is_phi_set  = False
-        
+
     def forward(self, state):
         # state in, state out, this is in-place operation
         self.auto_params(dtype=state._dtype2, device=state.tensor.device)
@@ -714,7 +714,7 @@ class PhaseShifter(nn.Module):
         self.matirx = phase_shifter_matrix(self.phi, state._cutoff, state._dtype, state._batch_size)
         state.tensor = single_mode_gate(self.matirx, self.mode, state.tensor, state._pure)
         return state
-    
+
     def set_params(self, phi=None):
         """set phi to tensor independently"""
         if phi != None:
@@ -735,10 +735,10 @@ class PhaseShifter(nn.Module):
 class BeamSplitter(nn.Module):
     """
     Parameters:
-        theta (tesnor): beam splitter angle 
+        theta (tesnor): beam splitter angle
         phi (tesnor): beam splitter angle
     Methods:
-        set_params(theta=None, phi=None): set theta, phi to non-trainable tensor independently 
+        set_params(theta=None, phi=None): set theta, phi to non-trainable tensor independently
     """
     def __init__(self, mode1=0, mode2=1):
         super().__init__()
@@ -754,7 +754,7 @@ class BeamSplitter(nn.Module):
         self.matirx = beam_splitter_matrix(theta=self.theta, phi=self.phi, cutoff=state._cutoff, dtype=state._dtype, batch_size=state._batch_size)
         state.tensor = two_mode_gate(self.matirx, self.mode1, self.mode2, state.tensor, state._pure)
         return state
-    
+
     def set_params(self, theta=None, phi=None):
         """set theta, phi to tensor independently"""
         if theta != None:
@@ -763,7 +763,7 @@ class BeamSplitter(nn.Module):
         if phi != None:
             self.register_buffer('phi', phi)
             self.is_phi_set = True
-    
+
     def auto_params(self, dtype, device):
         """automatically set None parameter as nn.Paramter for users"""
         if not self.is_theta_set:
@@ -795,13 +795,13 @@ class KerrInteraction(nn.Module):
         self.matirx = kerr_interaction_matrix(self.kappa, state._cutoff, state._dtype, state._batch_size)
         state.tensor = single_mode_gate(self.matirx, self.mode, state.tensor, state._pure)
         return state
-    
+
     def set_params(self, kappa=None):
         """set kappa to tensor independently"""
         if kappa != None:
             self.register_buffer('kappa', kappa)
             self.is_kappa_set = True
-    
+
     def auto_params(self, dtype, device):
         """automatically set None parameter as nn.Paramter for users"""
         if not self.is_kappa_set:
