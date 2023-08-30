@@ -3,7 +3,7 @@ Quantum circuit
 """
 
 from copy import copy
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -14,7 +14,7 @@ from .state import QubitState, MatrixProductState
 from .operation import Operation, Gate, Layer
 from .gate import U3Gate, PhaseShift, PauliX, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, TGate, TDaggerGate
 from .gate import Rx, Ry, Rz, CNOT, Swap, Rxx, Ryy, Rzz, Rxy, ReconfigurableBeamSplitter, Toffoli, Fredkin
-from .gate import UAnyGate, LatentGate, Barrier
+from .gate import UAnyGate, LatentGate, HamiltonianGate, Barrier
 from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer, RyLayer, RzLayer, CnotLayer, CnotRing
 from .qmath import amplitude_encoding, measure, expectation
 
@@ -22,7 +22,7 @@ from .qmath import amplitude_encoding, measure, expectation
 class QubitCircuit(Operation):
     """Quantum circuit for qubits.
 
-    This class inherits from the `Operation` class and implements methods for creating, manipulating,
+    This class inherits from the ``Operation`` class and implements methods for creating, manipulating,
     and measuring quantum states.
 
     Args:
@@ -36,7 +36,7 @@ class QubitCircuit(Operation):
             Default: ``None``
 
     Raises:
-        AssertionError: If the type or dimension of `init_state` does not match `nqubit` or `den_mat`.
+        AssertionError: If the type or dimension of ``init_state`` does not match ``nqubit`` or ``den_mat``.
     """
     def __init__(
         self,
@@ -52,7 +52,7 @@ class QubitCircuit(Operation):
         if isinstance(init_state, (QubitState, MatrixProductState)):
             assert nqubit == init_state.nqubit
             if isinstance(init_state, MatrixProductState):
-                assert not den_mat, 'Currently, DO NOT support MPS for density matrix'
+                assert not den_mat, 'Currently, MPS for density matrix is NOT supported'
             else:
                 assert den_mat == init_state.den_mat
             self.init_state = init_state
@@ -72,12 +72,13 @@ class QubitCircuit(Operation):
         self.mps = mps
         self.chi = chi
         self.wires_measure = None
+        self.wires_condition = []
 
     def __add__(self, rhs: 'QubitCircuit') -> 'QubitCircuit':
-        """Addition of the `QubitCircuit`.
+        """Addition of the ``QubitCircuit``.
 
-        The initial state is the same as the first `QubitCircuit`.
-        The information of observables and measurements is the same as the second `QubitCircuit`.
+        The initial state is the same as the first ``QubitCircuit``.
+        The information of observables and measurements is the same as the second ``QubitCircuit``.
         """
         assert self.nqubit == rhs.nqubit
         cir = QubitCircuit(nqubit=self.nqubit, name=self.name, den_mat=self.den_mat, reupload=self.reupload,
@@ -90,10 +91,12 @@ class QubitCircuit(Operation):
         cir.ndata = self.ndata + rhs.ndata
         cir.depth = self.depth + rhs.depth
         cir.wires_measure = rhs.wires_measure
+        cir.wires_condition += rhs.wires_condition
+        cir.wires_condition = list(set(cir.wires_condition))
         return cir
 
     def to(self, arg: Any) -> 'QubitCircuit':
-        """Set dtype or device of the `QubitCircuit`."""
+        """Set dtype or device of the ``QubitCircuit``."""
         if arg == torch.float:
             self.init_state.to(torch.cfloat)
             for op in self.operators:
@@ -132,19 +135,19 @@ class QubitCircuit(Operation):
     ) -> Union[torch.Tensor, List[torch.Tensor]]:
         """Perform a forward pass of the quantum circuit and return the final state.
 
-        This method applies the `operators` of the quantum circuit to the initial state or the given state
-        and returns the resulting state. If `data` is given, it is used as the input for the `encoders`.
-        The `state` can be either a `MatrixProductState` or a `QubitState` object, or a tensor representation
-        of them. The `data` must be a 1D or 2D tensor.
+        This method applies the ``operators`` of the quantum circuit to the initial state or the given state
+        and returns the resulting state. If ``data`` is given, it is used as the input for the ``encoders``.
+        The ``state`` can be either a ``MatrixProductState`` or a ``QubitState`` object, or a tensor
+        representation of them. The ``data`` must be a 1D or 2D tensor.
 
         Args:
-            data (torch.Tensor or None, optional): The input data for the `encoders`. Default: ``None``
+            data (torch.Tensor or None, optional): The input data for the ``encoders``. Default: ``None``
             state (torch.Tensor, QubitState, List[torch.Tensor], MatrixProductState or None, optional):
                 The initial state for the quantum circuit. Default: ``None``
 
         Returns:
-            torch.Tensor or List[torch.Tensor]: The final state of the quantum circuit after
-                applying the `operators`.
+            Union[torch.Tensor, List[torch.Tensor]]: The final state of the quantum circuit after
+            applying the ``operators``.
         """
         if state is None:
             state = self.init_state
@@ -204,17 +207,17 @@ class QubitCircuit(Operation):
     def encode(self, data: torch.Tensor) -> None:
         """Encode the input data into the quantum circuit parameters.
 
-        This method iterates over the `encoders` of the quantum circuit and initializes their parameters
-        with the input data. If `reupload` is `False`, the input data must be at least as long as the number
-        of parameters in the `encoders`. If `reupload` is `True`, the input data can be repeated to fill up
+        This method iterates over the ``encoders`` of the quantum circuit and initializes their parameters
+        with the input data. If ``reupload`` is ``False``, the input data must be at least as long as the number
+        of parameters in the ``encoders``. If ``reupload`` is ``True``, the input data can be repeated to fill up
         the parameters.
 
         Args:
-            data (torch.Tensor): The input data for the `encoders`, must be a 1D tensor.
+            data (torch.Tensor): The input data for the ``encoders``, must be a 1D tensor.
 
         Raises:
-            AssertionError: If `reupload` is `False` and the input data is shorter than the number of 
-                parameters in the `encoders`.
+            AssertionError: If ``reupload`` is ``False`` and the input data is shorter than the number of
+                parameters in the ``encoders``.
         """
         if data is None:
             return
@@ -232,21 +235,21 @@ class QubitCircuit(Operation):
             count = count_up % len(data)
 
     def init_para(self) -> None:
-        """Initialize the parameters of the `operators`."""
+        """Initialize the parameters of the ``operators``."""
         for op in self.operators:
             op.init_para()
 
     def init_encoder(self) -> None: # deal with the problem of state_dict() with vmap
-        """Initialize the parameters of the `encoders`."""
+        """Initialize the parameters of the ``encoders``."""
         for op in self.encoders:
             op.init_para()
 
     def reset(self, init_state: Any = 'zeros') -> None:
-        """Reset the `QubitCircuit` according to `init_state`."""
+        """Reset the ``QubitCircuit`` according to ``init_state``."""
         if isinstance(init_state, (QubitState, MatrixProductState)):
             assert self.nqubit == init_state.nqubit
             if isinstance(init_state, MatrixProductState):
-                assert not self.den_mat, 'Currently, DO NOT support MPS for density matrix'
+                assert not self.den_mat, 'Currently, MPS for density matrix is NOT supported'
                 self.mps = True
                 self.chi = init_state.chi
             else:
@@ -265,26 +268,27 @@ class QubitCircuit(Operation):
         self.ndata = 0
         self.depth = np.array([0] * self.nqubit)
         self.wires_measure = None
+        self.wires_condition = []
 
     def amplitude_encoding(self, data: Any) -> torch.Tensor:
         """Encode data into quantum states using amplitude encoding."""
         return amplitude_encoding(data, self.nqubit)
 
     def observable(self, wires: Union[int, List[int], None] = None, basis: str = 'z') -> None:
-        """Add an `Observable`.
+        """Add an ``Observable``.
 
         Args:
             wires (int, List[int] or None, optional): The wires to measure. Default: ``None`` (which means
                 all wires are measured)
-            basis (str, optional): The measurement basis for each wire. It can be 'x', 'y', or 'z'. If only
-                one character is given, it is repeated for all wires. Default: ``'z'``
+            basis (str, optional): The measurement basis for each wire. It can be ``'x'``, ``'y'``, or ``'z'``.
+                If only one character is given, it is repeated for all wires. Default: ``'z'``
         """
         observable = Observable(nqubit=self.nqubit, wires=wires, basis=basis,
                                 den_mat=self.den_mat, tsr_mode=False)
         self.observables.append(observable)
 
     def reset_observable(self) -> None:
-        """Reset the `observables`."""
+        """Reset the ``observables``."""
         self.observables = nn.ModuleList()
 
     def measure(
@@ -292,34 +296,69 @@ class QubitCircuit(Operation):
         shots: int = 1024,
         with_prob: bool = False,
         wires: Union[int, List[int], None] = None
-    ) -> Union[Dict, List[Dict]]:
+    ) -> Union[Dict, List[Dict], None]:
         """Measure the final state."""
         if wires is None:
-            self.wires_measure = list(range(self.nqubit))
-        else:
-            assert isinstance(wires, (int, list))
-            if isinstance(wires, int):
-                wires = [wires]
-            self.wires_measure = wires
+            wires = list(range(self.nqubit))
+        self.wires_measure = self._convert_indices(wires)
         if self.state is None:
             return
         else:
-            return measure(self.state, shots=shots, with_prob=with_prob, wires=wires)
+            return measure(self.state, shots=shots, with_prob=with_prob, wires=self.wires_measure,
+                           den_mat=self.den_mat)
 
     def expectation(self) -> torch.Tensor:
-        """Get the expectation value according to the final state and `observables`."""
+        """Get the expectation value according to the final state and ``observables``."""
         assert len(self.observables) > 0, 'There is no observable'
         if isinstance(self.state, list):
             assert all(isinstance(i, torch.Tensor) for i in self.state), 'Invalid final state'
             assert len(self.state) == self.nqubit, 'Invalid final state'
         else:
             assert isinstance(self.state, torch.Tensor), 'There is no final state'
+        assert self.wires_condition == [], 'Expectation with conditional measurement is NOT supported'
         out = []
         for observable in self.observables:
             expval = expectation(self.state, observable=observable, den_mat=self.den_mat, chi=self.chi)
             out.append(expval)
         out = torch.stack(out, dim=-1)
         return out
+
+    def defer_measure(self, with_prob: bool = False) -> Union[torch.Tensor, Tuple[torch.Tensor, List, List]]:
+        """Get the state vectors and the measurement results after deferred measurement."""
+        assert not self.den_mat
+        assert not self.mps
+        rst = self.measure(shots=1, with_prob=with_prob, wires=self.wires_condition)
+        if self.state.ndim == 2:
+            key = [*rst][0]
+            prob = rst[key][1]
+            state = self._slice_state_vector(state=self.state, wires=self.wires_condition, bits=key)
+            if with_prob:
+                print(f'The probability of deferred measurement to get "{key}" is {prob}.')
+                return state, key, prob
+            else:
+                return state
+        elif self.state.ndim == 3:
+            state = []
+            keys = []
+            probs = []
+            for i, d in enumerate(rst):
+                key = [*d][0]
+                prob = d[key][1]
+                state.append(self._slice_state_vector(state=self.state[i], wires=self.wires_condition, bits=key))
+                if with_prob:
+                    print(f'The probability of deferred measurement to get "{key}" for sample {i} is {prob}.')
+                    keys.append(key)
+                    probs.append(prob)
+            if with_prob:
+                return torch.stack(state), keys, probs
+            else:
+                return torch.stack(state)
+
+    def post_select(self, bits: str) -> torch.Tensor:
+        """Get the state vectors after post selection."""
+        assert not self.den_mat
+        assert not self.mps
+        return self._slice_state_vector(state=self.state, wires=self.wires_condition, bits=bits)
 
     def get_unitary(self) -> torch.Tensor:
         """Get the unitary matrix of the quantum circuit."""
@@ -335,11 +374,11 @@ class QubitCircuit(Operation):
 
     def inverse(self, encode: bool = False) -> 'QubitCircuit':
         """Get the inversed circuit.
-        
+
         Note:
             The inversed circuit shares the parameters with the original circuit.
             You should ONLY encode data onto the original circuit.
-            If you want to encode data onto the inversed circuit, set `encode` to be `True`.
+            If you want to encode data onto the inversed circuit, set ``encode`` to be ``True``.
         """
         if isinstance(self.name, str):
             name = self.name + '_inverse'
@@ -354,6 +393,7 @@ class QubitCircuit(Operation):
                 cir.encoders.append(op_inv)
         cir.depth = self.depth
         cir.npara = self.npara
+        cir.wires_condition = self.wires_condition
         if encode:
             cir.ndata = self.ndata
         else:
@@ -361,15 +401,43 @@ class QubitCircuit(Operation):
         return cir
 
     @property
-    def max_depth(self):
+    def max_depth(self) -> int:
         """Get the max number of gates on the wires."""
         return max(self.depth)
+
+    def _slice_state_vector(
+        self,
+        state: torch.Tensor,
+        wires: Union[int, List[int]],
+        bits: str
+    ) -> torch.Tensor:
+        """Get the sliced state vectors according to ``wires`` and ``bits``."""
+        assert not self.den_mat
+        assert not self.mps
+        wires = self._convert_indices(wires)
+        if len(bits) == 1:
+            bits = bits * len(wires)
+        assert len(wires) == len(bits)
+        wires = [i + 1 for i in wires]
+        state = state.reshape([-1] + [2] * self.nqubit)
+        batch = state.shape[0]
+        permute_shape = list(range(self.nqubit + 1))
+        for i in wires:
+            permute_shape.remove(i)
+        permute_shape = wires + permute_shape
+        state = state.permute(permute_shape)
+        for b in bits:
+            b = int(b)
+            assert b in (0, 1)
+            state = state[b]
+        state = nn.functional.normalize(state.reshape(batch, -1), p=2, dim=-1)
+        return state
 
     def _qasm(self):
         """Get QASM of the quantum circuit."""
         # pylint: disable=protected-access
         qasm_lst = ['OPENQASM 2.0;\n' + 'include "qelib1.inc";\n']
-        if self.wires_measure is None:
+        if self.wires_measure is None and self.wires_condition == []:
             qasm_lst.append(f'qreg q[{self.nqubit}];\n')
         else:
             qasm_lst.append(f'qreg q[{self.nqubit}];\n' + f'creg c[{self.nqubit}];\n')
@@ -396,18 +464,18 @@ class QubitCircuit(Operation):
         """A method that adds an operation to the quantum circuit.
 
         The operation can be a gate, a layer, or another quantum circuit. The method also updates the
-        attributes of the quantum circuit. If `wires` is specified, the parameters of gates are shared.
+        attributes of the quantum circuit. If ``wires`` is specified, the parameters of gates are shared.
 
         Args:
-            op (Operation): The operation to add. It is an instance of `Operation` class or its subclasses,
-                such as `Gate`, `Layer`, or `QubitCircuit`.
+            op (Operation): The operation to add. It is an instance of ``Operation`` class or its subclasses,
+                such as ``Gate``, ``Layer``, or ``QubitCircuit``.
             encode (bool): Whether the gate or layer is to encode data. Default: ``False``
             wires (Union[int, List[int], None]): The wires to apply the gate on. It can be an integer
                 or a list of integers specifying the indices of the wires. Default: ``None`` (which means
                 the gate has its own wires)
             controls (Union[int, List[int], None]): The control wires for the gate. It can be an integer
-                or a list of integers specifying the indices of the control wires. Only valid when `wires`
-                is not `None`. Default: ``None`` (which means the gate has its own control wires)
+                or a list of integers specifying the indices of the control wires. Only valid when ``wires``
+                is not ``None``. Default: ``None`` (which means the gate has its own control wires)
 
         Raises:
             AssertionError: If the input arguments are invalid or incompatible with the quantum circuit.
@@ -415,19 +483,10 @@ class QubitCircuit(Operation):
         assert isinstance(op, Operation)
         if wires is not None:
             assert isinstance(op, Gate)
-            if isinstance(wires, int):
-                wires = [wires]
-            if isinstance(controls, int):
-                controls = [controls]
             if controls is None:
                 controls = []
-            assert isinstance(wires, list) and isinstance(controls, list), 'Invalid input type'
-            assert all(isinstance(i, int) for i in wires), 'Invalid input type'
-            assert all(isinstance(i, int) for i in controls), 'Invalid input type'
-            assert min(wires) > -1 and max(wires) < self.nqubit, 'Invalid input'
-            if len(controls) > 0:
-                assert min(controls) > -1 and max(controls) < self.nqubit, 'Invalid input'
-            assert len(set(wires)) == len(wires) and len(set(controls)) == len(controls), 'Invalid input'
+            wires = self._convert_indices(wires)
+            controls = self._convert_indices(controls)
             for wire in wires:
                 assert wire not in controls, 'Use repeated wires'
             assert len(wires) == len(op.wires), 'Invalid input'
@@ -443,14 +502,17 @@ class QubitCircuit(Operation):
             self.ndata += op.ndata
             self.depth += op.depth
             self.wires_measure = op.wires_measure
+            self.wires_condition += op.wires_condition
+            self.wires_condition = list(set(self.wires_condition))
         else:
             op.tsr_mode = True
             self.operators.append(op)
             if isinstance(op, Gate):
-                for i in op.wires:
+                for i in op.wires + op.controls:
                     self.depth[i] += 1
-                for i in op.controls:
-                    self.depth[i] += 1
+                if op.condition:
+                    self.wires_condition += op.controls
+                    self.wires_condition = list(set(self.wires_condition))
             elif isinstance(op, Layer):
                 for wire in op.wires:
                     for i in wire:
@@ -467,6 +529,7 @@ class QubitCircuit(Operation):
         wires: int,
         inputs: Any = None,
         controls: Union[int, List[int], None] = None,
+        condition: bool = False,
         encode: bool = False
     ) -> None:
         """Add a U3 gate."""
@@ -474,7 +537,7 @@ class QubitCircuit(Operation):
         if inputs is not None:
             requires_grad = False
         u3 = U3Gate(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls,
-                    den_mat=self.den_mat, requires_grad=requires_grad)
+                    condition=condition, den_mat=self.den_mat, requires_grad=requires_grad)
         self.add(u3, encode=encode)
 
     def cu(self, control: int, target: int, inputs: Any = None, encode: bool = False) -> None:
@@ -491,6 +554,7 @@ class QubitCircuit(Operation):
         wires: int,
         inputs: Any = None,
         controls: Union[int, List[int], None] = None,
+        condition: bool = False,
         encode: bool = False
     ) -> None:
         """Add a phase shift gate."""
@@ -498,7 +562,7 @@ class QubitCircuit(Operation):
         if inputs is not None:
             requires_grad = False
         p = PhaseShift(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls,
-                       den_mat=self.den_mat, requires_grad=requires_grad)
+                       condition=condition, den_mat=self.den_mat, requires_grad=requires_grad)
         self.add(p, encode=encode)
 
     def cp(self, control: int, target: int, inputs: Any = None, encode: bool = False) -> None:
@@ -510,44 +574,46 @@ class QubitCircuit(Operation):
                         den_mat=self.den_mat, requires_grad=requires_grad)
         self.add(cp, encode=encode)
 
-    def x(self, wires: int, controls: Union[int, List[int], None] = None) -> None:
+    def x(self, wires: int, controls: Union[int, List[int], None] = None, condition: bool = False) -> None:
         """Add a Pauli-X gate."""
-        x = PauliX(nqubit=self.nqubit, wires=wires, controls=controls, den_mat=self.den_mat)
+        x = PauliX(nqubit=self.nqubit, wires=wires, controls=controls, condition=condition, den_mat=self.den_mat)
         self.add(x)
 
-    def y(self, wires: int, controls: Union[int, List[int], None] = None) -> None:
+    def y(self, wires: int, controls: Union[int, List[int], None] = None, condition: bool = False) -> None:
         """Add a Pauli-Y gate."""
-        y = PauliY(nqubit=self.nqubit, wires=wires, controls=controls, den_mat=self.den_mat)
+        y = PauliY(nqubit=self.nqubit, wires=wires, controls=controls, condition=condition, den_mat=self.den_mat)
         self.add(y)
 
-    def z(self, wires: int, controls: Union[int, List[int], None] = None) -> None:
+    def z(self, wires: int, controls: Union[int, List[int], None] = None, condition: bool = False) -> None:
         """Add a Pauli-Z gate."""
-        z = PauliZ(nqubit=self.nqubit, wires=wires, controls=controls, den_mat=self.den_mat)
+        z = PauliZ(nqubit=self.nqubit, wires=wires, controls=controls, condition=condition, den_mat=self.den_mat)
         self.add(z)
 
-    def h(self, wires: int, controls: Union[int, List[int], None] = None) -> None:
+    def h(self, wires: int, controls: Union[int, List[int], None] = None, condition: bool = False) -> None:
         """Add a Hadamard gate."""
-        h = Hadamard(nqubit=self.nqubit, wires=wires, controls=controls, den_mat=self.den_mat)
+        h = Hadamard(nqubit=self.nqubit, wires=wires, controls=controls, condition=condition, den_mat=self.den_mat)
         self.add(h)
 
-    def s(self, wires: int, controls: Union[int, List[int], None] = None) -> None:
+    def s(self, wires: int, controls: Union[int, List[int], None] = None, condition: bool = False) -> None:
         """Add an S gate."""
-        s = SGate(nqubit=self.nqubit, wires=wires, controls=controls, den_mat=self.den_mat)
+        s = SGate(nqubit=self.nqubit, wires=wires, controls=controls, condition=condition, den_mat=self.den_mat)
         self.add(s)
 
-    def sdg(self, wires: int, controls: Union[int, List[int], None] = None) -> None:
+    def sdg(self, wires: int, controls: Union[int, List[int], None] = None, condition: bool = False) -> None:
         """Add an S dagger gate."""
-        sdg = SDaggerGate(nqubit=self.nqubit, wires=wires, controls=controls, den_mat=self.den_mat)
+        sdg = SDaggerGate(nqubit=self.nqubit, wires=wires, controls=controls, condition=condition,
+                          den_mat=self.den_mat)
         self.add(sdg)
 
-    def t(self, wires: int, controls: Union[int, List[int], None] = None) -> None:
+    def t(self, wires: int, controls: Union[int, List[int], None] = None, condition: bool = False) -> None:
         """Add a T gate."""
-        t = TGate(nqubit=self.nqubit, wires=wires, controls=controls, den_mat=self.den_mat)
+        t = TGate(nqubit=self.nqubit, wires=wires, controls=controls, condition=condition, den_mat=self.den_mat)
         self.add(t)
 
-    def tdg(self, wires: int, controls: Union[int, List[int], None] = None) -> None:
+    def tdg(self, wires: int, controls: Union[int, List[int], None] = None, condition: bool = False) -> None:
         """Add a T dagger gate."""
-        tdg = TDaggerGate(nqubit=self.nqubit, wires=wires, controls=controls, den_mat=self.den_mat)
+        tdg = TDaggerGate(nqubit=self.nqubit, wires=wires, controls=controls, condition=condition,
+                          den_mat=self.den_mat)
         self.add(tdg)
 
     def ch(self, control: int, target: int) -> None:
@@ -580,13 +646,14 @@ class QubitCircuit(Operation):
         wires: int,
         inputs: Any = None,
         controls: Union[int, List[int], None] = None,
+        condition: bool = False,
         encode: bool = False
     ) -> None:
         """Add an Rx gate."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        rx = Rx(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls,
+        rx = Rx(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls, condition=condition,
                 den_mat=self.den_mat, requires_grad=requires_grad)
         self.add(rx, encode=encode)
 
@@ -595,13 +662,14 @@ class QubitCircuit(Operation):
         wires: int,
         inputs: Any = None,
         controls: Union[int, List[int], None] = None,
+        condition: bool = False,
         encode: bool = False
     ) -> None:
         """Add an Ry gate."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        ry = Ry(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls,
+        ry = Ry(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls, condition=condition,
                 den_mat=self.den_mat, requires_grad=requires_grad)
         self.add(ry, encode=encode)
 
@@ -610,13 +678,14 @@ class QubitCircuit(Operation):
         wires: int,
         inputs: Any = None,
         controls: Union[int, List[int], None] = None,
+        condition: bool = False,
         encode: bool = False
     ) -> None:
         """Add an Rz gate."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        rz = Rz(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls,
+        rz = Rz(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls, condition=condition,
                 den_mat=self.den_mat, requires_grad=requires_grad)
         self.add(rz, encode=encode)
 
@@ -667,9 +736,9 @@ class QubitCircuit(Operation):
         cz = PauliZ(nqubit=self.nqubit, wires=[target], controls=[control], den_mat=self.den_mat)
         self.add(cz)
 
-    def swap(self, wires: List[int], controls: Union[int, List[int], None] = None) -> None:
+    def swap(self, wires: List[int], controls: Union[int, List[int], None] = None, condition: bool = False) -> None:
         """Add a SWAP gate."""
-        swap = Swap(nqubit=self.nqubit, wires=wires, controls=controls, den_mat=self.den_mat)
+        swap = Swap(nqubit=self.nqubit, wires=wires, controls=controls, condition=condition, den_mat=self.den_mat)
         self.add(swap)
 
     def rxx(
@@ -677,13 +746,14 @@ class QubitCircuit(Operation):
         wires: List[int],
         inputs: Any = None,
         controls: Union[int, List[int], None] = None,
+        condition: bool = False,
         encode: bool = False
     ) -> None:
         """Add an Rxx gate."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        rxx = Rxx(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls,
+        rxx = Rxx(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls, condition=condition,
                   den_mat=self.den_mat, requires_grad=requires_grad)
         self.add(rxx, encode=encode)
 
@@ -692,13 +762,14 @@ class QubitCircuit(Operation):
         wires: List[int],
         inputs: Any = None,
         controls: Union[int, List[int], None] = None,
+        condition: bool = False,
         encode: bool = False
     ) -> None:
         """Add an Ryy gate."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        ryy = Ryy(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls,
+        ryy = Ryy(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls, condition=condition,
                   den_mat=self.den_mat, requires_grad=requires_grad)
         self.add(ryy, encode=encode)
 
@@ -707,13 +778,14 @@ class QubitCircuit(Operation):
         wires: List[int],
         inputs: Any = None,
         controls: Union[int, List[int], None] = None,
+        condition: bool = False,
         encode: bool = False
     ) -> None:
         """Add an Rzz gate."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        rzz = Rzz(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls,
+        rzz = Rzz(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls, condition=condition,
                   den_mat=self.den_mat, requires_grad=requires_grad)
         self.add(rzz, encode=encode)
 
@@ -722,13 +794,14 @@ class QubitCircuit(Operation):
         wires: List[int],
         inputs: Any = None,
         controls: Union[int, List[int], None] = None,
+        condition: bool = False,
         encode: bool = False
     ) -> None:
         """Add an Rxy gate."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        rxy = Rxy(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls,
+        rxy = Rxy(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls, condition=condition,
                   den_mat=self.den_mat, requires_grad=requires_grad)
         self.add(rxy, encode=encode)
 
@@ -737,6 +810,7 @@ class QubitCircuit(Operation):
         wires: List[int],
         inputs: Any = None,
         controls: Union[int, List[int], None] = None,
+        condition: bool = False,
         encode: bool = False
     ) -> None:
         """Add a Reconfigurable Beam Splitter gate."""
@@ -744,7 +818,7 @@ class QubitCircuit(Operation):
         if inputs is not None:
             requires_grad = False
         rbs = ReconfigurableBeamSplitter(inputs=inputs, nqubit=self.nqubit, wires=wires, controls=controls,
-                                         den_mat=self.den_mat, requires_grad=requires_grad)
+                                         condition=condition, den_mat=self.den_mat, requires_grad=requires_grad)
         self.add(rbs, encode=encode)
 
     def crxx(self, control: int, target1: int, target2: int, inputs: Any = None, encode: bool = False) -> None:
@@ -830,6 +904,23 @@ class QubitCircuit(Operation):
         latent = LatentGate(inputs=inputs, nqubit=self.nqubit, wires=wires, minmax=minmax, name=name,
                             den_mat=self.den_mat, requires_grad=requires_grad)
         self.add(latent, encode=encode)
+
+    def hamiltonian(
+        self,
+        hamiltonian: Any,
+        t: Any = None,
+        wires: Union[int, List[int], None] = None,
+        minmax: Optional[List[int]] = None,
+        encode: bool = False,
+        name: str = 'hamiltonian'
+    ) -> None:
+        """Add a Hamiltonian gate."""
+        requires_grad = not encode
+        if t is not None:
+            requires_grad = False
+        ham = HamiltonianGate(hamiltonian=hamiltonian, t=t, nqubit=self.nqubit, wires=wires, minmax=minmax,
+                              name=name, den_mat=self.den_mat, requires_grad=requires_grad)
+        self.add(ham, encode=encode)
 
     def xlayer(self, wires: Union[int, List[int], None] = None) -> None:
         """Add a layer of Pauli-X gates."""

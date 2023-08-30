@@ -16,7 +16,7 @@ from .state import MatrixProductState
 
 
 class Operation(nn.Module):
-    """A base class for quantum operations.
+    r"""A base class for quantum operations.
 
     Args:
         name (str, optional): The name of the quantum operation. Default: ``None``
@@ -26,7 +26,7 @@ class Operation(nn.Module):
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
     def __init__(
         self,
@@ -45,6 +45,7 @@ class Operation(nn.Module):
         self.npara = 0
 
     def tensor_rep(self, x: torch.Tensor) -> torch.Tensor:
+        """Get the tensor representation of the state."""
         if self.den_mat:
             assert x.shape[-1] == x.shape[-2] == 2 ** self.nqubit
             return x.reshape([-1] + [2] * 2 * self.nqubit)
@@ -56,18 +57,23 @@ class Operation(nn.Module):
             return x.reshape([-1] + [2] * self.nqubit)
 
     def vector_rep(self, x: torch.Tensor) -> torch.Tensor:
+        """Get the vector representation of the state."""
         return x.reshape(-1, 2 ** self.nqubit, 1)
 
     def matrix_rep(self, x: torch.Tensor) -> torch.Tensor:
+        """Get the density matrix representation of the state."""
         return x.reshape(-1, 2 ** self.nqubit, 2 ** self.nqubit)
 
-    def get_unitary(self):
+    def get_unitary(self) -> torch.Tensor:
+        """Get the global unitary matrix."""
         raise NotImplementedError
 
-    def init_para(self):
+    def init_para(self) -> None:
+        """Initialize the parameters."""
         pass
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Perform a forward pass."""
         if self.tsr_mode:
             return self.tensor_rep(x)
         else:
@@ -76,54 +82,69 @@ class Operation(nn.Module):
             else:
                 return self.vector_rep(x)
 
+    def _convert_indices(self, indices: Union[int, List[int]]) -> List[int]:
+        """Convert and check the indices of the qubits."""
+        if isinstance(indices, int):
+            indices = [indices]
+        assert isinstance(indices, list), 'Invalid input type'
+        assert all(isinstance(i, int) for i in indices), 'Invalid input type'
+        if len(indices) > 0:
+            assert min(indices) > -1 and max(indices) < self.nqubit, 'Invalid input'
+        assert len(set(indices)) == len(indices), 'Invalid input'
+        return indices
+
+    def _check_minmax(self, minmax: List[int]) -> None:
+        """Check the minmum and maximum indices of the qubits."""
+        assert isinstance(minmax, list)
+        assert len(minmax) == 2
+        assert all(isinstance(i, int) for i in minmax)
+        assert -1 < minmax[0] <= minmax[1] < self.nqubit
+
 
 class Gate(Operation):
-    """A base class for quantum gates.
+    r"""A base class for quantum gates.
 
-     Args:
+    Args:
         name (str, optional): The name of the gate. Default: ``None``
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
         controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        condition (bool, optional): Whether to use ``controls`` as conditional measurement. Default: ``False``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
     # include default names in QASM
-    qasm_new_gate = ['c3x', 'c4x']
+    _qasm_new_gate = ['c3x', 'c4x']
 
     def __init__(self,
         name: Optional[str] = None,
         nqubit: int = 1,
         wires: Union[int, List[int], None] = None,
         controls: Union[int, List[int], None] = None,
+        condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
+        self.nqubit = nqubit
         if wires is None:
             wires = [0]
         if controls is None:
             controls = []
-        if isinstance(wires, int):
-            wires = [wires]
-        if isinstance(controls, int):
-            controls = [controls]
-        assert isinstance(wires, list) and isinstance(controls, list), 'Invalid input type'
-        assert all(isinstance(i, int) for i in wires), 'Invalid input type'
-        assert all(isinstance(i, int) for i in controls), 'Invalid input type'
-        assert min(wires) > -1 and max(wires) < nqubit, 'Invalid input'
-        if len(controls) > 0:
-            assert min(controls) > -1 and max(controls) < nqubit, 'Invalid input'
-        assert len(set(wires)) == len(wires) and len(set(controls)) == len(controls), 'Invalid input'
+        wires = self._convert_indices(wires)
+        controls = self._convert_indices(controls)
         for wire in wires:
             assert wire not in controls, 'Use repeated wires'
-        self.nwire = len(wires) + len(controls)
-        self.controls = controls
+        if condition:
+            assert len(controls) > 0
         super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
+        self.controls = controls
+        self.condition = condition
 
-    def update_matrix(self):
+    def update_matrix(self) -> torch.Tensor:
+        """Update the local unitary matrix."""
         return self.matrix
 
     def op_state(self, x: torch.Tensor) -> torch.Tensor:
@@ -250,10 +271,11 @@ class Gate(Operation):
             assert x.ndim == self.nqubit + 1
             return self.op_state(x)
 
-    def inverse(self):
+    def inverse(self) -> 'Gate':
+        """Get the inversed gate."""
         return self
 
-    def extra_repr(self):
+    def extra_repr(self) -> str:
         s = f'wires={self.wires}'
         if self.controls == []:
             return s
@@ -261,16 +283,23 @@ class Gate(Operation):
             return s + f', controls={self.controls}'
 
     @staticmethod
-    def _reset_qasm_new_gate():
-        Gate.qasm_new_gate = ['c3x', 'c4x']
+    def _reset_qasm_new_gate() -> None:
+        Gate._qasm_new_gate = ['c3x', 'c4x']
+
+    def _qasm_cond_measure(self) -> str:
+        qasm_str = ''
+        for control in self.controls:
+            qasm_str += f'measure q[{control}] -> c[{control}];\n'
+        qasm_str += 'if(c==1) '
+        return qasm_str
 
     def _qasm_customized(self, name: str) -> str:
-        """Get QASM for multi-control gates."""
+        """Get QASM for multi-controlled gates."""
         name = name.lower()
         if len(self.controls) > 2:
-            name = f'c{len(self.controls)}{name}'
+            name = f'c{len(self.controls)}' + name
         else:
-            name = 'c' * len(self.controls) + f'{name}'
+            name = 'c' * len(self.controls) + name
         # warnings.warn(f'{name} is an empty gate and should be only used to draw circuit.')
         qasm_lst1 = [f'gate {name} ']
         qasm_lst2 = [f'{name} ']
@@ -279,8 +308,8 @@ class Gate(Operation):
             qasm_lst2.append(f'q[{wire}],')
         qasm_str1 = ''.join(qasm_lst1)[:-1] + ' { }\n'
         qasm_str2 = ''.join(qasm_lst2)[:-1] + ';\n'
-        if name not in Gate.qasm_new_gate:
-            Gate.qasm_new_gate.append(name)
+        if name not in Gate._qasm_new_gate:
+            Gate._qasm_new_gate.append(name)
             return qasm_str1 + qasm_str2
         else:
             return qasm_str2
@@ -289,16 +318,21 @@ class Gate(Operation):
         r"""Convert gate to MPO form with identities at empty sites.
 
         Note:
-            If sites are not adjacent, insert identities in the middle, i.e.
-              |       |             |   |   |
-            --A---x---B--   ->    --A---I---B--
-              |       |             |   |   |
+            If sites are not adjacent, insert identities in the middle, i.e.,
+
+            >>>      |       |             |   |   |
+            >>>    --A---x---B--   ->    --A---I---B--
+            >>>      |       |             |   |   |
+
             where
-                 a
-                 |
-            --i--I--j-- = \delta_{i,j} \delta_{a,b}
-                 |
-                 b
+
+            >>>         a
+            >>>         |
+            >>>    --i--I--j--
+            >>>         |
+            >>>         b
+
+            means :math:`\delta_{i,j} \delta_{a,b}`
         """
         index = self.wires + self.controls
         index_left = min(index)
@@ -333,19 +367,18 @@ class Gate(Operation):
         return tensors, index_left
 
     def op_mps(self, mps: MatrixProductState) -> MatrixProductState:
-        """Perform a forward pass for the `MatrixProductState`.
+        """Perform a forward pass for the ``MatrixProductState``.
 
         Note:
-            Use TEBD algorithm
+            Use TEBD algorithm to contract tensors (contract local states with local operators), i.e.,
 
-                contract tensor (contract local states with local operators)
-                      a
-                      |
-                i-----O-----j            a
-                      |        ->        |
-                      b             ik---X---jl
-                      |
-                k-----T-----l
+            >>>          a
+            >>>          |
+            >>>    i-----O-----j            a
+            >>>          |        ->        |
+            >>>          b             ik---X---jl
+            >>>          |
+            >>>    k-----T-----l
         """
         mpo_tensors, left = self.get_mpo()
         right = left + len(mpo_tensors) - 1
@@ -378,8 +411,8 @@ class Gate(Operation):
 
 
 class Layer(Operation):
-    """A base class for quantum layers.
-    
+    r"""A base class for quantum layers.
+
     Args:
         name (str, optional): The name of the layer. Default: ``None``
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
@@ -388,7 +421,7 @@ class Layer(Operation):
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape (batch, 2, ..., 2). Default: ``False``
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
     def __init__(
         self,
@@ -398,22 +431,14 @@ class Layer(Operation):
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
+        super().__init__(name=name, nqubit=nqubit, wires=None, den_mat=den_mat, tsr_mode=tsr_mode)
         if wires is None:
             wires = [[0]]
-        if isinstance(wires, int):
-            wires = [[wires]]
-        assert isinstance(wires, list), 'Invalid input type'
-        if all(isinstance(i, int) for i in wires):
-            wires = [[i] for i in wires]
-        assert all(isinstance(i, list) for i in wires), 'Invalid input type'
-        for wire in wires:
-            assert all(isinstance(i, int) for i in wire), 'Invalid input type'
-            assert min(wire) > -1 and max(wire) < nqubit, 'Invalid input'
-            assert len(set(wire)) == len(wire), 'Invalid input'
-        super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
+        self.wires = self._convert_indices(wires)
         self.gates = nn.Sequential()
 
-    def get_unitary(self):
+    def get_unitary(self) -> torch.Tensor:
+        """Get the global unitary matrix."""
         u = None
         for gate in self.gates:
             if u is None:
@@ -422,7 +447,8 @@ class Layer(Operation):
                 u = gate.get_unitary() @ u
         return u
 
-    def init_para(self, inputs: Any = None):
+    def init_para(self, inputs: Any = None) -> None:
+        """Initialize the parameters."""
         count = 0
         for gate in self.gates:
             if inputs is None:
@@ -431,12 +457,14 @@ class Layer(Operation):
                 gate.init_para(inputs[count:count+gate.npara])
             count += gate.npara
 
-    def update_npara(self):
+    def update_npara(self) -> None:
+        """Update the number of parameters."""
         self.npara = 0
         for gate in self.gates:
             self.npara += gate.npara
 
     def forward(self, x: Union[torch.Tensor, MatrixProductState]) -> Union[torch.Tensor, MatrixProductState]:
+        """Perform a forward pass."""
         if isinstance(x, MatrixProductState):
             return self.gates(x)
         if not self.tsr_mode:
@@ -449,10 +477,24 @@ class Layer(Operation):
                 return self.vector_rep(x).squeeze(0)
         return x
 
-    def inverse(self):
+    def inverse(self) -> 'Layer':
+        """Get the inversed gate."""
         return self
 
-    def _qasm(self):
+    def _convert_indices(self, indices: Union[int, List]) -> List[List[int]]:
+        if isinstance(indices, int):
+            indices = [[indices]]
+        assert isinstance(indices, list), 'Invalid input type'
+        if all(isinstance(i, int) for i in indices):
+            indices = [[i] for i in indices]
+        assert all(isinstance(i, list) for i in indices), 'Invalid input type'
+        for idx in indices:
+            assert all(isinstance(i, int) for i in idx), 'Invalid input type'
+            assert min(idx) > -1 and max(idx) < self.nqubit, 'Invalid input'
+            assert len(set(idx)) == len(idx), 'Invalid input'
+        return indices
+
+    def _qasm(self) -> str:
         lst = []
         for gate in self.gates:
             # pylint: disable=protected-access

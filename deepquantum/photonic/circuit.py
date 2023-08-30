@@ -3,7 +3,7 @@ from itertools import product
 from string import ascii_lowercase as indices
 import numpy as np
 import torch
-from torch import nn   
+from torch import nn
 import deepquantum.photonic.gaussian as gaussian
 import deepquantum.photonic.fock as fock
 from scipy.stats import unitary_group
@@ -20,7 +20,7 @@ class QumodeCircuit(nn.Module):
         """User must specify batch_size, n_modes and backend, other parameters can be infered from input state."""
         super().__init__()
         if backend == 'fock':
-            self.init_state = FockState(batch_size, n_modes, cutoff=cutoff, hbar=hbar, pure=pure, dtype=dtype) 
+            self.init_state = FockState(batch_size, n_modes, cutoff=cutoff, hbar=hbar, pure=pure, dtype=dtype)
         else:
             self.init_state = GaussianState(batch_size, n_modes)
         self.state = None
@@ -32,7 +32,7 @@ class QumodeCircuit(nn.Module):
         self.squeezing_paras = []
         # store the directly applied random unitary matrix
         self.random_u = []
-  
+
 
 
     def __add__(self, rhs):
@@ -56,7 +56,7 @@ class QumodeCircuit(nn.Module):
                 self.random_u.append(op.u)
         self.state = state
         return state
-    
+
 
     def displace(self, r=None, phi=None, mode=0):
         if self.backend == 'fock':
@@ -65,7 +65,7 @@ class QumodeCircuit(nn.Module):
         else:
             op = gaussian.ops.Displacement(mode)
             op.set_params(r, phi)
-        
+
         self.add(op)
 
     def squeeze(self, r=None, phi=None, mode=0):
@@ -76,9 +76,9 @@ class QumodeCircuit(nn.Module):
             op = gaussian.ops.Squeeze(mode)
             op.set_params(r, phi)
             self.squeezing_paras.append([r, phi])
-        
+
         self.add(op)
-    
+
     def phase_shift(self, phi=None, mode=0):
         if self.backend == 'fock':
             op = fock.ops.PhaseShifter(mode)
@@ -86,7 +86,7 @@ class QumodeCircuit(nn.Module):
         else:
             op = gaussian.ops.PhaseShifter(mode)
             op.set_params(phi)
-        
+
         self.add(op)
 
     def beam_split(self, theta=None, phi=None, mode1=0, mode2=1):
@@ -96,9 +96,9 @@ class QumodeCircuit(nn.Module):
         else:
             op = gaussian.ops.BeamSplitter([mode1, mode2])
             op.set_params(theta, phi)
-        
+
         self.add(op)
-    
+
     def random_unitary(self, seed=123):
         """
         Generate a Haar random unitary matrix U(N).
@@ -116,7 +116,7 @@ class QumodeCircuit(nn.Module):
             op.set_params(kappa)
         else:
             raise ValueError('Gaussian backend does not support kerr transformation.')
-        
+
         self.add(op)
 
 
@@ -133,7 +133,7 @@ def homodyne_measure(state, phi=0., mode=0, shots=1):
     Args:
         phi (float): phase angle of quadrature to measure, gaussian backend only supports phi=0 and phi=90
         mode (int): which mode to measure.
-        shots (int): the number of times to measure the state, gaussian backend only supports shots=1. 
+        shots (int): the number of times to measure the state, gaussian backend only supports shots=1.
             collapse state conditioned on measurement result only when shots == 1, otherwise return state before the measurement.
 
     Returns:
@@ -142,7 +142,7 @@ def homodyne_measure(state, phi=0., mode=0, shots=1):
         state (FockState or GaussianState): collapsed state after the measurement. If it's FockState, measured mode will be set to vaccum.
     """
     if isinstance(state, FockState):
-        res = state.homodyne_measure(phi=phi, mode=0, shots=1) 
+        res = state.homodyne_measure(phi=phi, mode=0, shots=1)
     else:
         # measurement results
         res = state.homodyne_one_mode(mode)
@@ -161,7 +161,7 @@ def heterodyne_measure(state, mode):
 
 def prob_gbs(state, cir, pattern):
     """
-    Compute the probability of a measured photon pattern of a special GBS process. 
+    Compute the probability of a measured photon pattern of a special GBS process.
     Special GBS refers to the process where an initial vaccum gaussian state are squeezed by a series of squeezing gates
     and then pass through a linear optical circuit , which realizes a unitary transformation.
     Reference: "Detailed study of Gaussian boson sampling".
@@ -172,7 +172,7 @@ def prob_gbs(state, cir, pattern):
         paras = torch.tensor(cir.squeezing_paras)[:, 0]
         prob = state.prob_gbs(paras, cir.random_u, pattern)
         return prob
-    
+
 
 def mean_photon_number(state, mode):
     """
@@ -183,7 +183,7 @@ def mean_photon_number(state, mode):
         raise ValueError('Fock backend does not support.')
     else:
         return state.mean_photon_number(mode)
-    
+
 
 def diff_photon_number(state, mode1, mode2):
     """
@@ -194,4 +194,3 @@ def diff_photon_number(state, mode1, mode2):
         raise ValueError('Fock backend does not support.')
     else:
         return state.diff_photon_number(mode1, mode2)
-    
