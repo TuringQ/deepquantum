@@ -9,7 +9,7 @@
 project = 'DeepQuantum'
 copyright = '2023, TuringQ'
 author = 'TuringQ'
-release = 'v0.2.2'
+release = 'v0.2.3'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

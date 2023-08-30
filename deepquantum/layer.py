@@ -372,7 +372,7 @@ class RyLayer(SingleLayer):
 
 class RzLayer(SingleLayer):
     r"""A layer of Rz gates.
-    
+
     Args:
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that the

@@ -3,7 +3,7 @@ Quantum circuit
 """
 
 from copy import copy
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -323,24 +323,36 @@ class QubitCircuit(Operation):
         out = torch.stack(out, dim=-1)
         return out
 
-    def defer_measure(self, with_prob: bool = False) -> torch.Tensor:
-        """Get the state vectors after deferred measurement."""
+    def defer_measure(self, with_prob: bool = False) -> Union[torch.Tensor, Tuple[torch.Tensor, List, List]]:
+        """Get the state vectors and the measurement results after deferred measurement."""
         assert not self.den_mat
         assert not self.mps
         rst = self.measure(shots=1, with_prob=with_prob, wires=self.wires_condition)
         if self.state.ndim == 2:
             key = [*rst][0]
+            prob = rst[key][1]
+            state = self._slice_state_vector(state=self.state, wires=self.wires_condition, bits=key)
             if with_prob:
-                print(f'The probability of deferred measurement to get "{key}" is {rst[key][1]}.')
-            return self._slice_state_vector(state=self.state, wires=self.wires_condition, bits=key)
+                print(f'The probability of deferred measurement to get "{key}" is {prob}.')
+                return state, key, prob
+            else:
+                return state
         elif self.state.ndim == 3:
             state = []
+            keys = []
+            probs = []
             for i, d in enumerate(rst):
                 key = [*d][0]
-                if with_prob:
-                    print(f'The probability of deferred measurement to get "{key}" for sample {i} is {rst[key][1]}.')
+                prob = d[key][1]
                 state.append(self._slice_state_vector(state=self.state[i], wires=self.wires_condition, bits=key))
-            return torch.stack(state)
+                if with_prob:
+                    print(f'The probability of deferred measurement to get "{key}" for sample {i} is {prob}.')
+                    keys.append(key)
+                    probs.append(prob)
+            if with_prob:
+                return torch.stack(state), keys, probs
+            else:
+                return torch.stack(state)
 
     def post_select(self, bits: str) -> torch.Tensor:
         """Get the state vectors after post selection."""
@@ -362,7 +374,7 @@ class QubitCircuit(Operation):
 
     def inverse(self, encode: bool = False) -> 'QubitCircuit':
         """Get the inversed circuit.
-        
+
         Note:
             The inversed circuit shares the parameters with the original circuit.
             You should ONLY encode data onto the original circuit.

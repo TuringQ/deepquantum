@@ -7,10 +7,10 @@ from scipy.stats import unitary_group
 def split_covariance(covariance, modes_id):
     """
     Split the covariance matrix into three parts according to the IDs of modes.
-    
+
     covariance: the covariance matrix with batch, torch tensor.
     modes_id: the IDs of modes, torch tensor.
-    
+
     Output:
     A, the left covariance matrix after deleting the rows and columns corresponding to modes_id.
     B, delete the rows of the matrix by modes_id and select the columns.
@@ -19,24 +19,24 @@ def split_covariance(covariance, modes_id):
     modes_id = modes_id.numpy()
     A = torch.clone(covariance).detach().numpy()
     A = np.delete(np.delete(A, modes_id, axis=1), modes_id, axis=2)
-    
+
     B = torch.clone(covariance).detach().numpy()
     B = np.delete(B[:, :, modes_id], modes_id, axis=1)
-    
+
     C = torch.clone(covariance).detach().numpy()
     C = C[:, :, modes_id][:, modes_id, :]
-    
+
     return (torch.from_numpy(A), torch.from_numpy(B), torch.from_numpy(C))
-    
-    
+
+
 def split_mean(mean, modes_id):
     """
     Split the mean vector into two vectors according to the IDs of modes.
-    
+
     Input:
     mean, the mean vector, torch tensor.
     modes_id, the IDs of modes, torch, tensor.
-    
+
     Output:
     v_c, the mean vector corresponding to the modes_id.
     v_a, the left vector after deleting the elements according to modes_id.
@@ -44,29 +44,29 @@ def split_mean(mean, modes_id):
     v = torch.clone(mean).detach().numpy()
     v_c = v[:, modes_id]
     v_a = np.delete(v, modes_id, axis=1)
-    
+
     return (torch.from_numpy(v_a), torch.from_numpy(v_c))
 
 
 def embed_to_covariance(matrix, modes_id, dtype):
     """
     Embed a matrix into its original covariance matrix with dimension being len(modes_id)+dim(matrix).
-    
+
     Input:
     matrix, the matrix to be embeded, torch tensor.
     modes_id, the IDs of added modes, torch tensor.
-    
+
     Output:
     cov, a larger matrix.
     """
     n = matrix.shape[1] + modes_id.shape[0]
     indices = set(np.arange(n)) - set(modes_id.numpy())
     cov = torch.stack([torch.eye(n, dtype=dtype)] * matrix.shape[0])
-    
+
     for i, i1 in enumerate(indices):
         for j, j1 in enumerate(indices):
             cov[:, i1, j1] = matrix[:, i, j]
-    
+
     return cov
 
 
@@ -79,10 +79,10 @@ def embed_to_mean(mean, quad_id, dtype):
     n = mean.shape[1] + quad_id.shape[0]
     indices = set(np.arange(n)) - set(quad_id.numpy())
     new_mean = torch.zeros(mean.shape[0], n, dtype=dtype)
-    
+
     for i, i1 in enumerate(indices):
         new_mean[:, i1] = mean[:, i]
-        
+
     return new_mean
 
 
@@ -102,7 +102,7 @@ def xxpp_to_xpxp(mean, cov, n_mode, dtype):
     new_mean = torch.transpose(t @ mean.T, 0, 1)
     # new covariance matrix in xpxp ordering
     new_cov = t @ cov @ t.T
-    
+
     return new_mean, new_cov
 
 
@@ -155,9 +155,9 @@ def two_double_partial(disp, cov, i, j):
     t1 = (cov[:, i, i] + disp[:, i] * 2) * (cov[:, j, j] + disp[:, j] * 2)
     t2 = cov[:, i, j] * 2
     t3 = 2 * disp[:, i] * disp[:, j] * cov[:, i, j]
-    
+
     return t1 + t2 + t3
-    
+
 
 def random_sympectic(mode_number):
     """

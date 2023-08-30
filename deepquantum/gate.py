@@ -1093,7 +1093,7 @@ class TDaggerGate(SingleGate):
                 1 & 0 \\
                 0 & e^{-i\pi/4}
             \end{pmatrix}
-    
+
     Args:
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
@@ -1435,7 +1435,7 @@ class CNOT(DoubleControlGate):
                 0 & 0 & 0 & 1 \\
                 0 & 0 & 1 & 0
             \end{pmatrix}
-    
+
     Args:
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 2
         wires (List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
@@ -1444,7 +1444,7 @@ class CNOT(DoubleControlGate):
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
-            Default: ``False``    
+            Default: ``False``
     """
     def __init__(
         self,
