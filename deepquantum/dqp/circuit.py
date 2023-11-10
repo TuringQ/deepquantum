@@ -4,7 +4,7 @@ import copy
 import torch
 from torch import nn
 from operation import Operation, Gate
-from gate import PhaseShift, BeamSplitter, BeamSplitter_1, BeamSplitter_2
+from gate import PhaseShift, BeamSplitter, BeamSplitter_1, BeamSplitter_2, UAnyGate
 from draw import DrawCircuit
 from photonic_qmath import FockOutput, CreateSubmat
 from state import FockState, TensorState
@@ -149,7 +149,18 @@ class QumodeCircuit(Operation):
             BS_ = BeamSplitter_2
         bs_ = BS_(inputs=inputs, nmode=nmode, wires=wires, cutoff=self.cutoff, requires_grad=requires_grad)
         self.add(bs_, encode = encode)
-
+    
+    def any(
+        self,
+        unitary: Any,
+        wires: Union[int, List[int], None] = None,
+        minmax: Optional[List[int]] = None,
+        name: str = 'uany'
+    ) -> None:
+        """Add an arbitrary unitary gate."""
+        uany = UAnyGate(unitary=unitary, nmode=self.nmode, wires=wires, cutoff=self.cutoff)
+        self.add(uany)
+    
     def draw(self):
         """
         circuit plotting

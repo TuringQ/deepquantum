@@ -9,6 +9,23 @@ from typing import Any, List, Optional, Union
 
 
 
+def is_unitary(matrix: torch.Tensor, rtol: float = 1e-5, atol: float = 1e-6) -> bool:
+    """Check if a tensor is a unitary matrix.
+
+    Args:
+        matrix (torch.Tensor): Square matrix.
+
+    Returns:
+        bool: ``True`` if ``matrix`` is unitary, ``False`` otherwise.
+    """
+    if matrix.shape[-1] != matrix.shape[-2]:
+        return False
+    conj_trans = matrix.t().conj()
+    product = torch.matmul(matrix, conj_trans)
+    return torch.allclose(product, torch.eye(matrix.shape[0], dtype=matrix.dtype, device=matrix.device),
+                          rtol=rtol, atol=atol)
+
+
 def inverse_permutation(permute_shape):
     """Calculate the inversed permutation.
 
@@ -199,14 +216,14 @@ class FockGateTensor():
     see https://arxiv.org/pdf/2004.11002.pdf eqs 74, 75
 
     Args:
-        n_mode:
+        n_mode: the acting wires for the local operators
         cutoff:
         parameters:
 
     """
     def __init__(
         self, 
-        n_mode: int = None, 
+        n_mode: int = None,  # here nmode for the local operators, ps:1, bs:2
         cutoff: int = None, 
         parameters:  Union[int, List[int], None] = None,
     ) -> None:
@@ -274,6 +291,50 @@ class FockGateTensor():
         Z[0, 0] = 1.0
         for i in range(1, cutoff):
                Z[i,i] = torch.exp(1j * theta*i)
+        return Z
+    
+
+    def u_any(self, u, dtype=torch.complex128):
+        """
+        give the tensor representation of the any nmode gate,
+        extented case for eqs 74, 75
+        """
+        def critical(k):
+            if k >= 0:
+                return 1 
+            else:
+                return 0 
+
+        cutoff = self.cutoff
+        n_mode = self.nmode
+        sqrt = torch.sqrt(torch.tensor(np.arange(cutoff), dtype=dtype))
+        Z = torch.zeros([cutoff]*(2*n_mode), dtype=dtype)   # 1 outputs mode + 1 inputs mode1
+        indx_0 = tuple([0]*(2*n_mode))
+        Z[indx_0] = 1.0
+        l_rank = n_mode+1 
+        h_rank = 2*n_mode
+        
+        for rank in range(l_rank, h_rank+1):      # now calculate each rank
+            col_num = rank-n_mode-1
+            col_ = u[:,col_num]
+            combi = itertools.product(range(cutoff), repeat= rank-1) # using itertools replace for loop
+            for k in combi:
+                out = k[:n_mode]    # the output
+                in_part =k[n_mode:] # the part of input
+                in_rest = sum(out) - sum(in_part)
+            
+                if 0< in_rest < cutoff:
+                    state_temp = list(k)
+                    state_full = state_temp + [in_rest] + [0]*(2*n_mode-rank) 
+                    state_full = tuple(state_full)  # the full state
+                    
+                    temp_sum = 0
+                    for j in range(n_mode):
+                        state_less = copy.deepcopy(list(state_full))
+                        state_less[j] = state_less[j] -1 
+                        state_less[len(k)] =  state_less[len(k)] - 1 
+                        temp_sum = temp_sum+ col_[j]*sqrt[k[j]]/sqrt[in_rest]*Z[tuple(state_less)]*critical(k[j]-1)
+                    Z[state_full] = temp_sum
         return Z
 
 

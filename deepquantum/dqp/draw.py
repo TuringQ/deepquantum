@@ -1,7 +1,7 @@
 import numpy as np
 import svgwrite
 # from circuit import QumodeCircuit
-from gate import PhaseShift, BeamSplitter, BeamSplitter_1, BeamSplitter_2
+from gate import PhaseShift, BeamSplitter, UAnyGate
 from collections import defaultdict
 
 
@@ -56,6 +56,14 @@ class DrawCircuit():
                 order_dic[order] = order_dic[order] + op_wires
                 for i in op.wires:
                     depth[i] = depth[i]+1
+            
+            if isinstance(op, UAnyGate): # need check?
+                order = max(depth[op_wires[0] : op_wires[-1]+1])
+                self.draw_any(order, op_wires)
+                order_dic[order] = order_dic[order] + op_wires
+                for i in op_wires:
+                    depth[i] = order + 1
+                 
 
         for key in order_dic.keys():
             op_line = order_dic[key]  ## here lines represnet for no operation
@@ -122,6 +130,35 @@ class DrawCircuit():
                                        stroke_width=1.5))
         self.draw_.add(self.draw_.text('PS', insert=((x+45), y_up*30+20), font_size=9 ))
         self.draw_.add(self.draw_.text('λ ='+str(np.round(theta,3 )), insert=(x+60, y_up*30+20), font_size=7 ))
+
+    def draw_any(self, order, wires):
+        """
+        draw arbitrary unitary gate
+        """
+        x = 90*order + 40
+        y_up = wires[0]
+        h = (int(len(wires))-1)*30+20
+        for k in wires:
+            self.draw_.add(self.draw_.polyline(points=[(x, k*30+30),(x+20, k*30+30)],
+                                               fill="none",
+                                               stroke="black",
+                                               stroke_width=2))
+            
+            self.draw_.add(self.draw_.polyline(points=[(x+70, k*30+30),(x+90, k*30+30)],
+                                               fill="none",
+                                               stroke="black",
+                                               stroke_width=2))
+
+        self.draw_.add(self.draw_.rect(insert=(x+20, y_up*30+20), size=(50, h), rx =0, ry=0,
+                                    fill="none",
+                                    stroke="black",
+                                    stroke_width=2))
+        self.draw_.add(self.draw_.text('U', insert=((x+41), y_up*30+20+ h/2), font_size=10 ))
+        
+
+
+
+
 
     # def draw_line(self, order, wire):
     #     """

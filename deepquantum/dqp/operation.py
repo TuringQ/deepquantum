@@ -58,9 +58,10 @@ class Gate(Operation):
         assert isinstance(x, torch.Tensor), "Only tensor states performs forward pass"
         wires = self.wires
         len_ = len(wires)
-        B = self.update_unitary_tensor()      # obtain the unitary tensor for ps or bs
-        if max(B.shape)>8:
+        if len_>6:
             print("too many dimensions of the unitary tensor")
+        B = self.update_unitary_tensor()      # obtain the unitary tensor for ps, bs and u_any
+
         per_idx = list(range(0, self.nmode))
         for idx in wires:
             per_idx.remove(idx)
