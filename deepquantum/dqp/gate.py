@@ -6,6 +6,7 @@ from typing import Any, List, Optional, Tuple, Union
 
 import torch
 from torch import nn
+import numpy as np
 from photonic_qmath import  FockGateTensor, is_unitary
 from operation import Gate
 
@@ -47,7 +48,7 @@ class PhaseShift(Gate):
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        theta = self.inputs_to_tensor(inputs=inputs)
+        theta = self.inputs_to_tensor(inputs=inputs).squeeze()
         if self.requires_grad:
             self.theta = nn.Parameter(theta)
         else:
@@ -64,8 +65,9 @@ class PhaseShift(Gate):
             inputs = torch.tensor(inputs, dtype=torch.float)
         return inputs
 
-    def get_unitary(self) -> torch.Tensor:
-        """Get the global unitary matrix."""
+    # def get_unitary(self) -> torch.Tensor:
+    def get_unitary_op(self) -> torch.Tensor:
+        """Get the global unitary matrix acting on operators."""
         matrix = self.update_matrix()
         identity = [torch.tensor(1, dtype=matrix.dtype, device=matrix.device)]*self.nmode
 
@@ -76,20 +78,21 @@ class PhaseShift(Gate):
         return mat
 
     ##################### here fo the tensor calculation
-    def get_op_tensor(self, theta: Any) -> torch.Tensor:
-        """Get the local unitary matrix. The matrix here represents the matrix acting on the fock state tensor"""
+    # def get_op_tensor(self, theta: Any) -> torch.Tensor:
+    def get_unitary_state(self, theta: Any) -> torch.Tensor:
+        """Get the local unitary matrix acting on fock state tensor."""
         theta = self.inputs_to_tensor(theta)
-        fock_tensor = FockGateTensor(n_mode=2, cutoff=self.cutoff, parameters=[theta])
+        fock_tensor = FockGateTensor(nmode=2, cutoff=self.cutoff, parameters=[theta])
         ps_ts = fock_tensor.ps()
         return ps_ts
 
-    def update_unitary_tensor(self) -> torch.Tensor:
-        """Update the local unitary tensor for operators."""
+    def update_unitary_state(self) -> torch.Tensor:
+        """Update the local unitary matrix acting on fock state tensor."""
         if self.inv_mode:
             theta = -self.theta
         else:
             theta = self.theta
-        matrix = self.get_op_tensor(theta)
+        matrix = self.get_unitary_state(theta)
         # self.matrix = matrix.detach()  # here self.matrix is the matrix for the
         #  optical elements self
         return matrix
@@ -116,9 +119,9 @@ class BeamSplitter(Gate):
         nmode: int = None,
         wires: Optional[List[int]] = None,
         cutoff: int = None,
-        requires_grad: List[bool] = [False, False]
+        requires_grad: bool = False
     ) -> None:
-        super().__init__(name='ReconfigurableBeamSplitter', nmode=nmode, wires=wires, cutoff=cutoff)
+        super().__init__(name='BeamSplitter', nmode=nmode, wires=wires, cutoff=cutoff)
 
         assert(len(wires) == 2), "BS gate must act on two wires"
         assert(self.wires[0]+1 == self.wires[1]), "BS gate must act on the neighbor wires"
@@ -169,49 +172,47 @@ class BeamSplitter(Gate):
         # print(inputs)
         theta, phi = self.inputs_to_tensor(inputs=inputs)
 
-        if self.requires_grad[0]:
+        if self.requires_grad:
             self.theta = nn.Parameter(theta)
-        else:
-            self.register_buffer('theta', theta)
-
-        if self.requires_grad[1]:
             self.phi = nn.Parameter(phi)
         else:
+            self.register_buffer('theta', theta)
             self.register_buffer('phi', phi)
         self.update_matrix()
 
-    def get_unitary(self) -> torch.Tensor:
-        """Get the global unitary matrix."""
+    def get_unitary_op(self) -> torch.Tensor:
+        """Get the global unitary matrix acting on operators."""
         matrix = self.update_matrix()
-        identity = torch.eye(self.nmode, dtype=matrix.dtype, device=matrix.device)
-
-        # identity = torch.eye(self.nmode, dtype=matrix.dtype, device=matrix.device)  ##device?
+        identity = matrix.new_zeros(self.nmode, self.nmode)   # for vmap inplace
+   
         idx0 = self.wires[0]
         idx1 = self.wires[1]
 
         identity[idx0: idx1+1, idx0: idx1+1] = matrix
+
+        for i in range(self.nmode):
+            if i !=idx0 and i!=idx1:
+                identity[i,i] = 1.
+
         return identity
 
    ##################### here fo the tensor calculation
-    def get_op_tensor(self, theta, phi) -> torch.Tensor:
-        """
-        Get the local unitary matrix. 
-        The matrix here represents the matrix acting on the fock state tensor
-        """
+    def get_unitary_state(self, theta, phi) -> torch.Tensor:
+        """Get the local unitary matrix acting on fock state tensor."""
         theta, phi = self.inputs_to_tensor([theta, phi])
-        fock_tensor = FockGateTensor(n_mode=2, cutoff=self.cutoff, parameters=[theta, phi])
+        fock_tensor = FockGateTensor(nmode=2, cutoff=self.cutoff, parameters=[theta, phi])
         bs_ts = fock_tensor.bs()
         return bs_ts
 
-    def update_unitary_tensor(self) -> torch.Tensor:
-        """Update the local unitary tensor for operators."""
+    def update_unitary_state(self) -> torch.Tensor:
+        """Update the local unitary matrix acting on fock state tensor."""
         if self.inv_mode:
             theta = -self.theta
             phi   = -self.phi
         else:
             theta = self.theta
             phi   = self.phi
-        matrix = self.get_op_tensor(theta, phi)
+        matrix = self.get_unitary_state(theta, phi)
         # self.matrix = matrix.detach()  # here self.matrix is the matrix for
         #  the optical elements self
         return matrix
@@ -239,15 +240,46 @@ class BeamSplitter_1(BeamSplitter):
         cutoff: int = None,
         requires_grad: bool = False
     ) -> None:
+        # self.requires_grad = requires_grad
         super().__init__(inputs=[inputs, torch.pi/2],
                          nmode=nmode,
                          wires=wires,
                          cutoff=cutoff,
-                         requires_grad=[requires_grad, False]
+                         requires_grad=requires_grad
                          )
+        # print(self.requires_grad)
         self.npara = 1
         self.inv_mode = False
-        self.requires_grad = requires_grad
+        
+
+    
+    def init_para(self, inputs: Any = None) -> None:
+        """Initialize the parameters."""
+        # print(inputs)
+        theta, phi = self.inputs_to_tensor(inputs=inputs)
+        if self.requires_grad:
+            self.theta = nn.Parameter(theta)
+        else:
+            self.register_buffer('theta', theta)
+
+        self.register_buffer('phi', phi)
+        self.update_matrix()
+    
+
+    def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor]:
+        """Convert inputs to torch.Tensor."""
+        if inputs is None:
+            theta = torch.rand(1)[0] * torch.pi
+            # phi   = torch.rand(1)[0] * 2 * torch.pi
+        else:
+            theta = inputs[0]
+            phi   = torch.pi/2
+
+        if not isinstance(theta, (torch.Tensor, nn.Parameter)):
+            theta = torch.tensor(theta, dtype=torch.float)
+        if not isinstance(phi, (torch.Tensor, nn.Parameter)):
+            phi = torch.tensor(phi, dtype=torch.float)
+        return theta, phi
 
 
 
@@ -283,10 +315,39 @@ class BeamSplitter_2(BeamSplitter):
         self.npara = 1
         self.inv_mode = False
         self.requires_grad = requires_grad
+    
+    def init_para(self, inputs: Any = None) -> None:
+        """Initialize the parameters."""
+        # print(inputs)
+        theta, phi = self.inputs_to_tensor(inputs=inputs)
+
+        if self.requires_grad:
+            self.phi = nn.Parameter(phi)
+        else:
+            self.register_buffer('phi', phi)
+
+        self.register_buffer('theta', theta)
+        self.update_matrix()
+
+    def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor]:
+        """Convert inputs to torch.Tensor."""
+        if inputs is None:
+            # theta = torch.rand(1)[0] * torch.pi
+            phi   = torch.rand(1)[0] * 2 * torch.pi
+
+        else:
+            theta = torch.pi/4
+            phi   = inputs[0]
+        if not isinstance(theta, (torch.Tensor, nn.Parameter)):
+            theta = torch.tensor(theta, dtype=torch.float)
+        if not isinstance(phi, (torch.Tensor, nn.Parameter)):
+            phi = torch.tensor(phi, dtype=torch.float)
+        return theta, phi
 
 class UAnyGate(Gate):
     """
-    for any unitary matrix of the optical elements
+    for any unitary matrix of the optical elements,
+    UAny gate does not support encoding data
     """
     def __init__(
         self,
@@ -311,6 +372,7 @@ class UAnyGate(Gate):
         # self.matrix = unitary
         self.inv_mode = False
         self.register_buffer('matrix', unitary)
+        self.register_buffer('unitary_state', None)
 
     
     def update_matrix(self) -> torch.Tensor:
@@ -319,7 +381,7 @@ class UAnyGate(Gate):
         else:
             return self.matrix
     
-    def get_unitary(self) -> torch.Tensor:
+    def get_unitary_op(self) -> torch.Tensor:
         """Get the global unitary matrix."""
         matrix = self.update_matrix()
         identity = torch.eye(self.nmode, dtype=matrix.dtype, device=matrix.device)
@@ -333,19 +395,23 @@ class UAnyGate(Gate):
     
 
     ##################### here fo the tensor calculation
-    def get_op_tensor(self) -> torch.Tensor:
+    def get_unitary_state(self) -> torch.Tensor:
         """
         Get the local unitary matrix. 
         The matrix here represents the matrix acting on the fock state tensor
         """
         len_ = int(len(self.wires))
         u = self.matrix
-        fock_tensor = FockGateTensor(n_mode=len_, cutoff=self.cutoff)
+        fock_tensor = FockGateTensor(nmode=len_, cutoff=self.cutoff)
         u_any_ts = fock_tensor.u_any(u)
         return u_any_ts
 
-    def update_unitary_tensor(self) -> torch.Tensor:
+    def update_unitary_state(self) -> torch.Tensor:
         """Update the local unitary tensor for operators."""
-        matrix = self.get_op_tensor()
+        if self.unitary_state is None:
+            matrix = self.get_unitary_state()
+            self.register_buffer('unitary_state', matrix)
+        else:
+            matrix = self.unitary_state   # to avoid repeat calcultion
         # self.matrix = matrix.detach()   # here self.matrix is the matrix for the optical elements self
         return matrix

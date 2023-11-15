@@ -8,7 +8,6 @@ from typing import Any, List, Optional, Union
 
 
 
-
 def is_unitary(matrix: torch.Tensor, rtol: float = 1e-5, atol: float = 1e-6) -> bool:
     """Check if a tensor is a unitary matrix.
 
@@ -86,7 +85,7 @@ class CreateSubmat():
         """
         all subset from {1,2,...n}
         """
-        num_arange = np.arange(num_coincidence)
+        num_arange = torch.arange(num_coincidence)
         all_subset = []
 
         for index_1 in range(1, 2 ** num_coincidence):
@@ -130,11 +129,14 @@ class CreateSubmat():
         |s_1,s_2,...s_n> -->s_1!*s_2!*...s_n!
         
         """
-        temp = special.factorial(state)
-        product_fac = 1
-        for i in range(len(state)):
-            product_fac = product_fac * temp[i]
+        # temp = special.factorial(state)
+        # product_fac = 1
+        # for i in range(len(state)):
+        #     product_fac = product_fac * temp[i]
+        product_fac = special.factorial(state).prod()
         return product_fac
+    
+    # special.factorial(state).prod()
 
 
 ###################################
@@ -159,10 +161,11 @@ class FockOutput():
     def __init__(self, ini_state) -> None:
 
         self.nmode = ini_state.nmode
-        self.photons = ini_state.photons
+        # self.photons = ini_state.photons  # 
+        photons = sum(ini_state.state)
         self.all_com = []
 
-        self.decompose_num(self.photons, self.photons,[])  # decompose the integer number
+        self.decompose_num(photons, photons,[])  # decompose the integer number
         self.outfock_dic = {}
         self.calculate_fock_output()
 
@@ -223,17 +226,17 @@ class FockGateTensor():
     """
     def __init__(
         self, 
-        n_mode: int = None,  # here nmode for the local operators, ps:1, bs:2
+        nmode: int = None,  # here nmode for the local operators, ps:1, bs:2
         cutoff: int = None, 
         parameters:  Union[int, List[int], None] = None,
     ) -> None:
         if not isinstance(parameters, List):
             parameters = [parameters]
-        self.nmode = n_mode
+        self.nmode = nmode
         self.cutoff = cutoff
         self.parameters = parameters
         self.u = None
-    def bs(self, dtype=torch.complex128):
+    def bs(self, dtype=torch.cfloat):
         """
         give the tensor representation of the beamsplitter
         return Z_ _, _ _ .The left part for output state, the right part for the input
@@ -252,9 +255,10 @@ class FockGateTensor():
                 torch_zero, torch_zero, st, ct,
                 ct, st, torch_zero, torch_zero,
                 -torch.conj(st), ct, torch_zero, torch_zero]
-        ) .reshape(4, 4)
+        ).reshape(4, 4)
         self.u = R
-        Z = torch.zeros([cutoff]*4, dtype=dtype)   # 2 outputs modes + 2 inputs modes 
+        # Z = torch.zeros([cutoff]*4, dtype=dtype)   # 2 outputs modes + 2 inputs modes 
+        Z = st.new_zeros([cutoff]*4)   # 2 outputs modes + 2 inputs modes 
         Z[0, 0, 0, 0] = 1.0
         # rank 3
         for m in range(cutoff):
@@ -280,21 +284,24 @@ class FockGateTensor():
         return Z
     
 
-    def ps(self, dtype=torch.complex128):
+    def ps(self, dtype=torch.cfloat):
         """
         give the tensor representation of the phase shifter
         """
         assert len(self.parameters)==1, "PS gate needs one parameter theata"
         cutoff = self.cutoff
-        Z = torch.zeros([cutoff]*2, dtype=dtype)   # 1 outputs mode + 1 inputs mode1
-        theta = self.parameters[0] 
+        # Z = torch.zeros([cutoff]*2, dtype=dtype)   # 1 outputs mode + 1 inputs mode1
+        
+        theta = self.parameters[0]
+        e_it = torch.exp(1j * theta)
+        Z = e_it.new_zeros([cutoff]*2)   # 1 outputs mode + 1 inputs mode1
         Z[0, 0] = 1.0
         for i in range(1, cutoff):
                Z[i,i] = torch.exp(1j * theta*i)
         return Z
     
 
-    def u_any(self, u, dtype=torch.complex128):
+    def u_any(self, u, dtype=torch.cfloat):
         """
         give the tensor representation of the any nmode gate,
         extented case for eqs 74, 75
@@ -308,7 +315,8 @@ class FockGateTensor():
         cutoff = self.cutoff
         n_mode = self.nmode
         sqrt = torch.sqrt(torch.tensor(np.arange(cutoff), dtype=dtype))
-        Z = torch.zeros([cutoff]*(2*n_mode), dtype=dtype)   # 1 outputs mode + 1 inputs mode1
+        # Z = torch.zeros([cutoff]*(2*n_mode), dtype=dtype)   # 1 outputs mode + 1 inputs mode1
+        Z = u.new_zeros([cutoff]*(2*n_mode))   # 1 outputs mode + 1 inputs mode1
         indx_0 = tuple([0]*(2*n_mode))
         Z[indx_0] = 1.0
         l_rank = n_mode+1 
@@ -323,7 +331,7 @@ class FockGateTensor():
                 in_part =k[n_mode:] # the part of input
                 in_rest = sum(out) - sum(in_part)
             
-                if 0< in_rest < cutoff:
+                if 0 < in_rest < cutoff:
                     state_temp = list(k)
                     state_full = state_temp + [in_rest] + [0]*(2*n_mode-rank) 
                     state_full = tuple(state_full)  # the full state
@@ -332,8 +340,8 @@ class FockGateTensor():
                     for j in range(n_mode):
                         state_less = copy.deepcopy(list(state_full))
                         state_less[j] = state_less[j] -1 
-                        state_less[len(k)] =  state_less[len(k)] - 1 
-                        temp_sum = temp_sum+ col_[j]*sqrt[k[j]]/sqrt[in_rest]*Z[tuple(state_less)]*critical(k[j]-1)
+                        state_less[len(k)] = state_less[len(k)] - 1 
+                        temp_sum = temp_sum + col_[j]*sqrt[k[j]]/sqrt[in_rest]*Z[tuple(state_less)]*critical(k[j]-1)
                     Z[state_full] = temp_sum
         return Z
 

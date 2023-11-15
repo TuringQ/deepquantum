@@ -11,7 +11,7 @@ import torch
 import string 
 from torch import nn
 
-from state import FockState, TensorState
+from state import FockState
 from photonic_qmath import FockOutput, inverse_permutation
 
 
@@ -37,6 +37,15 @@ class Operation(nn.Module):
         self.wires = wires
         self.cutoff = cutoff
         self.npara = 0
+
+    def tensor_rep(self, x: torch.Tensor) -> torch.Tensor:
+        """Get the tensor representation of the state."""
+        assert x.shape[-1] == x.shape[-2] == self.cutoff
+
+        if x.ndim == self.nmode+1:
+            return x
+        if x.ndim == self.nmode:
+            return x.unsqueeze(0)
         
     # def update_matrix(self):
 
@@ -50,19 +59,18 @@ class Gate(Operation):
         super().__init__(name = name, nmode=nmode, wires=wires, cutoff=cutoff)
 
 
-
-
-
-    def forward(self, x: Union[torch.Tensor, TensorState]) -> Union[torch.Tensor, TensorState]:
+    def forward(self, x: Union[torch.Tensor, FockState]) -> Union[torch.Tensor, FockState]:
         """Perform a forward pass in tensor representation."""
         assert isinstance(x, torch.Tensor), "Only tensor states performs forward pass"
-        wires = self.wires
+        # wires = self.wires
+        x = self.tensor_rep(x)
+        wires = [i + 1 for i in self.wires]  # the first dimension for batch here
         len_ = len(wires)
         if len_>6:
             print("too many dimensions of the unitary tensor")
-        B = self.update_unitary_tensor()      # obtain the unitary tensor for ps, bs and u_any
+        B = self.update_unitary_state()      # obtain the unitary tensor for ps, bs and u_any
 
-        per_idx = list(range(0, self.nmode))
+        per_idx = list(range(self.nmode + 1))
         for idx in wires:
             per_idx.remove(idx)
         per_idx = wires + per_idx
@@ -73,6 +81,7 @@ class Gate(Operation):
         upper = string.ascii_uppercase
         einsum = lower[:len_] + "...," + upper[:len_]+lower[:len_] + "->" + upper[:len_] +"..." 
         
+        # print(per_idx)
         state_1 = x.permute(per_idx)
         state_2 = torch.einsum(einsum, [state_1, B])
         state_3 = state_2.permute(per_idx2)
@@ -87,7 +96,7 @@ class Gate(Operation):
         
     # def get_matrix(self)
         
-    # def get_unitary_fock():
+    # def get_unitary_state():
     #     mu, sigma -> unitary_fock
 
     # def op_fock_state()
