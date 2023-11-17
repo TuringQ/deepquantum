@@ -882,11 +882,12 @@ class QubitCircuit(Operation):
         unitary: Any,
         wires: Union[int, List[int], None] = None,
         minmax: Optional[List[int]] = None,
+        controls: Union[int, List[int], None] = None,
         name: str = 'uany'
     ) -> None:
         """Add an arbitrary unitary gate."""
-        uany = UAnyGate(unitary=unitary, nqubit=self.nqubit, wires=wires, minmax=minmax, name=name,
-                        den_mat=self.den_mat)
+        uany = UAnyGate(unitary=unitary, nqubit=self.nqubit, wires=wires, minmax=minmax, controls=controls,
+                        name=name, den_mat=self.den_mat)
         self.add(uany)
 
     def latent(
@@ -894,6 +895,7 @@ class QubitCircuit(Operation):
         wires: Union[int, List[int], None] = None,
         minmax: Optional[List[int]] = None,
         inputs: Any = None,
+        controls: Union[int, List[int], None] = None,
         encode: bool = False,
         name: str = 'latent'
     ) -> None:
@@ -901,8 +903,8 @@ class QubitCircuit(Operation):
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        latent = LatentGate(inputs=inputs, nqubit=self.nqubit, wires=wires, minmax=minmax, name=name,
-                            den_mat=self.den_mat, requires_grad=requires_grad)
+        latent = LatentGate(inputs=inputs, nqubit=self.nqubit, wires=wires, minmax=minmax, controls=controls,
+                            name=name, den_mat=self.den_mat, requires_grad=requires_grad)
         self.add(latent, encode=encode)
 
     def hamiltonian(
@@ -911,6 +913,7 @@ class QubitCircuit(Operation):
         t: Any = None,
         wires: Union[int, List[int], None] = None,
         minmax: Optional[List[int]] = None,
+        controls: Union[int, List[int], None] = None,
         encode: bool = False,
         name: str = 'hamiltonian'
     ) -> None:
@@ -919,7 +922,7 @@ class QubitCircuit(Operation):
         if t is not None:
             requires_grad = False
         ham = HamiltonianGate(hamiltonian=hamiltonian, t=t, nqubit=self.nqubit, wires=wires, minmax=minmax,
-                              name=name, den_mat=self.den_mat, requires_grad=requires_grad)
+                              controls=controls, name=name, den_mat=self.den_mat, requires_grad=requires_grad)
         self.add(ham, encode=encode)
 
     def xlayer(self, wires: Union[int, List[int], None] = None) -> None:
