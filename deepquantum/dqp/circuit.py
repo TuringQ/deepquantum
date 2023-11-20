@@ -177,9 +177,17 @@ class QumodeCircuit(Operation):
             u = self.u
         sub_mat = CreateSubmat.sub_matrix(u, init_state.state, final_state)
         # print(sub_mat)
-        # per = CreateSubmat.permanent(sub_mat)   # take most of the time
-        per = self.per_function(sub_mat)
-        amp = per / np.sqrt((CreateSubmat.product_factorial(init_state.state) * CreateSubmat.product_factorial(final_state)))
+        nphotons = self.init_state.state.sum()
+        if nphotons == 0:   # cosider all modes 0 inputs
+            amp = torch.tensor(1.)
+        else:
+            per = CreateSubmat.permanent(sub_mat)   # take most of the time
+            # if len(sub_mat.size()) == 0 :   # for the single photon case
+            #     per = sub_mat
+            # else:
+            #     per = self.per_function(sub_mat)
+            amp = per / np.sqrt((CreateSubmat.product_factorial(init_state.state) * CreateSubmat.product_factorial(final_state)))
+            
         return amp
 
     def get_prob(self, final_state):
@@ -187,8 +195,8 @@ class QumodeCircuit(Operation):
         Calculating the transfer probability of given final state
         final_state: fock state, list or torch.tensor
         """
-        nphotons = self.init_state.state.sum()
-        self.per_function = torch.jit.trace(CreateSubmat.permanent, torch.eye(nphotons)) 
+        # nphotons = self.init_state.state.sum()
+        # self.per_function = torch.jit.trace(CreateSubmat.permanent, torch.eye(nphotons)) 
 
         amplitude = self.get_amplitude(final_state)
         prob = torch.abs(amplitude)**2
@@ -201,9 +209,9 @@ class QumodeCircuit(Operation):
         """
         out_dic = {}
         output_list = self.op_fock_state_list(init_state)
-        nphotons = self.init_state.state.sum()
-        self.per_function = torch.jit.trace(CreateSubmat.permanent, torch.eye(nphotons)) 
-        #here jit for computing acceleration, torch.eye(nphotons) for example input 
+        # nphotons = self.init_state.state.sum()
+        # self.per_function = torch.jit.trace(CreateSubmat.permanent, torch.eye(nphotons)) 
+        # #here jit for computing acceleration, torch.eye(nphotons) for example input 
         for ii in output_list:
             f_state = ii.state
             if max(f_state)< self.cutoff:
@@ -220,8 +228,8 @@ class QumodeCircuit(Operation):
         """
         out_dic = {}
         output_list = self.op_fock_state_list()
-        nphotons = self.init_state.state.sum()
-        self.per_function = torch.jit.trace(CreateSubmat.permanent, torch.eye(nphotons)) 
+        # nphotons = self.init_state.state.sum()
+        # self.per_function = torch.jit.trace(CreateSubmat.permanent, torch.eye(nphotons)) 
         for ii in output_list:
             f_state = ii.state
             if max(f_state)< self.cutoff:

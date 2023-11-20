@@ -3,8 +3,10 @@ import torch
 from scipy import special
 import itertools
 import copy 
+from torch import vmap
 from state import FockState
 from typing import Any, List, Optional, Union
+
 
 
 
@@ -48,6 +50,7 @@ class CreateSubmat():
     given input and output state.
 
     """
+
     @staticmethod
     def set_copy_indx(state):
             """
@@ -78,9 +81,33 @@ class CreateSubmat():
         u1 = u[[indx2]] ## choose rows from the output
         u2 = u1[:, [indx1]] ## choose columns from the input
         return torch.squeeze(u2)            
-
+     ## computing permanent 
     @staticmethod
-    ## computing permanent 
+    def permanent( mat):
+        A =  mat
+        matshape = A.shape
+        if len(mat.size()) == 0 :   # for the single photon case, jit?
+            return mat
+        
+        if matshape[0] == 1:
+            return A[0, 0]
+
+        if matshape[0] == 2:
+            return A[0, 0] * A[1, 1] + A[0, 1] * A[1, 0]
+
+        if matshape[0] == 3:
+            return (
+                A[0, 2] * A[1, 1] * A[2, 0]
+                + A[0, 1] * A[1, 2] * A[2, 0]
+                + A[0, 2] * A[1, 0] * A[2, 1]
+                + A[0, 0] * A[1, 2] * A[2, 1]
+                + A[0, 1] * A[1, 0] * A[2, 2]
+                + A[0, 0] * A[1, 1] * A[2, 2]
+            )
+        return CreateSubmat.permanent_ts(mat)  # here using tensor representation of ryser formula
+
+    
+    @staticmethod
     def create_subset(num_coincidence):
         """
         all subset from {1,2,...n}
@@ -95,9 +122,26 @@ class CreateSubmat():
                     all_subset[-1].append(num_arange[index_2])
 
         return all_subset
+    @staticmethod
+    def create_subset_2(num_coincidence):
+        """
+        all subset from {1,2,...n}
+        
+        """
+        all_subset = []
+        for k in range(1, num_coincidence+1):
+            all_combi = []
+            for comb in itertools.combinations(range(num_coincidence), k):
+                comb = list(comb)
+                all_combi.append(comb)
+            len_ = len(all_combi)
+            temp = torch.tensor(all_combi).reshape(len_,k)
+            all_subset.append(temp)
+        return all_subset
+
 
     @staticmethod
-    def permanent(mat):
+    def permanent_ryser(mat):
         """
         Using RyserFormula for permanent, valid for square matrix
         """
@@ -121,6 +165,33 @@ class CreateSubmat():
                 value_perm = value_perm + value_times * (-1) ** num_elements
             value_perm = value_perm * (-1) ** num_coincidence
             return value_perm
+    @staticmethod
+    def permanent_ts(mat):
+
+        num_coincidence = mat.size()[0]  ## no need for repeat computation
+        # if self.sets is None:
+        #     self.sets =  CreateSubmat.create_subset_2(num_coincidence) # all S set
+        # sets = self.sets
+        sets = CreateSubmat.create_subset_2(num_coincidence)   # here repeat computation
+        value_perm = 0
+        for subset in sets:
+            temp_value = vmap(CreateSubmat.single, in_dims=(0, None))(subset, mat)
+            single_value = temp_value.sum()
+            value_perm = value_perm + single_value
+        value_perm = value_perm*(-1) ** num_coincidence
+        return value_perm
+    @staticmethod
+    def single(subset, mat):
+        num_elements = (subset).numel()
+        new_subset = subset
+        sum_ = torch.sum(mat[:,new_subset], dim=1) # sum over row
+        value_times = torch.prod(sum_)
+        value_times = value_times * (-1) ** num_elements
+        return value_times
+
+        
+
+    
     
     @staticmethod
     def product_factorial(state):
