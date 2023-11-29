@@ -30,10 +30,12 @@ class QumodeCircuit(Operation):
         cutoff: int = None,
         basis: bool = False,
         init_state: Any = None,
-        name: Optional[str] = None
+        name: Optional[str] = None,
+        noise_model: bool = True
     ) -> None:
         super().__init__(name=name, nmode=nmode, wires=list(range(nmode)) )
         assert( init_state is not None), "initial state is necessary for circuit input"
+        self.noise_model = noise_model
         self.operators = nn.Sequential()
         self.encoders = []
         self.cutoff = cutoff
@@ -327,6 +329,8 @@ class QumodeCircuit(Operation):
         self,
         inputs: Any = None,
         wires: Union[int, List[int], None] = None,
+        noise_mean=0,
+        noise_std=0,
         encode: bool = False
     ) -> None:
         """ Add a phaseshifter"""
@@ -334,13 +338,22 @@ class QumodeCircuit(Operation):
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        ps_ = PhaseShift(inputs=inputs, nmode=nmode, wires=wires, cutoff=self.cutoff, requires_grad=requires_grad)
+        ps_ = PhaseShift(inputs=inputs,
+                         nmode=nmode,
+                         wires=wires,
+                         cutoff=self.cutoff,
+                         requires_grad=requires_grad,
+                         noise_model = self.noise_model,
+                         noise_mean = noise_mean,
+                         noise_std = noise_std)
         self.add(ps_, encode = encode)
 
     def bs(
         self,
         inputs: Any = None,
         wires: Union[int, List[int], None] = None,
+        noise_mean=0,
+        noise_std =0,
         which_bs: int = 1,
         encode: bool = False
     ) -> None:
@@ -361,7 +374,14 @@ class QumodeCircuit(Operation):
             BS_ = BeamSplitter_1
         if which_bs ==2:
             BS_ = BeamSplitter_2
-        bs_ = BS_(inputs=inputs, nmode=nmode, wires=wires, cutoff=self.cutoff, requires_grad=requires_grad)
+        bs_ = BS_(inputs=inputs,
+                  nmode=nmode,
+                  wires=wires,
+                  cutoff=self.cutoff,
+                  requires_grad=requires_grad,
+                  noise_model = self.noise_model,
+                  noise_mean = noise_mean,
+                  noise_std = noise_std)
         self.add(bs_, encode = encode)
     
     def any(
@@ -424,7 +444,7 @@ class QumodeCircuit(Operation):
                     sum_idx = list(range(self.nmode))
                     for idx in measure_wires:
                         sum_idx.remove(idx)
-                    ptrace_probs_i = probs_i.sum(dim=sum_idx)  # here partial trace for the measurement wires
+                    ptrace_probs_i = probs_i.sum(dim=sum_idx)  # here partial trace for the measurement wires,此处可能需要归一化
                 for p_state in combi:  
                     lst1=list(map(lambda x:str(x),p_state))
                     state_str =  ''.join(lst1)

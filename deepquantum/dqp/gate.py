@@ -20,11 +20,18 @@ class PhaseShift(Gate):
         nmode: int = None,
         wires: Union[int, List[int], None] = None,
         cutoff: int = None,
-        requires_grad: bool = False
+        requires_grad: bool = False,
+        noise_model: bool = False,
+        noise_mean: float = None,
+        noise_std: float = None
     ) -> None:
         super().__init__(name='PhaseShift', nmode=nmode, wires=wires, cutoff=cutoff)
 
         assert len(wires) == 1, "PS gate acts on single mode"
+        self.noise_model = noise_model
+        if self.noise_model:
+            self.noise_mean = noise_mean
+            self.noise_std = noise_std
         self.npara = 1
         self.requires_grad = requires_grad
         self.inv_mode = False
@@ -63,6 +70,8 @@ class PhaseShift(Gate):
             inputs = torch.rand(1)[0] * 4 * torch.pi
         elif not isinstance(inputs, (torch.Tensor, nn.Parameter)):
             inputs = torch.tensor(inputs, dtype=torch.float)
+        if self.noise_model: # adding gaussian noise
+            inputs = inputs  +  torch.normal(self.noise_mean, self.noise_std, size=(1, )).squeeze()
         return inputs
 
     # def get_unitary(self) -> torch.Tensor:
@@ -119,12 +128,19 @@ class BeamSplitter(Gate):
         nmode: int = None,
         wires: Optional[List[int]] = None,
         cutoff: int = None,
-        requires_grad: bool = False
+        requires_grad: bool = False,
+        noise_model: bool = False,
+        noise_mean: float = None,
+        noise_std: float = None
     ) -> None:
         super().__init__(name='BeamSplitter', nmode=nmode, wires=wires, cutoff=cutoff)
 
         assert(len(wires) == 2), "BS gate must act on two wires"
         assert(self.wires[0]+1 == self.wires[1]), "BS gate must act on the neighbor wires"
+        self.noise_model = noise_model
+        if self.noise_model:
+            self.noise_mean = noise_mean
+            self.noise_std = noise_std
         self.npara = 2
         self.inv_mode = False
         self.requires_grad = requires_grad
@@ -133,7 +149,7 @@ class BeamSplitter(Gate):
     def get_matrix(self, theta: Any, phi:Any) -> torch.Tensor:
         """Get the local unitary matrix. The matrix here represents the matrix for linear optical elements
          which acts on the creation operator a^dagger """
-        theta, phi = self.inputs_to_tensor([theta, phi])
+        # theta, phi = self.inputs_to_tensor([theta, phi])
         cos = torch.cos(theta)
         sin = torch.sin(theta)
         # m1 = torch.eye(1, dtype=theta.dtype, device=theta.device)
@@ -153,6 +169,9 @@ class BeamSplitter(Gate):
             theta = torch.tensor(theta, dtype=torch.float)
         if not isinstance(phi, (torch.Tensor, nn.Parameter)):
             phi = torch.tensor(phi, dtype=torch.float)
+        if self.noise_model:
+            theta = theta + torch.normal(self.noise_mean, self.noise_std, size=(1, )).squeeze()
+            phi = phi + torch.normal(self.noise_mean, self.noise_std, size=(1, )).squeeze()
         return theta, phi
 
     def update_matrix(self) -> torch.Tensor:
@@ -238,21 +257,29 @@ class BeamSplitter_1(BeamSplitter):
         nmode: int = None,
         wires: Optional[List[int]] = None,
         cutoff: int = None,
-        requires_grad: bool = False
+        requires_grad: bool = False,
+        noise_model: bool = False,
+        noise_mean: float = None,
+        noise_std: float = None
     ) -> None:
         # self.requires_grad = requires_grad
+        self.npara = 1
+        self.inv_mode = False
+        self.noise_model = noise_model
+        # if self.noise_model:
+        #     self.noise_mean = noise_mean_std[0]
+        #     self.noise_std = noise_mean_std[1]
         super().__init__(inputs=[inputs, torch.pi/2],
                          nmode=nmode,
                          wires=wires,
                          cutoff=cutoff,
-                         requires_grad=requires_grad
+                         requires_grad=requires_grad,
+                         noise_model =noise_model,
+                         noise_mean=noise_mean,
+                         noise_std = noise_std
                          )
         # print(self.requires_grad)
-        self.npara = 1
-        self.inv_mode = False
-        
-
-    
+      
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
         # print(inputs)
@@ -279,6 +306,11 @@ class BeamSplitter_1(BeamSplitter):
             theta = torch.tensor(theta, dtype=torch.float)
         if not isinstance(phi, (torch.Tensor, nn.Parameter)):
             phi = torch.tensor(phi, dtype=torch.float)
+        
+        # print(theta, self.noise_mean, self.noise_std)
+        if self.noise_model:
+            theta = theta + torch.normal(self.noise_mean, self.noise_std, size=(1, )).squeeze()
+            # theta = theta.squeeze()
         return theta, phi
 
 
@@ -304,18 +336,25 @@ class BeamSplitter_2(BeamSplitter):
         nmode: int = None,
         wires: Optional[List[int]] = None,
         cutoff: int = None,
-        requires_grad: bool = False
+        requires_grad: bool = False,
+        noise_model: bool = False,
+        noise_mean: float = None,
+        noise_std: float = None
     ) -> None:
+        self.npara = 1
+        self.inv_mode = False
+        self.requires_grad = requires_grad
+        self.noise_model = noise_model
         super().__init__(inputs=[torch.pi/4, inputs],
                          nmode=nmode,
                          wires=wires,
                          cutoff=cutoff,
-                         requires_grad=[False, requires_grad]
+                         requires_grad=requires_grad,
+                         noise_model =noise_model,
+                         noise_mean=noise_mean,
+                         noise_std = noise_std
                          )
-        self.npara = 1
-        self.inv_mode = False
-        self.requires_grad = requires_grad
-    
+
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
         # print(inputs)
@@ -337,11 +376,15 @@ class BeamSplitter_2(BeamSplitter):
 
         else:
             theta = torch.pi/4
-            phi   = inputs[0]
+            phi   = inputs[1]
         if not isinstance(theta, (torch.Tensor, nn.Parameter)):
             theta = torch.tensor(theta, dtype=torch.float)
         if not isinstance(phi, (torch.Tensor, nn.Parameter)):
             phi = torch.tensor(phi, dtype=torch.float)
+
+        # print(inputs, phi)
+        if self.noise_model:
+            phi = phi + torch.normal(self.noise_mean, self.noise_std, size=(1, )).squeeze()
         return theta, phi
 
 class UAnyGate(Gate):
@@ -368,7 +411,7 @@ class UAnyGate(Gate):
             assert wires[i]+1 == wires[i+1], "need near neighbor wires"
         
         assert unitary.shape[0] == len(wires), " check wires"
-        assert is_unitary(unitary), " check the unitary matrix"
+        assert is_unitary(unitary, rtol=1e-5), " check the unitary matrix"
         # self.matrix = unitary
         self.inv_mode = False
         self.register_buffer('matrix', unitary)
