@@ -234,6 +234,7 @@ class ArbitraryGate(Gate):
             Default: ``None``
         minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
             operation acts on. Only valid when ``wires`` is ``None``. Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
@@ -246,6 +247,7 @@ class ArbitraryGate(Gate):
         nqubit: int = 1,
         wires: Union[int, List[int], None] = None,
         minmax: Optional[List[int]] = None,
+        controls: Union[int, List[int], None] = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -255,7 +257,7 @@ class ArbitraryGate(Gate):
                 minmax = [0, nqubit - 1]
             self._check_minmax(minmax)
             wires = list(range(minmax[0], minmax[1] + 1))
-        super().__init__(name=name, nqubit=nqubit, wires=wires, controls=None, condition=False,
+        super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls, condition=False,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.minmax = [min(self.wires), max(self.wires)]
         # whether the wires are consecutive integers
@@ -2042,6 +2044,7 @@ class UAnyGate(ArbitraryGate):
             Default: ``None``
         minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
             operation acts on. Only valid when ``wires`` is ``None``. Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
         name (str, optional): The name of the gate. Default: ``'UAnyGate'``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
@@ -2055,12 +2058,13 @@ class UAnyGate(ArbitraryGate):
         nqubit: int = 1,
         wires: Union[int, List[int], None] = None,
         minmax: Optional[List[int]] = None,
+        controls: Union[int, List[int], None] = None,
         name: str = 'UAnyGate',
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
-        super().__init__(name=name, nqubit=nqubit, wires=wires, minmax=minmax, den_mat=den_mat,
-                         tsr_mode=tsr_mode)
+        super().__init__(name=name, nqubit=nqubit, wires=wires, minmax=minmax, controls=controls,
+                         den_mat=den_mat, tsr_mode=tsr_mode)
         if not isinstance(unitary, torch.Tensor):
             unitary = torch.tensor(unitary, dtype=torch.cfloat).reshape(-1, 2 ** len(self.wires))
         assert unitary.dtype in (torch.cfloat, torch.cdouble)
@@ -2085,6 +2089,7 @@ class LatentGate(ArbitraryGate):
             Default: ``None``
         minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
             operation acts on. Only valid when ``wires`` is ``None``. Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
         name (str, optional): The name of the gate. Default: ``'LatentGate'``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
@@ -2100,13 +2105,14 @@ class LatentGate(ArbitraryGate):
         nqubit: int = 1,
         wires: Union[int, List[int], None] = None,
         minmax: Optional[List[int]] = None,
+        controls: Union[int, List[int], None] = None,
         name: str = 'LatentGate',
         den_mat: bool = False,
         tsr_mode: bool = False,
         requires_grad: bool = False
     ) -> None:
-        super().__init__(name=name, nqubit=nqubit, wires=wires, minmax=minmax, den_mat=den_mat,
-                         tsr_mode=tsr_mode)
+        super().__init__(name=name, nqubit=nqubit, wires=wires, minmax=minmax, controls=controls,
+                         den_mat=den_mat, tsr_mode=tsr_mode)
         self.requires_grad = requires_grad
         self.init_para(inputs=inputs)
 
@@ -2160,6 +2166,7 @@ class HamiltonianGate(ArbitraryGate):
         minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
             operation acts on. Only valid when ``hamiltonian`` is not a list and ``wires`` is ``None``.
             Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
         name (str, optional): The name of the gate. Default: ``'HamiltonianGate'``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
@@ -2176,6 +2183,7 @@ class HamiltonianGate(ArbitraryGate):
         nqubit: int = 1,
         wires: Union[int, List[int], None] = None,
         minmax: Optional[List[int]] = None,
+        controls: Union[int, List[int], None] = None,
         name: str = 'HamiltonianGate',
         den_mat: bool = False,
         tsr_mode: bool = False,
@@ -2187,8 +2195,8 @@ class HamiltonianGate(ArbitraryGate):
             self.ham_lst = hamiltonian
             wires = None
             minmax = self.get_minmax(hamiltonian=hamiltonian)
-        super().__init__(name=name, nqubit=nqubit, wires=wires, minmax=minmax, den_mat=den_mat,
-                         tsr_mode=tsr_mode)
+        super().__init__(name=name, nqubit=nqubit, wires=wires, minmax=minmax, controls=controls,
+                         den_mat=den_mat, tsr_mode=tsr_mode)
         self.requires_grad = requires_grad
         self.register_buffer('x', PauliX().matrix)
         self.register_buffer('y', PauliY().matrix)
