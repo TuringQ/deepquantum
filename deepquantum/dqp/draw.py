@@ -19,13 +19,15 @@ class DrawCircuit():
         draw_circuit = svgwrite.Drawing(name, profile='full')
         # size = n_mode/4*100   # the size of SVG circuit
         # size = 5*100
-        wid = max(1, max(circuit_depth))
-        draw_circuit['width'] = f'{4 * wid}cm'
+        # wid = max(1, max(circuit_depth))
+        # wid = (90*20+40)/100
+        # draw_circuit['width'] = f'{3 * wid}cm'
         draw_circuit['height'] = f'{10/11 * n_mode}cm'
         self.draw_ = draw_circuit
         self.n_mode = n_mode
         self.name = name
         self.ops = circuit_operators
+        print(circuit_depth)
 
     def draw(self):
         order_dic = defaultdict(list) # 当key不存在时对应的value是[]
@@ -67,6 +69,7 @@ class DrawCircuit():
         self.order_dic = order_dic
         self.depth = depth
         self.ps_num = ps_num
+        print(self.depth)
 
     def save(self, filename):
         """

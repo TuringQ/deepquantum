@@ -308,6 +308,8 @@ class QumodeCircuit(Operation):
             print('too many wires in the circuit, run circuit.save for the complete circuit')
         self.draw_circuit = DrawCircuit(self.name, self.nmode, self.operators, self.depth)
         self.draw_circuit.draw()
+        wid = 3*(90*(max(self.draw_circuit.depth)-1)+40)/100
+        self.draw_circuit.draw_['width'] = f'{wid}cm'
         return self.draw_circuit.draw_
 
     def save(self, filename):
