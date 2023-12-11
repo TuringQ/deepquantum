@@ -4,15 +4,13 @@ Base classes
 
 from copy import copy
 from typing import Any, List, Optional, Tuple, Union
-# pylint: disable=unused-import
-import warnings
+
 import numpy as np
 import torch
-import string 
 from torch import nn
 
-from state import FockState
-from photonic_qmath import FockOutput, inverse_permutation
+from .state import FockState
+from ..qmath import inverse_permutation
 
 
 class Operation(nn.Module):
@@ -21,17 +19,9 @@ class Operation(nn.Module):
         name: Optional[str] = None,
         nmode: int = 1,
         wires: Union[int, List, None] = None,
-        cutoff: int = None
+        cutoff: int = 2
     ) -> None:
         super().__init__()
-        if wires is None:
-            wires =[]
-        if isinstance(wires, int):
-            wires = [wires]
-        assert isinstance(wires, (int, List)), "wires should be int or List"  ## typing does not support List[int]
-        assert all(isinstance(i, int) for i in wires), 'wires should be int or List'
-        
-
         self.name = name
         self.nmode = nmode
         self.wires = wires
@@ -40,70 +30,74 @@ class Operation(nn.Module):
 
     def tensor_rep(self, x: torch.Tensor) -> torch.Tensor:
         """Get the tensor representation of the state."""
-        assert x.shape[-1] == x.shape[-2] == self.cutoff
+        return x.reshape([-1] + [self.cutoff] * self.nmode)
 
-        if x.ndim == self.nmode+1:
-            return x
-        if x.ndim == self.nmode:
-            return x.unsqueeze(0)
-        
-    # def update_matrix(self):
+    def init_para(self) -> None:
+        """Initialize the parameters."""
+        pass
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Perform a forward pass."""
+        return self.tensor_rep(x)
+
+    def _convert_indices(self, indices: Union[int, List[int]]) -> List[int]:
+        """Convert and check the indices of the qumodes."""
+        if isinstance(indices, int):
+            indices = [indices]
+        assert isinstance(indices, list), 'Invalid input type'
+        assert all(isinstance(i, int) for i in indices), 'Invalid input type'
+        if len(indices) > 0:
+            assert min(indices) > -1 and max(indices) < self.nmode, 'Invalid input'
+        assert len(set(indices)) == len(indices), 'Invalid input'
+        return indices
+
+    def _check_minmax(self, minmax: List[int]) -> None:
+        """Check the minmum and maximum indices of the qubits."""
+        assert isinstance(minmax, list)
+        assert len(minmax) == 2
+        assert all(isinstance(i, int) for i in minmax)
+        assert -1 < minmax[0] <= minmax[1] < self.nqubit
+
 
 class Gate(Operation):
-    def __init__(self,
+    def __init__(
+        self,
         name: Optional[str] = None,
         nmode: int = None,
         wires: Union[int, List[int], None] = None,
-        cutoff: int = None
+        cutoff: int = 2
     ) -> None:
-        super().__init__(name = name, nmode=nmode, wires=wires, cutoff=cutoff)
+        self.nmode = nmode
+        if wires is None:
+            wires = [0]
+        wires = self._convert_indices(wires)
+        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff)
 
+    def get_unitary_op(self) -> torch.Tensor:
+        """Get the global unitary matrix acting on operators."""
+        matrix = self.update_matrix()
+        nmode1 = min(self.wires)
+        nmode2 = self.nmode - nmode1 - len(self.wires)
+        m1 = torch.eye(nmode1, dtype=matrix.dtype, device=matrix.device)
+        m2 = torch.eye(nmode2, dtype=matrix.dtype, device=matrix.device)
+        return torch.block_diag(m1, matrix, m2)
+
+    def op_state_tensor(self, x: torch.Tensor) -> torch.Tensor:
+        """Perform a forward pass for state tensors."""
+        nt = len(self.wires)
+        matrix = self.update_unitary_state().reshape(self.cutoff ** nt, self.cutoff ** nt)
+        wires = [i + 1 for i in self.wires]
+        pm_shape = list(range(self.nmode + 1))
+        for i in wires:
+            pm_shape.remove(i)
+        pm_shape = wires + pm_shape
+        x = x.permute(pm_shape).reshape(self.cutoff ** nt, -1)
+        x = (matrix @ x).reshape([self.cutoff] * nt + [-1] + [self.cutoff] * (self.nmode - nt))
+        x = x.permute(inverse_permutation(pm_shape))
+        return x
 
     def forward(self, x: Union[torch.Tensor, FockState]) -> Union[torch.Tensor, FockState]:
-        """Perform a forward pass in tensor representation."""
-        assert isinstance(x, torch.Tensor), "Only tensor states performs forward pass"
-        # wires = self.wires
-        x = self.tensor_rep(x)
-        wires = [i + 1 for i in self.wires]  # the first dimension for batch here
-        len_ = len(wires)
-        if len_>6:
-            print("too many dimensions of the unitary tensor")
-        B = self.update_unitary_state()      # obtain the unitary tensor for ps, bs and u_any
-
-        per_idx = list(range(self.nmode + 1))
-        for idx in wires:
-            per_idx.remove(idx)
-        per_idx = wires + per_idx
-        per_idx2 = inverse_permutation(per_idx)
-        per_idx = tuple(per_idx)
-        per_idx2 = tuple(per_idx2)
-        lower = string.ascii_lowercase
-        upper = string.ascii_uppercase
-        einsum = lower[:len_] + "...," + upper[:len_]+lower[:len_] + "->" + upper[:len_] +"..." 
-        
-        # print(per_idx)
-        state_1 = x.permute(per_idx)
-        state_2 = torch.einsum(einsum, [state_1, B])
-        state_3 = state_2.permute(per_idx2)
-        return state_3
-
-
-
-    
-    
-    
-
-        
-    # def get_matrix(self)
-        
-    # def get_unitary_state():
-    #     mu, sigma -> unitary_fock
-
-    # def op_fock_state()
-
-    # # def op_fock_state_list()
-    
-    # def op_fock_state_tensor(self, x: torch.Tensor) -> torch.Tensor:
-    #     """Perform a forward pass for state vectors."""
-    #     unitary_fock @ fock_state_tensor
-    #     return x
+        """Perform a forward pass."""
+        if isinstance(x, FockState):
+            x = x.state
+        return self.op_state_tensor(x)

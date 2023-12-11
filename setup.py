@@ -8,7 +8,8 @@ requirements = [
     'pylatexenc',
     'pytest',
     'scipy',
-    'thewalrus'
+    'thewalrus',
+    'svgwrite'
 ]
 
 setup(

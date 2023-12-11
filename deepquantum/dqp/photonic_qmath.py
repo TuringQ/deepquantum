@@ -1,433 +1,163 @@
-import numpy as np
-import torch 
-from scipy import special
 import itertools
-import copy 
-from torch import vmap
-from state import FockState
 from typing import Any, List, Optional, Union
 
+import torch
+from scipy import special
+from torch import vmap
 
 
-
-def is_unitary(matrix: torch.Tensor, rtol: float = 1e-5, atol: float = 1e-6) -> bool:
-    """Check if a tensor is a unitary matrix.
-
-    Args:
-        matrix (torch.Tensor): Square matrix.
-
-    Returns:
-        bool: ``True`` if ``matrix`` is unitary, ``False`` otherwise.
+def dirac_ket(matrix: torch.Tensor) -> str:
     """
-    if matrix.shape[-1] != matrix.shape[-2]:
-        return False
-    conj_trans = matrix.t().conj()
-    product = torch.matmul(matrix, conj_trans)
-    return torch.allclose(product, torch.eye(matrix.shape[0], dtype=matrix.dtype, device=matrix.device),
-                          rtol=rtol, atol=atol)
-
-
-def inverse_permutation(permute_shape):
-    """Calculate the inversed permutation.
-
-    Args:
-        permute_shape (List[int]): Shape of permutation.
-
-    Returns:
-        List[int]: A list of integers that is the inverse of ``permute_shape``.
+    the dirac state output with batch
     """
-    # find the index of each element in the range of the list length
-    return [permute_shape.index(i) for i in range(len(permute_shape))]
+    ket_dict = {}
+    for i in range(matrix.shape[0]): # consider batch i
+        state_i = matrix[i]
+        abs_state = abs(state_i).flatten()
+        # get largest k values with abs(amplitudes)
+        top_k = torch.topk(abs_state, k=min(len(abs_state), 5), largest=True).values
+        idx_all = []
+        ket_repr_i = ''
+        for amp in top_k:
+            idx = torch.nonzero(abs_state==amp)[0].tolist()
+            idx_all.append(idx)
+            # after finding the indx, set the value to 0, avoid the same abs values
+            abs_state[tuple(idx)] = 0
+            lst1 = list(map(lambda x:str(x), idx))
+            if amp > 0:
+                state_str = f'({state_i[tuple(idx)]:8.3f})' + '|' + ''.join(lst1)+'>'
+                ket_repr_i = ket_repr_i + '+' + state_str
+        batch_i = 'state_' + f'{i}'
+        ket_dict[batch_i] = ket_repr_i[1:]
+    return ket_dict
 
-###################################
-### this part is to obtain the submatrix for caculating the transfer amplitude and transfer probs for
-# given input and output state, we take copies of rows from the output, copies of columns from 
-# the input as in percelval.
-###################################
-class CreateSubmat():
+
+def sort_dict_fock_basis(state_dict, idx = 0):
+    """Sort the dictionary of Fock basis states in descending order of probs
     """
-    obtain the submatrix for caculating the transfer amplitude and transfer probs for
-    given input and output state.
+    sort_list = sorted(state_dict.items(),  key=lambda t: abs(t[1][idx]), reverse=True)
+    sorted_dict = {}
+    for key, value in sort_list:
+        sorted_dict[key] = value
+    return sorted_dict
 
+
+def sub_matrix(u, input_state, output_state):
+    """Get the submatrix for calculating the transfer amplitude and transfer probs from the given matrix,
+    the input state and the output state. The rows are chosen according to the output state and the columns
+    are chosen according to the input state.
+
+    u: torch.tensor, the unitary matrix for the circuit or component
     """
-
-    @staticmethod
     def set_copy_indx(state):
-            """
-            picking up indices from the nonezero elements of state,
-            repeat times depend on the nonezero value
-            """
-            inds_nonzero = torch.nonzero(state, as_tuple=False) # nonezero index in state
-            # len_ = int(sum(state[inds_nonzero]))
-            temp_ind = []
-
-            for i in range(len(inds_nonzero)):       # repeat times depends on the nonezero value
-                temp1 = inds_nonzero[i]
-                temp = state[inds_nonzero][i]
-                temp_ind = temp_ind + [int(temp1)] * (int(temp))
-
-            return  temp_ind
-
-    @staticmethod
-    def sub_matrix(u, input_state, output_state):
         """
-        u: torch.tensor, the unitary matrix for the circuit or component
-        
-        get the sub_matrix of transfer probs for given input and output state
-        here choose rows from the output and choose columns from the input
+        picking up indices from the nonezero elements of state,
+        repeat times depend on the nonezero value
         """
-        indx1 = CreateSubmat.set_copy_indx(input_state) 
-        indx2 = CreateSubmat.set_copy_indx(output_state)  
-        u1 = u[[indx2]] ## choose rows from the output
-        u2 = u1[:, [indx1]] ## choose columns from the input
-        return torch.squeeze(u2)            
-     ## computing permanent 
-    @staticmethod
-    def permanent( mat):
-        A =  mat
-        matshape = A.shape
-        if len(mat.size()) == 0 :   # for the single photon case, jit?
-            return mat
-        
-        if matshape[0] == 1:
-            return A[0, 0]
+        inds_nonzero = torch.nonzero(state)
+        temp_ind = []
+        for i in range(len(inds_nonzero)):
+            temp1 = inds_nonzero[i]
+            temp = state[inds_nonzero][i]
+            temp_ind = temp_ind + [int(temp1)] * (int(temp))
+        return temp_ind
 
-        if matshape[0] == 2:
-            return A[0, 0] * A[1, 1] + A[0, 1] * A[1, 0]
-
-        if matshape[0] == 3:
-            return (
-                A[0, 2] * A[1, 1] * A[2, 0]
-                + A[0, 1] * A[1, 2] * A[2, 0]
-                + A[0, 2] * A[1, 0] * A[2, 1]
-                + A[0, 0] * A[1, 2] * A[2, 1]
-                + A[0, 1] * A[1, 0] * A[2, 2]
-                + A[0, 0] * A[1, 1] * A[2, 2]
-            )
-        return CreateSubmat.permanent_ts(mat)  # here using tensor representation of ryser formula
-
-    
-    @staticmethod
-    def create_subset(num_coincidence):
-        """
-        all subset from {1,2,...n}
-        """
-        num_arange = torch.arange(num_coincidence)
-        all_subset = []
-
-        for index_1 in range(1, 2 ** num_coincidence):
-            all_subset.append([])
-            for index_2 in range(num_coincidence):
-                if index_1 & (1 << index_2):
-                    all_subset[-1].append(num_arange[index_2])
-
-        return all_subset
-    @staticmethod
-    def create_subset_2(num_coincidence):
-        """
-        all subset from {1,2,...n}
-        
-        """
-        all_subset = []
-        for k in range(1, num_coincidence+1):
-            all_combi = []
-            for comb in itertools.combinations(range(num_coincidence), k):
-                comb = list(comb)
-                all_combi.append(comb)
-            len_ = len(all_combi)
-            temp = torch.tensor(all_combi).reshape(len_,k)
-            all_subset.append(temp)
-        return all_subset
+    indx1 = set_copy_indx(input_state)
+    indx2 = set_copy_indx(output_state)
+    u1 = u[[indx2]]         # choose rows from the output
+    u2 = u1[:, [indx1]]     # choose columns from the input
+    return torch.squeeze(u2)
 
 
-    @staticmethod
-    def permanent_ryser(mat):
-        """
-        Using RyserFormula for permanent, valid for square matrix
-        """
-        
-#         mat = np.matrix(mat)
-        if len(mat.size()) == 0 :   # for the single photon case
-            return mat
-        else:
-            num_coincidence = mat.size()[0]
-            sets = CreateSubmat.create_subset(num_coincidence) # all S set
-            value_perm = 0
-            
-            for subset in sets:          # sum all S set
-                num_elements = len(subset)
-                value_times = 1
-                for i in range(num_coincidence):
-                    value_sum = 0
-                    for j in subset:
-                        value_sum = value_sum + mat[i, j]  #sum(a_ij)
-                    value_times = value_times * value_sum
-                value_perm = value_perm + value_times * (-1) ** num_elements
-            value_perm = value_perm * (-1) ** num_coincidence
-            return value_perm
-    @staticmethod
-    def permanent_ts(mat):
+def permanent(mat):
+    shape = mat.shape
+    if len(mat.size()) == 0:
+        return mat
+    if shape[0] == 1:
+        return mat[0, 0]
+    if shape[0] == 2:
+        return mat[0, 0] * mat[1, 1] + mat[0, 1] * mat[1, 0]
+    if shape[0] == 3:
+        return (mat[0, 2] * mat[1, 1] * mat[2, 0]
+                + mat[0, 1] * mat[1, 2] * mat[2, 0]
+                + mat[0, 2] * mat[1, 0] * mat[2, 1]
+                + mat[0, 0] * mat[1, 2] * mat[2, 1]
+                + mat[0, 1] * mat[1, 0] * mat[2, 2]
+                + mat[0, 0] * mat[1, 1] * mat[2, 2])
+    return permanent_ryser(mat)
 
-        num_coincidence = mat.size()[0]  ## no need for repeat computation
-        # if self.sets is None:
-        #     self.sets =  CreateSubmat.create_subset_2(num_coincidence) # all S set
-        # sets = self.sets
-        sets = CreateSubmat.create_subset_2(num_coincidence)   # here repeat computation
-        value_perm = 0
-        for subset in sets:
-            temp_value = vmap(CreateSubmat.single, in_dims=(0, None))(subset, mat)
-            single_value = temp_value.sum()
-            value_perm = value_perm + single_value
-        value_perm = value_perm*(-1) ** num_coincidence
-        return value_perm
-    @staticmethod
-    def single(subset, mat):
-        num_elements = (subset).numel()
-        new_subset = subset
-        sum_ = torch.sum(mat[:,new_subset], dim=1) # sum over row
-        value_times = torch.prod(sum_)
-        value_times = value_times * (-1) ** num_elements
+
+def create_subset(num_coincidence):
+    """
+    all subset from {1,2,...n}
+    """
+    subsets = []
+    for k in range(1, num_coincidence + 1):
+        comb_lst = []
+        for comb in itertools.combinations(range(num_coincidence), k):
+            comb_lst.append(list(comb))
+        temp = torch.tensor(comb_lst).reshape(len(comb_lst), k)
+        subsets.append(temp)
+    return subsets
+
+
+def permanent_ryser(mat):
+    def helper(subset, mat):
+        num_elements = subset.numel()
+        s = torch.sum(mat[:, subset], dim=1)
+        value_times = torch.prod(s) * (-1) ** num_elements
         return value_times
 
-        
-
-    
-    
-    @staticmethod
-    def product_factorial(state):
-        """
-        return the product of the factorial of each element
-        |s_1,s_2,...s_n> -->s_1!*s_2!*...s_n!
-        
-        """
-        # temp = special.factorial(state)
-        # product_fac = 1
-        # for i in range(len(state)):
-        #     product_fac = product_fac * temp[i]
-        product_fac = special.factorial(state).prod()
-        return product_fac
-    
-    # special.factorial(state).prod()
+    num_coincidence = mat.size()[0]
+    sets = create_subset(num_coincidence)
+    value_perm = 0
+    for subset in sets:
+        temp_value = vmap(helper, in_dims=(0, None))(subset, mat)
+        value_perm += temp_value.sum()
+    value_perm *= (-1) ** num_coincidence
+    return value_perm
 
 
-###################################
-### this part is to decompose the unitary matrix to clements structure
-#  and plot the clements structure with parameters
-###################################
-
-
-
-
-
-###################################
-### this part is to calculate all output fockstate given input state list
-###################################
-class FockOutput():
+def product_factorial(state):
     """
-    to calculate all output fockstate given input state
-    Args: 
-        ini_state(FockState): the input fock state for the circuit 
+    return the product of the factorial of each element
+    |s_1,s_2,...s_n> --> s_1!*s_2!*...s_n!
     """
-
-    def __init__(self, ini_state) -> None:
-
-        self.nmode = ini_state.nmode
-        # self.photons = ini_state.photons  # 
-        photons = sum(ini_state.state)
-        self.all_com = []
-
-        self.decompose_num(photons, photons,[])  # decompose the integer number
-        self.outfock_dic = {}
-        self.calculate_fock_output()
-
-        self.fock_outputs = []
-        for key in self.outfock_dic:
-            output_list = self.outfock_dic[key]
-            for j in output_list:
-                out_state = FockState(self.nmode, j)
-                self.fock_outputs.append(out_state)                
+    return special.factorial(state).prod(axis=-1, keepdims=True)
 
 
-    
-    def decompose_num(self, num, m, all_com):
-        """
-        for decomposing an integer number, give all combination of decomposition
-        num: the integer number for decomposing
-        m: the maximum integer number in the decomposition
-        all_com: collecting all decomposition result
-        """
-        if num == 0:
-            self.all_com.append(all_com)
-        else: 
-            if m>1:
-                FockOutput.decompose_num(self, num, m-1,all_com)
-            if m <= num:
-                FockOutput.decompose_num(self, num-m, m, all_com+[m])
-
-    @staticmethod
-    def allpermutations(list_L):
-        all_permutation = list(itertools.permutations(list_L))
-        return all_permutation
-    
-    def calculate_fock_output(self):
-        for i in range (len(self.all_com)):
-            list_copy = copy.deepcopy(self.all_com[i])
-            temp_len = len(list_copy)
-            if temp_len <= self.nmode:
-                list_copy = list_copy +[0]*(self.nmode-temp_len)
-                self.outfock_dic[tuple(self.all_com[i])] = (list(set(FockOutput.allpermutations(list_copy))))
-            # All_com[i] = list_copy 
-            # return
-
-###################################
-### this part is to calculate the matrix tensor for the optical elements which gives the transfer amplitudes of
-# the quantum state given the input quantum fock state tensor 
-###################################
-class FockGateTensor():
-    """
-    to calculate the matrix tensor for the optical elements which gives the transfer amplitudes of
-    the quantum state given the input quantum fock state tensor 
-    see https://arxiv.org/pdf/2004.11002.pdf eqs 74, 75
+def fock_combinations(nmode, nphoton):
+    """Generate all possible combinations of Fock states for a given number of modes and photons.
 
     Args:
-        n_mode: the acting wires for the local operators
-        cutoff:
-        parameters:
+        nmode (int): The number of modes in the system.
+        nphoton (int): The total number of photons in the system.
 
+    Returns:
+        List[List[int]]: A list of all possible Fock states, each represented by a list of
+            occupation numbers for each mode.
+
+    Examples:
+        >>> fock_combinations(2, 3)
+        [[0, 3], [1, 2], [2, 1], [3, 0]]
+        >>> fock_combinations(3, 2)
+        [[0, 0, 2], [0, 1, 1], [0, 2, 0], [1, 0, 1], [1, 1, 0], [2, 0, 0]]
     """
-    def __init__(
-        self, 
-        nmode: int = None,  # here nmode for the local operators, ps:1, bs:2
-        cutoff: int = None, 
-        parameters:  Union[int, List[int], None] = None,
-    ) -> None:
-        if not isinstance(parameters, List):
-            parameters = [parameters]
-        self.nmode = nmode
-        self.cutoff = cutoff
-        self.parameters = parameters
-        self.u = None
-    def bs(self, dtype=torch.cfloat):
+    result = []
+    def backtrack(state, length, num_sum):
+        """A helper function that uses backtracking to generate all possible Fock states.
+
+        Args:
+            state (List[int]): The current Fock state being constructed.
+            length (int): The remaining number of modes to be filled.
+            num_sum (int): The remaining number of photons to be distributed.
         """
-        give the tensor representation of the beamsplitter
-        return Z_ _, _ _ .The left part for output state, the right part for the input
-        state
-        """
-        assert len(self.parameters)==2, "BS gate needs two parameters theata and phi"
-        theta, phi = self.parameters
-        cutoff = self.cutoff
+        if length == 0:
+            if num_sum == 0:
+                result.append(state)
+            return
+        for i in range(num_sum + 1):
+            backtrack(state + [i], length - 1, num_sum - i)
 
-        sqrt = torch.sqrt(torch.tensor(np.arange(cutoff), dtype=dtype))
-        ct = torch.cos(theta)
-        st = torch.sin(theta) * torch.exp(1j * phi)
-        torch_zero = torch.tensor(0)
-        R = torch.stack(
-                [torch_zero, torch_zero, ct, -torch.conj(st),
-                torch_zero, torch_zero, st, ct,
-                ct, st, torch_zero, torch_zero,
-                -torch.conj(st), ct, torch_zero, torch_zero]
-        ).reshape(4, 4)
-        self.u = R
-        # Z = torch.zeros([cutoff]*4, dtype=dtype)   # 2 outputs modes + 2 inputs modes 
-        Z = st.new_zeros([cutoff]*4)   # 2 outputs modes + 2 inputs modes 
-        Z[0, 0, 0, 0] = 1.0
-        # rank 3
-        for m in range(cutoff):
-            for n in range(cutoff - m):
-                p = m + n
-                if 0 < p < cutoff:
-                    Z[m, n, p, 0] = (
-                        R[0, 2] * sqrt[m] / sqrt[p] * Z[m - 1, n, p - 1, 0]
-                        + R[1, 2] * sqrt[n] / sqrt[p] * Z[m, n - 1, p - 1, 0]
-                    )
-
-        # rank 4
-        for m in range(cutoff):
-            for n in range(cutoff):
-                for p in range(cutoff):
-                    q = m + n - p
-                    if 0 < q < cutoff:
-                        Z[m, n, p, q] = (
-                            R[0, 3] * sqrt[m] / sqrt[q] * Z[m - 1, n, p, q - 1]
-                            + R[1, 3] * sqrt[n] / sqrt[q] * Z[m, n - 1, p, q - 1]
-                        )
-    #     Z = Z.transpose((0, 2, 1, 3))
-        return Z
-    
-
-    def ps(self, dtype=torch.cfloat):
-        """
-        give the tensor representation of the phase shifter
-        """
-        assert len(self.parameters)==1, "PS gate needs one parameter theata"
-        cutoff = self.cutoff
-        # Z = torch.zeros([cutoff]*2, dtype=dtype)   # 1 outputs mode + 1 inputs mode1
-        
-        theta = self.parameters[0]
-        e_it = torch.exp(1j * theta)
-        Z = e_it.new_zeros([cutoff]*2)   # 1 outputs mode + 1 inputs mode1
-        Z[0, 0] = 1.0
-        for i in range(1, cutoff):
-               Z[i,i] = torch.exp(1j * theta*i)
-        return Z
-    
-
-    def u_any(self, u, dtype=torch.cfloat):
-        """
-        give the tensor representation of the any nmode gate,
-        extented case for eqs 74, 75
-        """
-        def critical(k):
-            if k >= 0:
-                return 1 
-            else:
-                return 0 
-
-        cutoff = self.cutoff
-        n_mode = self.nmode
-        sqrt = torch.sqrt(torch.tensor(np.arange(cutoff), dtype=dtype))
-        # Z = torch.zeros([cutoff]*(2*n_mode), dtype=dtype)   # 1 outputs mode + 1 inputs mode1
-        Z = u.new_zeros([cutoff]*(2*n_mode))   # 1 outputs mode + 1 inputs mode1
-        indx_0 = tuple([0]*(2*n_mode))
-        Z[indx_0] = 1.0
-        l_rank = n_mode+1 
-        h_rank = 2*n_mode
-        
-        for rank in range(l_rank, h_rank+1):      # now calculate each rank
-            col_num = rank-n_mode-1
-            col_ = u[:,col_num]
-            combi = itertools.product(range(cutoff), repeat= rank-1) # using itertools replace for loop
-            for k in combi:
-                out = k[:n_mode]    # the output
-                in_part =k[n_mode:] # the part of input
-                in_rest = sum(out) - sum(in_part)
-            
-                if 0 < in_rest < cutoff:
-                    state_temp = list(k)
-                    state_full = state_temp + [in_rest] + [0]*(2*n_mode-rank) 
-                    state_full = tuple(state_full)  # the full state
-                    
-                    temp_sum = 0
-                    for j in range(n_mode):
-                        state_less = copy.deepcopy(list(state_full))
-                        state_less[j] = state_less[j] -1 
-                        state_less[len(k)] = state_less[len(k)] - 1 
-                        temp_sum = temp_sum + col_[j]*sqrt[k[j]]/sqrt[in_rest]*Z[tuple(state_less)]*critical(k[j]-1)
-                    Z[state_full] = temp_sum
-        return Z
-
-
-    # def h():
-    # def Rx():
-    # def Ry():
-    # def Rz():
-
-
-
-    
-
-
-
-    
-
-
+    backtrack([], nmode, nphoton)
+    return result

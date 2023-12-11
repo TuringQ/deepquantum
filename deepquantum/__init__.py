@@ -15,7 +15,8 @@ from . import operation
 from . import qmath
 from . import state
 from . import utils
-from . import photonic
+# from . import photonic
+from . import dqp
 
 from .ansatz import (
     Ansatz,
