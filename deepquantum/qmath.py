@@ -2,8 +2,8 @@
 Common functions
 """
 
-from collections import Counter
 import random
+from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np

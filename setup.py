@@ -8,12 +8,12 @@ requirements = [
     'pylatexenc',
     'pytest',
     'scipy',
-    'thewalrus'
+    'svgwrite'
 ]
 
 setup(
     name='deepquantum',
-    version='0.2.4',
+    version='0.3.0',
     packages=find_packages(),
     url='',
     license='',

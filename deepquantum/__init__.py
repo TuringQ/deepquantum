@@ -15,6 +15,7 @@ from . import operation
 from . import qmath
 from . import state
 from . import utils
+
 from . import photonic
 
 from .ansatz import (
@@ -42,3 +43,5 @@ from .layer import CnotLayer, CnotRing
 from .qmath import multi_kron, partial_trace, amplitude_encoding, measure, expectation
 from .qmath import meyer_wallach_measure
 from .state import QubitState, MatrixProductState
+
+from .photonic import QumodeCircuit, FockState, permanent
