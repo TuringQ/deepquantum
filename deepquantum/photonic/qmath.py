@@ -13,22 +13,22 @@ def dirac_ket(matrix: torch.Tensor) -> str:
     ket_dict = {}
     for i in range(matrix.shape[0]): # consider batch i
         state_i = matrix[i]
-        abs_state = abs(state_i).flatten()
+        abs_state = abs(state_i)
         # get largest k values with abs(amplitudes)
-        top_k = torch.topk(abs_state, k=min(len(abs_state), 5), largest=True).values
+        top_k = torch.topk(abs_state.flatten(), k=min(len(abs_state), 5), largest=True).values
         idx_all = []
         ket_repr_i = ''
         for amp in top_k:
-            idx = torch.nonzero(abs_state==amp)[0].tolist()
+            idx = torch.nonzero(abs_state == amp)[0].tolist()
             idx_all.append(idx)
             # after finding the indx, set the value to 0, avoid the same abs values
             abs_state[tuple(idx)] = 0
             lst1 = list(map(lambda x:str(x), idx))
             if amp > 0:
-                state_str = f'({state_i[tuple(idx)]:8.3f})' + '|' + ''.join(lst1)+'>'
-                ket_repr_i = ket_repr_i + '+' + state_str
+                state_str = f'({state_i[tuple(idx)]:6.3f})' + '|' + ''.join(lst1) + '>'
+                ket_repr_i = ket_repr_i + ' + ' + state_str
         batch_i = 'state_' + f'{i}'
-        ket_dict[batch_i] = ket_repr_i[1:]
+        ket_dict[batch_i] = ket_repr_i[3:]
     return ket_dict
 
 

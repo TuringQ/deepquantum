@@ -2,10 +2,8 @@
 Base classes
 """
 
-from copy import copy
 from typing import Any, List, Optional, Tuple, Union
 
-import numpy as np
 import torch
 from torch import nn
 

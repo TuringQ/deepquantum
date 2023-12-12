@@ -13,26 +13,18 @@ class DrawCircuit():
     def __init__(self, circuit_name, circuit_nmode, circuit_operators, circuit_depth) -> None:
         if circuit_name is None:
             circuit_name = 'circuit'
-        # self.circuit = qumodeCircuit
         n_mode = circuit_nmode
         name = circuit_name + '.svg'
         draw_circuit = svgwrite.Drawing(name, profile='full')
-        # size = n_mode/4*100   # the size of SVG circuit
-        # size = 5*100
-        # wid = max(1, max(circuit_depth))
-        # wid = (90*20+40)/100
-        # draw_circuit['width'] = f'{3 * wid}cm'
         draw_circuit['height'] = f'{10/11 * n_mode}cm'
         self.draw_ = draw_circuit
         self.n_mode = n_mode
         self.name = name
         self.ops = circuit_operators
-        print(circuit_depth)
 
     def draw(self):
         order_dic = defaultdict(list) # 当key不存在时对应的value是[]
         n_mode = self.n_mode
-        ps_num = ''
         depth = [0] * n_mode # record the depth of each mode
         for _, op in enumerate(self.ops):
             op_wires = op.wires
@@ -47,14 +39,14 @@ class DrawCircuit():
                 bs_depth = [depth[op_wires[0]], depth[op_wires[1]]][:]
                 depth[op_wires[0]] = max(bs_depth)           ## BS 经过后相同线路深度
                 depth[op_wires[1]] = max(bs_depth)
-            if isinstance(op, PhaseShift):
+            elif isinstance(op, PhaseShift):
                 theta = op.theta.detach().numpy()
                 order = depth[op_wires[0]]
                 self.draw_ps(order, op.wires, theta)
                 order_dic[order] = order_dic[order] + op_wires
                 for i in op.wires:
                     depth[i] = depth[i]+1
-            if isinstance(op, UAnyGate): # need check?
+            elif isinstance(op, UAnyGate): # need check?
                 order = max(depth[op_wires[0] : op_wires[-1]+1])
                 self.draw_any(order, op_wires)
                 order_dic[order] = order_dic[order] + op_wires
@@ -68,8 +60,8 @@ class DrawCircuit():
         self.draw_mode_num()   ## mode draw numbers
         self.order_dic = order_dic
         self.depth = depth
-        self.ps_num = ps_num
-        print(self.depth)
+        wid = 3 * (90 * (max(self.depth) - 1) + 40) / 100
+        self.draw_['width'] = f'{wid}cm'
 
     def save(self, filename):
         """

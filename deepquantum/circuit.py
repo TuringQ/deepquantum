@@ -62,6 +62,7 @@ class QubitCircuit(Operation):
         else:
             if mps:
                 self.init_state = MatrixProductState(nqubit=nqubit, state=init_state, chi=chi)
+                chi = self.init_state.chi
             else:
                 self.init_state = QubitState(nqubit=nqubit, state=init_state, den_mat=den_mat)
         self.operators = nn.Sequential()
