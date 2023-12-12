@@ -2,10 +2,10 @@
 Base classes
 """
 
-from copy import copy
-from typing import Any, List, Optional, Tuple, Union
 # pylint: disable=unused-import
 import warnings
+from copy import copy
+from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -119,7 +119,8 @@ class Gate(Operation):
     # include default names in QASM
     _qasm_new_gate = ['c3x', 'c4x']
 
-    def __init__(self,
+    def __init__(
+        self,
         name: Optional[str] = None,
         nqubit: int = 1,
         wires: Union[int, List[int], None] = None,

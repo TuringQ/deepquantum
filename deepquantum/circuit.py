@@ -7,16 +7,16 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-from torch import nn, vmap
 from qiskit import QuantumCircuit
+from torch import nn, vmap
 
-from .state import QubitState, MatrixProductState
-from .operation import Operation, Gate, Layer
 from .gate import U3Gate, PhaseShift, PauliX, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, TGate, TDaggerGate
 from .gate import Rx, Ry, Rz, CNOT, Swap, Rxx, Ryy, Rzz, Rxy, ReconfigurableBeamSplitter, Toffoli, Fredkin
 from .gate import UAnyGate, LatentGate, HamiltonianGate, Barrier
 from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer, RyLayer, RzLayer, CnotLayer, CnotRing
+from .operation import Operation, Gate, Layer
 from .qmath import amplitude_encoding, measure, expectation
+from .state import QubitState, MatrixProductState
 
 
 class QubitCircuit(Operation):
@@ -53,12 +53,16 @@ class QubitCircuit(Operation):
             assert nqubit == init_state.nqubit
             if isinstance(init_state, MatrixProductState):
                 assert not den_mat, 'Currently, MPS for density matrix is NOT supported'
+                mps = True
+                chi = init_state.chi
             else:
-                assert den_mat == init_state.den_mat
+                mps = False
+                den_mat = init_state.den_mat
             self.init_state = init_state
         else:
             if mps:
                 self.init_state = MatrixProductState(nqubit=nqubit, state=init_state, chi=chi)
+                chi = self.init_state.chi
             else:
                 self.init_state = QubitState(nqubit=nqubit, state=init_state, den_mat=den_mat)
         self.operators = nn.Sequential()
@@ -253,7 +257,8 @@ class QubitCircuit(Operation):
                 self.mps = True
                 self.chi = init_state.chi
             else:
-                assert self.den_mat == init_state.den_mat
+                self.mps = False
+                self.den_mat = init_state.den_mat
             self.init_state = init_state
         else:
             if self.mps:

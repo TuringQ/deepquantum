@@ -15,9 +15,9 @@ class QubitState(nn.Module):
 
     Args:
         nqubit (int, optional): The number of qubits in the state. Default: 1
-        state (Any, optional): The initial state. It can be one of the following strings: ``'zeros'``,
-            ``'equal'``, ``'entangle'``, ``'GHZ'``, or ``'ghz'``. Alternatively, it can be a tensor that
-            represents a custom state vector or density matrix. Default: ``'zeros'``
+        state (Any, optional): The representation of the state. It can be one of the following strings:
+            ``'zeros'``, ``'equal'``, ``'entangle'``, ``'GHZ'``, or ``'ghz'``. Alternatively, it can be
+            a tensor that represents a custom state vector or density matrix. Default: ``'zeros'``
         den_mat (bool, optional): Whether the state is a density matrix or not. Default: ``False``
     """
     def __init__(self, nqubit: int = 1, state: Any = 'zeros', den_mat: bool = False) -> None:
@@ -73,7 +73,7 @@ class MatrixProductState(nn.Module):
 
     Args:
         nqubit (int, optional): The number of qubits in the quantum system. Default: 1
-        state (str or List[torch.Tensor], optional): The initial state of the MPS. If ``'zeros'``, the MPS
+        state (str or List[torch.Tensor], optional): The representation of the MPS. If ``'zeros'``, the MPS
             is initialized to the all-zero state. If a list of tensors, the MPS is initialized to the given
             tensors. The tensors must have the correct shape and dtype. Default: ``'zeros'``
         chi (int or None, optional): The maximum bond dimension of the MPS. Default: 10 * ``nqubit``
