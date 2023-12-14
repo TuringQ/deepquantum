@@ -5,7 +5,7 @@ from . import operation
 from . import qmath
 from . import state
 from . import map_quantum_gate
-
+from . import decom_plt_clements
 from .circuit import QumodeCircuit
 from .qmath import permanent
 from .state import FockState
