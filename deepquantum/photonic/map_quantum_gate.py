@@ -70,10 +70,12 @@ class UgateMap():
         
         # load indicies data
         current_path = os.path.abspath(__file__)
+        cur_sep = os.path.sep # obtain seperation
+        print(cur_sep)
         path_2 = os.path.abspath(os.path.join(current_path, "../.."))
         path_3 = os.path.abspath(os.path.join(path_2, ".."))
         try:
-            fn = path_3+"\\cache\\Idx_%dqb_%dmode_"%(n_qubits,n_mode)+"aux_%d%d"%(aux[0],aux[1])+".pt" # load the idx tensor data
+            fn = path_3+cur_sep+"cache"+cur_sep+"Idx_%dqb_%dmode_"%(n_qubits,n_mode)+"aux_%d%d"%(aux[0],aux[1])+".pt" # load the idx tensor data
             idx_ts = torch.load(fn)
         except:
             idx_ts = None
@@ -82,8 +84,8 @@ class UgateMap():
 
         if self.idx_ts is None:
             idx_dic, idx_ts = self.indx_eqs()
-            fn = path_3+"\\cache\\Idx_%dqb_%dmode_"%(n_qubits,n_mode)+"aux_%d%d"%(aux[0],aux[1])+".pt"  # save the idx tensor data
-            fn_2 = path_3+"\\cache\\Idx_%dqb_%dmode_"%(n_qubits,n_mode)+"aux_%d%d"%(aux[0],aux[1])+".pickle" # for debug 
+            fn = path_3+cur_sep+"cache"+cur_sep+"Idx_%dqb_%dmode_"%(n_qubits,n_mode)+"aux_%d%d"%(aux[0],aux[1])+".pt"  # save the idx tensor data
+            fn_2 = path_3+cur_sep+"cache"+cur_sep+"Idx_%dqb_%dmode_"%(n_qubits,n_mode)+"aux_%d%d"%(aux[0],aux[1])+".pickle" # for debug 
             torch.save(idx_ts, fn) 
             UgateMap.save_dict(idx_dic, fn_2)
 
