@@ -284,7 +284,10 @@ class QumodeCircuit(Operation):
                 samples = random.choices(list(dict_.keys()), list(dict_.values()), k=shots)
                 results = dict(Counter(samples))
                 all_results.append(results)
-        return all_results
+        if batch == 1:
+            return all_results[0]
+        else:
+            return all_results
 
     def draw(self):
         """

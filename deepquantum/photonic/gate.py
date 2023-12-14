@@ -28,7 +28,7 @@ class PhaseShift(Gate):
         sigma: float = 0.1
     ) -> None:
         super().__init__(name='PhaseShift', nmode=nmode, wires=wires, cutoff=cutoff)
-        assert len(wires) == 1, 'PS gate acts on single mode'
+        assert len(self.wires) == 1, 'PS gate acts on single mode'
         self.npara = 1
         self.requires_grad = requires_grad
         self.inv_mode = False
@@ -115,8 +115,8 @@ class BeamSplitter(Gate):
     ) -> None:
         if wires is None:
             wires = [0, 1]
-        assert(len(wires) == 2), 'BS gate must act on two wires'
         super().__init__(name='BeamSplitter', nmode=nmode, wires=wires, cutoff=cutoff)
+        assert(len(self.wires) == 2), 'BS gate must act on two wires'
         assert(self.wires[0] + 1 == self.wires[1]), 'BS gate must act on the neighbor wires'
         self.npara = 2
         self.inv_mode = False

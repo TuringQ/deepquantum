@@ -60,7 +60,7 @@ class DrawCircuit():
         self.draw_mode_num()   ## mode draw numbers
         self.order_dic = order_dic
         self.depth = depth
-        wid = 3 * (90 * (max(self.depth) - 1) + 40) / 100
+        wid = 3 * (90 * (max(self.depth)) + 40) / 100
         self.draw_['width'] = f'{wid}cm'
 
     def save(self, filename):
