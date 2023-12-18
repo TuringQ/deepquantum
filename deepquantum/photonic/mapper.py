@@ -71,7 +71,7 @@ class UgateMap():
         # load indicies data
         current_path = os.path.abspath(__file__)
         cur_sep = os.path.sep # obtain seperation
-        print(cur_sep)
+        # print(cur_sep)
         path_2 = os.path.abspath(os.path.join(current_path, "../.."))
         path_3 = os.path.abspath(os.path.join(path_2, ".."))
         try:
