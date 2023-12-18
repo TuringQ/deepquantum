@@ -483,8 +483,8 @@ class Graph_Mzi():
                     plt.text(3.2*j+0.6+2.4, 1-0.25*i[0]+0.05, "%.2f"%Graph_Mzi.positive_angles(temp_values[j][1]), fontsize = fs )
     @staticmethod
     def positive_angles(angle):
-            while angle < 0:
-                angle = angle + 2*np.pi
-            while angle > 2*np.pi:
-                angle = angle - 2*np.pi
+            # while angle < 0:
+            #     angle = angle + 2*np.pi
+            # while angle > 2*np.pi:
+            #     angle = angle - 2*np.pi
             return angle  
