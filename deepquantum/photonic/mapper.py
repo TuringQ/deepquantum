@@ -1,24 +1,23 @@
-from typing import Any, Dict, List, Optional, Tuple, Union
-
 import copy
 import itertools
+import os
+import pickle
+from collections import defaultdict
+from typing import Any, Dict, List, Optional, Tuple, Union
+
 import matplotlib.pyplot as plt
 import numpy as np
-import os 
-import pickle
 import scipy
 import scipy.io as io
-import torch 
-
-
-from collections import defaultdict 
+import torch
 from scipy import special
 from scipy.stats import unitary_group
 from scipy import optimize
-from sympy import symbols, Eq, solve, nsolve,Matrix,simplify
 from scipy.optimize import fsolve
 from scipy.optimize import root
-from torch import vmap  
+from sympy import symbols, Eq, solve, nsolve, Matrix, simplify
+from torch import vmap
+
 
 class UgateMap():
     """
@@ -26,7 +25,7 @@ class UgateMap():
     n_qubits: the number of qubits the quantum gates acting on.
     nmode: the number of modes for the circuits.
     ugate: the target quantum U gate.
-    success: sqrt of the probability of the optimized quantum gate. 
+    success: sqrt of the probability of the optimized quantum gate.
     preferred values: 1/3 for 2qubits, 1/4 for 3qubits
     aux: two auxiliary modes in quantum circuit, values could be [0,0] or [1,0].
     the positon is the last two mode in the circuit by default
@@ -37,7 +36,7 @@ class UgateMap():
     """
     def __init__(self, n_qubits: int, n_mode: int, ugate: Any, success:Any, aux: List=None, aux_pos: List=None):
         assert 2*n_qubits<=n_mode, "need more modes"
-        self.n_mode = n_mode  
+        self.n_mode = n_mode
         self.ugate = ugate  # the quantum gate to map
         self.success = success
         self.n_qubits = n_qubits
@@ -47,7 +46,7 @@ class UgateMap():
         self.aux_position = aux_pos
         self.basis = self.create_basis(aux_pos) # these basis is changed with aux_pos
 
-        self.u_dim =self.n_mode 
+        self.u_dim =self.n_mode
         Y_var = symbols("y0:%d"%((self.u_dim)**2))
         Y_mat = Matrix(np.array((Y_var)))
         Y_mat = Y_mat.reshape(self.u_dim,self.u_dim) # for symbolic computation, the matrix to optimize
@@ -55,19 +54,19 @@ class UgateMap():
         self.u = Y_mat
 
         if self.n_mode == 2*self.n_qubits: # no auxiliary mode case
-            self.all_basis = self.create_basis([ ] ) 
-        else:   
+            self.all_basis = self.create_basis([ ] )
+        else:
             self.all_basis = self.create_basis([n_mode-2, n_mode-1] )  # with auxiliary mode case, these basis is fixed  for computation
 
-        num_photons = int(sum(self.all_basis[0]))  # dual_rail coding, permanent matrix dim: num_photons x num_photons 
+        num_photons = int(sum(self.all_basis[0]))  # dual_rail coding, permanent matrix dim: num_photons x num_photons
         L = self.u_dim
-        
+
         basic_dic = {}
         for k in range(len(Y_var)):   # here we only consider single term, since each monomial can be decomposed into single arguments
             basic_dic[Y_var[k]]=k
         self.basic_dic = basic_dic
 
-        
+
         # load indicies data
         current_path = os.path.abspath(__file__)
         cur_sep = os.path.sep # obtain seperation
@@ -80,13 +79,13 @@ class UgateMap():
         except:
             idx_ts = None
 
-        self.idx_ts = idx_ts 
+        self.idx_ts = idx_ts
 
         if self.idx_ts is None:
             idx_dic, idx_ts = self.indx_eqs()
             fn = path_3+cur_sep+"cache"+cur_sep+"Idx_%dqb_%dmode_"%(n_qubits,n_mode)+"aux_%d%d"%(aux[0],aux[1])+".pt"  # save the idx tensor data
-            fn_2 = path_3+cur_sep+"cache"+cur_sep+"Idx_%dqb_%dmode_"%(n_qubits,n_mode)+"aux_%d%d"%(aux[0],aux[1])+".pickle" # for debug 
-            torch.save(idx_ts, fn) 
+            fn_2 = path_3+cur_sep+"cache"+cur_sep+"Idx_%dqb_%dmode_"%(n_qubits,n_mode)+"aux_%d%d"%(aux[0],aux[1])+".pickle" # for debug
+            torch.save(idx_ts, fn)
             UgateMap.save_dict(idx_dic, fn_2)
 
     def create_basis(self, aux_position):
@@ -111,7 +110,7 @@ class UgateMap():
             all_basis.append(temp_basis)
         return all_basis
 
-    
+
     ##############################
     # using symbolic computation finding indicies to avoid repeat computing
     def get_coeff_sym(self, input_state, output_states=None):
@@ -121,7 +120,7 @@ class UgateMap():
         output_states: List[torch.tensor]
         """
         if output_states is None:
-            output_states = self.all_basis  
+            output_states = self.all_basis
         u =self.u
         Dic_coeff={}
         for output in output_states:
@@ -137,7 +136,7 @@ class UgateMap():
         """
         Index_coeff = {}
         if all_inputs is None:
-            all_inputs = self.all_basis     
+            all_inputs = self.all_basis
         basic_dic = self.basic_dic
         temp_ts2 = torch.empty(0, dtype=torch.int32) # set initial value 0
         for s in range(len(all_inputs)):
@@ -157,8 +156,8 @@ class UgateMap():
             print("finishing find idx for state",tuple(input_s.numpy()))  ## for check the result
         print("##########")
         return Index_coeff, temp_ts2
-    
-    
+
+
     def indx_eqs(self):
         """
         get the dic of indx of Y_mat for each non_linear eqs for n_mode
@@ -176,7 +175,7 @@ class UgateMap():
         self.idx_all = idx_dic
         self.idx_ts = temp_ts
         return idx_dic, temp_ts
-    
+
     ##############################
     # constructing and solving nonlinear equations
     @staticmethod
@@ -198,7 +197,7 @@ class UgateMap():
         temp_ = vmap(UgateMap.single_output, in_dims=(0, None))(idx_ts, Y)
         temp_mat = temp_.reshape(num_basis, num_basis) # here already do transpose
         return temp_mat
-    
+
     def f_real(self, Y):
         """
         construct (2**n_qubit)**2 equations for nxn Y, obtain real solutions for real part of u_gate
@@ -212,7 +211,7 @@ class UgateMap():
         eqs = diff_matrix.flatten()  # flatten 之后是按行比较的结果
         eqs_list = eqs.tolist()
         return eqs_list
-        
+
     def f_real_unitary(self, Y):
         """
         return quantum gate constrains + unitary constrains
@@ -223,7 +222,7 @@ class UgateMap():
         eqs = eqs_1 + eqs_2
 
         return eqs
-    
+
     @staticmethod
     def unitary_constrains(u_temp):
         """
@@ -240,7 +239,7 @@ class UgateMap():
         eqs = diff_matrix.flatten()
         eqs_list = eqs.tolist()
         return eqs_list
-    
+
     def f_complex_unitary(self, paras):
         """
         return quantum gate constrains + unitary constrains
@@ -278,7 +277,7 @@ class UgateMap():
             for t in range(num_paras-len(eqs_all)):
                 extra_eq = Y[0]*Y[1]-Y[0]*Y[1]
                 eqs_all.append(extra_eq)
-        return eqs_all    
+        return eqs_all
     @staticmethod
     def unitary_constrains_complex(u_temp):
         """
@@ -301,7 +300,7 @@ class UgateMap():
         eqs_list = eqs1_list + eqs2_list
 
         return eqs_list
-    
+
     def solve_eqs_real(self, total_trials = 10, trials = 1000, precision = 1e-6 ):
         """
         solving the non-linear eqautions for matrix satisfying ugate with real solution
@@ -309,7 +308,7 @@ class UgateMap():
         func = self.f_real_unitary
         RE = []
         for t in range(total_trials):
-            
+
             Re =[]
             Sum_=[]
             for i in range(trials):
@@ -318,15 +317,15 @@ class UgateMap():
                 re1 = root(func, Y0, method="lm")
                 temp_eqs = np.array((func(re1.x)))
                 print(re1.success, sum(abs(temp_eqs)))
-                if re1.success and  sum(abs(temp_eqs))<precision: 
+                if re1.success and  sum(abs(temp_eqs))<precision:
                     re2 = (re1.x).reshape(self.u_dim,self.u_dim)
-                    re3 = UgateMap.exchange(re2, self.aux_position)  # the result is for aux_pos=[nmode-2,nmode-1], 
+                    re3 = UgateMap.exchange(re2, self.aux_position)  # the result is for aux_pos=[nmode-2,nmode-1],
                     Re.append(re3)                                   #need row and column exchange for target aux_pos
                     Sum_.append(sum(abs(temp_eqs)))
                 print("total:",t, "trials:",i+1, "success:", len(Re), end="\r")
             RE.append(Re)
         return RE, Sum_
-    
+
     def solve_eqs_complex(self, total_trials = 10, trials = 1000, precision=1e-5 ):
         """
         solving the non-linear eqautions for matrix satisfying ugate with complex solution
@@ -334,7 +333,7 @@ class UgateMap():
         func = self.f_complex_unitary
         RE = []
         for t in range(total_trials):
-            
+
             Re =[]
             Sum_=[]
             for i in range(trials):
@@ -343,7 +342,7 @@ class UgateMap():
                 re1 = root(func, Y0, method="lm")
                 temp_eqs = np.array((func(re1.x)))
                 print(re1.success, sum(abs(temp_eqs)))
-                if re1.success and  sum(abs(temp_eqs))<precision: 
+                if re1.success and  sum(abs(temp_eqs))<precision:
                     re2 = re1.x[:(self.u_dim)**2] + re1.x[(self.u_dim)**2:]*1j
                     re3 = re2.reshape(self.u_dim, self.u_dim)
                     re4 = UgateMap.exchange(re3, self.aux_position)
@@ -352,7 +351,7 @@ class UgateMap():
                 print("total:",t, "trials:",i, "success:", len(Re), end="\r")
             RE.append(Re)
         return RE, Sum_
-    
+
     @staticmethod
     def exchange(matrix, aux1_pos):
         nmode = matrix.shape[0]
@@ -365,20 +364,20 @@ class UgateMap():
             matrix_4 = np.insert(matrix_3, aux1_pos[i],matrix_2[:,aux2_pos[i]],1)
             matrix_new = matrix_4
         return  matrix_4
-    
-    
+
+
     @staticmethod
     def sub_matrix_sym(U, input_state, output_state):
         """
         get the sub_matrix of transfer probs for given input and output state
         """
         indx1 = UgateMap.set_copy_indx(input_state)    # indicies for copies of rows for U
-        indx2 = UgateMap.set_copy_indx(output_state)   # indicies for copies of columns for 
+        indx2 = UgateMap.set_copy_indx(output_state)   # indicies for copies of columns for
         U1 = U[indx1,:]  #输入取行
         U2 = U1[:,indx2] #输出取列
-        return U2   
-    
-    
+        return U2
+
+
     @staticmethod
     ## computing submatrix will invoke
     def set_copy_indx(state):
@@ -389,25 +388,25 @@ class UgateMap():
         inds_nonzero = torch.nonzero(state, as_tuple=False) # nonezero index in state
         # len_ = int(sum(state[inds_nonzero]))
         temp_ind = []
-        
+
         for i in range(len(inds_nonzero)):       # repeat times depends on the nonezero value
             temp1 = inds_nonzero[i]
             temp = state[inds_nonzero][i]
             temp_ind = temp_ind + [int(temp1)] * (int(temp))
-            
+
         return  temp_ind
-    
+
     @staticmethod
-    def permanent(mat): # using torch tensor for calculating 
+    def permanent(mat): # using torch tensor for calculating
         """
         Using RyserFormula for permanent, valid for square matrix
         """
-        
+
         mat = np.matrix(mat)
         num_coincidence = np.shape(mat)[0]
         sets = UgateMap.create_subset(num_coincidence) # all S set
         value_perm = 0
-        
+
         for subset in sets:          # sum all S set
             num_elements = len(subset)
             value_times = 1
@@ -419,20 +418,20 @@ class UgateMap():
             value_perm = value_perm + value_times * (-1) ** num_elements
         value_perm = value_perm * (-1) ** num_coincidence
         return value_perm
-    
+
     @staticmethod
     def product_factorial(state):
         """
         return the product of the factorial of each element
         |s_1,s_2,...s_n> -->s_1!*s_2!*...s_n!
-        
+
         """
         temp = special.factorial(state)
         product_fac = 1
         for i in range(len(state)):
             product_fac = product_fac * temp[i]
         return product_fac
-    
+
     @staticmethod
     ## computing permanent will invoke
     def create_subset(num_coincidence):
@@ -453,12 +452,12 @@ class UgateMap():
     def save_dict(dictionary, file_path):
         with open(file_path, 'wb') as file:
             pickle.dump(dictionary, file)
-        
-    
+
+
 ########################################
 ######some additional function##########
 #for plotting matrix and check the unitary matrix
- 
+
     @staticmethod
     def plot_u(U, vmax=1, vmin=0, fs=20, len_ticks=5, cl='RdBu'):
         """
@@ -467,12 +466,12 @@ class UgateMap():
         len_ticks: # of ticks in colorbar
         ...
         """
-        plt.rcParams ['figure.figsize'] = (8, 8) 
+        plt.rcParams ['figure.figsize'] = (8, 8)
         step = (vmax -vmin)/(len_ticks-1)
         ticks_=[0]*len_ticks
         for i in range(len_ticks):
-            ticks_[i] = vmin + i*step 
-        # print(ticks_) 
+            ticks_[i] = vmin + i*step
+        # print(ticks_)
         ax = plt.matshow(np.array(U).real, vmax = vmax, vmin =vmin, cmap=cl )
         cb = plt.colorbar(fraction =0.03, ticks=ticks_)
         plt.title("U_real", fontsize=fs)
@@ -486,11 +485,11 @@ class UgateMap():
         plt.xticks(fontsize=fs-1)
         plt.yticks(fontsize=fs-1)
         cb1.ax.tick_params(labelsize = fs-6)
-    
+
     @staticmethod
     def is_unitary(u_temp):
         """
-        check the matrix is unitary or not  
+        check the matrix is unitary or not
         """
         # U_temp = construct_u(paras)
         u_size = u_temp.size()
@@ -499,9 +498,9 @@ class UgateMap():
         u_product = u_temp_dag @ u_temp
         u_identity = torch.eye(u_size[0])
         all_sum = float(abs(u_product - u_identity).sum())
-        
+
         return all_sum
-    
+
 #########################################################
 ###########check the result using perceval #############
     def state_basis(self):

@@ -8,7 +8,8 @@ requirements = [
     'pylatexenc',
     'pytest',
     'scipy',
-    'svgwrite'
+    'svgwrite',
+    'bayesian-optimization'
 ]
 
 setup(

@@ -1,4 +1,5 @@
 from collections import defaultdict
+
 import numpy as np
 import torch
 # 2023-12-18 更新
@@ -24,8 +25,8 @@ class UnitaryDecomposer():
         if np.abs(U@U.conj().T - np.eye(len(U))).sum()/len(U)**2>1e-12:
             print("Make sure the input matrix is unitary, in case of an abnormal computation result.")
         self.U[np.abs(self.U)<1e-32] = 1e-32
-        self.method = method 
-    
+        self.method = method
+
     def decomp(self) -> dict:
         """
         method 前三个字母的含义如下
@@ -38,7 +39,6 @@ class UnitaryDecomposer():
         ss: 单臂+单臂
         dd: 双臂+双臂
         ds: 双臂+单臂
-        
         """
         def period_cut(input_angle: float, period: float=np.pi*2) -> float:
             return input_angle - np.floor(input_angle/period)*period
@@ -79,8 +79,6 @@ class UnitaryDecomposer():
             I["phase_angle"][mask] -= np.floor(I["phase_angle"][mask]/np.pi/2)*np.pi*2
             return I, U
 
-        
-        
         def decomp_cr (U : np.array, method : str) -> dict:
             N = len(U)
             I = dict()
@@ -132,7 +130,7 @@ class UnitaryDecomposer():
             for idx in range(len(I["right"])):
                 I["right"][idx][2] = period_cut(I["right"][idx][2],period_phi)
                 I["right"][idx][3] = period_cut(I["right"][idx][3],period_theta)
-                I["MZI_list"].append(I["right"][idx])    
+                I["MZI_list"].append(I["right"][idx])
             left_list = I["left"][::-1]
             for idx in range(len(left_list)):
                 jj,ii,phi,theta = left_list[idx]
@@ -140,13 +138,10 @@ class UnitaryDecomposer():
                 phi_ = period_cut(phi_,period_phi)
                 theta_ = period_cut(theta_,period_theta)
                 I["MZI_list"].append([jj,ii,phi_,theta_])
-                
-                
             I["phase_angle"] = phase_angle.copy() # U=D'L'L'L'RRR,本行保存新的D
             mask = np.logical_or(I["phase_angle"]>=2*np.pi,I["phase_angle"]<0)
             I["phase_angle"][mask] -= np.floor(I["phase_angle"][mask]/np.pi/2)*np.pi*2
             return I,U
-
 
         def decomp_rl (U : np.array, method : str) -> dict:
             N = len(U)
@@ -184,8 +179,6 @@ class UnitaryDecomposer():
             I["phase_angle"][mask] -= np.floor(I["phase_angle"][mask]/np.pi/2)*np.pi*2
             return I, U
 
-            
-            
         def decomp_cl (U : np.array, method : str) -> dict:
             N = len(U)
             I = dict()
@@ -203,7 +196,7 @@ class UnitaryDecomposer():
             else:
                 period_theta = 2*np.pi
                 period_phi = 2*np.pi
-            for i in range(N-1): # 从下往上第i个反对角线        
+            for i in range(N-1): # 从下往上第i个反对角线
                 if (i % 2): # 左乘, 利用T^{-1}U消元；
                     for j in range(i+1): # 反对角线的元素计数
                         # 消元顺序：从左上到右下
@@ -218,8 +211,6 @@ class UnitaryDecomposer():
                         multiple = get_matrix_inverse_l([ii-1,ii,phi,theta],N,method)
                         U = multiple @ U
                         I["left"].append([ii-1,ii,phi,theta])
-                        
-                        
                 else: # 利用UT消元，即利用 U[ii,jj+1] 消去 U[ii,jj]
                     for j in range(i+1)[::-1]: # 反对角线的元素计数
                         # 消元顺序：从右下到左上
@@ -234,16 +225,12 @@ class UnitaryDecomposer():
                         multiple = get_matrix_constr_l([jj,jj+1,phi,theta],N,method)
                         U = U @ multiple
                         I["right"].append([jj,jj+1,phi,theta])
-            
             phase_angle = np.angle(np.diag(U))
             I["phase_angle_ori"] = phase_angle.copy() # U=LLLDRRR，本行保存D
-            
             for idx in range(len(I["left"])):
                 I["left"][idx][2] = period_cut(I["left"][idx][2],period_phi)
                 I["left"][idx][3] = period_cut(I["left"][idx][3],period_theta)
-                I["MZI_list"].append(I["left"][idx])    
-
-
+                I["MZI_list"].append(I["left"][idx])
             left_list = I["right"][::-1]
             for idx in range(len(left_list)):
                 jj,ii,phi,theta = left_list[idx]
@@ -251,7 +238,6 @@ class UnitaryDecomposer():
                 phi_ = period_cut(phi_,period_phi)
                 theta_ = period_cut(theta_,period_theta)
                 I["MZI_list"].append([jj,ii,phi_,theta_])
-                
             I["phase_angle"] = phase_angle.copy() # U=D'L'L'L'RRR,本行保存新的D
             mask = np.logical_or(I["phase_angle"]>=2*np.pi,I["phase_angle"]<0)
             I["phase_angle"][mask] -= np.floor(I["phase_angle"][mask]/np.pi/2)*np.pi*2
@@ -342,7 +328,7 @@ class UnitaryDecomposer():
             N = I["N"]
             method = I["method"]
             U = np.eye(N,dtype=complex)
-            
+
             for idx in range(len(I["MZI_list"])):
                 multiple = get_matrix_constr_r(I["MZI_list"][idx],N,method)
                 U = multiple @ U
@@ -357,12 +343,12 @@ class UnitaryDecomposer():
                 multiple = get_matrix_constr_l(ordered_list[idx],N,method)
                 U = U @ multiple
             return U
-        
+
         U = self.U.copy()
         method = self.method
         if method not in ["rssr","rsdr","rdsr","rddr","rssl","rsdl","rdsl","rddl",\
         "cssr","csdr","cdsr","cddr","cssl","csdl","cdsl","cddl"]:
-            raise Exception("请检查分解方式！")           
+            raise Exception("请检查分解方式！")
         elif method[0]+method[-1] == "cr":
             temp_0 = decomp_cr(self.U, method)[0]
         elif method[0]+method[-1] == "cl":
@@ -374,7 +360,6 @@ class UnitaryDecomposer():
         temp_1 = self.sort_mzi(temp_0)
         temp_2 = self.ps_pos(temp_1, temp_0["phase_angle"])
         return temp_0, temp_1, temp_2
-    
 
     def sort_mzi(self, mzi_info):
         """
@@ -401,26 +386,10 @@ class UnitaryDecomposer():
                 value = np.array(value).flatten()
                 for k in range(len(value)):
                     dic_pos[(mode, k)] = np.round((value[k]), 4)
-                if mode == nmode -1: 
+                if mode == nmode -1:
                     dic_pos[(mode, 0)] = np.round((phase_angle[mode]), 4)
                 else:
                     dic_pos[(mode, k+1)] = np.round((phase_angle[mode]), 4)
             return dic_pos
         else:
             return None
-        
-        # if method not in ["rssr","rsdr","rdsr","rddr","rssl","rsdl","rdsl","rddl",\
-        #     "cssr","csdr","cdsr","cddr","cssl","csdl","cdsl","cddl"]:
-        #     raise Exception("请检查分解方式(method的首尾字母)!")
-        
-        # elif method[0] == 'c':
-        #     if method[-1] == 'r':
-        #         return decomp_cr(U,method)
-        #     elif method[-1] == 'l':
-        #         return decomp_cl(U,method)
-        
-        # elif method[0] == 'r':
-        #     if method[-1] == 'r':
-        #         return decomp_rr(U,method)
-        #     elif method[-1] == 'l':
-        #         return decomp_rl(U,method)

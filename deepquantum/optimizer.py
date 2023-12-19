@@ -1,7 +1,8 @@
-#  pip install bayesian-optimization
-from bayes_opt import BayesianOptimization, UtilityFunction
-import numpy as np
 import copy
+
+import numpy as np
+from bayes_opt import BayesianOptimization, UtilityFunction
+
 
 SPSA_default_hyperparam = {
     'a':1e-1,
@@ -56,14 +57,14 @@ class OptimizerBayesian(Optimizer):
         self.best_param_dict = copy.deepcopy(self.param_dict)
         self.best_target = -np.inf
         self.iter = 0
-    
+
     def gen_pbounds(self)->dict:
         '''用于生成初始化的pbounds'''
         pbounds = dict()
         for key in self.param_dict.keys():
             pbounds[key] = (0,np.pi*2)
         return pbounds
-    
+
     def param_suggest(self)->np.ndarray:
         '''用于产生待测试的参数方案'''
         self.util.update_params()
@@ -71,7 +72,7 @@ class OptimizerBayesian(Optimizer):
         x = self.optimizer._space._as_array(x_probe) # a list
         param_array = np.asarray(x).reshape(1,-1)
         return param_array
-    
+
     def param_register(self,param_array:np.ndarray,target:float)->None:
         '''将参数方案与实施后的目标值传回
         param_dict: 施加在芯片上的参数
@@ -117,7 +118,7 @@ class OptimizerSPSA(Optimizer):
         param_array[0] = tmp_param - delta
         param_array[1] = tmp_param + delta
         return param_array
-    
+
     def param_register(self,param_array:np.ndarray, target:np.ndarray)->None:
         '''将参数方案与实施后的目标值传回
         param_array: 施加在芯片上的参数；可以用长度2的列表代替行数2的数组
@@ -138,7 +139,7 @@ class OptimizerSPSA(Optimizer):
         if target1 < self.best_target:
             self.best_param_dict = dict(zip(self.param_dict.keys(),param1))
             self.best_target = target1
-        
+
         if target2 < self.best_target:
             self.best_param_dict = dict(zip(self.param_dict.keys(),param2))
             self.best_target = target2
@@ -166,7 +167,7 @@ class OptimizerFourier(Optimizer):
         self.A = self.gen_A()
         self.u = np.zeros((2*R+1)*self.nparam)
         self.iter = 0
-    
+
     def gen_A(self)->np.ndarray:
         A = np.zeros((2*self.R+1, 2*self.R+1))
         mu = np.arange(2*self.R+1)

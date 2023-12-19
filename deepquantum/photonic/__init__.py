@@ -7,5 +7,8 @@ from . import operation
 from . import qmath
 from . import state
 from .circuit import QumodeCircuit
+from .decompose import UnitaryDecomposer
+from .draw import Graph_Mzi
+from .mapper import UgateMap
 from .qmath import permanent
 from .state import FockState

@@ -1,6 +1,7 @@
 """
 Optical quantum gates
 """
+
 import copy
 import itertools
 from typing import Any, List, Optional, Tuple, Union
