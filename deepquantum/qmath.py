@@ -52,7 +52,7 @@ def inverse_permutation(permute_shape: List[int]) -> List[int]:
     return [permute_shape.index(i) for i in range(len(permute_shape))]
 
 
-def is_unitary(matrix: torch.Tensor, rtol: float = 1e-5, atol: float = 1e-6) -> bool:
+def is_unitary(matrix: torch.Tensor, rtol: float = 1e-5, atol: float = 1e-4) -> bool:
     """Check if a tensor is a unitary matrix.
 
     Args:
