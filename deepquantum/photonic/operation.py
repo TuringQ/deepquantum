@@ -71,6 +71,9 @@ class Gate(Operation):
         wires = self._convert_indices(wires)
         super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff)
 
+    def update_matrix(self) -> torch.Tensor:
+        return self.matrix
+
     def get_unitary_op(self) -> torch.Tensor:
         """Get the global unitary matrix acting on operators."""
         matrix = self.update_matrix()
@@ -79,6 +82,16 @@ class Gate(Operation):
         m1 = torch.eye(nmode1, dtype=matrix.dtype, device=matrix.device)
         m2 = torch.eye(nmode2, dtype=matrix.dtype, device=matrix.device)
         return torch.block_diag(m1, matrix, m2)
+
+    def get_unitary_state(self, matrix) -> torch.Tensor:
+        """Get the local unitary matrix acting on Fock state tensor.
+        """
+        raise NotImplementedError
+
+    def update_unitary_state(self) -> torch.Tensor:
+        """Update the local unitary matrix acting on fock state tensor."""
+        matrix = self.update_matrix()
+        return self.get_unitary_state(matrix)
 
     def op_state_tensor(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass for state tensors."""

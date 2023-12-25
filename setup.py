@@ -8,6 +8,7 @@ requirements = [
     'pylatexenc',
     'pytest',
     'scipy',
+    'sympy',
     'svgwrite',
     'bayesian-optimization'
 ]

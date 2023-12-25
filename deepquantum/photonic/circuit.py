@@ -9,7 +9,7 @@ import torch
 from torch import nn, vmap
 
 from .draw import DrawCircuit
-from .gate import PhaseShift, BeamSplitter, BeamSplitterTheta, BeamSplitterPhi, UAnyGate
+from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
 from .operation import Operation, Gate
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
 from .state import FockState
@@ -25,14 +25,14 @@ class QumodeCircuit(Operation):
             or a Fock state tensor, e.g., [(sqrt(2)/2, [1,0]), (sqrt(2)/2, [0,1])].
         name: str, the name of the circuit
         basis: Whether to use the representation of Fock basis state for the initial state.
-            Default: ``False``
+            Default: ``True``
     """
     def __init__(
         self,
         nmode: int,
         init_state: Any,
         cutoff: int = None,
-        basis: bool = False,
+        basis: bool = True,
         name: Optional[str] = None,
         noise: bool = False,
         mu: float = 0,
@@ -79,11 +79,11 @@ class QumodeCircuit(Operation):
                 self.state = self._forward_helper_tensor(state=state.state)
         else:
             if self.basis:
-                 state = vmap(self._forward_helper_basis, in_dims=(0, None, None))(data, state, is_prob)
-                 self.state = sort_dict_fock_basis(state)
-                 # for plotting the last data in the circuit
-                 self.encode(data[-1])
-                 self.u = self.get_unitary_op()
+                state = vmap(self._forward_helper_basis, in_dims=(0, None, None))(data, state, is_prob)
+                self.state = sort_dict_fock_basis(state)
+                # for plotting the last data in the circuit
+                self.encode(data[-1])
+                self.u = self.get_unitary_op()
             else:
                 if state.state.shape[0] == 1:
                     self.state = vmap(self._forward_helper_tensor, in_dims=(0, None))(data, state.state)
@@ -233,56 +233,61 @@ class QumodeCircuit(Operation):
         prob = torch.abs(amplitude) ** 2
         return prob
 
-    def measure(self, wires = None, shots = 1024):
+    def measure(self, shots = 1024, with_prob: bool = False, wires = None):
         """
         measure several wires outputs, default shots = 1024
         Args:
              wires: list, the wires to be measured
              shots: total measurement times, default 1024
         """
-        if wires is None:
-            wires = self.wires
         if self.state is None:
             return
-        else:
-            prob_dis = self.state
+        if wires is None:
+            wires = self.wires
+        wires = self._convert_indices(wires)
+        amp_dis = self.state
         all_results = []
         if self.basis:
-            batch = len(prob_dis[list(prob_dis.keys())[0]])
-            for k in range(batch):
-                prob_measure_dict = defaultdict(list)
-                for key in prob_dis.keys():
-                    s_ = key.state[(wires)]
-                    s_ = FockState(state=s_, basis=self.basis)
-                    temp = abs(prob_dis[key][k]) ** 2
-                    prob_measure_dict[s_].append(temp)
-                for key in prob_measure_dict.keys():
-                    prob_measure_dict[key] = sum(prob_measure_dict[key])
-                samples = random.choices(list(prob_measure_dict.keys()), list(prob_measure_dict.values()), k=shots)
+            batch = len(amp_dis[list(amp_dis.keys())[0]])
+            for i in range(batch):
+                prob_dict = defaultdict(list)
+                for key in amp_dis.keys():
+                    state_b = key.state[(wires)]
+                    state_b = FockState(state=state_b, basis=True)
+                    prob_dict[state_b].append(abs(amp_dis[key][i]) ** 2)
+                for key in prob_dict.keys():
+                    prob_dict[key] = sum(prob_dict[key])
+                samples = random.choices(list(prob_dict.keys()), list(prob_dict.values()), k=shots)
                 results = dict(Counter(samples))
+                if with_prob:
+                    for k in results:
+                        results[k] = results[k], prob_dict[k]
                 all_results.append(results)
         else:  # tensor state with batch
-            state_tensor = self.tensor_rep(prob_dis)
+            state_tensor = self.tensor_rep(amp_dis)
             batch = state_tensor.shape[0]
             combi = list(itertools.product(range(self.cutoff), repeat=len(wires)))
             for i in range(batch):
-                dict_ = {}
-                state_i = state_tensor[i]
-                probs_i = abs(state_i) ** 2
+                prob_dict = {}
+                state = state_tensor[i]
+                probs = abs(state) ** 2
                 if wires == self.wires:
-                    ptrace_probs_i = probs_i   # no need for ptrace if measure all
+                    ptrace_probs = probs   # no need for ptrace if measure all
                 else:
                     sum_idx = list(range(self.nmode))
                     for idx in wires:
                         sum_idx.remove(idx)
-                    ptrace_probs_i = probs_i.sum(dim=sum_idx)  # here partial trace for the measurement wires,此处可能需要归一化
+                    ptrace_probs = probs.sum(dim=sum_idx)  # here partial trace for the measurement wires,此处可能需要归一化
                 for p_state in combi:
-                    lst1 = list(map(lambda x:str(x), p_state))
-                    state_str = ''.join(lst1)
+                    lst = list(map(lambda x:str(x), p_state))
+                    state_str = ''.join(lst)
                     p_str = ('|' + state_str + '>')
-                    dict_[p_str] = ptrace_probs_i[tuple(p_state)]
-                samples = random.choices(list(dict_.keys()), list(dict_.values()), k=shots)
+                    prob_dict[p_str] = ptrace_probs[tuple(p_state)]
+                samples = random.choices(list(prob_dict.keys()), list(prob_dict.values()), k=shots)
                 results = dict(Counter(samples))
+                if with_prob:
+                    for k in results:
+                        results[k] = results[k], prob_dict[k]
                 all_results.append(results)
         if batch == 1:
             return all_results[0]
@@ -295,7 +300,7 @@ class QumodeCircuit(Operation):
         """
         if self.nmode > 50:
             print('too many wires in the circuit, run circuit.save for the complete circuit')
-        self.draw_circuit = DrawCircuit(self.name, self.nmode, self.operators, self.depth)
+        self.draw_circuit = DrawCircuit(self.name, self.nmode, self.operators)
         self.draw_circuit.draw()
         return self.draw_circuit.draw_
 
@@ -356,27 +361,31 @@ class QumodeCircuit(Operation):
 
     def ps(
         self,
-        wires: Union[int, List[int], None] = None,
+        wires: int,
         inputs: Any = None,
-        mu = 0,
-        sigma = 0,
-        encode: bool = False
+        encode: bool = False,
+        mu = None,
+        sigma = None
     ) -> None:
         """Add a phaseshifter"""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
         ps = PhaseShift(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
                         requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(ps, encode=encode)
 
     def bs(
         self,
-        wires: Union[int, List[int], None] = None,
+        wires: List[int],
         inputs: Any = None,
+        encode: bool = False,
         mu = None,
-        sigma = None,
-        encode: bool = False
+        sigma = None
     ) -> None:
         requires_grad = not encode
         if inputs is not None:
@@ -389,13 +398,33 @@ class QumodeCircuit(Operation):
                           requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(bs, encode=encode)
 
+    def mzi(
+        self,
+        wires: List[int],
+        inputs: Any = None,
+        phi_first: bool = True,
+        encode: bool = False,
+        mu = None,
+        sigma = None
+    ) -> None:
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        mzi = MZI(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, phi_first=phi_first,
+                  requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        self.add(mzi, encode=encode)
+
     def bs_theta(
         self,
-        wires: Union[int, List[int], None] = None,
+        wires: List[int],
         inputs: Any = None,
+        encode: bool = False,
         mu = None,
-        sigma = None,
-        encode: bool = False
+        sigma = None
     ) -> None:
         requires_grad = not encode
         if inputs is not None:
@@ -410,11 +439,11 @@ class QumodeCircuit(Operation):
 
     def bs_phi(
         self,
-        wires: Union[int, List[int], None] = None,
+        wires: List[int],
         inputs: Any = None,
+        encode: bool = False,
         mu = None,
-        sigma = None,
-        encode: bool = False
+        sigma = None
     ) -> None:
         requires_grad = not encode
         if inputs is not None:
@@ -426,6 +455,95 @@ class QumodeCircuit(Operation):
         bs = BeamSplitterPhi(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
                              requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(bs, encode=encode)
+
+    def bs_rx(
+        self,
+        wires: List[int],
+        inputs: Any = None,
+        encode: bool = False,
+        mu = None,
+        sigma = None
+    ) -> None:
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        bs = BeamSplitterSingle(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, convention='rx',
+                                requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        self.add(bs, encode=encode)
+
+    def bs_ry(
+        self,
+        wires: List[int],
+        inputs: Any = None,
+        encode: bool = False,
+        mu = None,
+        sigma = None
+    ) -> None:
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        bs = BeamSplitterSingle(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, convention='ry',
+                                requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        self.add(bs, encode=encode)
+
+    def bs_h(
+        self,
+        wires: List[int],
+        inputs: Any = None,
+        encode: bool = False,
+        mu = None,
+        sigma = None
+    ) -> None:
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        bs = BeamSplitterSingle(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, convention='h',
+                                requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        self.add(bs, encode=encode)
+
+    def dc(
+        self,
+        wires: List[int],
+        mu = None,
+        sigma = None
+    ) -> None:
+        """Directional coupler."""
+        theta = torch.pi / 2
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        bs = BeamSplitterSingle(inputs=theta, nmode=self.nmode, wires=wires, cutoff=self.cutoff, convention='rx',
+                                requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
+        self.add(bs, encode=False)
+
+    def h(
+        self,
+        wires: List[int],
+        mu = None,
+        sigma = None
+    ) -> None:
+        """H-type Beam Splitter."""
+        theta = torch.pi / 2
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        bs = BeamSplitterSingle(inputs=theta, nmode=self.nmode, wires=wires, cutoff=self.cutoff, convention='h',
+                                requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
+        self.add(bs, encode=False)
 
     def any(
         self,

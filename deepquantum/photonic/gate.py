@@ -32,7 +32,6 @@ class PhaseShift(Gate):
         assert len(self.wires) == 1, 'PS gate acts on single mode'
         self.npara = 1
         self.requires_grad = requires_grad
-        self.inv_mode = False
         self.noise = noise
         self.mu = mu
         self.sigma = sigma
@@ -58,27 +57,13 @@ class PhaseShift(Gate):
 
     def update_matrix(self) -> torch.Tensor:
         """Update the local unitary matrix."""
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
-        matrix = self.get_matrix(theta)
+        matrix = self.get_matrix(self.theta)
         self.matrix = matrix.detach()
         return matrix
 
-    def get_unitary_state(self, theta: Any) -> torch.Tensor:
+    def get_unitary_state(self, matrix) -> torch.Tensor:
         """Get the local unitary matrix acting on Fock state tensor."""
-        theta = self.inputs_to_tensor(theta)
-        return torch.stack([torch.exp(1j * theta * n) for n in range(self.cutoff)]).diag_embed()
-
-    def update_unitary_state(self) -> torch.Tensor:
-        """Update the local unitary matrix acting on Fock state tensor."""
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
-        matrix = self.get_unitary_state(theta)
-        return matrix
+        return torch.stack([matrix[0, 0] ** n for n in range(self.cutoff)]).reshape(-1).diag_embed()
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
@@ -99,8 +84,8 @@ class BeamSplitter(Gate):
     .. math::
     \text{BS} =
         \begin{pmatrix}
-            \cos\left(\theta\right) & -e^(-i\phi) \sin\left(\theta\right) \\
-            e^(i\phi) \sin\left(\theta\right) &  \cos\left(\theta\right) \\
+            \cos\left(\theta\right)           & -e^(-i\phi) \sin\left(\theta\right) \\
+            e^(i\phi) \sin\left(\theta\right) & \cos\left(\theta\right)             \\
         \end{pmatrix}
     """
     def __init__(
@@ -120,7 +105,6 @@ class BeamSplitter(Gate):
         assert(len(self.wires) == 2), 'BS gate must act on two wires'
         assert(self.wires[0] + 1 == self.wires[1]), 'BS gate must act on the neighbor wires'
         self.npara = 2
-        self.inv_mode = False
         self.requires_grad = requires_grad
         self.noise = noise
         self.mu = mu
@@ -152,26 +136,18 @@ class BeamSplitter(Gate):
         sin = torch.sin(theta)
         e_m_ip = torch.exp(-1j * phi)
         e_ip = torch.exp(1j * phi)
-        return torch.stack([cos, -e_m_ip * sin, e_ip * sin, cos]).reshape(2, 2) + 0j
+        return torch.stack([cos, -e_m_ip * sin, e_ip * sin, cos]).reshape(2, 2)
 
     def update_matrix(self) -> torch.Tensor:
         """Update the local unitary matrix."""
-        if self.inv_mode:
-            theta = -self.theta
-            phi   = -self.phi
-        else:
-            theta = self.theta
-            phi   = self.phi
-        matrix = self.get_matrix(theta, phi)
+        matrix = self.get_matrix(self.theta, self.phi)
         self.matrix = matrix.detach()
         return matrix
 
-    def get_unitary_state(self, theta, phi) -> torch.Tensor:
+    def get_unitary_state(self, matrix) -> torch.Tensor:
         """Get the local unitary matrix acting on Fock state tensor.
         See https://arxiv.org/pdf/2004.11002.pdf Eq.(74) and Eq.(75)
         """
-        theta, phi = self.inputs_to_tensor([theta, phi])
-        matrix = self.get_matrix(theta, phi)
         sqrt = torch.sqrt(torch.arange(self.cutoff, device=matrix.device))
         unitary = matrix.new_zeros([self.cutoff] * 2 * len(self.wires))
         unitary[0, 0, 0, 0] = 1.0
@@ -196,17 +172,6 @@ class BeamSplitter(Gate):
                         )
         return unitary
 
-    def update_unitary_state(self) -> torch.Tensor:
-        """Update the local unitary matrix acting on fock state tensor."""
-        if self.inv_mode:
-            theta = -self.theta
-            phi   = -self.phi
-        else:
-            theta = self.theta
-            phi   = self.phi
-        matrix = self.get_unitary_state(theta, phi)
-        return matrix
-
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
         theta, phi = self.inputs_to_tensor(inputs=inputs)
@@ -217,6 +182,63 @@ class BeamSplitter(Gate):
             self.register_buffer('theta', theta)
             self.register_buffer('phi', phi)
         self.update_matrix()
+
+
+class MZI(BeamSplitter):
+    r"""Mach-Zehnder Interferometer.
+
+    **Matrix Representation:**
+
+    .. math::
+
+        \newcommand{\th}{\frac{\theta}{2}}
+
+        \text{MZI} = ie^{i\theta/2}
+            \begin{pmatrix}
+                e^(i\phi) \sin\left(\th\right) & \cos\left(\th\right)  \\
+                e^(i\phi) \cos\left(\th\right) & -\sin\left(\th\right) \\
+            \end{pmatrix}
+
+    or when `phi_first` is `False`:
+
+    .. math::
+
+        \newcommand{\th}{\frac{\theta}{2}}
+
+        \text{MZI} = ie^{i\theta/2}
+            \begin{pmatrix}
+                e^(i\phi) \sin\left(\th\right) & e^(i\phi) \cos\left(\th\right) \\
+                \cos\left(\th\right)           & -\sin\left(\th\right)          \\
+            \end{pmatrix}
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nmode: int = 2,
+        wires: Optional[List[int]] = None,
+        cutoff: int = None,
+        phi_first: bool = True,
+        requires_grad: bool = False,
+        noise: bool = False,
+        mu: float = 0,
+        sigma: float = 0.1
+    ) -> None:
+        self.phi_first = phi_first
+        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, requires_grad=requires_grad,
+                         noise=noise, mu=mu, sigma=sigma)
+        self.name = 'MZI'
+
+    def get_matrix(self, theta: Any, phi: Any) -> torch.Tensor:
+        """Get the local unitary matrix."""
+        theta, phi = self.inputs_to_tensor([theta, phi])
+        cos = torch.cos(theta / 2)
+        sin = torch.sin(theta / 2)
+        e_it = torch.exp(1j * theta / 2)
+        e_ip = torch.exp(1j * phi)
+        mat =  1j * e_it * torch.stack([e_ip * sin, cos, e_ip * cos, -sin]).reshape(2, 2)
+        if not self.phi_first:
+            mat = mat.T
+        return mat
 
 
 class BeamSplitterTheta(BeamSplitter):
@@ -267,7 +289,7 @@ class BeamSplitterPhi(BeamSplitter):
     .. math::
     \text{BS} =
         \begin{pmatrix}
-            \frac{\sqrt{2}}{2} & -\frac{\sqrt{2}}{2}e^(-i\phi)  \\
+            \frac{\sqrt{2}}{2} & -\frac{\sqrt{2}}{2}e^(-i\phi) \\
             \frac{\sqrt{2}}{2}e^(i\phi)  &  \frac{\sqrt{2}}{2} \\
         \end{pmatrix}
     """
@@ -299,6 +321,99 @@ class BeamSplitterPhi(BeamSplitter):
         self.update_matrix()
 
 
+class BeamSplitterSingle(BeamSplitter):
+    r"""Beam Splitter with a single parameter.
+
+    **Matrix Representation:**
+
+    .. math::
+
+        \newcommand{\th}{\frac{\theta}{2}}
+
+        \text{BS-Rx} =
+            \begin{pmatrix}
+                \cos\left(\th\right)  & i\sin\left(\th\right) \\
+                i\sin\left(\th\right) & \cos\left(\th\right)  \\
+            \end{pmatrix}
+
+    .. math::
+
+        \newcommand{\th}{\frac{\theta}{2}}
+
+        \text{BS-Ry} =
+            \begin{pmatrix}
+                \cos\left(\th\right) & -\sin\left(\th\right) \\
+                \sin\left(\th\right) & \cos\left(\th\right)  \\
+            \end{pmatrix}
+
+    .. math::
+
+        \newcommand{\th}{\frac{\theta}{2}}
+
+        \text{BS-H} =
+            \begin{pmatrix}
+                \cos\left(\th\right) & \sin\left(\th\right)  \\
+                \sin\left(\th\right) & -\cos\left(\th\right) \\
+            \end{pmatrix}
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nmode: int = 2,
+        wires: Optional[List[int]] = None,
+        cutoff: int = None,
+        convention: str = 'rx',
+        requires_grad: bool = False,
+        noise: bool = False,
+        mu: float = 0,
+        sigma: float = 0.1
+    ) -> None:
+        self.convention = convention
+        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, requires_grad=requires_grad,
+                         noise=noise, mu=mu, sigma=sigma)
+        self.npara = 1
+
+    def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
+        """Convert inputs to torch.Tensor."""
+        while isinstance(inputs, list):
+            inputs = inputs[0]
+        if inputs is None:
+            inputs = torch.rand(1)[0] * 4 * torch.pi
+        elif not isinstance(inputs, (torch.Tensor, nn.Parameter)):
+            inputs = torch.tensor(inputs, dtype=torch.float)
+        if self.noise:
+            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        return inputs
+
+    def get_matrix(self, theta: Any) -> torch.Tensor:
+        """Get the local unitary matrix. The matrix here represents the matrix for linear optical elements
+         which acts on the creation operator a^dagger """
+        theta = self.inputs_to_tensor(theta)
+        cos = torch.cos(theta / 2) + 0j
+        sin = torch.sin(theta / 2) + 0j
+        if self.convention == 'rx':
+            return torch.stack([cos, 1j * sin, 1j * sin, cos]).reshape(2, 2)
+        elif self.convention == 'ry':
+            return torch.stack([cos, -sin, sin, cos]).reshape(2, 2)
+        elif self.convention == 'h':
+            return torch.stack([cos, sin, sin, -cos]).reshape(2, 2)
+
+    def update_matrix(self) -> torch.Tensor:
+        """Update the local unitary matrix."""
+        matrix = self.get_matrix(self.theta)
+        self.matrix = matrix.detach()
+        return matrix
+
+    def init_para(self, inputs: Any = None) -> None:
+        """Initialize the parameters."""
+        theta = self.inputs_to_tensor(inputs=inputs)
+        if self.requires_grad:
+            self.theta = nn.Parameter(theta)
+        else:
+            self.register_buffer('theta', theta)
+        self.update_matrix()
+
+
 class UAnyGate(Gate):
     """
     for any unitary matrix of the optical elements,
@@ -327,22 +442,14 @@ class UAnyGate(Gate):
             unitary = torch.tensor(unitary, dtype=torch.cfloat).reshape(-1, len(self.wires))
         assert unitary.dtype in (torch.cfloat, torch.cdouble)
         assert unitary.shape[0] == len(self.wires), 'check wires'
-        assert is_unitary(unitary, rtol=1e-5), 'check the unitary matrix'
-        self.inv_mode = False
+        assert is_unitary(unitary), 'check the unitary matrix'
         self.register_buffer('matrix', unitary)
         self.register_buffer('unitary_state', None)
 
-    def update_matrix(self) -> torch.Tensor:
-        if self.inv_mode:
-            return self.matrix.mH
-        else:
-            return self.matrix
-
-    def get_unitary_state(self) -> torch.Tensor:
+    def get_unitary_state(self, matrix) -> torch.Tensor:
         """Get the local unitary matrix acting on Fock state tensor.
         See https://arxiv.org/pdf/2004.11002.pdf Eq.(71)
         """
-        matrix = self.matrix
         nt = len(self.wires)
         sqrt = torch.sqrt(torch.arange(self.cutoff, device=matrix.device))
         unitary = matrix.new_zeros([self.cutoff] *  2 * nt)
@@ -371,8 +478,9 @@ class UAnyGate(Gate):
     def update_unitary_state(self) -> torch.Tensor:
         """Update the local unitary tensor for operators."""
         if self.unitary_state is None:
-            matrix = self.get_unitary_state()
-            self.register_buffer('unitary_state', matrix)
+            matrix = self.update_matrix()
+            unitary = self.get_unitary_state(matrix)
+            self.register_buffer('unitary_state', unitary)
         else:
-            matrix = self.unitary_state
-        return matrix
+            unitary = self.unitary_state
+        return unitary
