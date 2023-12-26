@@ -78,6 +78,9 @@ class QumodeCircuit(Operation):
             else:
                 self.state = self._forward_helper_tensor(state=state.state)
         else:
+            if data.ndim == 1:
+                data = data.unsqueeze(0)
+            assert data.ndim == 2
             if self.basis:
                 state = vmap(self._forward_helper_basis, in_dims=(0, None, None))(data, state, is_prob)
                 self.state = sort_dict_fock_basis(state)
