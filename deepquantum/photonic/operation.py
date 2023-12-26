@@ -107,8 +107,6 @@ class Gate(Operation):
         x = x.permute(inverse_permutation(pm_shape))
         return x
 
-    def forward(self, x: Union[torch.Tensor, FockState]) -> Union[torch.Tensor, FockState]:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass."""
-        if isinstance(x, FockState):
-            x = x.state
         return self.op_state_tensor(x)

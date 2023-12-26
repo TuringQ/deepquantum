@@ -445,7 +445,7 @@ def measure(
         else:
             probs = torch.abs(state[i]) ** 2
         if wires is not None:
-            wires.sort()
+            wires = sorted(wires)
             pm_shape = list(range(n))
             for w in wires:
                 pm_shape.remove(w)

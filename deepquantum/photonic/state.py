@@ -40,7 +40,7 @@ class FockState(nn.Module):
         else:
             if isinstance(state, torch.Tensor):  # need additional batch size
                 if nmode is None:
-                    nmode = len(state.shape) - 1
+                    nmode = state.ndim - 1
                 if cutoff is None:
                     cutoff = state.shape[-1]
                 self.nmode = nmode
@@ -63,7 +63,7 @@ class FockState(nn.Module):
                     fock_basis = tuple(s[1])
                     state_ts[fock_basis] = amp
                 state_ts = state_ts.unsqueeze(0)   # add additional batch size
-            assert len(state_ts.shape) == self.nmode + 1
+            assert state_ts.ndim == self.nmode + 1
             assert all(i == self.cutoff for i in state_ts.shape[1:])
         self.register_buffer('state', state_ts)
 

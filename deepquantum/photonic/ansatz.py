@@ -37,7 +37,8 @@ class Clements(QumodeCircuit):
             for wire in self.wires:
                 self.ps(wire, encode=True)
 
-    def dict2data(self, angle_dict):
+    def dict2data(self, angle_dict, dtype = torch.float):
+        angle_dict = angle_dict.copy()
         for key in angle_dict.keys():
             angle = angle_dict[key]
             if not isinstance(angle, torch.Tensor):
@@ -80,4 +81,4 @@ class Clements(QumodeCircuit):
             for i in range(self.nmode):
                 data.append(angle_dict[(i, columns[i])])
                 columns[i] += 1
-        return torch.cat(data)
+        return torch.cat(data).to(dtype)

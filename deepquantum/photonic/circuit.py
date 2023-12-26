@@ -60,8 +60,29 @@ class QumodeCircuit(Operation):
         self.ndata = 0
         self.depth = np.array([0] * nmode)
 
+    def to(self, arg: Any) -> 'QumodeCircuit':
+        """Set dtype or device of the ``QumodeCircuit``."""
+        if arg == torch.float:
+            self.init_state.to(torch.cfloat)
+            for op in self.operators:
+                if op.npara == 0:
+                    op.to(torch.cfloat)
+                elif op.npara > 0:
+                    op.to(torch.float)
+        elif arg == torch.double:
+            self.init_state.to(torch.cdouble)
+            for op in self.operators:
+                if op.npara == 0:
+                    op.to(torch.cdouble)
+                elif op.npara > 0:
+                    op.to(torch.double)
+        else:
+            self.init_state.to(arg)
+            self.operators.to(arg)
+        return self
+
     # pylint: disable=arguments-renamed
-    def forward(self, data = None, state = None, is_prob = False) -> Union[torch.Tensor, FockState]:
+    def forward(self, data = None, state = None, is_prob = False) -> Union[torch.Tensor, Dict]:
         """Perform a forward pass of the quantum circuit and return the final state.
         Args:
             state: the state to be evolved.  Default: ``None``
@@ -69,44 +90,49 @@ class QumodeCircuit(Operation):
         """
         if state is None:
             state = self.init_state
-        else:
-            state = FockState(state=state, nmode=self.nmode, cutoff=self.cutoff, basis=self.basis)
+        if isinstance(state, FockState):
+            state = state.state
+        if not isinstance(state, torch.Tensor):
+            state = FockState(state=state, nmode=self.nmode, cutoff=self.cutoff, basis=self.basis).state
         if data is None:
             if self.basis:
-                state = self._forward_helper_basis(state=state, is_prob=is_prob)
-                self.state = sort_dict_fock_basis(state)
+                state_dict = self._forward_helper_basis(state=state, is_prob=is_prob)
+                self.state = sort_dict_fock_basis(state_dict)
             else:
-                self.state = self._forward_helper_tensor(state=state.state)
+                self.state = self._forward_helper_tensor(state=state)
+                if self.state.ndim == self.nmode:
+                    self.state = self.state.unsqueeze(0)
         else:
             if data.ndim == 1:
                 data = data.unsqueeze(0)
             assert data.ndim == 2
             if self.basis:
-                state = vmap(self._forward_helper_basis, in_dims=(0, None, None))(data, state, is_prob)
-                self.state = sort_dict_fock_basis(state)
-                # for plotting the last data in the circuit
-                self.encode(data[-1])
-                self.u = self.get_unitary_op()
+                state_dict = vmap(self._forward_helper_basis, in_dims=(0, None, None))(data, state, is_prob)
+                self.state = sort_dict_fock_basis(state_dict)
             else:
-                if state.state.shape[0] == 1:
-                    self.state = vmap(self._forward_helper_tensor, in_dims=(0, None))(data, state.state)
+                if state.shape[0] == 1:
+                    self.state = vmap(self._forward_helper_tensor, in_dims=(0, None))(data, state)
                 else:
-                    self.state = vmap(self._forward_helper_tensor)(data, state.state)
-                self.encode(data[-1])
+                    self.state = vmap(self._forward_helper_tensor)(data, state)
+            # for plotting the last data in the circuit
+            self.encode(data[-1])
+            self.u = self.get_unitary_op()
         return self.state
 
     def _forward_helper_basis(self, data = None, state = None, is_prob = False):
         """Perform a forward pass for one sample if the input is a Fock basis state."""
         self.encode(data)
-        out_dict = {}
         self.u = self.get_unitary_op()
-        final_states = self.get_all_fock_basis(state)
-        sub_mats = self.get_sub_matrices(final_states, state)
+        if state is None:
+            state = self.init_state.state
+        out_dict = {}
+        final_states = self._get_all_fock_basis(state)
+        sub_mats = self._get_sub_matrices(final_states, state)
         per_norms = self._get_permanent_norms(final_states, state)
         if is_prob:
-            rst = vmap(self._get_prob_vmap, in_dims=(0, 0, None))(sub_mats, per_norms, state)
+            rst = vmap(self._get_prob_vmap)(sub_mats, per_norms)
         else:
-            rst = vmap(self._get_amplitude_vmap, in_dims=(0, 0, None))(sub_mats, per_norms, state)
+            rst = vmap(self._get_amplitude_vmap)(sub_mats, per_norms)
         for i in range(len(final_states)):
             final_state = FockState(state=final_states[i], nmode=self.nmode, cutoff=self.cutoff, basis=self.basis)
             out_dict[final_state] = rst[i]
@@ -115,7 +141,9 @@ class QumodeCircuit(Operation):
     def _forward_helper_tensor(self, data = None, state = None):
         """Perform a forward pass for one sample if the input is a Fock state tensor."""
         self.encode(data)
-        x = self.operators(state).squeeze(0)
+        if state is None:
+            state = self.init_state.state
+        x = self.operators(self.tensor_rep(state)).squeeze(0)
         return x
 
     def encode(self, data: torch.Tensor) -> None:
@@ -149,40 +177,31 @@ class QumodeCircuit(Operation):
         self.u = u
         return u
 
-    def get_all_fock_basis(self, init_state = None):
+    def _get_all_fock_basis(self, init_state: torch.Tensor) -> torch.Tensor:
         """Get all possible fock basis states according to the initial state."""
-        if init_state is None:
-            init_state = self.init_state
-        assert init_state.basis
-        nmode = init_state.nmode
-        nphoton = sum(init_state.state)
-        states = torch.tensor(fock_combinations(nmode, nphoton), dtype=torch.int)
+        nmode = len(init_state)
+        nphoton = int(sum(init_state))
+        states = torch.tensor(fock_combinations(nmode, nphoton), dtype=torch.int, device=init_state.device)
         max_values, _ = torch.max(states, dim=1)
         mask = max_values < self.cutoff
         return torch.masked_select(states, mask.unsqueeze(1)).view(-1, states.shape[-1])
 
-    def get_sub_matrices(self, final_states, init_state = None):
-        if init_state is None:
-            init_state = self.init_state
-        assert init_state.basis
-        if self.u is None:
-            u = self.get_unitary_op()
-        else:
-            u = self.u
+    def _get_sub_matrices(self, final_states: torch.Tensor, init_state: torch.Tensor) -> torch.Tensor:
         sub_mats = []
         for state in final_states:
-            sub_mats.append(sub_matrix(u, init_state.state, state))
+            sub_mats.append(sub_matrix(self.u, init_state, state))
         return torch.stack(sub_mats)
 
-    def _get_permanent_norms(self, final_states, init_state = None):
-        if not isinstance(final_states, torch.Tensor):
-            final_states = torch.tensor(final_states, dtype=torch.int)
-        if init_state is None:
-            init_state = self.init_state
-        assert init_state.basis
-        return torch.sqrt((product_factorial(init_state.state) * product_factorial(final_states)))
+    def _get_permanent_norms(self, final_states: torch.Tensor, init_state: torch.Tensor) -> torch.Tensor:
+        init_state = init_state.float()
+        final_states = final_states.float()
+        return torch.sqrt((product_factorial(init_state) * product_factorial(final_states)))
 
     def get_amplitude(self, final_state, init_state = None):
+        """Calculating the transfer amplitude of the given final state
+
+        final_state: fock state, list or torch.tensor
+        """
         if not isinstance(final_state, torch.Tensor):
             final_state = torch.tensor(final_state, dtype=torch.int)
         if init_state is None:
@@ -203,19 +222,9 @@ class QumodeCircuit(Operation):
             amp = per / np.sqrt((product_factorial(init_state.state) * product_factorial(final_state)))
         return amp
 
-    def _get_amplitude_vmap(self, sub_mat, per_norm, init_state = None):
-        """Calculating the transfer amplitude of the given final state
-
-        final_state: fock state, list or torch.tensor
-        """
-        if init_state is None:
-            init_state = self.init_state
-        nphoton = sum(init_state.state)
-        if nphoton == 0:
-            amp = torch.tensor(1.)
-        else:
-            per = permanent(sub_mat)
-            amp = per / per_norm
+    def _get_amplitude_vmap(self, sub_mat, per_norm):
+        per = permanent(sub_mat)
+        amp = per / per_norm.to(per.dtype)
         return amp.reshape(-1)
 
     def get_prob(self, final_state, init_state = None):
@@ -227,12 +236,9 @@ class QumodeCircuit(Operation):
         prob = torch.abs(amplitude) ** 2
         return prob
 
-    def _get_prob_vmap(self, sub_mat, per_norm, init_state = None):
-        """Calculating the transfer probability of the given final state
-
-        final_state: fock state, list or torch.tensor
-        """
-        amplitude = self._get_amplitude_vmap(sub_mat, per_norm, init_state)
+    def _get_prob_vmap(self, sub_mat, per_norm):
+        """Calculating the transfer probability"""
+        amplitude = self._get_amplitude_vmap(sub_mat, per_norm)
         prob = torch.abs(amplitude) ** 2
         return prob
 
