@@ -1,6 +1,7 @@
 """
-Draw quantum circuit 
+Draw quantum circuit
 """
+
 from collections import defaultdict
 
 import matplotlib.pyplot as plt
@@ -8,13 +9,11 @@ import matplotlib.patches as patches
 import numpy as np
 import svgwrite
 
-from .gate import PhaseShift, BeamSplitter, UAnyGate
+from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate
 
 
 class DrawCircuit():
-    """
-    draw photonic circuit
-    """
+    """Draw photonic quantum circuit."""
     def __init__(self, circuit_name, circuit_nmode, circuit_operators) -> None:
         if circuit_name is None:
             circuit_name = 'circuit'
@@ -34,10 +33,22 @@ class DrawCircuit():
         for _, op in enumerate(self.ops):
             op_wires = op.wires
             if isinstance(op, BeamSplitter):
-                theta = op.theta.detach().numpy()
-                phi = op.phi.detach().numpy()
+                if isinstance(op, MZI):
+                    if op.phi_first:
+                        name = 'MZI-PT'
+                    else:
+                        name = 'MZI-TP'
+                elif isinstance(op, BeamSplitterSingle):
+                    name = 'BS-' + op.convention.upper()
+                else:
+                    name = 'BS'
+                theta = op.theta.item()
+                try:
+                    phi = op.phi.item()
+                except:
+                    phi = None
                 order = max(depth[op_wires[0]], depth[op_wires[1]])
-                self.draw_bs(order, op_wires, theta, phi)
+                self.draw_bs(name, order, op_wires, theta, phi)
                 order_dic[order] = order_dic[order] + op_wires
                 for i in op_wires:
                     depth[i] = depth[i] + 1
@@ -45,7 +56,7 @@ class DrawCircuit():
                 depth[op_wires[0]] = max(bs_depth)           ## BS 经过后相同线路深度
                 depth[op_wires[1]] = max(bs_depth)
             elif isinstance(op, PhaseShift):
-                theta = op.theta.detach().numpy()
+                theta = op.theta.item()
                 order = depth[op_wires[0]]
                 self.draw_ps(order, op.wires, theta)
                 order_dic[order] = order_dic[order] + op_wires
@@ -79,7 +90,7 @@ class DrawCircuit():
         for i in range(n_mode):
             self.draw_.add(self.draw_.text(str(i), insert=(25, i*30+30), font_size=12))
 
-    def draw_bs(self, order, wires, theta, phi):
+    def draw_bs(self, name, order, wires, theta, phi = None):
         """
         draw beamsplitter
         """
@@ -92,13 +103,14 @@ class DrawCircuit():
         self.draw_.add(self.draw_.polyline(points=[(x, y_up*30+30+30), (x+30, y_up*30+30+30),
                                                    (x+60, y_up*30+30), (x+90, y_up*30+30)],
                                            fill='none', stroke='black', stroke_width=2))
-        self.draw_.add(self.draw_.text('BS', insert=(x+40, y_up*30+30), font_size=9))
+        self.draw_.add(self.draw_.text(name, insert=(x+40-(len(name)-2)*3, y_up*30+25), font_size=9))
         self.draw_.add(self.draw_.text('θ ='+ str(np.round(theta,3)),
                                        insert=(x+55, y_up*30+30+20-6),
                                        font_size=7))
-        self.draw_.add(self.draw_.text('ϕ ='+ str(np.round(phi,3)),
-                                       insert=(x+55, y_up*30+30+26-6),
-                                       font_size=7))
+        if phi is not None:
+            self.draw_.add(self.draw_.text('ϕ ='+ str(np.round(phi,3)),
+                                           insert=(x+55, y_up*30+30+26-6),
+                                           font_size=7))
 
     def draw_ps(self, order, wires, theta):
         """
@@ -109,10 +121,10 @@ class DrawCircuit():
         # y_down = wires[1]
         self.draw_.add(self.draw_.polyline(points=[(x, y_up*30+30), (x+90, y_up*30+30)],
                                            fill='none', stroke='black', stroke_width=2))
-        self.draw_.add(self.draw_.rect(insert=(x+45, y_up*30+25), size=(6,12), rx=0, ry=0,
+        self.draw_.add(self.draw_.rect(insert=(x+42.5, y_up*30+25), size=(6,12), rx=0, ry=0,
                                        fill='none', stroke='black', stroke_width=1.5))
-        self.draw_.add(self.draw_.text('PS', insert=((x+45), y_up*30+20), font_size=9))
-        self.draw_.add(self.draw_.text('λ ='+str(np.round(theta,3 )), insert=(x+60, y_up*30+20), font_size=7))
+        self.draw_.add(self.draw_.text('PS', insert=(x+40, y_up*30+20), font_size=9))
+        self.draw_.add(self.draw_.text('θ ='+str(np.round(theta,3)), insert=(x+55, y_up*30+20), font_size=7))
 
     def draw_any(self, order, wires):
         """

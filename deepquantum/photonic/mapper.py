@@ -1,6 +1,7 @@
 """
-Map the quantum gate to optical quantum circuit
+Map the quantum gate to photonic quantum circuit
 """
+
 import copy
 import itertools
 import os

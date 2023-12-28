@@ -1,6 +1,7 @@
 """
 Decompse the uniatry matrix to clements structure
 """
+
 from collections import defaultdict
 
 import numpy as np
@@ -11,25 +12,25 @@ class UnitaryDecomposer():
     This class is to decompsoe a unitary matrix into clements structure
     """
     def __init__(self, unitary: np.array, method='cssr'):
-        '''
+        """
         初始化酉矩阵。
         检查输入类型,如果是torch.Tensor转为numpy.ndarray;
         如果不是方阵/酉矩阵，则报错。
-        method 默认为"cssr", clements-single-single-right, single 表示单臂,right 表示最后一列移相器位置在最右边
-        method 列表["rssr","rsdr","rdsr","rddr","rssl","rsdl","rdsl","rddl",
-            "cssr","csdr","cdsr","cddr","cssl","csdl","cdsl","cddl"]
-        '''
+        method 默认为'cssr', clements-single-single-right, single 表示单臂,right 表示最后一列移相器位置在最右边
+        method 列表['rssr','rsdr','rdsr','rddr','rssl','rsdl','rdsl','rddl',
+            'cssr','csdr','cdsr','cddr','cssl','csdl','cdsl','cddl']
+        """
         if isinstance(unitary, np.ndarray):
             self.unitary = unitary.copy()
         elif isinstance(unitary, torch.Tensor):
-            self.unitary = unitary.clone.detach().numpy()
+            self.unitary = unitary.clone().detach().numpy()
         else:
             raise TypeError('The matrix to be decomposed must be in the type of numpy array or pytorch tensor.')
         if (len(self.unitary.shape)!=2)or(self.unitary.shape[0]!=self.unitary.shape[1]):
             raise TypeError('The matrix to be decomposed must be a square matrix.')
-        if np.abs(unitary@unitary.conj().T - np.eye(len(unitary))).sum()/len(unitary)**2>1e-12:
+        if np.abs(unitary @ unitary.conj().T - np.eye(len(unitary))).sum() / len(unitary) ** 2 > 1e-12:
             print('Make sure the input matrix is unitary, in case of an abnormal computation result.')
-        self.unitary[np.abs(self.unitary)<1e-32] = 1e-32
+        self.unitary[np.abs(self.unitary) < 1e-32] = 1e-32
         self.method = method
 
     def decomp(self) -> dict:
@@ -45,10 +46,10 @@ class UnitaryDecomposer():
         dd: 双臂+双臂
         ds: 双臂+单臂
         """
-        def period_cut(input_angle: float, period: float=np.pi*2) -> float:
+        def period_cut(input_angle: float, period: float = np.pi * 2) -> float:
             return input_angle - np.floor(input_angle/period)*period
 
-        def decomp_rr (unitary : np.array, method : str) -> dict:
+        def decomp_rr(unitary: np.array, method: str) -> dict:
             n_dim = len(unitary)
             info = {}
             info['N'] = n_dim
@@ -71,12 +72,12 @@ class UnitaryDecomposer():
                     # if uniatry[ii,jj] == 0:
                     #     continue
                     ratio = unitary[ii,ii] / (unitary[ii,jj]+1e-32)
-                    theta = 2 * np.arctan( np.abs( ratio ) )
-                    phi = - np.angle(- ratio)
+                    theta = 2 * np.arctan(np.abs(ratio))
+                    phi = - np.angle(-ratio)
                     multiple = get_matrix_inverse_r([jj,ii,phi,theta], n_dim, method)
                     unitary = unitary @ multiple
-                    phi = period_cut(phi,period_phi)
-                    theta = period_cut(theta,period_theta)
+                    phi = period_cut(phi, period_phi)
+                    theta = period_cut(theta, period_theta)
                     info['MZI_list'].append([jj,ii,phi,theta])
             diagonal = np.diag(unitary)
             info['phase_angle'] = np.angle(diagonal)
@@ -84,7 +85,7 @@ class UnitaryDecomposer():
             info['phase_angle'][mask] -= np.floor(info['phase_angle'][mask]/np.pi/2)*np.pi*2
             return info, unitary
 
-        def decomp_cr (unitary : np.array, method : str) -> dict:
+        def decomp_cr(unitary: np.array, method: str) -> dict:
             n_dim = len(unitary)
             info = {}
             info['N']= n_dim
@@ -149,7 +150,7 @@ class UnitaryDecomposer():
             info['phase_angle'][mask] -= np.floor(info['phase_angle'][mask]/np.pi/2)*np.pi*2
             return info, unitary
 
-        def decomp_rl (unitary : np.array, method : str) -> dict:
+        def decomp_rl(unitary: np.array, method: str) -> dict:
             n_dim = len(unitary)
             info = {}
             info['N'] = n_dim
@@ -185,7 +186,7 @@ class UnitaryDecomposer():
             info['phase_angle'][mask] -= np.floor(info['phase_angle'][mask]/np.pi/2)*np.pi*2
             return info, unitary
 
-        def decomp_cl (unitary : np.array, method : str) -> dict:
+        def decomp_cl(unitary: np.array, method: str) -> dict:
             n_dim = len(unitary)
             info = {}
             info['N'] = n_dim
@@ -250,7 +251,7 @@ class UnitaryDecomposer():
             info['phase_angle'][mask] -= np.floor(info['phase_angle'][mask]/np.pi/2)*np.pi*2
             return info, unitary
 
-        def calc_factor_inverse(method,phi,theta):
+        def calc_factor_inverse(method, phi, theta):
             # 计算MZI矩阵T^{-1}的系数（相当于全局相位）
             if 'sd' in method:
                 return -1j
@@ -261,7 +262,7 @@ class UnitaryDecomposer():
             elif 'ds' in method:
                 return -1j*np.exp(1j*phi/2)
 
-        def calc_factor_constr(method,phi,theta):
+        def calc_factor_constr(method, phi, theta):
             # 计算MZI矩阵T的系数（相当于全局相位）
             return calc_factor_inverse(method,phi,theta).conjugate()
 

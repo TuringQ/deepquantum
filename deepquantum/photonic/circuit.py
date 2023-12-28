@@ -60,6 +60,21 @@ class QumodeCircuit(Operation):
         self.ndata = 0
         self.depth = np.array([0] * nmode)
 
+    def __add__(self, rhs: 'QumodeCircuit') -> 'QumodeCircuit':
+        """Addition of the ``QumodeCircuit``.
+
+        The initial state is the same as the first ``QumodeCircuit``.
+        """
+        assert self.nmode == rhs.nmode
+        cir = QumodeCircuit(nmode=self.nmode, init_state=self.init_state, cutoff=self.cutoff, basis=self.basis,
+                            name=self.name, noise=self.noise, mu=self.mu, sigma=self.sigma)
+        cir.operators = self.operators + rhs.operators
+        cir.encoders = self.encoders + rhs.encoders
+        cir.npara = self.npara + rhs.npara
+        cir.ndata = self.ndata + rhs.ndata
+        cir.depth = self.depth + rhs.depth
+        return cir
+
     def to(self, arg: Any) -> 'QumodeCircuit':
         """Set dtype or device of the ``QumodeCircuit``."""
         if arg == torch.float:
