@@ -28,7 +28,7 @@ class UnitaryDecomposer():
             raise TypeError('The matrix to be decomposed must be in the type of numpy array or pytorch tensor.')
         if (len(self.unitary.shape)!=2)or(self.unitary.shape[0]!=self.unitary.shape[1]):
             raise TypeError('The matrix to be decomposed must be a square matrix.')
-        if np.abs(unitary @ unitary.conj().T - np.eye(len(unitary))).sum() / len(unitary) ** 2 > 1e-12:
+        if np.abs(unitary @ unitary.conj().T - np.eye(len(unitary))).sum() / len(unitary) ** 2 > 1e-6:
             print('Make sure the input matrix is unitary, in case of an abnormal computation result.')
         self.unitary[np.abs(self.unitary) < 1e-32] = 1e-32
         self.method = method
