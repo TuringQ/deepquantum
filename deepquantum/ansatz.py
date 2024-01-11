@@ -5,11 +5,12 @@ Ansatze: various quantum circuits
 import random
 from typing import Any, List, Optional, Union
 
+import numpy as np
 import torch
 
-from .qmath import int_to_bitstring
-from .gate import U3Gate, Rxx, Ryy, Rzz
+from .qmath import int_to_bitstring, is_unitary # avoid circular import
 from .circuit import QubitCircuit
+from .gate import U3Gate, Rxx, Ryy, Rzz
 
 
 class Ansatz(QubitCircuit):
@@ -186,6 +187,64 @@ class ControlledUa(Ansatz):
                                          nqubitx=nregister, ancilla=self.ancilla[-1], controls=self.controls,
                                          den_mat=self.den_mat, mps=self.mps, chi=self.chi, debug=debug).inverse()
         self.add(cmult_inv)
+
+
+class HHL(Ansatz):
+    r"""A quantum circuit for the HHL algorithm.
+
+    Args:
+        ncount (int): The number of counting qubits.
+        mat (Any): The Hermitian matrix `A`.
+        t0 (float, optional): The time parameter for the matrix exponential in units of :math:`2\pi`.
+            Default: 1
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
+        mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
+        chi (int or None, optional): The bond dimension for matrix product state representation.
+            Default: ``None``
+        show_barrier (bool, optional): Whether to show the barriers in the circuit. Default: ``False``
+    """
+    def __init__(
+        self,
+        ncount: int,
+        mat: Any,
+        t0: float = 1,
+        den_mat: bool = False,
+        mps: bool = False,
+        chi: Optional[int] = None,
+        show_barrier: bool = False
+    ) -> None:
+        if not isinstance(mat, torch.Tensor):
+            mat = torch.tensor(mat)
+        t0 *= 2 * torch.pi
+        unitary = torch.linalg.matrix_exp(1j * mat * t0 / 2 ** ncount)
+        assert is_unitary(unitary)
+        nreg_i = int(np.log2(len(unitary)))
+        nqubit = 1 + ncount + nreg_i
+        self.unitary = unitary
+        super().__init__(nqubit=nqubit, wires=None, minmax=None, ancilla=None, controls=None,
+                         init_state='zeros', name='HHL', den_mat=den_mat, mps=mps, chi=chi)
+        qpe = QuantumPhaseEstimation(nqubit=nqubit, ncount=ncount, unitary=unitary, minmax=[1, nqubit-1],
+                                     den_mat=self.den_mat, mps=self.mps, chi=self.chi, show_barrier=show_barrier)
+        self.add(qpe)
+        if show_barrier:
+            self.barrier()
+
+        for i in range(2 ** ncount):
+            for j in range(ncount):
+                if format(i, '0' + str(ncount) + 'b')[ncount-j-1] == '0':
+                    self.x(1 + j)
+            theta = 2 * torch.pi * i / 2 ** ncount
+            self.ry(0, inputs=theta, controls=list(range(1, ncount+1)))
+            for j in range(ncount):
+                if format(i, '0' + str(ncount) + 'b')[ncount-j-1] == '0':
+                    self.x(1 + j)
+            if show_barrier:
+                self.barrier()
+
+        iqpe = qpe.inverse()
+        self.add(iqpe)
+        if show_barrier:
+            self.barrier()
 
 
 class NumberEncoder(Ansatz):
@@ -439,12 +498,64 @@ class QuantumFourierTransform(Ansatz):
             k += 1
 
 
+class QuantumPhaseEstimation(Ansatz):
+    """Quantum phase estimation for arbitrary unitary operator.
+
+    Args:
+        nqubit (int): The number of qubits in the circuit.
+        ncount (int): The number of counting qubits.
+        unitary (Any): The unitary operator.
+        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
+            operation acts on. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
+        mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
+        chi (int or None, optional): The bond dimension for matrix product state representation.
+            Default: ``None``
+        show_barrier (bool, optional): Whether to show the barriers in the circuit. Default: ``False``
+    """
+    def __init__(
+        self,
+        nqubit: int,
+        ncount: int,
+        unitary: Any,
+        minmax: Optional[List[int]] = None,
+        den_mat: bool = False,
+        mps: bool = False,
+        chi: Optional[int] = None,
+        show_barrier: bool = False
+    ) -> None:
+        if not isinstance(unitary, torch.Tensor):
+            unitary = torch.tensor(unitary, dtype=torch.cfloat)
+        assert is_unitary(unitary)
+        nreg_i = int(np.log2(len(unitary)))
+        if minmax is None:
+            minmax = [0, ncount + nreg_i - 1]
+        assert minmax[1] - minmax[0] == ncount + nreg_i - 1
+        self.unitary = unitary
+        super().__init__(nqubit=nqubit, wires=None, minmax=minmax, ancilla=None, controls=None,
+                         init_state='zeros', name='QuantumPhaseEstimation', den_mat=den_mat,
+                         mps=mps, chi=chi)
+        wires_c = list(range(minmax[0], minmax[0] + ncount))
+        wires_i = list(range(minmax[0] + ncount, minmax[1] + 1))
+        self.hlayer(wires_c)
+        if show_barrier:
+            self.barrier()
+        for i, wire in enumerate(wires_c):
+            u = torch.linalg.matrix_power(self.unitary, 2 ** (ncount - 1 - i))
+            self.any(unitary=u, wires=wires_i, controls=wire)
+        if show_barrier:
+            self.barrier()
+        iqft = QuantumFourierTransform(nqubit=nqubit, minmax=[wires_c[0], wires_c[-1]], den_mat=self.den_mat,
+                                       mps=self.mps, chi=self.chi, show_barrier=show_barrier).inverse()
+        self.add(iqft)
+
+
 class QuantumPhaseEstimationSingleQubit(Ansatz):
     """Quantum phase estimation for single-qubit gate.
 
     Args:
         t (int): The number of counting qubits.
-        phase (Any, optional): The phase to be estimated.
+        phase (Any): The phase to be estimated.
         den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
         chi (int or None, optional): The bond dimension for matrix product state representation.

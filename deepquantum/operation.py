@@ -19,7 +19,7 @@ class Operation(nn.Module):
     r"""A base class for quantum operations.
 
     Args:
-        name (str, optional): The name of the quantum operation. Default: ``None``
+        name (str or None, optional): The name of the quantum operation. Default: ``None``
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
@@ -105,7 +105,7 @@ class Gate(Operation):
     r"""A base class for quantum gates.
 
     Args:
-        name (str, optional): The name of the gate. Default: ``None``
+        name (str or None, optional): The name of the gate. Default: ``None``
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``

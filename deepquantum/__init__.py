@@ -12,6 +12,7 @@ from . import circuit
 from . import gate
 from . import layer
 from . import operation
+from . import optimizer
 from . import qmath
 from . import state
 from . import utils
@@ -45,3 +46,5 @@ from .qmath import meyer_wallach_measure
 from .state import QubitState, MatrixProductState
 
 from .photonic import QumodeCircuit, FockState, permanent
+from .photonic import UgateMap, UnitaryDecomposer, DrawClements
+from .photonic import Clements

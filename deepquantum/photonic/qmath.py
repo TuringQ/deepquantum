@@ -1,12 +1,16 @@
+"""
+Common functions
+"""
+
 import itertools
-from typing import Any, List, Optional, Union
+from typing import Dict, List
 
 import torch
 from scipy import special
 from torch import vmap
 
 
-def dirac_ket(matrix: torch.Tensor) -> str:
+def dirac_ket(matrix: torch.Tensor) -> Dict:
     """
     the dirac state output with batch
     """
@@ -14,42 +18,43 @@ def dirac_ket(matrix: torch.Tensor) -> str:
     for i in range(matrix.shape[0]): # consider batch i
         state_i = matrix[i]
         abs_state = abs(state_i)
-        # get largest k values with abs(amplitudes)
+        # get the largest k values with abs(amplitudes)
         top_k = torch.topk(abs_state.flatten(), k=min(len(abs_state), 5), largest=True).values
         idx_all = []
-        ket_repr_i = ''
+        ket_lst = []
         for amp in top_k:
             idx = torch.nonzero(abs_state == amp)[0].tolist()
             idx_all.append(idx)
             # after finding the indx, set the value to 0, avoid the same abs values
             abs_state[tuple(idx)] = 0
-            lst1 = list(map(lambda x:str(x), idx))
+            state_b = ''.join(map(str, idx))
             if amp > 0:
-                state_str = f'({state_i[tuple(idx)]:6.3f})' + '|' + ''.join(lst1) + '>'
-                ket_repr_i = ket_repr_i + ' + ' + state_str
-        batch_i = 'state_' + f'{i}'
-        ket_dict[batch_i] = ket_repr_i[3:]
+                state_str = f' + ({state_i[tuple(idx)]:6.3f})|{state_b}>'
+                ket_lst.append(state_str)
+            ket = ''.join(ket_lst)
+        batch_i = f'state_{i}'
+        ket_dict[batch_i] = ket[3:]
     return ket_dict
 
 
-def sort_dict_fock_basis(state_dict, idx = 0):
+def sort_dict_fock_basis(state_dict: Dict, idx: int = 0) -> Dict:
     """Sort the dictionary of Fock basis states in descending order of probs
     """
-    sort_list = sorted(state_dict.items(),  key=lambda t: abs(t[1][idx]), reverse=True)
+    sort_list = sorted(state_dict.items(), key=lambda t: abs(t[1][idx]), reverse=True)
     sorted_dict = {}
     for key, value in sort_list:
         sorted_dict[key] = value
     return sorted_dict
 
 
-def sub_matrix(u, input_state, output_state):
+def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.Tensor) -> torch.Tensor:
     """Get the submatrix for calculating the transfer amplitude and transfer probs from the given matrix,
     the input state and the output state. The rows are chosen according to the output state and the columns
     are chosen according to the input state.
 
     u: torch.tensor, the unitary matrix for the circuit or component
     """
-    def set_copy_indx(state):
+    def set_copy_indx(state: torch.Tensor) -> List:
         """
         picking up indices from the nonezero elements of state,
         repeat times depend on the nonezero value
@@ -69,7 +74,7 @@ def sub_matrix(u, input_state, output_state):
     return torch.squeeze(u2)
 
 
-def permanent(mat):
+def permanent(mat: torch.Tensor) -> torch.Tensor:
     shape = mat.shape
     if len(mat.size()) == 0:
         return mat
@@ -87,7 +92,7 @@ def permanent(mat):
     return permanent_ryser(mat)
 
 
-def create_subset(num_coincidence):
+def create_subset(num_coincidence: int) -> List:
     """
     all subset from {1,2,...n}
     """
@@ -101,8 +106,8 @@ def create_subset(num_coincidence):
     return subsets
 
 
-def permanent_ryser(mat):
-    def helper(subset, mat):
+def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
+    def helper(subset: torch.Tensor, mat: torch.Tensor) -> torch.Tensor:
         num_elements = subset.numel()
         s = torch.sum(mat[:, subset], dim=1)
         value_times = torch.prod(s) * (-1) ** num_elements
@@ -118,7 +123,7 @@ def permanent_ryser(mat):
     return value_perm
 
 
-def product_factorial(state):
+def product_factorial(state: torch.Tensor) -> torch.Tensor:
     """
     return the product of the factorial of each element
     |s_1,s_2,...s_n> --> s_1!*s_2!*...s_n!
@@ -126,7 +131,7 @@ def product_factorial(state):
     return special.factorial(state).prod(axis=-1, keepdims=True)
 
 
-def fock_combinations(nmode, nphoton):
+def fock_combinations(nmode: int, nphoton: int) -> List:
     """Generate all possible combinations of Fock states for a given number of modes and photons.
 
     Args:
@@ -144,7 +149,7 @@ def fock_combinations(nmode, nphoton):
         [[0, 0, 2], [0, 1, 1], [0, 2, 0], [1, 0, 1], [1, 1, 0], [2, 0, 0]]
     """
     result = []
-    def backtrack(state, length, num_sum):
+    def backtrack(state: List[int], length: int, num_sum: int) -> None:
         """A helper function that uses backtracking to generate all possible Fock states.
 
         Args:
