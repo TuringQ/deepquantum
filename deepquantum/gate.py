@@ -2038,7 +2038,7 @@ class UAnyGate(ArbitraryGate):
     r"""Arbitrary unitary gate.
 
     Args:
-        unitaty (Any, optional): Any given unitary matrix.
+        unitaty (Any): Any given unitary matrix.
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``

@@ -8,8 +8,8 @@ from typing import List, Union, Optional, Any
 import torch
 from torch import nn
 
-from .operation import Layer
 from .gate import PauliX, PauliY, PauliZ, U3Gate, Hadamard, Rx, Ry, Rz, CNOT
+from .operation import Layer
 from .qmath import multi_kron
 
 

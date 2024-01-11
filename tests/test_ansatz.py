@@ -1,8 +1,8 @@
-import pytest
 import math
 from fractions import Fraction
 
 import deepquantum as dq
+import pytest
 
 
 def test_quantum_phase_estimation_single_qubit():
