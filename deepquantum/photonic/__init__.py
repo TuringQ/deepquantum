@@ -1,3 +1,7 @@
+"""
+Photonic Module
+"""
+
 from . import ansatz
 from . import circuit
 from . import decompose
@@ -11,7 +15,7 @@ from . import state
 from .ansatz import Clements
 from .circuit import QumodeCircuit
 from .decompose import UnitaryDecomposer
-from .draw import Graph_Mzi
+from .draw import DrawClements
 from .mapper import UgateMap
 from .qmath import permanent
 from .state import FockState

@@ -2,16 +2,24 @@
 Base classes
 """
 
-from typing import Any, List, Optional, Tuple, Union
+from typing import List, Optional, Union
 
 import torch
 from torch import nn
 
-from .state import FockState
 from ..qmath import inverse_permutation
 
 
 class Operation(nn.Module):
+    """A base class for quantum operations.
+
+    Args:
+        name (str or None, optional): The name of the quantum operation. Default: ``None``
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
+        wires (int, List or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int, optional): The Fock space truncation. Default: 2
+    """
     def __init__(
         self,
         name: Optional[str] = None,
@@ -39,7 +47,7 @@ class Operation(nn.Module):
         return self.tensor_rep(x)
 
     def _convert_indices(self, indices: Union[int, List[int]]) -> List[int]:
-        """Convert and check the indices of the qumodes."""
+        """Convert and check the indices of the modes."""
         if isinstance(indices, int):
             indices = [indices]
         assert isinstance(indices, list), 'Invalid input type'
@@ -50,7 +58,7 @@ class Operation(nn.Module):
         return indices
 
     def _check_minmax(self, minmax: List[int]) -> None:
-        """Check the minmum and maximum indices of the qubits."""
+        """Check the minmum and maximum indices of the modes."""
         assert isinstance(minmax, list)
         assert len(minmax) == 2
         assert all(isinstance(i, int) for i in minmax)
@@ -58,10 +66,19 @@ class Operation(nn.Module):
 
 
 class Gate(Operation):
+    r"""A base class for photonic quantum gates.
+
+    Args:
+        name (str or None, optional): The name of the gate. Default: ``None``
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int, optional): The Fock space truncation. Default: 2
+    """
     def __init__(
         self,
         name: Optional[str] = None,
-        nmode: int = None,
+        nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: int = 2
     ) -> None:
@@ -72,6 +89,7 @@ class Gate(Operation):
         super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff)
 
     def update_matrix(self) -> torch.Tensor:
+        """Update the local unitary matrix."""
         return self.matrix
 
     def get_unitary_op(self) -> torch.Tensor:
@@ -83,13 +101,12 @@ class Gate(Operation):
         m2 = torch.eye(nmode2, dtype=matrix.dtype, device=matrix.device)
         return torch.block_diag(m1, matrix, m2)
 
-    def get_unitary_state(self, matrix) -> torch.Tensor:
-        """Get the local unitary matrix acting on Fock state tensor.
-        """
+    def get_unitary_state(self, matrix: torch.Tensor) -> torch.Tensor:
+        """Get the local unitary matrix acting on Fock state tensors."""
         raise NotImplementedError
 
     def update_unitary_state(self) -> torch.Tensor:
-        """Update the local unitary matrix acting on fock state tensor."""
+        """Update the local unitary matrix acting on Fock state tensors."""
         matrix = self.update_matrix()
         return self.get_unitary_state(matrix)
 

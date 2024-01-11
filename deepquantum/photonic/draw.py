@@ -19,9 +19,8 @@ class DrawCircuit():
             circuit_name = 'circuit'
         n_mode = circuit_nmode
         name = circuit_name + '.svg'
-        draw_circuit = svgwrite.Drawing(name, profile='full')
-        draw_circuit['height'] = f'{10/11 * n_mode}cm'
-        self.draw_ = draw_circuit
+        self.draw_ = svgwrite.Drawing(name, profile='full')
+        self.draw_['height'] = f'{10/11 * n_mode}cm'
         self.n_mode = n_mode
         self.name = name
         self.ops = circuit_operators
@@ -153,7 +152,7 @@ class DrawCircuit():
             self.draw_.add(self.draw_.polyline(points=[(x, k*30+30),(x+90, k*30+30)],
                                                fill='none', stroke='black', stroke_width=2))
 
-class Graph_Mzi():
+class DrawClements():
     """
     for plotting mzi clements structure
     n_mode: int

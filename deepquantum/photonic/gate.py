@@ -1,5 +1,5 @@
 """
-Optical quantum gates
+Photonic quantum gates
 """
 
 import copy
@@ -14,9 +14,7 @@ from ..qmath import is_unitary
 
 
 class PhaseShift(Gate):
-    """
-    The phaseshifter in the optical quantum gates
-    """
+    """Phase Shifter."""
     def __init__(
         self,
         inputs: Any = None,
@@ -61,7 +59,7 @@ class PhaseShift(Gate):
         self.matrix = matrix.detach()
         return matrix
 
-    def get_unitary_state(self, matrix) -> torch.Tensor:
+    def get_unitary_state(self, matrix: torch.Tensor) -> torch.Tensor:
         """Get the local unitary matrix acting on Fock state tensor."""
         return torch.stack([matrix[0, 0] ** n for n in range(self.cutoff)]).reshape(-1).diag_embed()
 
@@ -76,8 +74,7 @@ class PhaseShift(Gate):
 
 
 class BeamSplitter(Gate):
-    r"""
-    The beamsplitter in the optical quantum gates
+    r"""Beam Splitter
     See https://arxiv.org/abs/2004.11002 Eq.(42b)
 
     **Matrix Representation:**
@@ -144,7 +141,7 @@ class BeamSplitter(Gate):
         self.matrix = matrix.detach()
         return matrix
 
-    def get_unitary_state(self, matrix) -> torch.Tensor:
+    def get_unitary_state(self, matrix: torch.Tensor) -> torch.Tensor:
         """Get the local unitary matrix acting on Fock state tensor.
         See https://arxiv.org/pdf/2004.11002.pdf Eq.(74) and Eq.(75)
         """
@@ -242,8 +239,7 @@ class MZI(BeamSplitter):
 
 
 class BeamSplitterTheta(BeamSplitter):
-    r"""
-    This type BeamSplitter is fixing phi at pi/2
+    r"""Beam Splitter with fixed :math:`\phi` at :math:`\pi/2`.
 
     **Matrix Representation:**
     .. math::
@@ -282,8 +278,7 @@ class BeamSplitterTheta(BeamSplitter):
 
 
 class BeamSplitterPhi(BeamSplitter):
-    r"""
-    This type BeamSplitter is fixing theta at pi/4
+    r"""Beam Splitter with fixed :math:`\theta` at :math:`\pi/4`.
 
     **Matrix Representation:**
     .. math::
@@ -446,7 +441,7 @@ class UAnyGate(Gate):
         self.register_buffer('matrix', unitary)
         self.register_buffer('unitary_state', None)
 
-    def get_unitary_state(self, matrix) -> torch.Tensor:
+    def get_unitary_state(self, matrix: torch.Tensor) -> torch.Tensor:
         """Get the local unitary matrix acting on Fock state tensor.
         See https://arxiv.org/pdf/2004.11002.pdf Eq.(71)
         """

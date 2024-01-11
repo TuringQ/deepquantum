@@ -1,4 +1,8 @@
-from typing import Any, List, Optional, Union
+"""
+Ansatze: various photonic quantum circuits
+"""
+
+from typing import Any, Dict, Optional
 
 import numpy as np
 import torch
@@ -7,11 +11,12 @@ from .circuit import QumodeCircuit
 
 
 class Clements(QumodeCircuit):
+    """Clements circuit."""
     def __init__(
         self,
         nmode: int,
         init_state: Any,
-        cutoff: int = None,
+        cutoff: Optional[int] = None,
         basis: bool = True,
         phi_first: bool = True,
         noise: bool = False,
@@ -37,7 +42,7 @@ class Clements(QumodeCircuit):
             for wire in self.wires:
                 self.ps(wire, encode=True)
 
-    def dict2data(self, angle_dict, dtype = torch.float):
+    def dict2data(self, angle_dict: Dict, dtype = torch.float) -> torch.Tensor:
         angle_dict = angle_dict.copy()
         for key in angle_dict.keys():
             angle = angle_dict[key]
