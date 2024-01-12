@@ -262,13 +262,13 @@ class QumodeCircuit(Operation):
             amp = torch.tensor(1.)
         else:
             per = permanent(sub_mat)
-            amp = per / self._get_permanent_norms(init_state.state, final_state).to(per.dtype)
+            amp = per / self._get_permanent_norms(init_state.state, final_state).to(per.dtype).to(per.device)
         return amp
 
     def _get_amplitude_vmap(self, sub_mat: torch.Tensor, per_norm: torch.Tensor) -> torch.Tensor:
         """Get the transfer amplitude."""
         per = permanent(sub_mat)
-        amp = per / per_norm.to(per.dtype)
+        amp = per / per_norm.to(per.dtype).to(per.device)
         return amp.reshape(-1)
 
     def get_prob(self, final_state: Any, init_state: Optional['FockState'] = None) -> torch.Tensor:

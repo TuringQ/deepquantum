@@ -128,7 +128,10 @@ def product_factorial(state: torch.Tensor) -> torch.Tensor:
     return the product of the factorial of each element
     |s_1,s_2,...s_n> --> s_1!*s_2!*...s_n!
     """
-    return special.factorial(state).prod(axis=-1, keepdims=True)
+    fac = special.factorial(state.cpu())
+    if not isinstance(fac, torch.Tensor):
+        fac = torch.tensor(fac)
+    return fac.prod(axis=-1, keepdims=True)
 
 
 def fock_combinations(nmode: int, nphoton: int) -> List:
