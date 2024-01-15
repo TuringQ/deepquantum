@@ -8,8 +8,18 @@ import numpy as np
 import torch
 
 class UnitaryDecomposer():
-    """
-    This class is to decompsoe a unitary matrix into clements structure
+    """This class is to decompsoe a unitary matrix into clements structure.
+
+    Args:
+        unitary (np.ndarray): the unitary matrix to be decomposed.
+        method (str): the decompse method, only 16 values ('rssr','rsdr','rdsr',\
+            'rddr','rssl','rsdl','rdsl','rddl','cssr','csdr','cdsr','cddr','cssl',\
+            'csdl','cdsl','cddl') are valid. \
+            The first char denotes "clements" or "reck" architecture.
+            The second char denotes signle or double arms of outer phase shifters.
+            The third char denotes signle or double arms of innter phase shifters.
+            The last char denotes the position of a column of phase shiters, \
+                "l" for left and "r" for right.
     """
     def __init__(self, unitary: np.array, method='cssr'):
         """
@@ -332,29 +342,10 @@ class UnitaryDecomposer():
                 b2 =  a2 + np.pi + (phi+phi_)/2
                 return phi_, theta_, b1, b2
 
-        def constr_r(info):
-            n_dim = info['N']
-            method = info['method']
-            unitary = np.eye(n_dim, dtype=complex)
-            for idx in range(len(info['MZI_list'])):
-                multiple = get_matrix_constr_r(info['MZI_list'][idx], n_dim, method)
-                unitary = multiple @ unitary
-            return unitary
-
-        def constr_l(info):
-            n_dim = info['N']
-            method = info['method']
-            unitary = np.eye(n_dim, dtype=complex)
-            ordered_list = info['MZI_list']  #  注意顺序。对于Reck，T2- T1- U = D => U = T1 T2 D
-            for idx in range(len(ordered_list)):
-                multiple = get_matrix_constr_l(ordered_list[idx], n_dim, method)
-                unitary = unitary @ multiple
-            return unitary
-
         method = self.method
         if method not in ['rssr','rsdr', 'rdsr', 'rddr', 'rssl', 'rsdl', 'rdsl', 'rddl',\
         'cssr', 'csdr', 'cdsr', 'cddr', 'cssl', 'csdl', 'cdsl', 'cddl']:
-            raise Exception('请检查分解方式！')
+            raise LookupError('请检查分解方式！')
         elif method[0]+method[-1] == 'cr':
             temp_0 = decomp_cr(self.unitary, method)[0]
         elif method[0]+method[-1] == 'cl':
