@@ -129,10 +129,12 @@ def test_random_circuit_two_approaches():
                 dq_gate_2.mzi([k, k+1], angle_1) 
     re1 = dq_gate_1()
     re2 = dq_gate_2()
-    error_sum = 0
+    max_error = -1.0
     for key, value in re1.items():
         temp = key.state.tolist()
-        error_sum = error_sum + abs(re2[0][tuple(temp)] - value)
-    assert error_sum < 1e-4
+        tmp_error = abs(re2[0][tuple(temp)] - value)
+        if tmp_error > max_error:
+            max_error = tmp_error
+    assert max_error < 1e-4
 
 
