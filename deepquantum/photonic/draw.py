@@ -13,7 +13,15 @@ from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate
 
 
 class DrawCircuit():
-    """Draw photonic quantum circuit."""
+    """
+    Draw photonic quantum circuit.
+    
+    Args:
+        circuit_name: the name of the circuit
+        circuit_nmode: number of modes for the circuit
+        circuit_operators: the operators of the circuit
+    
+    """
     def __init__(self, circuit_name, circuit_nmode, circuit_operators) -> None:
         if circuit_name is None:
             circuit_name = 'circuit'
@@ -154,14 +162,15 @@ class DrawCircuit():
 
 class DrawClements():
     """
-    for plotting mzi clements structure
-    n_mode: int
-    mzi_info: dictionary for mzi parameters, result for decomse function
-    cl: color for plotting
-    fs: fontsize
-    type: the way for clements decomposition, cssr or cssl
+    Plotting nxn Clements structure
+    Args:
+        n_mode(int): modes of the Clements structure
+        mzi_info: dictionary for mzi parameters, result from the decompose function
+        cl: color for plotting
+        fs: fontsize
+        type: the way for clements decomposition, cssr or cssl
     """
-    def __init__(self, n_mode, mzi_info, cl='dodgerblue', fs=30, type_='cssr'):
+    def __init__(self, n_mode, mzi_info, cl='dodgerblue', fs=30, type_='cssr') -> None:
         self.n_mode = n_mode
         self.type = type_
         self.mzi_info = mzi_info

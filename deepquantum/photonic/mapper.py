@@ -19,17 +19,27 @@ from torch import vmap
 
 class UgateMap():
     """
-    map the quantum U gate to unitary matrix in a optical quantum circuit.
-    n_qubits: the number of qubits the quantum gates acting on.
-    nmode: the number of modes for the circuits.
-    ugate: the target quantum U gate.
-    success: sqrt of the probability of the optimized quantum gate.
-    preferred values: 1/3 for 2qubits, 1/4 for 3qubits
-    aux: two auxiliary modes in quantum circuit, values could be [0,0] or [1,0].
-    the positon is the last two mode in the circuit by default
-    aux_pos: the position of the auxiliary modes, default=[n_mode-2, n_mode-1].
+    map the quantum U gate to unitary matrix in the optical quantum circuit.
+    
+    Args:
+        n_qubits(int): the number of qubits the quantum gates acting on.
+        nmode(int): the number of modes for the circuits.
+        ugate(Any): the target quantum U gate.
+        success(ANy): sqrt of the probability of the optimized quantum gate.
+        preferred values: 1/3 for 2qubits, 1/4 for 3qubits
+        aux(List): two auxiliary modes in quantum circuit, values could be [0,0] or [1,0].
+        the positon is the last two mode in the circuit by default
+        aux_pos(List): the position of the auxiliary modes, default=[n_mode-2, n_mode-1].
     """
-    def __init__(self, n_qubits: int, n_mode: int, ugate: Any, success:Any, aux: List=None, aux_pos: List=None):
+    def __init__(
+        self,
+        n_qubits: int,
+        n_mode: int,
+        ugate: Any,
+        success: Any,
+        aux: List = None,
+        aux_pos: List = None
+    ) -> None:
         assert 2*n_qubits<=n_mode, 'need more modes'
         self.n_mode = n_mode
         self.ugate = ugate  # the quantum gate to map
@@ -395,7 +405,7 @@ class UgateMap():
         return  temp_ind
 
     @staticmethod
-    def permanent(mat): # using torch tensor for calculating
+    def permanent(mat):
         """
         Using RyserFormula for permanent, valid for square matrix
         """
@@ -460,9 +470,13 @@ class UgateMap():
     def plot_u(unitary, vmax=1, vmin=0, fs=20, len_ticks=5, cl='RdBu'):
         """
         plotting the matrix in graphic way
-        fs: fontsize
-        len_ticks: # of ticks in colorbar
-        ...
+        Args:
+            unitary: the plotting matrix
+            vmax: max value of the unitary matrix
+            vmin: min value of the unitary matrix
+            fs: fontsize
+            len_ticks: # of ticks in colorbar
+            cl: color of plotting
         """
         plt.rcParams ['figure.figsize'] = (8, 8)
         step = (vmax -vmin)/(len_ticks-1)
