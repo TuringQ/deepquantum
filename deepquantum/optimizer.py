@@ -75,6 +75,7 @@ class OptimizerBayesian(Optimizer):
     def param_suggest(self) -> np.ndarray:
         self.util.update_params()
         x_probe = self.optimizer.suggest(self.util)
+        # pylint: disable=protected-access
         x = self.optimizer._space._as_array(x_probe) # a list
         param_array = np.asarray(x).reshape(1,-1)
         return param_array
@@ -83,10 +84,14 @@ class OptimizerBayesian(Optimizer):
         for i in range(len(param_array)):
             x = param_array[i]
             param_dict = dict(zip(self.param_dict.keys(), x))
+            # pylint: disable=protected-access
             if self.optimizer._space._constraint is None:
+                # pylint: disable=protected-access
                 self.optimizer._space.register(x, target[i])
             else:
+                # pylint: disable=protected-access
                 constraint_value = self.optimizer._space._constraint.eval(**param_dict)
+                # pylint: disable=protected-access
                 self.optimizer._space.register(x, target[i], constraint_value)
 
             if target[i] > self.best_target:
