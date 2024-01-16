@@ -6,10 +6,8 @@ import copy
 from typing import Dict, List
 
 import numpy as np
+import torch
 from bayes_opt import BayesianOptimization, UtilityFunction
-
-
-
 
 
 class Optimizer(object):
@@ -18,13 +16,23 @@ class Optimizer(object):
     Args:
         target_func (function): The target function to optimize, more specifically, to minimize. \
             It is supposed to accept **kwargs in the format of `param_init` as inputs.
-        param_init (Dict): The initial guess of solutions for the target function. \
-            The keys of it should be consistent with inputs of `target_func`.
+        param_init (Dict, List, np.ndarray, torch.tensor): The initial guess of solutions for \
+            the target function. The keys of it should be consistent with inputs of `target_func`.
         random_state (int): the random seed for this optimization process.
     """
     def __init__(self, target_func, param_init, random_state = 0):
         self.target_func = target_func
-        self.param_dict = copy.deepcopy(param_init)
+        if (type(param_init) == list) or (type(param_init) == np.ndarray):
+            self.param_dict = {}
+            for idx in range(len(param_init)):
+                self.param_dict[f'x_{idx}'] = param_init[idx]
+        elif (type(param_init) == torch.tensor) or (type(param_init) == torch.nn.parameter.Parameter):
+            param_init_arr = param_init.detach().numpy().copy()
+            self.param_dict = {}
+            for idx in range(len(param_init)):
+                self.param_dict[f'x_{idx}'] = param_init_arr[idx]
+        elif (type(param_init) == dict):
+            self.param_dict = copy.deepcopy(param_init)
         self.random_state = random_state
     def __str__(self) -> str:
         return 'Optimizer'
@@ -37,8 +45,8 @@ class OptimizerBayesian(Optimizer):
     Args:
         target_func (function): The target function to optimize, more specifically, to minimize. \
             It is supposed to accept **kwargs in the format of `param_init` as inputs.
-        param_init (dict): The initial guess of solutions for the target function. \
-            The keys of it should be consistent with inputs of `target_func`.
+        param_init (dict, list, np.ndarray, torch.tensor): The initial guess of solutions for \
+            the target function. The keys of it should be consistent with inputs of `target_func`.
         random_state (int): the random seed for this optimization process.
 
     Attention: 
@@ -116,8 +124,8 @@ class OptimizerSPSA(Optimizer):
     Args:
         target_func (function): The target function to optimize, more specifically, to minimize. \
             It is supposed to accept **kwargs in the format of `param_init` as inputs.
-        param_init (dict): The initial guess of solutions for the target function. \
-            The keys of it should be consistent with inputs of `target_func`.
+        param_init (dict, list, np.ndarray, torch.tensor): The initial guess of solutions for \
+            the target function. The keys of it should be consistent with inputs of `target_func`.
         random_state (int): the random seed for this optimization process.
     """
     def __init__(self, target_func, param_init, random_state = 0):
@@ -191,8 +199,8 @@ class OptimizerFourier(Optimizer):
     Args:
         target_func (function): The target function to optimize, more specifically, to minimize. \
             It is supposed to accept **kwargs in the format of `param_init` as inputs.
-        param_init (dict): The initial guess of solutions for the target function. \
-            The keys of it should be consistent with inputs of `target_func`.
+        param_init (dict, list, np.ndarray, torch.tensor): The initial guess of solutions for \
+            the target function. The keys of it should be consistent with inputs of `target_func`.
         R (int): the order of Fourier series to approximate.
         lr: the step length (or equivalently, learning rate) of the learning process \
             (namely, gradient descent process).
