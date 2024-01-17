@@ -154,8 +154,8 @@ class BeamSplitter(Gate):
                 p = m + n
                 if 0 < p < self.cutoff:
                     unitary[m, n, p, 0] = (
-                        matrix[0, 0] * sqrt[m] / sqrt[p] * unitary[m - 1, n, p - 1, 0]
-                        + matrix[1, 0] * sqrt[n] / sqrt[p] * unitary[m, n - 1, p - 1, 0]
+                        matrix[0, 0] * sqrt[m] / sqrt[p] * unitary[m - 1, n, p - 1, 0].clone()
+                        + matrix[1, 0] * sqrt[n] / sqrt[p] * unitary[m, n - 1, p - 1, 0].clone()
                     )
         # rank 4
         for m in range(self.cutoff):
@@ -164,8 +164,8 @@ class BeamSplitter(Gate):
                     q = m + n - p
                     if 0 < q < self.cutoff:
                         unitary[m, n, p, q] = (
-                            matrix[0, 1] * sqrt[m] / sqrt[q] * unitary[m - 1, n, p, q - 1]
-                            + matrix[1, 1] * sqrt[n] / sqrt[q] * unitary[m, n - 1, p, q - 1]
+                            matrix[0, 1] * sqrt[m] / sqrt[q] * unitary[m - 1, n, p, q - 1].clone()
+                            + matrix[1, 1] * sqrt[n] / sqrt[q] * unitary[m, n - 1, p, q - 1].clone()
                         )
         return unitary
 
