@@ -109,8 +109,7 @@ class QumodeCircuit(Operation):
         self,
         data: Optional[torch.Tensor] = None,
         state: Any = None,
-        is_prob: bool = False,
-        stepwise: bool = True
+        is_prob: bool = False
     ) -> Union[torch.Tensor, Dict]:
         """Perform a forward pass of the photonic quantum circuit and return the final state.
 
@@ -134,11 +133,7 @@ class QumodeCircuit(Operation):
                 state_dict = self._forward_helper_basis(state=state, is_prob=is_prob)
                 self.state = sort_dict_fock_basis(state_dict)
             else:
-                if stepwise:
-                    self.state = self._forward_helper_tensor(state=state)
-                else:
-                    unitary = self.get_unitary_op()
-                    self.state = self._forward_helper_tensor_global(unitary, state)
+                self.state = self._forward_helper_tensor(state=state)
                 if self.state.ndim == self.nmode:
                     self.state = self.state.unsqueeze(0)
         else:
@@ -149,17 +144,10 @@ class QumodeCircuit(Operation):
                 state_dict = vmap(self._forward_helper_basis, in_dims=(0, None, None))(data, state, is_prob)
                 self.state = sort_dict_fock_basis(state_dict)
             else:
-                if stepwise:
-                    if state.shape[0] == 1:
-                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, None))(data, state)
-                    else:
-                        self.state = vmap(self._forward_helper_tensor)(data, state)
+                if state.shape[0] == 1:
+                    self.state = vmap(self._forward_helper_tensor, in_dims=(0, None))(data, state)
                 else:
-                    unitary = vmap(self._get_unitary)(data)
-                    if state.shape[0] == 1:
-                        self.state = vmap(self._forward_helper_tensor_global, in_dims=(0, None))(unitary, state)
-                    else:
-                        self.state = vmap(self._forward_helper_tensor_global)(unitary, state)
+                    self.state = vmap(self._forward_helper_tensor)(data, state)
             # for plotting the last data
             self.encode(data[-1])
             self.u = self.get_unitary_op()
@@ -201,13 +189,6 @@ class QumodeCircuit(Operation):
         x = self.operators(self.tensor_rep(state)).squeeze(0)
         return x
 
-    def _forward_helper_tensor_global(self, unitary, state):
-        if state is None:
-            state = self.init_state.state
-        uany = UAnyGate(unitary, nmode=self.nmode, wires=self.wires, cutoff=self.cutoff)
-        x = uany(self.tensor_rep(state)).squeeze(0)
-        return x
-
     def encode(self, data: Optional[torch.Tensor]) -> None:
         """Encode the input data into the photonic quantum circuit parameters.
 
@@ -236,10 +217,6 @@ class QumodeCircuit(Operation):
                 u = op.get_unitary_op() @ u
         self.u = u
         return u
-
-    def _get_unitary(self, data):
-        self.encode(data)
-        return self.get_unitary_op()
 
     def _get_all_fock_basis(self, init_state: torch.Tensor) -> torch.Tensor:
         """Get all possible fock basis states according to the initial state."""

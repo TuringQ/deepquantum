@@ -7,9 +7,7 @@ import pytest
 
 
 def test_random_circuit_two_approaches():
-    """
-    compare two calculating approaches in photonic
-    """
+    """Compare two approaches for the photonic quantum circuit."""
     nmode = np.random.randint(2,7)
     ndevice = np.random.randint(10,100)
     ini_state_pre = np.random.randn(nmode)
@@ -21,8 +19,8 @@ def test_random_circuit_two_approaches():
     ini_state_1 = [int(i) for i in ini_state_pre]
     ini_state_2 = [(1, ini_state_1)]
 
-    dq_gate_1 = dq.QumodeCircuit(nmode=nmode, init_state=ini_state_1, name="test1", cutoff = sum(ini_state_1)+1, basis = True)
-    dq_gate_2 = dq.QumodeCircuit(nmode=nmode, init_state=ini_state_2, name="test2", cutoff = sum(ini_state_1)+1, basis = False)
+    dq_gate_1 = dq.QumodeCircuit(nmode=nmode, init_state=ini_state_1, basis=True)
+    dq_gate_2 = dq.QumodeCircuit(nmode=nmode, init_state=ini_state_2, basis=False)
 
     for _ in range(ndevice): # take the random circuit
             j = np.random.uniform(-2,5)

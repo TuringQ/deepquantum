@@ -532,7 +532,7 @@ class UAnyGate(Gate):
             unitary = torch.tensor(unitary, dtype=torch.cfloat).reshape(-1, len(self.wires))
         assert unitary.dtype in (torch.cfloat, torch.cdouble)
         assert unitary.shape[0] == len(self.wires), 'Please check wires'
-        # assert is_unitary(unitary), 'Please check the unitary matrix'
+        assert is_unitary(unitary), 'Please check the unitary matrix'
         self.register_buffer('matrix', unitary)
         self.register_buffer('unitary_state', None)
 

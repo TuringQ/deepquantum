@@ -5,9 +5,9 @@ Draw quantum circuit
 from collections import defaultdict
 
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 import numpy as np
 import svgwrite
+from  matplotlib import patches
 
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate
 

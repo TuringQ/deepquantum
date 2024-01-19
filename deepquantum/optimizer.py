@@ -39,7 +39,7 @@ class Optimizer(object):
         return 'Optimizer'
 
 class OptimizerBayesian(Optimizer):
-    """Optimizer based on Bayesian optimization.
+    r"""Optimizer based on Bayesian optimization.
 
     See https://github.com/bayesian-optimization/BayesianOptimization.
 
@@ -146,6 +146,12 @@ class OptimizerSPSA(Optimizer):
         self.nparam = len(param_init)
         self.best_param_dict = copy.deepcopy(self.param_dict)
         self.best_target = np.inf
+
+    def set_hyperparam(self, hyperparam: Dict) -> None:
+        """Set hyperparameters whose keys include ``'a'``, ``'c'``, ``'A'``, ``'nepoch'``,
+        ``'alpha'``, ``'gamma'``.
+        """
+        self.hyperparam = hyperparam
 
     def param_suggest(self) -> np.ndarray:
         tmp_param = np.asarray(list(self.param_dict.values()))
