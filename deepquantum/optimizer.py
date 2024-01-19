@@ -3,62 +3,65 @@ Optimizer: various on-chip optimization algorthims
 """
 
 import copy
-from typing import Dict, List
+from typing import Dict, List, Union
 
 import numpy as np
 import torch
 from bayes_opt import BayesianOptimization, UtilityFunction
+from torch import nn
 
 
 class Optimizer(object):
-    r"""A base class for Optimizer.
+    """A base class for optimizers.
 
     Args:
-        target_func (function): The target function to optimize, more specifically, to minimize. \
-            It is supposed to accept **kwargs in the format of `param_init` as inputs.
-        param_init (Dict, List, np.ndarray, torch.tensor): The initial guess of solutions for \
-            the target function. The keys of it should be consistent with inputs of `target_func`.
-        random_state (int): the random seed for this optimization process.
+        target_func (function): The target function to optimize, more specifically, to minimize.
+            It is supposed to accept ``kwargs`` in the format of ``param_init`` as inputs.
+        param_init (Dict, List, np.ndarray or torch.Tensor): The initial parameters for
+            the target function. The keys of it should be consistent with inputs of ``target_func``.
+        random_state (int): The random seed for this optimization process.
     """
     def __init__(self, target_func, param_init, random_state = 0):
         self.target_func = target_func
-        if (type(param_init) == list) or (type(param_init) == np.ndarray):
+        if isinstance(param_init, (list, np.ndarray)):
             self.param_dict = {}
             for idx in range(len(param_init)):
                 self.param_dict[f'x_{idx}'] = param_init[idx]
-        elif (type(param_init) == torch.tensor) or (type(param_init) == torch.nn.parameter.Parameter):
-            param_init_arr = param_init.detach().numpy().copy()
+        elif isinstance(param_init, (torch.Tensor, nn.Parameter)):
+            param_init_arr = param_init.cpu().clone().detach().numpy()
             self.param_dict = {}
             for idx in range(len(param_init)):
                 self.param_dict[f'x_{idx}'] = param_init_arr[idx]
-        elif (type(param_init) == dict):
+        elif isinstance(param_init, dict):
             self.param_dict = copy.deepcopy(param_init)
         self.random_state = random_state
     def __str__(self) -> str:
         return 'Optimizer'
 
 class OptimizerBayesian(Optimizer):
-    r"""Opimizer based on Bayesian optimization. 
+    """Optimizer based on Bayesian optimization.
 
     See https://github.com/bayesian-optimization/BayesianOptimization.
 
     Args:
-        target_func (function): The target function to optimize, more specifically, to minimize. \
-            It is supposed to accept **kwargs in the format of `param_init` as inputs.
-        param_init (dict, list, np.ndarray, torch.tensor): The initial guess of solutions for \
-            the target function. The keys of it should be consistent with inputs of `target_func`.
-        random_state (int): the random seed for this optimization process.
+        target_func (function): The target function to optimize, more specifically, to minimize.
+            It is supposed to accept ``kwargs`` in the format of ``param_init`` as inputs.
+        param_init (Dict, List, np.ndarray or torch.Tensor): The initial parameters for
+            the target function. The keys of it should be consistent with inputs of ``target_func``.
+        random_state (int): The random seed for this optimization process.
 
-    Attention: 
-        In the scenerio of on-chip optimization, the periods of phase shifters are all from 0 to $$2\pi$$, \
-            so in this program the `pbound` (a parameter determining the search region in \
-            Bayesian-Optimization package) is fixed from 0 to $$2\pi$$.
+    Note:
+        In the scenerio of on-chip optimization, the periods of phase shifters are all from 0 to :math:`2\pi`,
+        so in this program the ``pbound`` (a parameter determining the search region in
+        Bayesian-Optimization package) is fixed from 0 to :math:`2\pi`.
     """
     def __init__(self, target_func, param_init, random_state = 0):
         super().__init__(target_func, param_init, random_state)
         def func_to_maximize(**param_dict: Dict) -> float:
             return -self.target_func(**param_dict)
+
         self.pbounds = self.gen_pbounds()
+        # BO 内置用法是最大化目标
         self.optimizer = BayesianOptimization(
             f = func_to_maximize,
             pbounds = self.pbounds,
@@ -110,23 +113,22 @@ class OptimizerBayesian(Optimizer):
     def run(self, nstep: int) -> List:
         for _ in range(nstep):
             p1 = self.param_suggest()
-            # BO 内置用法是最大化目标；但是接下来打印时再添一个符号即可
             f1 = [-self.target_func(p1)]
             self.param_register(p1, f1)
         return list(self.best_param_dict.values())
 
 
 class OptimizerSPSA(Optimizer):
-    r"""Opimizer based on SPSA (Simultaneous Perturbation Stochastic Approximation). 
+    """Optimizer based on SPSA (Simultaneous Perturbation Stochastic Approximation).
 
     See https://www.jhuapl.edu/spsa/Pages/MATLAB.htm.
 
     Args:
-        target_func (function): The target function to optimize, more specifically, to minimize. \
-            It is supposed to accept **kwargs in the format of `param_init` as inputs.
-        param_init (dict, list, np.ndarray, torch.tensor): The initial guess of solutions for \
-            the target function. The keys of it should be consistent with inputs of `target_func`.
-        random_state (int): the random seed for this optimization process.
+        target_func (function): The target function to optimize, more specifically, to minimize.
+            It is supposed to accept ``kwargs`` in the format of ``param_init`` as inputs.
+        param_init (Dict, List, np.ndarray or torch.Tensor): The initial parameters for
+            the target function. The keys of it should be consistent with inputs of ``target_func``.
+        random_state (int): The random seed for this optimization process.
     """
     def __init__(self, target_func, param_init, random_state = 0):
         super().__init__(target_func, param_init, random_state)
@@ -154,9 +156,9 @@ class OptimizerSPSA(Optimizer):
         param_array[1] = tmp_param + delta
         return param_array
 
-    def param_register(self, param_array: np.ndarray, target: np.ndarray) -> None:
-        assert len(param_array)==2
-        assert len(target)==2
+    def param_register(self, param_array: Union[np.ndarray, List], target: Union[np.ndarray, List]) -> None:
+        assert len(param_array) == 2
+        assert len(target) == 2
         param_lr = self.hyperparam['a'] / (1+self.iter+self.hyperparam['A'])**self.hyperparam['alpha']
         param1 = param_array[0]
         param2 = param_array[1]
@@ -193,29 +195,29 @@ class OptimizerSPSA(Optimizer):
 
 
 class OptimizerFourier(Optimizer):
-    r"""Opimizer based on Fourier series approximation of the target function \
+    """Optimizer based on Fourier series approximation of the target function
         in order to obtain the approximation of gradients.
 
     Args:
-        target_func (function): The target function to optimize, more specifically, to minimize. \
-            It is supposed to accept **kwargs in the format of `param_init` as inputs.
-        param_init (dict, list, np.ndarray, torch.tensor): The initial guess of solutions for \
-            the target function. The keys of it should be consistent with inputs of `target_func`.
-        R (int): the order of Fourier series to approximate.
-        lr: the step length (or equivalently, learning rate) of the learning process \
+        target_func (function): The target function to optimize, more specifically, to minimize.
+            It is supposed to accept ``kwargs`` in the format of ``param_init`` as inputs.
+        param_init (Dict, List, np.ndarray or torch.Tensor): The initial parameters for
+            the target function. The keys of it should be consistent with inputs of ``target_func``.
+        order (int): The order of Fourier series to approximate.
+        lr (float): The step length (or equivalently, learning rate) of the learning process
             (namely, gradient descent process).
-        random_state (int): the random seed for this optimization process.
+        random_state (int): The random seed for this optimization process.
     """
-    def __init__(self, target_func, param_init, R = 5, lr = 0.1, random_state = 0):
+    def __init__(self, target_func, param_init, order = 5, lr = 0.1, random_state = 0):
         super().__init__(target_func, param_init, random_state)
         self.iter = 0
-        self.r = R
+        self.r = order
         self.nparam = len(param_init)
         self.best_param_dict = copy.deepcopy(self.param_dict)
         self.best_target = np.inf
         self.lr = lr
         self.a = self.gen_a()
-        self.u = np.zeros((2*R+1)*self.nparam)
+        self.u = np.zeros((2*order+1)*self.nparam)
         self.iter = 0
 
     def gen_a(self) -> np.ndarray:

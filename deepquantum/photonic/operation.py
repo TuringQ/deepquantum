@@ -89,7 +89,7 @@ class Gate(Operation):
         super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff)
 
     def update_matrix(self) -> torch.Tensor:
-        """Update the local unitary matrix."""
+        """Update the local unitary matrix acting on operators."""
         return self.matrix
 
     def get_unitary_op(self) -> torch.Tensor:

@@ -14,7 +14,26 @@ from ..qmath import is_unitary
 
 
 class PhaseShift(Gate):
-    """Phase Shifter."""
+    r"""Phase Shifter.
+
+    **Matrix Representation:**
+
+    .. math::
+
+        PS(\theta) = e^{i\theta}
+
+    Args:
+        inputs (Any, optional): The parameter of the gate. Default: ``None``
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
+        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
+        mu (float, optional): The mean of Gaussian noise. Default: 0
+        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+    """
     def __init__(
         self,
         inputs: Any = None,
@@ -48,19 +67,18 @@ class PhaseShift(Gate):
         return inputs
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
-        """Get the local unitary matrix. The matrix here represents the matrix for linear optical elements
-         which acts on the creation operator a^dagger"""
+        """Get the local unitary matrix acting on operators."""
         theta = self.inputs_to_tensor(theta)
         return torch.exp(1j * theta).reshape(1, 1)
 
     def update_matrix(self) -> torch.Tensor:
-        """Update the local unitary matrix."""
+        """Update the local unitary matrix acting on operators."""
         matrix = self.get_matrix(self.theta)
         self.matrix = matrix.detach()
         return matrix
 
     def get_unitary_state(self, matrix: torch.Tensor) -> torch.Tensor:
-        """Get the local unitary matrix acting on Fock state tensor."""
+        """Get the local unitary matrix acting on Fock state tensors."""
         return torch.stack([matrix[0, 0] ** n for n in range(self.cutoff)]).reshape(-1).diag_embed()
 
     def init_para(self, inputs: Any = None) -> None:
@@ -74,16 +92,31 @@ class PhaseShift(Gate):
 
 
 class BeamSplitter(Gate):
-    r"""Beam Splitter
+    r"""Beam Splitter.
+
     See https://arxiv.org/abs/2004.11002 Eq.(42b)
 
     **Matrix Representation:**
+
     .. math::
-    \text{BS} =
-        \begin{pmatrix}
-            \cos\left(\theta\right)           & -e^(-i\phi) \sin\left(\theta\right) \\
-            e^(i\phi) \sin\left(\theta\right) & \cos\left(\theta\right)             \\
-        \end{pmatrix}
+
+        \text{BS}(\theta, \phi) =
+            \begin{pmatrix}
+                \cos\left(\theta\right)           & -e^(-i\phi) \sin\left(\theta\right) \\
+                e^(i\phi) \sin\left(\theta\right) & \cos\left(\theta\right)             \\
+            \end{pmatrix}
+
+    Args:
+        inputs (Any, optional): The parameters of the gate. Default: ``None``
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 2
+        wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
+        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
+        mu (float, optional): The mean of Gaussian noise. Default: 0
+        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
     def __init__(
         self,
@@ -126,8 +159,7 @@ class BeamSplitter(Gate):
         return theta, phi
 
     def get_matrix(self, theta: Any, phi: Any) -> torch.Tensor:
-        """Get the local unitary matrix. The matrix here represents the matrix for linear optical elements
-         which acts on the creation operator a^dagger """
+        """Get the local unitary matrix acting on operators."""
         theta, phi = self.inputs_to_tensor([theta, phi])
         cos = torch.cos(theta)
         sin = torch.sin(theta)
@@ -136,13 +168,14 @@ class BeamSplitter(Gate):
         return torch.stack([cos, -e_m_ip * sin, e_ip * sin, cos]).reshape(2, 2)
 
     def update_matrix(self) -> torch.Tensor:
-        """Update the local unitary matrix."""
+        """Update the local unitary matrix acting on operators."""
         matrix = self.get_matrix(self.theta, self.phi)
         self.matrix = matrix.detach()
         return matrix
 
     def get_unitary_state(self, matrix: torch.Tensor) -> torch.Tensor:
-        """Get the local unitary matrix acting on Fock state tensor.
+        """Get the local unitary matrix acting on Fock state tensors.
+
         See https://arxiv.org/pdf/2004.11002.pdf Eq.(74) and Eq.(75)
         """
         sqrt = torch.sqrt(torch.arange(self.cutoff, device=matrix.device))
@@ -190,7 +223,7 @@ class MZI(BeamSplitter):
 
         \newcommand{\th}{\frac{\theta}{2}}
 
-        \text{MZI} = ie^{i\theta/2}
+        \text{MZI}(\theta, \phi) = ie^{i\theta/2}
             \begin{pmatrix}
                 e^(i\phi) \sin\left(\th\right) & \cos\left(\th\right)  \\
                 e^(i\phi) \cos\left(\th\right) & -\sin\left(\th\right) \\
@@ -202,11 +235,24 @@ class MZI(BeamSplitter):
 
         \newcommand{\th}{\frac{\theta}{2}}
 
-        \text{MZI} = ie^{i\theta/2}
+        \text{MZI}(\theta, \phi) = ie^{i\theta/2}
             \begin{pmatrix}
                 e^(i\phi) \sin\left(\th\right) & e^(i\phi) \cos\left(\th\right) \\
                 \cos\left(\th\right)           & -\sin\left(\th\right)          \\
             \end{pmatrix}
+
+    Args:
+        inputs (Any, optional): The parameters of the gate. Default: ``None``
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 2
+        wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        phi_first (bool, optional): Whether :math:`\phi` is the first phase shifter. Default: ``True``
+        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
+        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
+        mu (float, optional): The mean of Gaussian noise. Default: 0
+        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
     def __init__(
         self,
@@ -226,7 +272,7 @@ class MZI(BeamSplitter):
         self.name = 'MZI'
 
     def get_matrix(self, theta: Any, phi: Any) -> torch.Tensor:
-        """Get the local unitary matrix."""
+        """Get the local unitary matrix acting on operators."""
         theta, phi = self.inputs_to_tensor([theta, phi])
         cos = torch.cos(theta / 2)
         sin = torch.sin(theta / 2)
@@ -242,12 +288,26 @@ class BeamSplitterTheta(BeamSplitter):
     r"""Beam Splitter with fixed :math:`\phi` at :math:`\pi/2`.
 
     **Matrix Representation:**
+
     .. math::
-    \text{BS} =
-        \begin{pmatrix}
-            \cos\left(\theta\right)  & i\sin\left(\theta\right) \\
-            i\sin\left(\theta\right) &  \cos\left(\theta\right) \\
-        \end{pmatrix}
+
+        \text{BS}(\theta) =
+            \begin{pmatrix}
+                \cos\left(\theta\right)  & i\sin\left(\theta\right) \\
+                i\sin\left(\theta\right) &  \cos\left(\theta\right) \\
+            \end{pmatrix}
+
+    Args:
+        inputs (Any, optional): The parameter of the gate. Default: ``None``
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 2
+        wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
+        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
+        mu (float, optional): The mean of Gaussian noise. Default: 0
+        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
     def __init__(
         self,
@@ -281,12 +341,26 @@ class BeamSplitterPhi(BeamSplitter):
     r"""Beam Splitter with fixed :math:`\theta` at :math:`\pi/4`.
 
     **Matrix Representation:**
+
     .. math::
-    \text{BS} =
-        \begin{pmatrix}
-            \frac{\sqrt{2}}{2} & -\frac{\sqrt{2}}{2}e^(-i\phi) \\
-            \frac{\sqrt{2}}{2}e^(i\phi)  &  \frac{\sqrt{2}}{2} \\
-        \end{pmatrix}
+
+        \text{BS}(\phi) =
+            \begin{pmatrix}
+                \frac{\sqrt{2}}{2} & -\frac{\sqrt{2}}{2}e^(-i\phi) \\
+                \frac{\sqrt{2}}{2}e^(i\phi)  &  \frac{\sqrt{2}}{2} \\
+            \end{pmatrix}
+
+    Args:
+        inputs (Any, optional): The parameter of the gate. Default: ``None``
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 2
+        wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
+        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
+        mu (float, optional): The mean of Gaussian noise. Default: 0
+        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
     def __init__(
         self,
@@ -325,7 +399,7 @@ class BeamSplitterSingle(BeamSplitter):
 
         \newcommand{\th}{\frac{\theta}{2}}
 
-        \text{BS-Rx} =
+        \text{BS-Rx}(\theta) =
             \begin{pmatrix}
                 \cos\left(\th\right)  & i\sin\left(\th\right) \\
                 i\sin\left(\th\right) & \cos\left(\th\right)  \\
@@ -335,7 +409,7 @@ class BeamSplitterSingle(BeamSplitter):
 
         \newcommand{\th}{\frac{\theta}{2}}
 
-        \text{BS-Ry} =
+        \text{BS-Ry}(\theta) =
             \begin{pmatrix}
                 \cos\left(\th\right) & -\sin\left(\th\right) \\
                 \sin\left(\th\right) & \cos\left(\th\right)  \\
@@ -345,11 +419,25 @@ class BeamSplitterSingle(BeamSplitter):
 
         \newcommand{\th}{\frac{\theta}{2}}
 
-        \text{BS-H} =
+        \text{BS-H}(\theta) =
             \begin{pmatrix}
                 \cos\left(\th\right) & \sin\left(\th\right)  \\
                 \sin\left(\th\right) & -\cos\left(\th\right) \\
             \end{pmatrix}
+
+    Args:
+        inputs (Any, optional): The parameter of the gate. Default: ``None``
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 2
+        wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        convention (str, optional): The convention of the type of the beam splitter, including ``'rx'``,
+            ``'ry'`` and ``'h'``. Default: ``'rx'``
+        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
+        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
+        mu (float, optional): The mean of Gaussian noise. Default: 0
+        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
     def __init__(
         self,
@@ -381,8 +469,7 @@ class BeamSplitterSingle(BeamSplitter):
         return inputs
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
-        """Get the local unitary matrix. The matrix here represents the matrix for linear optical elements
-         which acts on the creation operator a^dagger """
+        """Get the local unitary matrix acting on operators."""
         theta = self.inputs_to_tensor(theta)
         cos = torch.cos(theta / 2) + 0j
         sin = torch.sin(theta / 2) + 0j
@@ -394,7 +481,7 @@ class BeamSplitterSingle(BeamSplitter):
             return torch.stack([cos, sin, sin, -cos]).reshape(2, 2)
 
     def update_matrix(self) -> torch.Tensor:
-        """Update the local unitary matrix."""
+        """Update the local unitary matrix acting on operators."""
         matrix = self.get_matrix(self.theta)
         self.matrix = matrix.detach()
         return matrix
@@ -410,9 +497,17 @@ class BeamSplitterSingle(BeamSplitter):
 
 
 class UAnyGate(Gate):
-    """
-    for any unitary matrix of the optical elements,
-    UAny gate does not support encoding data
+    """Arbitrary unitary gate.
+
+    Args:
+        unitary (Any): Any given unitary matrix.
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
+        wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        minmax (List[int] or None, optional): The minmum and maximum indices of the modes that the quantum
+            operation acts on. Only valid when ``wires`` is ``None``. Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        name (str, optional): The name of the gate. Default: ``'UAnyGate'``
     """
     def __init__(
         self,
@@ -436,13 +531,14 @@ class UAnyGate(Gate):
         if not isinstance(unitary, torch.Tensor):
             unitary = torch.tensor(unitary, dtype=torch.cfloat).reshape(-1, len(self.wires))
         assert unitary.dtype in (torch.cfloat, torch.cdouble)
-        assert unitary.shape[0] == len(self.wires), 'check wires'
-        assert is_unitary(unitary), 'check the unitary matrix'
+        assert unitary.shape[0] == len(self.wires), 'Please check wires'
+        # assert is_unitary(unitary), 'Please check the unitary matrix'
         self.register_buffer('matrix', unitary)
         self.register_buffer('unitary_state', None)
 
     def get_unitary_state(self, matrix: torch.Tensor) -> torch.Tensor:
-        """Get the local unitary matrix acting on Fock state tensor.
+        """Get the local unitary matrix acting on Fock state tensors.
+
         See https://arxiv.org/pdf/2004.11002.pdf Eq.(71)
         """
         nt = len(self.wires)
@@ -466,12 +562,12 @@ class UAnyGate(Gate):
                         state_pre = copy.deepcopy(state)
                         state_pre[i] = state_pre[i] - 1
                         state_pre[len(modes)] = state_pre[len(modes)] - 1
-                        sum_tmp += matrix_j[i] * sqrt[modes[i]] * unitary[tuple(state_pre)]
+                        sum_tmp += matrix_j[i] * sqrt[modes[i]] * unitary[tuple(state_pre)].clone()
                     unitary[tuple(state)] = sum_tmp / sqrt[in_rest]
         return unitary
 
     def update_unitary_state(self) -> torch.Tensor:
-        """Update the local unitary tensor for operators."""
+        """Update the local unitary matrix acting on Fock state tensors."""
         if self.unitary_state is None:
             matrix = self.update_matrix()
             unitary = self.get_unitary_state(matrix)

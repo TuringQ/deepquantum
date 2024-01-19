@@ -1,30 +1,30 @@
 """
-Decompse the uniatry matrix to clements structure
+Decompse the uniatry matrix
 """
 
 from collections import defaultdict
+from typing import Union
 
 import numpy as np
 import torch
 
 class UnitaryDecomposer():
-    """This class is to decompsoe a unitary matrix into clements structure.
+    """This class is to decompose a unitary matrix into the Clements/Reck architecture.
 
     Args:
-        unitary (np.ndarray): the unitary matrix to be decomposed.
-        method (str): the decompse method, only 16 values ('rssr','rsdr','rdsr',\
-            'rddr','rssl','rsdl','rdsl','rddl','cssr','csdr','cdsr','cddr','cssl',\
-            'csdl','cdsl','cddl') are valid. \
-            The first char denotes "clements" or "reck" architecture.
-            The second char denotes signle or double arms of outer phase shifters.
-            The third char denotes signle or double arms of innter phase shifters.
-            The last char denotes the position of a column of phase shiters, \
-                "l" for left and "r" for right.
+        unitary (np.ndarray or torch.Tensor): The unitary matrix to be decomposed.
+        method (str, optional): The decomposition method, only 16 values (``'rssr'``,``'rsdr'``,``'rdsr'``,
+            ``'rddr'``,``'rssl'``,``'rsdl'``,``'rdsl'``,``'rddl'``,``'cssr'``,``'csdr'``,``'cdsr'``,``'cddr'``,
+            ``'cssl'``,``'csdl'``,``'cdsl'``,``'cddl'``) are valid.
+            The first char denotes the Clements or Reck architecture.
+            The second char denotes single or double arms of outer phase shifters.
+            The third char denotes single or double arms of inner phase shifters.
+            The last char denotes the position of a column of phase shiters, ``'l'`` for left and ``'r'`` for right.
     """
-    def __init__(self, unitary: np.array, method='cssr'):
+    def __init__(self, unitary: Union[np.ndarray, torch.Tensor], method: str = 'cssr'):
         """
         初始化酉矩阵。
-        检查输入类型,如果是torch.Tensor转为numpy.ndarray;
+        检查输入类型, 如果是torch.Tensor, 转为numpy.ndarray。
         如果不是方阵/酉矩阵，则报错。
         method 默认为'cssr', clements-single-single-right, single 表示单臂,right 表示最后一列移相器位置在最右边
         method 列表['rssr','rsdr','rdsr','rddr','rssl','rsdl','rdsl','rddl',
@@ -33,10 +33,10 @@ class UnitaryDecomposer():
         if isinstance(unitary, np.ndarray):
             self.unitary = unitary.copy()
         elif isinstance(unitary, torch.Tensor):
-            self.unitary = unitary.clone().detach().numpy()
+            self.unitary = unitary.cpu().clone().detach().numpy()
         else:
-            raise TypeError('The matrix to be decomposed must be in the type of numpy array or pytorch tensor.')
-        if (len(self.unitary.shape)!=2)or(self.unitary.shape[0]!=self.unitary.shape[1]):
+            raise TypeError('The matrix to be decomposed must be in the type of numpy array or torch tensor.')
+        if len(self.unitary.shape) != 2 or self.unitary.shape[0] != self.unitary.shape[1]:
             raise TypeError('The matrix to be decomposed must be a square matrix.')
         if np.abs(unitary @ unitary.conj().T - np.eye(len(unitary))).sum() / len(unitary) ** 2 > 1e-6:
             print('Make sure the input matrix is unitary, in case of an abnormal computation result.')
@@ -59,7 +59,7 @@ class UnitaryDecomposer():
         def period_cut(input_angle: float, period: float = np.pi * 2) -> float:
             return input_angle - np.floor(input_angle/period)*period
 
-        def decomp_rr(unitary: np.array, method: str) -> dict:
+        def decomp_rr(unitary: np.ndarray, method: str) -> dict:
             n_dim = len(unitary)
             info = {}
             info['N'] = n_dim
@@ -95,7 +95,7 @@ class UnitaryDecomposer():
             info['phase_angle'][mask] -= np.floor(info['phase_angle'][mask]/np.pi/2)*np.pi*2
             return info, unitary
 
-        def decomp_cr(unitary: np.array, method: str) -> dict:
+        def decomp_cr(unitary: np.ndarray, method: str) -> dict:
             n_dim = len(unitary)
             info = {}
             info['N']= n_dim
@@ -160,7 +160,7 @@ class UnitaryDecomposer():
             info['phase_angle'][mask] -= np.floor(info['phase_angle'][mask]/np.pi/2)*np.pi*2
             return info, unitary
 
-        def decomp_rl(unitary: np.array, method: str) -> dict:
+        def decomp_rl(unitary: np.ndarray, method: str) -> dict:
             n_dim = len(unitary)
             info = {}
             info['N'] = n_dim
@@ -196,7 +196,7 @@ class UnitaryDecomposer():
             info['phase_angle'][mask] -= np.floor(info['phase_angle'][mask]/np.pi/2)*np.pi*2
             return info, unitary
 
-        def decomp_cl(unitary: np.array, method: str) -> dict:
+        def decomp_cl(unitary: np.ndarray, method: str) -> dict:
             n_dim = len(unitary)
             info = {}
             info['N'] = n_dim

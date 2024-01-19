@@ -6,7 +6,7 @@ import copy
 import itertools
 import os
 import pickle
-from typing import Any, List
+from typing import Any, List, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -18,50 +18,50 @@ from torch import vmap
 
 
 class UgateMap():
-    """
-    map the quantum U gate to unitary matrix in the optical quantum circuit.
-    
+    """Map the quantum gate to the unitary matrix of the photonic quantum circuit based on dual-rail encoding.
+
     Args:
-        n_qubits(int): the number of qubits the quantum gates acting on.
-        nmode(int): the number of modes for the circuits.
-        ugate(Any): the target quantum U gate.
-        success(ANy): sqrt of the probability of the optimized quantum gate.
-        preferred values: 1/3 for 2qubits, 1/4 for 3qubits
-        aux(List): two auxiliary modes in quantum circuit, values could be [0,0] or [1,0].
-        the positon is the last two mode in the circuit by default
-        aux_pos(List): the position of the auxiliary modes, default=[n_mode-2, n_mode-1].
+        nqubit (int): The number of qubits of the quantum gates.
+        nmode (int): The number of modes in the circuit.
+        ugate (Any): The target quantum gate.
+        success (float): The square root of the probability of the target quantum gate.
+            The preferred value is 1/3 for 2 qubits or 1/4 for 3 qubits.
+        aux (List or None, optional): Two auxiliary modes in the circuit, which could be ``[0,0]`` or ``[1,0]``.
+            Default: ``None``
+        aux_pos (List or None, optional): The position of the auxiliary modes.
+            Default: ``None`` (which means the last two modes).
     """
     def __init__(
         self,
-        n_qubits: int,
-        n_mode: int,
+        nqubit: int,
+        nmode: int,
         ugate: Any,
-        success: Any,
-        aux: List = None,
-        aux_pos: List = None
+        success: float,
+        aux: Optional[List] = None,
+        aux_pos: Optional[List] = None
     ) -> None:
-        assert 2*n_qubits<=n_mode, 'need more modes'
-        self.n_mode = n_mode
+        assert 2*nqubit<=nmode, 'need more modes'
+        self.nmode = nmode
         self.ugate = ugate  # the quantum gate to map
         self.success = success
-        self.n_qubits = n_qubits
+        self.nqubit = nqubit
         self.aux = aux
         if aux_pos is None:
-            aux_pos = [n_mode-2, n_mode-1]
+            aux_pos = [nmode-2, nmode-1]
         self.aux_position = aux_pos
         self.basis = self.create_basis(aux_pos) # these basis is changed with aux_pos
 
-        self.u_dim =self.n_mode
+        self.u_dim =self.nmode
         y_var = symbols('y0:%d'%((self.u_dim)**2))
         y_mat = Matrix(np.array((y_var)))
         y_mat = y_mat.reshape(self.u_dim,self.u_dim) # for symbolic computation, the matrix to optimize
         self.y_var = y_var
         self.u = y_mat
 
-        if self.n_mode == 2*self.n_qubits: # no auxiliary mode case
-            self.all_basis = self.create_basis([ ] )
+        if self.nmode == 2*self.nqubit: # no auxiliary mode case
+            self.all_basis = self.create_basis([])
         else:
-            self.all_basis = self.create_basis([n_mode-2, n_mode-1] ) #with auxiliary mode case,
+            self.all_basis = self.create_basis([nmode-2, nmode-1]) #with auxiliary mode case,
             #these basis is fixed  for computation
 
         # num_photons = int(sum(self.all_basis[0]))
@@ -81,7 +81,7 @@ class UgateMap():
         path_3 = os.path.abspath(os.path.join(path_2, '..'))
         try:
             # load the idx tensor data
-            fn = path_3+cur_sep+'cache'+cur_sep+'Idx_%dqb_%dmode_'%(n_qubits,n_mode)+'aux_%d%d'%(aux[0],aux[1])+'.pt'
+            fn = path_3+cur_sep+'cache'+cur_sep+'Idx_%dqb_%dmode_'%(nqubit,nmode)+'aux_%d%d'%(aux[0],aux[1])+'.pt'
             idx_ts = torch.load(fn)
         except:
             idx_ts = None
@@ -91,26 +91,24 @@ class UgateMap():
         if self.idx_ts is None:
             idx_dic, idx_ts = self.indx_eqs()
             # save the idx tensor data
-            fn = path_3+cur_sep+'cache'+cur_sep+'Idx_%dqb_%dmode_'%(n_qubits,n_mode)+'aux_%d%d'%(aux[0],aux[1])+'.pt'
-            fn_2 = path_3+cur_sep+'cache'+cur_sep+'Idx_%dqb_%dmode_'%(n_qubits,n_mode)+'aux_%d%d'%(aux[0],aux[1])+'.pickle'
+            fn = path_3+cur_sep+'cache'+cur_sep+'Idx_%dqb_%dmode_'%(nqubit,nmode)+'aux_%d%d'%(aux[0],aux[1])+'.pt'
+            fn_2 = path_3+cur_sep+'cache'+cur_sep+'Idx_%dqb_%dmode_'%(nqubit,nmode)+'aux_%d%d'%(aux[0],aux[1])+'.pickle'
             torch.save(idx_ts, fn)
             UgateMap.save_dict(idx_dic, fn_2)
 
     def create_basis(self, aux_position):
-        """
-        creat the n qubits basis in  dual-rail coding
-        """
-        main_position = [i for i in range(self.n_mode) if i not in aux_position]
+        """Create the n-qubit bases in dual-rail encoding."""
+        main_position = [i for i in range(self.nmode) if i not in aux_position]
         # print(main_position)
         all_basis = []
-        n = self.n_qubits
+        n = self.nqubit
         temp = [[1, 0],[0, 1]] # |0> and |1>
         for state in itertools.product([0, 1], repeat=n):
             len_state = len(state)
             dual_code = []
             for m in range(len_state):
                 dual_code.extend(temp[state[m]])
-            temp_basis = torch.zeros(self.n_mode, dtype=int)
+            temp_basis = torch.zeros(self.nmode, dtype=int)
             if self.aux:
                 temp_basis[torch.tensor(aux_position, dtype=int)] = torch.tensor(self.aux)
             temp_basis[torch.tensor(main_position, dtype=int)] = torch.tensor(dual_code)
@@ -168,7 +166,7 @@ class UgateMap():
 
     def indx_eqs(self):
         """
-        get the dic of indx of y_mat for each non_linear eqs for n_mode
+        get the dic of indx of y_mat for each non_linear eqs for nmode
         """
         all_inputs = self.all_basis
         all_outputs = list(map(self.get_coeff_sym, all_inputs))
@@ -225,7 +223,7 @@ class UgateMap():
         return quantum gate constrains + unitary constrains
         """
         eqs_1 = self.f_real(y)
-        mat_y = torch.tensor(y).view(self.n_mode, self.n_mode)
+        mat_y = torch.tensor(y).view(self.nmode, self.nmode)
         eqs_2 = self.unitary_constrains(mat_y)
         eqs = eqs_1 + eqs_2
 
@@ -256,7 +254,7 @@ class UgateMap():
         y = np.array(paras)[0 : int(num_paras/2)] + np.array(paras)[int(num_paras/2):]*1j
 
         eqs_1 = self.f_complex(y)
-        mat_y = torch.tensor(y).view(self.n_mode, self.n_mode)
+        mat_y = torch.tensor(y).view(self.nmode, self.nmode)
         eqs_2 = self.unitary_constrains_complex(mat_y)
         eqs = eqs_1 + eqs_2
 
