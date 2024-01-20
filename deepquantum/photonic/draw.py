@@ -3,11 +3,13 @@ Draw quantum circuit
 """
 
 from collections import defaultdict
+from typing import Dict, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
 import svgwrite
-from  matplotlib import patches
+from matplotlib import patches
+from torch import nn
 
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate
 
@@ -16,11 +18,11 @@ class DrawCircuit():
     """Draw the photonic quantum circuit.
 
     Args:
-        circuit_name: The name of the circuit.
-        circuit_nmode: The number of modes in the circuit.
-        circuit_operators: The operators of the circuit.
+        circuit_name (str): The name of the circuit.
+        circuit_nmode (int): The number of modes in the circuit.
+        circuit_operators (nn.Sequential): The operators of the circuit.
     """
-    def __init__(self, circuit_name, circuit_nmode, circuit_operators) -> None:
+    def __init__(self, circuit_name: str, circuit_nmode: int, circuit_operators: nn.Sequential) -> None:
         if circuit_name is None:
             circuit_name = 'circuit'
         nmode = circuit_nmode
@@ -35,8 +37,7 @@ class DrawCircuit():
         order_dic = defaultdict(list) # 当key不存在时对应的value是[]
         nmode = self.nmode
         depth = [0] * nmode # record the depth of each mode
-        for _, op in enumerate(self.ops):
-            op_wires = op.wires
+        for op in self.ops:
             if isinstance(op, BeamSplitter):
                 if isinstance(op, MZI):
                     if op.phi_first:
@@ -52,29 +53,29 @@ class DrawCircuit():
                     phi = op.phi.item()
                 except:
                     phi = None
-                order = max(depth[op_wires[0]], depth[op_wires[1]])
-                self.draw_bs(name, order, op_wires, theta, phi)
-                order_dic[order] = order_dic[order] + op_wires
-                for i in op_wires:
+                order = max(depth[op.wires[0]], depth[op.wires[1]])
+                self.draw_bs(name, order, op.wires, theta, phi)
+                order_dic[order] = order_dic[order] + op.wires
+                for i in op.wires:
                     depth[i] = depth[i] + 1
-                bs_depth = [depth[op_wires[0]], depth[op_wires[1]]][:]
-                depth[op_wires[0]] = max(bs_depth)           ## BS 经过后相同线路深度
-                depth[op_wires[1]] = max(bs_depth)
+                bs_depth = [depth[op.wires[0]], depth[op.wires[1]]][:]
+                depth[op.wires[0]] = max(bs_depth)           ## BS 经过后相同线路深度
+                depth[op.wires[1]] = max(bs_depth)
             elif isinstance(op, PhaseShift):
                 theta = op.theta.item()
-                order = depth[op_wires[0]]
+                order = depth[op.wires[0]]
                 self.draw_ps(order, op.wires, theta)
-                order_dic[order] = order_dic[order] + op_wires
+                order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = depth[i]+1
             elif isinstance(op, UAnyGate): # need check?
-                order = max(depth[op_wires[0] : op_wires[-1]+1])
-                self.draw_any(order, op_wires)
-                order_dic[order] = order_dic[order] + op_wires
-                for i in op_wires:
+                order = max(depth[op.wires[0] : op.wires[-1]+1])
+                self.draw_any(order, op.wires)
+                order_dic[order] = order_dic[order] + op.wires
+                for i in op.wires:
                     depth[i] = order + 1
-        for key in order_dic.keys():
-            op_line = order_dic[key]  ## here lines represnet for no operation
+        for key, value in order_dic.items():
+            op_line = value  ## here lines represent for no operation
             line_wires = [i for i in range(nmode) if i not in op_line]
             if len(line_wires) > 0:
                 self.draw_lines(key, line_wires)
@@ -164,11 +165,19 @@ class DrawClements():
     Args:
         nmode (int): The number of modes of the Clements architecture.
         mzi_info (Dict): The dictionary for mzi parameters, resulting from the decompose function.
-        cl (str, optional): The color for plotting.
-        fs (int, optional): The fontsize.
+        cl (str, optional): The color for plotting. Default: ``'dodgerblue'``
+        fs (int, optional): The fontsize. Default: 30
         method (str, optional): The way for Clements decomposition, ``'cssr'`` or ``'cssl'``.
+            Default: ``'cssr'``
     """
-    def __init__(self, nmode, mzi_info, cl='dodgerblue', fs=30, method='cssr') -> None:
+    def __init__(
+        self,
+        nmode: int,
+        mzi_info: Dict,
+        cl: str = 'dodgerblue',
+        fs: int = 30,
+        method: str = 'cssr'
+    ) -> None:
         self.nmode = nmode
         self.method = method
         self.mzi_info = mzi_info

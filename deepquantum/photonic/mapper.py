@@ -28,7 +28,7 @@ class UgateMap():
             The preferred value is 1/3 for 2 qubits or 1/4 for 3 qubits.
         aux (List or None, optional): Two auxiliary modes in the circuit, which could be ``[0,0]`` or ``[1,0]``.
             Default: ``None``
-        aux_pos (List or None, optional): The position of the auxiliary modes.
+        aux_pos (List or None, optional): The positions of the auxiliary modes.
             Default: ``None`` (which means the last two modes).
     """
     def __init__(
@@ -307,7 +307,7 @@ class UgateMap():
 
         return eqs_list
 
-    def solve_eqs_real(self, total_trials = 10, trials = 1000, precision = 1e-6 ):
+    def solve_eqs_real(self, total_trials = 10, trials = 1000, precision = 1e-6):
         """
         solving the non-linear eqautions for matrix satisfying ugate with real solution
         """
@@ -332,7 +332,7 @@ class UgateMap():
             results.append(result)
         return results, sum_
 
-    def solve_eqs_complex(self, total_trials = 10, trials = 1000, precision=1e-5 ):
+    def solve_eqs_complex(self, total_trials = 10, trials = 1000, precision=1e-5):
         """
         solving the non-linear eqautions for matrix satisfying ugate with complex solution
         """

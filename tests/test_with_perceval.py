@@ -7,9 +7,7 @@ from perceval.components import BS
 
 
 def test_random_circuit():
-    """
-    compare with perceval
-    """
+    """Compare with Perceval."""
     max_mode = 7
     max_device = 100
     nmode = np.random.randint(2, max_mode)
@@ -43,7 +41,6 @@ def test_random_circuit():
             angle_1 = np.random.uniform(0, 2 * np.pi)
             test_gate.add([k, k+1], BS.Ry(angle_1))
             dq_gate.bs_ry([k, k+1], angle_1)
-
         if 0<j<1:
             temp_1 = int(np.random.choice(np.arange(nmode)))
             angle_1 = np.random.uniform(0, 2 * np.pi)
