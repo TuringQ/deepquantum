@@ -2038,7 +2038,7 @@ class UAnyGate(ArbitraryGate):
     r"""Arbitrary unitary gate.
 
     Args:
-        unitaty (Any): Any given unitary matrix.
+        unitary (Any): Any given unitary matrix.
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
@@ -2073,6 +2073,7 @@ class UAnyGate(ArbitraryGate):
         self.register_buffer('matrix', unitary)
 
     def update_matrix(self) -> torch.Tensor:
+        """Update the local unitary matrix."""
         if self.inv_mode:
             return self.matrix.mH
         else:

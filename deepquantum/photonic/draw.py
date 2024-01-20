@@ -3,34 +3,41 @@ Draw quantum circuit
 """
 
 from collections import defaultdict
+from typing import Dict, Tuple, Union
 
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 import numpy as np
 import svgwrite
+from matplotlib import patches
+from torch import nn
 
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate
 
 
 class DrawCircuit():
-    """Draw photonic quantum circuit."""
-    def __init__(self, circuit_name, circuit_nmode, circuit_operators) -> None:
+    """Draw the photonic quantum circuit.
+
+    Args:
+        circuit_name (str): The name of the circuit.
+        circuit_nmode (int): The number of modes in the circuit.
+        circuit_operators (nn.Sequential): The operators of the circuit.
+    """
+    def __init__(self, circuit_name: str, circuit_nmode: int, circuit_operators: nn.Sequential) -> None:
         if circuit_name is None:
             circuit_name = 'circuit'
-        n_mode = circuit_nmode
+        nmode = circuit_nmode
         name = circuit_name + '.svg'
         self.draw_ = svgwrite.Drawing(name, profile='full')
-        self.draw_['height'] = f'{10/11 * n_mode}cm'
-        self.n_mode = n_mode
+        self.draw_['height'] = f'{10/11 * nmode}cm'
+        self.nmode = nmode
         self.name = name
         self.ops = circuit_operators
 
     def draw(self):
         order_dic = defaultdict(list) # 当key不存在时对应的value是[]
-        n_mode = self.n_mode
-        depth = [0] * n_mode # record the depth of each mode
-        for _, op in enumerate(self.ops):
-            op_wires = op.wires
+        nmode = self.nmode
+        depth = [0] * nmode # record the depth of each mode
+        for op in self.ops:
             if isinstance(op, BeamSplitter):
                 if isinstance(op, MZI):
                     if op.phi_first:
@@ -46,30 +53,30 @@ class DrawCircuit():
                     phi = op.phi.item()
                 except:
                     phi = None
-                order = max(depth[op_wires[0]], depth[op_wires[1]])
-                self.draw_bs(name, order, op_wires, theta, phi)
-                order_dic[order] = order_dic[order] + op_wires
-                for i in op_wires:
+                order = max(depth[op.wires[0]], depth[op.wires[1]])
+                self.draw_bs(name, order, op.wires, theta, phi)
+                order_dic[order] = order_dic[order] + op.wires
+                for i in op.wires:
                     depth[i] = depth[i] + 1
-                bs_depth = [depth[op_wires[0]], depth[op_wires[1]]][:]
-                depth[op_wires[0]] = max(bs_depth)           ## BS 经过后相同线路深度
-                depth[op_wires[1]] = max(bs_depth)
+                bs_depth = [depth[op.wires[0]], depth[op.wires[1]]][:]
+                depth[op.wires[0]] = max(bs_depth)           ## BS 经过后相同线路深度
+                depth[op.wires[1]] = max(bs_depth)
             elif isinstance(op, PhaseShift):
                 theta = op.theta.item()
-                order = depth[op_wires[0]]
+                order = depth[op.wires[0]]
                 self.draw_ps(order, op.wires, theta)
-                order_dic[order] = order_dic[order] + op_wires
+                order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = depth[i]+1
             elif isinstance(op, UAnyGate): # need check?
-                order = max(depth[op_wires[0] : op_wires[-1]+1])
-                self.draw_any(order, op_wires)
-                order_dic[order] = order_dic[order] + op_wires
-                for i in op_wires:
+                order = max(depth[op.wires[0] : op.wires[-1]+1])
+                self.draw_any(order, op.wires)
+                order_dic[order] = order_dic[order] + op.wires
+                for i in op.wires:
                     depth[i] = order + 1
-        for key in order_dic.keys():
-            op_line = order_dic[key]  ## here lines represnet for no operation
-            line_wires = [i for i in range(n_mode) if i not in op_line]
+        for key, value in order_dic.items():
+            op_line = value  ## here lines represent for no operation
+            line_wires = [i for i in range(nmode) if i not in op_line]
             if len(line_wires) > 0:
                 self.draw_lines(key, line_wires)
         self.draw_mode_num()   ## mode draw numbers
@@ -85,8 +92,8 @@ class DrawCircuit():
         self.draw_.saveas(filename)
 
     def draw_mode_num(self):
-        n_mode =  self.n_mode
-        for i in range(n_mode):
+        nmode =  self.nmode
+        for i in range(nmode):
             self.draw_.add(self.draw_.text(str(i), insert=(25, i*30+30), font_size=12))
 
     def draw_bs(self, name, order, wires, theta, phi = None):
@@ -153,17 +160,26 @@ class DrawCircuit():
                                                fill='none', stroke='black', stroke_width=2))
 
 class DrawClements():
+    """Draw the n-mode Clements architecture.
+
+    Args:
+        nmode (int): The number of modes of the Clements architecture.
+        mzi_info (Dict): The dictionary for mzi parameters, resulting from the decompose function.
+        cl (str, optional): The color for plotting. Default: ``'dodgerblue'``
+        fs (int, optional): The fontsize. Default: 30
+        method (str, optional): The way for Clements decomposition, ``'cssr'`` or ``'cssl'``.
+            Default: ``'cssr'``
     """
-    for plotting mzi clements structure
-    n_mode: int
-    mzi_info: dictionary for mzi parameters, result for decomse function
-    cl: color for plotting
-    fs: fontsize
-    type: the way for clements decomposition, cssr or cssl
-    """
-    def __init__(self, n_mode, mzi_info, cl='dodgerblue', fs=30, type_='cssr'):
-        self.n_mode = n_mode
-        self.type = type_
+    def __init__(
+        self,
+        nmode: int,
+        mzi_info: Dict,
+        cl: str = 'dodgerblue',
+        fs: int = 30,
+        method: str = 'cssr'
+    ) -> None:
+        self.nmode = nmode
+        self.method = method
         self.mzi_info = mzi_info
         self.color = cl
         self.fontsize =fs
@@ -175,10 +191,10 @@ class DrawClements():
         self.ps_position = self.ps_pos()
 
     def plotting_clements(self):
-        if self.type == 'cssr':
-            assert(self.n_mode%2 == 0), 'plotting only valid for even modes'
+        if self.method == 'cssr':
+            assert(self.nmode%2 == 0), 'plotting only valid for even modes'
             self.plotting_clements_1()
-        if self.type == 'cssl':
+        if self.method == 'cssl':
             self.plotting_clements_2()
 
     def plotting_clements_1(self):
@@ -190,57 +206,57 @@ class DrawClements():
         # plt.rcParams['figure.figsize'] = (8*3,5.0*3)
         coords1 = []
         coords2 = []
-        n_mode = self.n_mode
+        nmode = self.nmode
         phase_angle = self.phase_angle
         fs = self.fontsize
         cl = self.color
         wid = self.wid
         height = self.height
-        for i in range(n_mode):
+        for i in range(nmode):
             plt.annotate('',xy=(-0.1,1-0.25*i),
                         xytext=(-0.5,1-0.25*i),
                         arrowprops={'arrowstyle': '-|>', 'lw':5},
                         va = 'center',)
             plt.text(-0.8, 1-0.25*i, f'{i}', fontsize = fs )
             plt.plot([0, 1.2], [1-0.25*i,1-0.25*i], color = cl)
-            plt.text( 3.2*(n_mode/2-1)+2.2+2.1, 1-0.25*i+0.05, f'{phase_angle[i]:.2f}', fontsize=fs-8 )  # phase angle
+            plt.text( 3.2*(nmode/2-1)+2.2+2.1, 1-0.25*i+0.05, f'{phase_angle[i]:.2f}', fontsize=fs-8 )  # phase angle
             ax.add_patch(
             patches.Rectangle(
-                (3.2*(n_mode/2-1)+2.2+2.1, 1-0.25*i-0.05),
+                (3.2*(nmode/2-1)+2.2+2.1, 1-0.25*i-0.05),
                 wid,
                 height,
                 edgecolor = 'green',
                 facecolor = 'green',
                 fill=True
                              ) )  ## for PS
-            if n_mode%2==1:
-                plt.plot([2.2+3.2*(int((n_mode+1)/2)-1),
-                          3.2*int((n_mode+1)/2-1)+2.2+2.2],
+            if nmode%2==1:
+                plt.plot([2.2+3.2*(int((nmode+1)/2)-1),
+                          3.2*int((nmode+1)/2-1)+2.2+2.2],
                           [1-0.25*i,1-0.25*i],
                           color = cl)
-        if n_mode%2==0:   # for even mode
-            for i in range(int(n_mode/2)):
+        if nmode%2==0:   # for even mode
+            for i in range(int(nmode/2)):
                 plt.plot([2.2+3.2*i, 3.2*i+2.2+2.2], [1,1], color = cl)
-                plt.plot([2.2+3.2*i, 3.2*i+2.2+2.2], [1-0.25*(n_mode-1), 1-0.25*(n_mode-1) ], color = cl)
-                for j in range(n_mode):
+                plt.plot([2.2+3.2*i, 3.2*i+2.2+2.2], [1-0.25*(nmode-1), 1-0.25*(nmode-1) ], color = cl)
+                for j in range(nmode):
                     plt.plot([1.5+3.2*i, 3.2*i+1.9], [1-0.25*j,1-0.25*j], color = cl)
                     coords1.append( [1.5+3.2*i, 3.2*i+1.9, 1-0.25*j,1-0.25*j])
-                    if 0<j<n_mode-1:
+                    if 0<j<nmode-1:
                         plt.plot([3.1+3.2*i, 3.2*i+3.5], [1-0.25*j,1-0.25*j], color = cl)
                         coords2.append([3.1+3.2*i, 3.2*i+3.5, 1-0.25*j,1-0.25*j])
                         plt.plot([2.2+3.2*i, 3.2*i+2.8], [1-0.25*j,1-0.25*j], color = cl)
                         plt.plot([3.8+3.2*i, 3.2*i+4.4], [1-0.25*j,1-0.25*j], color = cl)
-        if n_mode%2==1:  # for odd mode
-            for i in range(int((n_mode+1)/2)):
+        if nmode%2==1:  # for odd mode
+            for i in range(int((nmode+1)/2)):
                 plt.plot([2.2+3.2*i, 3.2*i+2.2+2.2], [1,1], color = cl)
-            #     plt.plot([1.2+3.2*i, 3.2*i+2.2+2.2], [1-0.25*(n_mode-1), 1-0.25*(n_mode-1) ], color = cl)
-                for j in range(n_mode):
-                    if j< n_mode-1: # remove last line
+            #     plt.plot([1.2+3.2*i, 3.2*i+2.2+2.2], [1-0.25*(nmode-1), 1-0.25*(nmode-1) ], color = cl)
+                for j in range(nmode):
+                    if j< nmode-1: # remove last line
                         plt.plot([1.5+3.2*i, 3.2*i+1.9], [1-0.25*j,1-0.25*j], color = cl)
                         coords1.append( [1.5+3.2*i, 3.2*i+1.9, 1-0.25*j,1-0.25*j])
-                    if j >= n_mode-1:
+                    if j >= nmode-1:
                         plt.plot([1.2+3.2*i, 3.2*i+2.2], [1-0.25*j,1-0.25*j], color = cl)
-                    if  i< int((n_mode+1)/2)-1 and 0<j<n_mode: # remove the last column
+                    if  i< int((nmode+1)/2)-1 and 0<j<nmode: # remove the last column
                         plt.plot([3.1+3.2*i, 3.2*i+3.5], [1-0.25*j,1-0.25*j], color = cl)
                         coords2.append([3.1+3.2*i, 3.2*i+3.5, 1-0.25*j,1-0.25*j])
                         plt.plot([2.2+3.2*i, 3.2*i+2.8], [1-0.25*j,1-0.25*j], color = cl)
@@ -272,13 +288,13 @@ class DrawClements():
         # plt.rcParams['figure.figsize'] = (8*3,5.0*3)
         coords1 = []
         coords2 = []
-        n_mode = self.n_mode
+        nmode = self.nmode
         phase_angle = self.phase_angle
         fs = self.fontsize
         cl = self.color
         wid = self.wid
         height = self.height
-        for i in range(n_mode):
+        for i in range(nmode):
             plt.annotate('',xy=(-0.1,1-0.25*i),
                          xytext=(-0.5,1-0.25*i),
                          arrowprops={'arrowstyle': '-|>', 'lw':5},
@@ -295,34 +311,34 @@ class DrawClements():
                 facecolor = 'blue',
                 fill=True
                              ) )
-            if n_mode%2==1:
-                plt.plot([2.2+3.2*(int((n_mode+1)/2)-1),
-                          3.2*int((n_mode+1)/2-1)+2.2+2.2],
+            if nmode%2==1:
+                plt.plot([2.2+3.2*(int((nmode+1)/2)-1),
+                          3.2*int((nmode+1)/2-1)+2.2+2.2],
                           [1-0.25*i,1-0.25*i],
                           color = cl)
-        if n_mode%2==0:   # for even mode
-            for i in range(int(n_mode/2)):
+        if nmode%2==0:   # for even mode
+            for i in range(int(nmode/2)):
                 plt.plot([2.2+3.2*i, 3.2*i+2.2+2.2], [1,1], color = cl)
-                plt.plot([2.2+3.2*i, 3.2*i+2.2+2.2], [1-0.25*(n_mode-1), 1-0.25*(n_mode-1) ], color = cl)
-                for j in range(n_mode):
+                plt.plot([2.2+3.2*i, 3.2*i+2.2+2.2], [1-0.25*(nmode-1), 1-0.25*(nmode-1) ], color = cl)
+                for j in range(nmode):
                     plt.plot([1.5+3.2*i, 3.2*i+1.9], [1-0.25*j,1-0.25*j], color = cl)
                     coords1.append([1.5+3.2*i, 3.2*i+1.9, 1-0.25*j,1-0.25*j])
-                    if 0<j<n_mode-1:
+                    if 0<j<nmode-1:
                         plt.plot([3.1+3.2*i, 3.2*i+3.5], [1-0.25*j,1-0.25*j], color = cl)
                         coords2.append([3.1+3.2*i, 3.2*i+3.5, 1-0.25*j,1-0.25*j])
                         plt.plot([2.2+3.2*i, 3.2*i+2.8], [1-0.25*j,1-0.25*j], color = cl)
                         plt.plot([3.8+3.2*i, 3.2*i+4.4], [1-0.25*j,1-0.25*j], color = cl)
-        if n_mode%2==1:  # for odd mode
-            for i in range(int((n_mode+1)/2)):
+        if nmode%2==1:  # for odd mode
+            for i in range(int((nmode+1)/2)):
                 plt.plot([2.2+3.2*i, 3.2*i+2.2+2.2], [1,1], color = cl)
-            #     plt.plot([1.2+3.2*i, 3.2*i+2.2+2.2], [1-0.25*(n_mode-1), 1-0.25*(n_mode-1) ], color = cl)
-                for j in range(n_mode):
-                    if j< n_mode-1: # remove last line
+            #     plt.plot([1.2+3.2*i, 3.2*i+2.2+2.2], [1-0.25*(nmode-1), 1-0.25*(nmode-1) ], color = cl)
+                for j in range(nmode):
+                    if j< nmode-1: # remove last line
                         plt.plot([1.5+3.2*i, 3.2*i+1.9], [1-0.25*j,1-0.25*j], color = cl)
                         coords1.append( [1.5+3.2*i, 3.2*i+1.9, 1-0.25*j,1-0.25*j])
-                    if j >= n_mode-1:
+                    if j >= nmode-1:
                         plt.plot([1.2+3.2*i, 3.2*i+2.2], [1-0.25*j,1-0.25*j], color = cl)
-                    if  i< int((n_mode+1)/2)-1 and 0<j<n_mode: # remove the last column
+                    if  i< int((nmode+1)/2)-1 and 0<j<nmode: # remove the last column
                         plt.plot([3.1+3.2*i, 3.2*i+3.5], [1-0.25*j,1-0.25*j], color = cl)
                         coords2.append([3.1+3.2*i, 3.2*i+3.5, 1-0.25*j,1-0.25*j])
                         plt.plot([2.2+3.2*i, 3.2*i+2.8], [1-0.25*j,1-0.25*j], color = cl)
@@ -339,7 +355,7 @@ class DrawClements():
             if i%2==1:
                 self.connect2(coords2[i])
         # plotting paras
-        self.plot_paras(self.dic_mzi, self.n_mode, fs=self.fontsize-8)
+        self.plot_paras(self.dic_mzi, self.nmode, fs=self.fontsize-8)
         plt.axis(self.axis_off)
         # if self.axis_off:
         #     plt.axis('off')
@@ -359,9 +375,9 @@ class DrawClements():
         """
         label the position of each phaseshifter for cssr case
         """
-        if self.type == 'cssr':
+        if self.method == 'cssr':
             dic_pos = { }
-            nmode = self.n_mode
+            nmode = self.nmode
             phase_angle = self.phase_angle
             dic_ =self.dic_mzi
             for mode in range(nmode):
@@ -414,7 +430,7 @@ class DrawClements():
         plt.plot([x1, x1+0.3],[y1, y1+0.25], color = cl)
 
     @staticmethod
-    def plot_paras(sort_mzi_dic, n_mode, fs=20):
+    def plot_paras(sort_mzi_dic, nmode, fs=20):
         """
         plotting mzi_paras, for CSSL
         """
@@ -423,11 +439,11 @@ class DrawClements():
                 temp_values = sort_mzi_dic[i]
                 len_ = len(temp_values)
                 for j in range(len_):
-                    plt.text(8.6-3.2*j+3.2*((n_mode-6)//2+n_mode%2),
+                    plt.text(8.6-3.2*j+3.2*((nmode-6)//2+nmode%2),
                              1-0.25*i[0]+0.05,
                              f'{temp_values[j][0]:.2f}',
                              fontsize=fs)
-                    plt.text(7.8-3.2*j+3.2*((n_mode-6)//2+n_mode%2),
+                    plt.text(7.8-3.2*j+3.2*((nmode-6)//2+nmode%2),
                              1-0.25*i[0]+0.05,
                              f'{temp_values[j][1]:.2f}',
                              fontsize=fs)
@@ -435,11 +451,11 @@ class DrawClements():
                 temp_values = sort_mzi_dic[i]
                 len_ = len(temp_values)
                 for j in range(len_):
-                    plt.text(8.6-3.2*j+1.6+3.2*((n_mode-6)//2),
+                    plt.text(8.6-3.2*j+1.6+3.2*((nmode-6)//2),
                              1-0.25*i[0]+0.05,
                              f'{temp_values[j][0]:.2f}',
                              fontsize=fs)
-                    plt.text(7.8-3.2*j+1.6+3.2*((n_mode-6)//2),
+                    plt.text(7.8-3.2*j+1.6+3.2*((nmode-6)//2),
                              1-0.25*i[0]+0.05,
                              f'{temp_values[j][1]:.2f}',
                              fontsize=fs)

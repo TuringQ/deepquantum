@@ -208,7 +208,7 @@ class QubitCircuit(Operation):
             x = self.vector_rep(x)
         return x.squeeze(0)
 
-    def encode(self, data: torch.Tensor) -> None:
+    def encode(self, data: Optional[torch.Tensor]) -> None:
         """Encode the input data into the quantum circuit parameters.
 
         This method iterates over the ``encoders`` of the quantum circuit and initializes their parameters
@@ -217,7 +217,7 @@ class QubitCircuit(Operation):
         the parameters.
 
         Args:
-            data (torch.Tensor): The input data for the ``encoders``, must be a 1D tensor.
+            data (torch.Tensor or None): The input data for the ``encoders``, must be a 1D tensor.
 
         Raises:
             AssertionError: If ``reupload`` is ``False`` and the input data is shorter than the number of

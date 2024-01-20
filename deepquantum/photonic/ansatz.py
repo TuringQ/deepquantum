@@ -43,6 +43,7 @@ class Clements(QumodeCircuit):
                 self.ps(wire, encode=True)
 
     def dict2data(self, angle_dict: Dict, dtype = torch.float) -> torch.Tensor:
+        """Convert the dictionary of angles to the input data for the circuit."""
         angle_dict = angle_dict.copy()
         for key in angle_dict.keys():
             angle = angle_dict[key]

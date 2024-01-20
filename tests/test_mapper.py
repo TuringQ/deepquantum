@@ -13,13 +13,13 @@ def test_mapper():
                      [0,0,0,1],
                      [0,0,1,0]])
     mqc = dq.photonic.mapper
-    n_qubits = 2
-    n_mode = 6
+    nqubit = 2
+    nmode = 6
     ugate = cnot
     aux = [0, 0]
     aux_pos = [4, 5]
     success = 1 / 3
-    umap = mqc.UgateMap(n_qubits=n_qubits, n_mode=n_mode, ugate=ugate,
+    umap = mqc.UgateMap(nqubit=nqubit, nmode=nmode, ugate=ugate,
                         success=success, aux=aux, aux_pos=aux_pos)
     basis_ = umap.basis
     Re3 = umap.solve_eqs_real(total_trials=1, trials=10, precision=1e-5) # for real solution
