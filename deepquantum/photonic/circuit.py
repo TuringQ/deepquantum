@@ -23,7 +23,7 @@ class QumodeCircuit(Operation):
     """Photonic quantum circuit.
 
     Args:
-        nmode (int): The number of modes in the state.
+        nmode (int): The number of modes in the circuit.
         init_state (Any): The initial state of the circuit. It can be a Fock basis state, e.g., ``[1,0,0]``,
             or a Fock state tensor, e.g., ``[(1/2**0.5, [1,0]), (1/2**0.5, [0,1])]``.
             Alternatively, it can be a tensor representation.
@@ -189,14 +189,14 @@ class QumodeCircuit(Operation):
         x = self.operators(self.tensor_rep(state)).squeeze(0)
         return x
 
-    def encode(self, data: torch.Tensor) -> None:
-        """Encode the input data into thecircuit parameters.
+    def encode(self, data: Optional[torch.Tensor]) -> None:
+        """Encode the input data into the photonic quantum circuit parameters.
 
         This method iterates over the ``encoders`` of the circuit and initializes their parameters
         with the input data.
 
         Args:
-            data (torch.Tensor): The input data for the ``encoders``, must be a 1D tensor.
+            data (torch.Tensor or None): The input data for the ``encoders``, must be a 1D tensor.
         """
         if data is None:
             return

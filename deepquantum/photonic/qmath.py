@@ -11,9 +11,7 @@ from torch import vmap
 
 
 def dirac_ket(matrix: torch.Tensor) -> Dict:
-    """
-    the dirac state output with batch
-    """
+    """Convert the batched Fock state tensor to the dictionary of Dirac ket."""
     ket_dict = {}
     for i in range(matrix.shape[0]): # consider batch i
         state_i = matrix[i]
@@ -38,8 +36,7 @@ def dirac_ket(matrix: torch.Tensor) -> Dict:
 
 
 def sort_dict_fock_basis(state_dict: Dict, idx: int = 0) -> Dict:
-    """Sort the dictionary of Fock basis states in descending order of probs
-    """
+    """Sort the dictionary of Fock basis states in the descending order of probs."""
     sort_list = sorted(state_dict.items(), key=lambda t: abs(t[1][idx]), reverse=True)
     sorted_dict = {}
     for key, value in sort_list:
@@ -52,12 +49,14 @@ def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.T
     the input state and the output state. The rows are chosen according to the output state and the columns
     are chosen according to the input state.
 
-    u: torch.tensor, the unitary matrix for the circuit or component
+    Args:
+        u (torch.Tensor): The unitary matrix.
+        input_state (torch.Tensor): The input state.
+        output_state (torch.Tensor): The output state.
     """
     def set_copy_indx(state: torch.Tensor) -> List:
-        """
-        picking up indices from the nonezero elements of state,
-        repeat times depend on the nonezero value
+        """Pick up indices from the nonezero elements of state.
+        The repeat times depend on the nonezero value.
         """
         inds_nonzero = torch.nonzero(state)
         temp_ind = []
@@ -75,6 +74,7 @@ def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.T
 
 
 def permanent(mat: torch.Tensor) -> torch.Tensor:
+    """Calculate the permanent."""
     shape = mat.shape
     if len(mat.size()) == 0:
         return mat
@@ -93,9 +93,7 @@ def permanent(mat: torch.Tensor) -> torch.Tensor:
 
 
 def create_subset(num_coincidence: int) -> List:
-    """
-    all subset from {1,2,...n}
-    """
+    """Create all subsets from {1,2,...,n}."""
     subsets = []
     for k in range(1, num_coincidence + 1):
         comb_lst = []
@@ -107,6 +105,7 @@ def create_subset(num_coincidence: int) -> List:
 
 
 def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
+    """Calculate the permanent by Ryser's formula."""
     def helper(subset: torch.Tensor, mat: torch.Tensor) -> torch.Tensor:
         num_elements = subset.numel()
         s = torch.sum(mat[:, subset], dim=1)
@@ -124,10 +123,7 @@ def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
 
 
 def product_factorial(state: torch.Tensor) -> torch.Tensor:
-    """
-    return the product of the factorial of each element
-    |s_1,s_2,...s_n> --> s_1!*s_2!*...s_n!
-    """
+    """Get the product of the factorial from the Fock state, i.e., :math:`|s_1,s_2,...s_n> --> s_1!*s_2!*...s_n!`."""
     fac = special.factorial(state.cpu())
     if not isinstance(fac, torch.Tensor):
         fac = torch.tensor(fac)

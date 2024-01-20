@@ -1,55 +1,51 @@
 """
-Decompse the uniatry matrix to clements structure
+Decompose the unitary matrix
 """
 
 from collections import defaultdict
+from typing import Dict, Tuple, Union
 
 import numpy as np
 import torch
 
+
 class UnitaryDecomposer():
+    """This class is to decompose a unitary matrix into the Clements/Reck architecture.
+
+    Args:
+        unitary (np.ndarray or torch.Tensor): The unitary matrix to be decomposed.
+        method (str, optional): The decomposition method, only 16 values (``'rssr'``,``'rsdr'``,``'rdsr'``,
+            ``'rddr'``,``'rssl'``,``'rsdl'``,``'rdsl'``,``'rddl'``,``'cssr'``,``'csdr'``,``'cdsr'``,``'cddr'``,
+            ``'cssl'``,``'csdl'``,``'cdsl'``,``'cddl'``) are valid.
+            The first char denotes the Clements or Reck architecture.
+            The second char denotes single or double arms of outer phase shifters.
+            The third char denotes single or double arms of inner phase shifters.
+            The last char denotes the position of a column of phase shiters, i.e., ``'l'`` for left
+            and ``'r'`` for right. Default: ``'cssr'``
     """
-    This class is to decompsoe a unitary matrix into clements structure
-    """
-    def __init__(self, unitary: np.array, method='cssr'):
-        """
-        初始化酉矩阵。
-        检查输入类型,如果是torch.Tensor转为numpy.ndarray;
-        如果不是方阵/酉矩阵，则报错。
-        method 默认为'cssr', clements-single-single-right, single 表示单臂,right 表示最后一列移相器位置在最右边
-        method 列表['rssr','rsdr','rdsr','rddr','rssl','rsdl','rdsl','rddl',
-            'cssr','csdr','cdsr','cddr','cssl','csdl','cdsl','cddl']
-        """
+    def __init__(self, unitary: Union[np.ndarray, torch.Tensor], method: str = 'cssr') -> None:
         if isinstance(unitary, np.ndarray):
             self.unitary = unitary.copy()
         elif isinstance(unitary, torch.Tensor):
-            self.unitary = unitary.clone().detach().numpy()
+            self.unitary = unitary.cpu().clone().detach().numpy()
         else:
-            raise TypeError('The matrix to be decomposed must be in the type of numpy array or pytorch tensor.')
-        if (len(self.unitary.shape)!=2)or(self.unitary.shape[0]!=self.unitary.shape[1]):
+            raise TypeError('The matrix to be decomposed must be in the type of numpy array or torch tensor.')
+        if len(self.unitary.shape) != 2 or self.unitary.shape[0] != self.unitary.shape[1]:
             raise TypeError('The matrix to be decomposed must be a square matrix.')
         if np.abs(unitary @ unitary.conj().T - np.eye(len(unitary))).sum() / len(unitary) ** 2 > 1e-6:
             print('Make sure the input matrix is unitary, in case of an abnormal computation result.')
         self.unitary[np.abs(self.unitary) < 1e-32] = 1e-32
         self.method = method
 
-    def decomp(self) -> dict:
-        """
-        method 前三个字母的含义如下
-        <第0个字母>
-        r: Reck架构
-        c: Clements架构
-        <第1,2个字母>
-        注意,无论是列移相器在左还是在右,第一个字母都对应phi。
-        sd: 单臂phi+双臂theta
-        ss: 单臂+单臂
-        dd: 双臂+双臂
-        ds: 双臂+单臂
+    def decomp(self) -> Tuple[Dict, Dict, Dict]:
+        """Decompose the unitary matrix.
+
+        The third dictionary is the representation of the positions and the angles of all phase shifters.
         """
         def period_cut(input_angle: float, period: float = np.pi * 2) -> float:
             return input_angle - np.floor(input_angle/period)*period
 
-        def decomp_rr(unitary: np.array, method: str) -> dict:
+        def decomp_rr(unitary: np.ndarray, method: str) -> Dict:
             n_dim = len(unitary)
             info = {}
             info['N'] = n_dim
@@ -85,7 +81,7 @@ class UnitaryDecomposer():
             info['phase_angle'][mask] -= np.floor(info['phase_angle'][mask]/np.pi/2)*np.pi*2
             return info, unitary
 
-        def decomp_cr(unitary: np.array, method: str) -> dict:
+        def decomp_cr(unitary: np.ndarray, method: str) -> Dict:
             n_dim = len(unitary)
             info = {}
             info['N']= n_dim
@@ -150,7 +146,7 @@ class UnitaryDecomposer():
             info['phase_angle'][mask] -= np.floor(info['phase_angle'][mask]/np.pi/2)*np.pi*2
             return info, unitary
 
-        def decomp_rl(unitary: np.array, method: str) -> dict:
+        def decomp_rl(unitary: np.ndarray, method: str) -> Dict:
             n_dim = len(unitary)
             info = {}
             info['N'] = n_dim
@@ -186,7 +182,7 @@ class UnitaryDecomposer():
             info['phase_angle'][mask] -= np.floor(info['phase_angle'][mask]/np.pi/2)*np.pi*2
             return info, unitary
 
-        def decomp_cl(unitary: np.array, method: str) -> dict:
+        def decomp_cl(unitary: np.ndarray, method: str) -> Dict:
             n_dim = len(unitary)
             info = {}
             info['N'] = n_dim
@@ -332,29 +328,10 @@ class UnitaryDecomposer():
                 b2 =  a2 + np.pi + (phi+phi_)/2
                 return phi_, theta_, b1, b2
 
-        def constr_r(info):
-            n_dim = info['N']
-            method = info['method']
-            unitary = np.eye(n_dim, dtype=complex)
-            for idx in range(len(info['MZI_list'])):
-                multiple = get_matrix_constr_r(info['MZI_list'][idx], n_dim, method)
-                unitary = multiple @ unitary
-            return unitary
-
-        def constr_l(info):
-            n_dim = info['N']
-            method = info['method']
-            unitary = np.eye(n_dim, dtype=complex)
-            ordered_list = info['MZI_list']  #  注意顺序。对于Reck，T2- T1- U = D => U = T1 T2 D
-            for idx in range(len(ordered_list)):
-                multiple = get_matrix_constr_l(ordered_list[idx], n_dim, method)
-                unitary = unitary @ multiple
-            return unitary
-
         method = self.method
         if method not in ['rssr','rsdr', 'rdsr', 'rddr', 'rssl', 'rsdl', 'rdsl', 'rddl',\
         'cssr', 'csdr', 'cdsr', 'cddr', 'cssl', 'csdl', 'cdsl', 'cddl']:
-            raise Exception('请检查分解方式！')
+            raise LookupError('请检查分解方式！')
         elif method[0]+method[-1] == 'cr':
             temp_0 = decomp_cr(self.unitary, method)[0]
         elif method[0]+method[-1] == 'cl':
@@ -371,7 +348,7 @@ class UnitaryDecomposer():
         """
         sort mzi parameters in the same array for plotting
         """
-        dic_mzi = defaultdict( list) #当key不存在时对应的value是[]
+        dic_mzi = defaultdict(list) #当key不存在时对应的value是[]
         mzi_list = mzi_info['MZI_list']
         for i in mzi_list:
             dic_mzi[tuple(i[0:2])].append(i[2:])
@@ -382,7 +359,7 @@ class UnitaryDecomposer():
         label the position of each phaseshifter for cssr case
         """
         if self.method == 'cssr':
-            dic_pos = { }
+            dic_pos = {}
             nmode = self.unitary.shape[0]
             dic_ =dic_mzi
             for mode in range(nmode):
