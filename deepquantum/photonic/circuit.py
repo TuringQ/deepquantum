@@ -12,6 +12,7 @@ import numpy as np
 import torch
 from torch import nn, vmap
 
+from .decompose import UnitaryDecomposer
 from .draw import DrawCircuit
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
 from .operation import Operation, Gate
@@ -624,3 +625,47 @@ class QumodeCircuit(Operation):
         uany = UAnyGate(unitary=unitary, nmode=self.nmode, wires=wires, minmax=minmax, cutoff=self.cutoff,
                         name=name)
         self.add(uany)
+
+    def clements(
+        self,
+        unitary: Any,
+        wires: Union[int, List[int], None] = None,
+        minmax: Optional[List[int]] = None,
+        mu: float = None,
+        sigma: float = None
+    ) -> None:
+        """ Alternative way for arbitrary U gate, using cssr type clements decomposition"""
+        ##clements decompose
+        if wires is None:
+            if minmax is None:
+                minmax = [0, nmode - 1]
+            self._check_minmax(minmax)
+            wires = list(range(minmax[0], minmax[1] + 1))
+
+        u_decomposer= UnitaryDecomposer(unitary, 'cssr')
+        mzi_info = u_decomposer.decomp()
+        dic_mzi = mzi_info[1]
+        phase_angle = mzi_info[0]['phase_angle']
+        wires1 = wires[1::2]
+        wires2 = wires[2::2]
+        nmode = self.nmode 
+        phi_first = True
+        shift = wires[0] # clements decomposition starts from 0
+        # print(shift)
+        for i in range(len(wires)):
+            if i % 2 == 0:
+                idx = i//2
+                for j in range(len(wires1)):
+                    temp_angle = dic_mzi[(wires1[j]-1-shift, wires1[j]-shift)][idx]
+                    self.mzi(wires=[wires1[j] - 1, wires1[j]], inputs=[temp_angle[1], temp_angle[0]],
+                             phi_first=phi_first, mu=mu, sigma=sigma)
+            else:
+                idx = (i-1)//2
+                for j in range(len(wires2)):
+                    temp_angle = dic_mzi[(wires2[j]-1-shift, wires2[j]-shift)][idx]
+                    self.mzi(wires=[wires2[j] - 1, wires2[j]], inputs=[temp_angle[1], temp_angle[0]],
+                             phi_first=phi_first, mu=mu, sigma=sigma)
+        for wire in wires:
+            self.ps(wires=wire, inputs=phase_angle[wire-shift], mu=mu, sigma=sigma)
+
+
