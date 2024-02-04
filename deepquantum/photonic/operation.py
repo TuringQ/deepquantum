@@ -62,7 +62,7 @@ class Operation(nn.Module):
         assert isinstance(minmax, list)
         assert len(minmax) == 2
         assert all(isinstance(i, int) for i in minmax)
-        assert -1 < minmax[0] <= minmax[1] < self.nqubit
+        assert -1 < minmax[0] <= minmax[1] < self.nmode
 
 
 class Gate(Operation):

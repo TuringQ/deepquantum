@@ -358,7 +358,7 @@ class QumodeCircuit(Operation):
         else:
             return all_results
 
-    def draw(self, filename: str = None):
+    def draw(self, filename: Optional[str] = None):
         """Visualize the photonic quantum circuit.
 
         Args:
@@ -367,8 +367,9 @@ class QumodeCircuit(Operation):
         self.draw_circuit = DrawCircuit(self.name, self.nmode, self.operators)
         if filename is not None:
             self.draw_circuit.save(filename)
-        if self.nmode > 50:
-            print('Too many modes in the circuit, please save the figure.')
+        else:
+            if self.nmode > 50:
+                print('Too many modes in the circuit, please save the figure.')
         self.draw_circuit.draw()
         return self.draw_circuit.draw_
 
@@ -426,8 +427,8 @@ class QumodeCircuit(Operation):
         wires: int,
         inputs: Any = None,
         encode: bool = False,
-        mu: float = None,
-        sigma: float = None
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
     ) -> None:
         """Add a phase shifter."""
         requires_grad = not encode
@@ -446,8 +447,8 @@ class QumodeCircuit(Operation):
         wires: List[int],
         inputs: Any = None,
         encode: bool = False,
-        mu: float = None,
-        sigma: float = None
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
     ) -> None:
         """Add a beam splitter."""
         requires_grad = not encode
@@ -467,8 +468,8 @@ class QumodeCircuit(Operation):
         inputs: Any = None,
         phi_first: bool = True,
         encode: bool = False,
-        mu: float = None,
-        sigma: float = None
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
     ) -> None:
         """Add a Mach-Zehnder interferometer."""
         requires_grad = not encode
@@ -487,8 +488,8 @@ class QumodeCircuit(Operation):
         wires: List[int],
         inputs: Any = None,
         encode: bool = False,
-        mu: float = None,
-        sigma: float = None
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
     ) -> None:
         r"""Add a beam splitter with fixed :math:`\phi` at :math:`\pi/2`."""
         requires_grad = not encode
@@ -507,8 +508,8 @@ class QumodeCircuit(Operation):
         wires: List[int],
         inputs: Any = None,
         encode: bool = False,
-        mu: float = None,
-        sigma: float = None
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
     ) -> None:
         r"""Add a beam splitter with fixed :math:`\theta` at :math:`\pi/4`."""
         requires_grad = not encode
@@ -527,8 +528,8 @@ class QumodeCircuit(Operation):
         wires: List[int],
         inputs: Any = None,
         encode: bool = False,
-        mu: float = None,
-        sigma: float = None
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
     ) -> None:
         """Add an Rx-type beam splitter."""
         requires_grad = not encode
@@ -547,8 +548,8 @@ class QumodeCircuit(Operation):
         wires: List[int],
         inputs: Any = None,
         encode: bool = False,
-        mu: float = None,
-        sigma: float = None
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
     ) -> None:
         """Add an Ry-type beam splitter."""
         requires_grad = not encode
@@ -567,8 +568,8 @@ class QumodeCircuit(Operation):
         wires: List[int],
         inputs: Any = None,
         encode: bool = False,
-        mu: float = None,
-        sigma: float = None
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
     ) -> None:
         """Add an H-type beam splitter."""
         requires_grad = not encode
@@ -585,8 +586,8 @@ class QumodeCircuit(Operation):
     def dc(
         self,
         wires: List[int],
-        mu: float = None,
-        sigma: float = None
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
     ) -> None:
         """Add a directional coupler."""
         theta = torch.pi / 2
@@ -601,8 +602,8 @@ class QumodeCircuit(Operation):
     def h(
         self,
         wires: List[int],
-        mu: float = None,
-        sigma: float = None
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
     ) -> None:
         """Add a photonic Hadamard gate."""
         theta = torch.pi / 2
@@ -631,41 +632,44 @@ class QumodeCircuit(Operation):
         unitary: Any,
         wires: Union[int, List[int], None] = None,
         minmax: Optional[List[int]] = None,
-        mu: float = None,
-        sigma: float = None
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
     ) -> None:
-        """ Alternative way for arbitrary U gate, using cssr type clements decomposition"""
-        ##clements decompose
+        """Add the Clements architecture of the unitary matrix.
+
+        This is equivalent to ``any``, using `'cssr'`-type Clements decomposition.
+        When ``basis`` is ``False``, this implementation is much faster.
+        """
         if wires is None:
             if minmax is None:
-                minmax = [0, nmode - 1]
+                minmax = [0, self.nmode - 1]
             self._check_minmax(minmax)
             wires = list(range(minmax[0], minmax[1] + 1))
-
-        u_decomposer= UnitaryDecomposer(unitary, 'cssr')
-        mzi_info = u_decomposer.decomp()
+        else:
+            wires = self._convert_indices(wires)
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        # clements decomposition
+        ud = UnitaryDecomposer(unitary, 'cssr')
+        mzi_info = ud.decomp()
         dic_mzi = mzi_info[1]
         phase_angle = mzi_info[0]['phase_angle']
+        assert len(phase_angle) == len(wires), 'Please check wires'
         wires1 = wires[1::2]
         wires2 = wires[2::2]
-        nmode = self.nmode 
-        phi_first = True
         shift = wires[0] # clements decomposition starts from 0
-        # print(shift)
         for i in range(len(wires)):
             if i % 2 == 0:
-                idx = i//2
+                idx = i // 2
                 for j in range(len(wires1)):
-                    temp_angle = dic_mzi[(wires1[j]-1-shift, wires1[j]-shift)][idx]
-                    self.mzi(wires=[wires1[j] - 1, wires1[j]], inputs=[temp_angle[1], temp_angle[0]],
-                             phi_first=phi_first, mu=mu, sigma=sigma)
+                    phi, theta = dic_mzi[(wires1[j] - 1 - shift, wires1[j] - shift)][idx]
+                    self.mzi(wires=[wires1[j] - 1, wires1[j]], inputs=[theta, phi], mu=mu, sigma=sigma)
             else:
-                idx = (i-1)//2
+                idx = (i - 1) // 2
                 for j in range(len(wires2)):
-                    temp_angle = dic_mzi[(wires2[j]-1-shift, wires2[j]-shift)][idx]
-                    self.mzi(wires=[wires2[j] - 1, wires2[j]], inputs=[temp_angle[1], temp_angle[0]],
-                             phi_first=phi_first, mu=mu, sigma=sigma)
+                    phi, theta = dic_mzi[(wires2[j] - 1 - shift, wires2[j] - shift)][idx]
+                    self.mzi(wires=[wires2[j] - 1, wires2[j]], inputs=[theta, phi], mu=mu, sigma=sigma)
         for wire in wires:
             self.ps(wires=wire, inputs=phase_angle[wire-shift], mu=mu, sigma=sigma)
-
-
