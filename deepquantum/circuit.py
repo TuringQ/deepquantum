@@ -182,7 +182,7 @@ class QubitCircuit(Operation):
                     self.state = vmap(self._forward_helper, in_dims=(0, None))(data, state)
                 elif state.ndim == 3:
                     self.state = vmap(self._forward_helper)(data, state)
-            self.init_encoder()
+            self.encode(data[-1])
         return self.state
 
     def _forward_helper(
@@ -375,7 +375,10 @@ class QubitCircuit(Operation):
                 u = op.get_unitary()
             else:
                 u = op.get_unitary() @ u
-        return u
+        if u is None:
+            return torch.eye(2 ** self.nqubit, dtype=torch.cfloat)
+        else:
+            return u
 
     def inverse(self, encode: bool = False) -> 'QubitCircuit':
         """Get the inversed circuit.

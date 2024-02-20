@@ -64,7 +64,6 @@ class QumodeCircuit(Operation):
         self.mu = mu
         self.sigma = sigma
         self.state = None
-        self.u = None
         self.npara = 0
         self.ndata = 0
         self.depth = np.array([0] * nmode)
@@ -151,7 +150,6 @@ class QumodeCircuit(Operation):
                     self.state = vmap(self._forward_helper_tensor)(data, state)
             # for plotting the last data
             self.encode(data[-1])
-            self.u = self.get_unitary_op()
         return self.state
 
     def _forward_helper_basis(
@@ -162,7 +160,6 @@ class QumodeCircuit(Operation):
     ) -> Dict:
         """Perform a forward pass for one sample if the input is a Fock basis state."""
         self.encode(data)
-        self.u = self.get_unitary_op()
         if state is None:
             state = self.init_state.state
         out_dict = {}
@@ -216,8 +213,10 @@ class QumodeCircuit(Operation):
                 u = op.get_unitary_op()
             else:
                 u = op.get_unitary_op() @ u
-        self.u = u
-        return u
+        if u is None:
+            return torch.eye(self.nmode, dtype=torch.cfloat)
+        else:
+            return u
 
     def _get_all_fock_basis(self, init_state: torch.Tensor) -> torch.Tensor:
         """Get all possible fock basis states according to the initial state."""
@@ -231,8 +230,9 @@ class QumodeCircuit(Operation):
     def _get_sub_matrices(self, init_state: torch.Tensor, final_states: torch.Tensor) -> torch.Tensor:
         """Get the sub-matrices for permanent."""
         sub_mats = []
+        u = self.get_unitary_op()
         for state in final_states:
-            sub_mats.append(sub_matrix(self.u, init_state, state))
+            sub_mats.append(sub_matrix(u, init_state, state))
         return torch.stack(sub_mats)
 
     def _get_permanent_norms(self, init_state: torch.Tensor, final_states: torch.Tensor) -> torch.Tensor:
@@ -253,10 +253,7 @@ class QumodeCircuit(Operation):
         assert init_state.basis, 'The initial state must be a Fock basis state'
         assert max(final_state) < self.cutoff, 'The number of photons in the final state must be less than cutoff'
         assert sum(final_state) == sum(init_state.state), 'The number of photons should be conserved'
-        if self.u is None:
-            u = self.get_unitary_op()
-        else:
-            u = self.u
+        u = self.get_unitary_op()
         sub_mat = sub_matrix(u, init_state.state, final_state)
         nphoton = sum(init_state.state)
         if nphoton == 0:
