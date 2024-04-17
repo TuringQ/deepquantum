@@ -219,7 +219,7 @@ class DrawClements():
                         va = 'center',)
             plt.text(-0.8, 1-0.25*i, f'{i}', fontsize = fs )
             plt.plot([0, 1.2], [1-0.25*i,1-0.25*i], color = cl)
-            plt.text( 3.2*(nmode/2-1)+2.2+2.1, 1-0.25*i+0.05, f'{phase_angle[i]:.2f}', fontsize=fs-8 )  # phase angle
+            plt.text( 3.2*(nmode/2-1)+2.2+2.1, 1-0.25*i+0.05, f'{phase_angle[i]:.3f}', fontsize=fs-8 )  # phase angle
             ax.add_patch(
             patches.Rectangle(
                 (3.2*(nmode/2-1)+2.2+2.1, 1-0.25*i-0.05),
@@ -301,7 +301,7 @@ class DrawClements():
                          va='center',)
             plt.text(-0.8, 1-0.25*i, f'{i}', fontsize = fs )
             plt.plot([0, 1.2], [1-0.25*i,1-0.25*i], color = cl)
-            plt.text( 0.4,1-0.25*i+0.05, f'{phase_angle[i]:.2f}', fontsize=fs-8 )  # phase angle
+            plt.text( 0.4,1-0.25*i+0.05, f'{phase_angle[i]:.3f}', fontsize=fs-8 )  # phase angle
             ax.add_patch(
             patches.Rectangle(
                 (0.5,1-0.25*i-0.05),
@@ -441,11 +441,11 @@ class DrawClements():
                 for j in range(len_):
                     plt.text(8.6-3.2*j+3.2*((nmode-6)//2+nmode%2),
                              1-0.25*i[0]+0.05,
-                             f'{temp_values[j][0]:.2f}',
+                             f'{temp_values[j][0]:.3f}',
                              fontsize=fs)
                     plt.text(7.8-3.2*j+3.2*((nmode-6)//2+nmode%2),
                              1-0.25*i[0]+0.05,
-                             f'{temp_values[j][1]:.2f}',
+                             f'{temp_values[j][1]:.3f}',
                              fontsize=fs)
             if i[0]%2 ==1: # 1, 3..
                 temp_values = sort_mzi_dic[i]
@@ -453,11 +453,11 @@ class DrawClements():
                 for j in range(len_):
                     plt.text(8.6-3.2*j+1.6+3.2*((nmode-6)//2),
                              1-0.25*i[0]+0.05,
-                             f'{temp_values[j][0]:.2f}',
+                             f'{temp_values[j][0]:.3f}',
                              fontsize=fs)
                     plt.text(7.8-3.2*j+1.6+3.2*((nmode-6)//2),
                              1-0.25*i[0]+0.05,
-                             f'{temp_values[j][1]:.2f}',
+                             f'{temp_values[j][1]:.3f}',
                              fontsize=fs)
 
     @staticmethod
@@ -470,11 +470,11 @@ class DrawClements():
                 temp_values = sort_mzi_dic[i]
                 len_ = len(temp_values)
                 for j in range(len_):
-                    plt.text(3.2*j+0.6, 1-0.25*i[0]+0.05, f'{temp_values[j][0]:.2f}', fontsize=fs)
-                    plt.text(3.2*j+0.6+0.9, 1-0.25*i[0]+0.05, f'{temp_values[j][1]:.2f}', fontsize=fs)
+                    plt.text(3.2*j+0.6, 1-0.25*i[0]+0.05, f'{temp_values[j][0]:.3f}', fontsize=fs)
+                    plt.text(3.2*j+0.6+0.9, 1-0.25*i[0]+0.05, f'{temp_values[j][1]:.3f}', fontsize=fs)
             if i[0]%2 ==1: # 1, 3..
                 temp_values = sort_mzi_dic[i]
                 len_ = len(temp_values)
                 for j in range(len_):
-                    plt.text(3.2*j+0.6+1.6, 1-0.25*i[0]+0.05, f'{temp_values[j][0]:.2f}', fontsize=fs)
-                    plt.text(3.2*j+0.6+2.4, 1-0.25*i[0]+0.05, f'{temp_values[j][1]:.2f}', fontsize=fs)
+                    plt.text(3.2*j+0.6+1.6, 1-0.25*i[0]+0.05, f'{temp_values[j][0]:.3f}', fontsize=fs)
+                    plt.text(3.2*j+0.6+2.4, 1-0.25*i[0]+0.05, f'{temp_values[j][1]:.3f}', fontsize=fs)
