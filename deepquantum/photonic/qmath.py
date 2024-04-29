@@ -165,3 +165,45 @@ def fock_combinations(nmode: int, nphoton: int) -> List:
 
     backtrack([], nmode, nphoton)
     return result
+
+
+def xxpp_to_xpxp(matrix):
+    """Transform the representation in xxpp ordering to the representation in xpxp ordering."""
+    if not isinstance(matrix, torch.Tensor):
+        matrix = torch.tensor(matrix).squeeze()
+    nmode = int(matrix.size()[0] / 2)
+    # transformation matrix
+    t = torch.zeros([2 * nmode] * 2, dtype=matrix.dtype)
+    for i in range(2 * nmode):
+        if i % 2 == 0:
+            t[i][i // 2] = 1
+        else:
+            t[i][i // 2 + nmode] = 1
+    # new matrix in xpxp ordering
+    if matrix.numel() == (2 * nmode) ** 2:
+        new_mat = t @ matrix @ t.mT
+    elif matrix.numel() == 2 * nmode:
+        new_mat = t @ matrix.reshape(-1, 1)
+        new_mat = new_mat.reshape(-1, 1).squeeze()
+    return new_mat
+
+
+def xpxp_to_xxpp(matrix):
+    """Transform the representation in xpxp ordering to the representation in xxpp ordering."""
+    if not isinstance(matrix, torch.Tensor):
+        matrix = torch.tensor(matrix).squeeze()
+    nmode = int(matrix.size()[0] / 2)
+    # transformation matrix
+    t = torch.zeros([2 * nmode] * 2, dtype=matrix.dtype)
+    for i in range(2 * nmode):
+        if i < nmode:
+            t[i][2 * i] = 1
+        else:
+            t[i][2 * (i - nmode) + 1] = 1
+    # new matrix in xxpp ordering
+    if matrix.numel() == (2 * nmode) ** 2:
+        new_mat = t @ matrix @ t.mT
+    elif matrix.numel() == 2 * nmode:
+        new_mat = t @ matrix.reshape(-1, 1)
+        new_mat = new_mat.reshape(-1, 1).squeeze()
+    return new_mat

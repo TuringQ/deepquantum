@@ -19,3 +19,6 @@ from .draw import DrawClements
 from .mapper import UgateMap
 from .qmath import permanent
 from .state import FockState
+
+hbar = 2
+kappa = 2 ** (-0.5)

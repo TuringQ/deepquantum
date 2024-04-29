@@ -9,6 +9,7 @@ from typing import Any, List, Optional, Tuple, Union
 import torch
 from torch import nn
 
+import deepquantum.photonic as dqp
 from .operation import Gate
 from ..qmath import is_unitary
 
@@ -81,6 +82,28 @@ class PhaseShift(Gate):
         """Get the local unitary matrix acting on Fock state tensors."""
         return torch.stack([matrix[0, 0] ** n for n in range(self.cutoff)]).reshape(-1).diag_embed()
 
+    def get_symplectic_mat(self, theta: Any) -> torch.Tensor:
+        """Get the local symplectic matrix acting on quadratures xxpp."""
+        cos = torch.cos(theta)
+        sin = torch.sin(theta)
+        return torch.stack([cos, -sin, sin, cos]).reshape(2,2)
+
+    def get_displacement(self, theta: Any) -> torch.Tensor:
+        """Get the local displacement vectors on quadratures xxpp."""
+        return torch.zeros(2, device=theta.device)
+
+    def update_matrix_xp(self) -> torch.Tensor:
+        """Update the local symplectic matrix acting on operators."""
+        matrix = self.get_symplectic_mat(self.theta)
+        self.matrix_xp = matrix.detach()
+        return matrix
+
+    def update_displacement(self) -> torch.Tensor:
+        """Update the displacement vector acting on operators."""
+        displacement = self.get_displacement(self.theta)
+        self.displacement = displacement
+        return displacement
+
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
         theta = self.inputs_to_tensor(inputs=inputs)
@@ -89,6 +112,8 @@ class PhaseShift(Gate):
         else:
             self.register_buffer('theta', theta)
         self.update_matrix()
+        self.update_matrix_xp()
+        self.update_displacement()
 
 
 class BeamSplitter(Gate):
@@ -202,6 +227,31 @@ class BeamSplitter(Gate):
                         )
         return unitary
 
+    def get_symplectic_mat(self, theta: Any, phi: Any) -> torch.Tensor:
+        """Get the local symplectic matrix acting on quadratures xxpp."""
+        unitary_mat = self.get_matrix(theta, phi) # correspond to: U a^+ U^+ = u^T @ a^+
+        unitary_mat = unitary_mat.conj()          # correspond to: U a U^+ = (u^*)^T @ a
+        mat_real = unitary_mat.real
+        mat_imag = unitary_mat.imag
+        return torch.cat([torch.cat([mat_real, mat_imag], dim=1),
+                          torch.cat([-mat_imag, mat_real], dim=1)], dim=0)
+
+    def get_displacement(self, theta: Any, phi: Any) -> torch.Tensor:
+        """Get the local displacement vector acting on quadratures xxpp."""
+        return torch.zeros(4, device=theta.device)
+
+    def update_matrix_xp(self) -> torch.Tensor:
+        """Update the local symplectic matrix acting on operators."""
+        matrix = self.get_symplectic_mat(self.theta, self.phi)
+        self.matrix_xp = matrix.detach()
+        return matrix
+
+    def update_displacement(self) -> torch.Tensor:
+        """Update the displacement vector acting on operators."""
+        displacement = self.get_displacement(self.theta, self.phi)
+        self.displacement = displacement
+        return displacement
+
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
         theta, phi = self.inputs_to_tensor(inputs=inputs)
@@ -212,6 +262,8 @@ class BeamSplitter(Gate):
             self.register_buffer('theta', theta)
             self.register_buffer('phi', phi)
         self.update_matrix()
+        self.update_matrix_xp()
+        self.update_displacement()
 
 
 class MZI(BeamSplitter):
@@ -486,6 +538,31 @@ class BeamSplitterSingle(BeamSplitter):
         self.matrix = matrix.detach()
         return matrix
 
+    def get_symplectic_mat(self, theta: Any) -> torch.Tensor:
+        """Get the local symplectic matrix acting on quadratures xxpp."""
+        unitary_mat = self.get_matrix(theta)
+        unitary_mat = unitary_mat.conj()
+        mat_real = unitary_mat.real
+        mat_imag = unitary_mat.imag
+        return torch.cat([torch.cat([mat_real, mat_imag], dim=1),
+                          torch.cat([-mat_imag, mat_real], dim=1)], dim=0)
+
+    def get_displacement(self, theta: Any) -> torch.Tensor:
+        """Get the local displacement vector acting on quadratures xxpp."""
+        return torch.zeros(4, device=theta.device)
+
+    def update_matrix_xp(self) -> torch.Tensor:
+        """Update the local symplectic matrix acting on operators."""
+        matrix = self.get_symplectic_mat(self.theta)
+        self.matrix_xp = matrix.detach()
+        return matrix
+
+    def update_displacement(self) -> torch.Tensor:
+        """Update the displacement vector acting on operators."""
+        displacement = self.get_displacement(self.theta)
+        self.displacement = displacement
+        return displacement
+
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
         theta = self.inputs_to_tensor(inputs=inputs)
@@ -494,6 +571,8 @@ class BeamSplitterSingle(BeamSplitter):
         else:
             self.register_buffer('theta', theta)
         self.update_matrix()
+        self.update_matrix_xp()
+        self.update_displacement()
 
 
 class UAnyGate(Gate):
@@ -575,3 +654,206 @@ class UAnyGate(Gate):
         else:
             unitary = self.unitary_state
         return unitary
+
+    def get_symplectic_mat(self) -> torch.Tensor:
+        """Get the local symplectic matrix acting on quadratures xxpp."""
+        unitary_mat = self.matrix
+        unitary_mat = unitary_mat.conj() #the unitary mat for a^+
+        mat_real = unitary_mat.real
+        mat_imag = unitary_mat.imag
+        return torch.cat([torch.cat([mat_real, mat_imag], dim=1),
+                          torch.cat([-mat_imag, mat_real], dim=1)], dim=0)
+
+    def get_displacement(self) -> torch.Tensor:
+        """Get the local displacement vector acting on quadratures xxpp."""
+        return torch.zeros(2 * self.nmode, device=self.matrix.device) #here assume no displacement??
+
+    def update_matrix_xp(self) -> torch.Tensor:
+        """Update the local symplectic matrix acting on operators."""
+        matrix = self.get_symplectic_mat()
+        self.matrix_xp = matrix.detach()
+        return matrix
+
+    def update_displacement(self) -> torch.Tensor:
+        """Update the displacement vector acting on operators."""
+        displacement = self.get_displacement()
+        self.displacement = displacement
+        return displacement
+
+
+class Squeezing(Gate):
+    r"""Squeezing gate.
+
+    Args:
+        inputs (Any, optional): The parameters of the gate (:math:`r` and :math:`\theta`). Default: ``None``
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
+        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
+        mu (float, optional): The mean of Gaussian noise. Default: 0
+        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nmode: int = 1,
+        wires: Union[int, List[int], None] = None,
+        cutoff: int = None,
+        requires_grad: bool = False,
+        noise: bool = False,
+        mu: float = 0,
+        sigma: float = 0.1
+    ) -> None:
+        super().__init__(name='Squeezing', nmode=nmode, wires=wires, cutoff=cutoff)
+        assert len(self.wires) == 1, 'Squeezing gate acts on single mode'
+        self.npara = 2
+        self.requires_grad = requires_grad
+        self.noise = noise
+        self.mu = mu
+        self.sigma = sigma
+        self.init_para(inputs=inputs)
+
+    def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor]:
+        """Convert inputs to torch.Tensor."""
+        if inputs is None:
+            r = torch.rand(1)[0]
+            theta = torch.rand(1)[0] * 2 * torch.pi
+        else:
+            r = inputs[0]
+            theta = inputs[1]
+        if not isinstance(r, (torch.Tensor, nn.Parameter)):
+            r = torch.tensor(r, dtype=torch.float)
+        if not isinstance(theta, (torch.Tensor, nn.Parameter)):
+            theta = torch.tensor(theta, dtype=torch.float)
+        if self.noise:
+            r = r + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+            theta = theta + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        return r, theta
+
+    def get_symplectic_mat(self, r: Any, theta: Any) -> torch.Tensor:
+        """Get the local symplectic matrix acting on quadratures xxpp."""
+        r, theta = self.inputs_to_tensor([r, theta])
+        ch = torch.cosh(r)
+        sh = torch.sinh(r)
+        cos = torch.cos(theta)
+        sin = torch.sin(theta)
+        return torch.stack([ch - sh * cos, -sh * sin, -sh * sin, ch + sh * cos]).reshape(2, 2)
+
+    def get_displacement(self, r: Any, theta: Any) -> torch.Tensor:
+        """Get the local displacement vector acting on quadratures xxpp."""
+        return torch.zeros(2, device=r.device)
+
+    def update_matrix_xp(self) -> torch.Tensor:
+        """Update the local symplectic matrix acting on operators."""
+        matrix = self.get_symplectic_mat(self.r, self.theta)
+        self.matrix_xp = matrix.detach()
+        return matrix
+
+    def update_displacement(self) -> torch.Tensor:
+        """Update the displacement vector acting on operators."""
+        displacement = self.get_displacement(self.r, self.theta)
+        self.displacement = displacement
+        return displacement
+
+    def init_para(self, inputs: Any = None) -> None:
+        """Initialize the parameters."""
+        r, theta = self.inputs_to_tensor(inputs=inputs)
+        if self.requires_grad:
+            self.r = nn.Parameter(r)
+            self.theta = nn.Parameter(theta)
+        else:
+            self.register_buffer('r', r)
+            self.register_buffer('theta', theta)
+        self.update_matrix_xp()
+        self.update_displacement()
+
+
+class Displacement(Gate):
+    r"""Displacement gate.
+
+    Args:
+        inputs (Any, optional): The parameters of the gate (:math:`r` and :math:`\theta`). Default: ``None``
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
+        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
+        mu (float, optional): The mean of Gaussian noise. Default: 0
+        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nmode: int = 1,
+        wires: Union[int, List[int], None] = None,
+        cutoff: int = None,
+        requires_grad: bool = False,
+        noise: bool = False,
+        mu: float = 0,
+        sigma: float = 0.1
+    ) -> None:
+        super().__init__(name='Displacement', nmode=nmode, wires=wires, cutoff=cutoff)
+        assert len(self.wires) == 1, 'Displacement gate acts on single mode'
+        self.npara = 2
+        self.requires_grad = requires_grad
+        self.noise = noise
+        self.mu = mu
+        self.sigma = sigma
+        self.init_para(inputs=inputs)
+
+    def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor]:
+        """Convert inputs to torch.Tensor."""
+        if inputs is None:
+            r = torch.rand(1)[0]
+            theta = torch.rand(1)[0] * 2 * torch.pi
+        else:
+            r = inputs[0]
+            theta = inputs[1]
+        if not isinstance(r, (torch.Tensor, nn.Parameter)):
+            r = torch.tensor(r, dtype=torch.float)
+        if not isinstance(theta, (torch.Tensor, nn.Parameter)):
+            theta = torch.tensor(theta, dtype=torch.float)
+        if self.noise:
+            r = r + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+            theta = theta + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        return r, theta
+
+    def get_symplectic_mat(self, r: Any, theta: Any) -> torch.Tensor:
+        """Get the local symplectic matrix acting on quadratures xxpp."""
+        return torch.eye(2, device=r.device)
+
+    def get_displacement(self, r: Any, theta: Any) -> torch.Tensor:
+        """Get the local displacement vector acting on quadratures xxpp."""
+        r, theta = self.inputs_to_tensor([r, theta])
+        cos = torch.cos(theta)
+        sin = torch.sin(theta)
+        return torch.stack([2 * r * cos, 2 * r * sin])
+
+    def update_matrix_xp(self) -> torch.Tensor:
+        """Update the local symplectic matrix acting on operators."""
+        matrix = self.get_symplectic_mat(self.r, self.theta)
+        self.matrix_xp = matrix.detach()
+        return matrix
+
+    def update_displacement(self) -> torch.Tensor:
+        """Update the displacement vector acting on operators."""
+        displacement = self.get_displacement(self.r, self.theta)
+        self.displacement_ = displacement
+        return displacement
+
+    def init_para(self, inputs: Any = None) -> None:
+        """Initialize the parameters."""
+        r, theta = self.inputs_to_tensor(inputs=inputs)
+        if self.requires_grad:
+            self.r = nn.Parameter(r)
+            self.theta = nn.Parameter(theta)
+        else:
+            self.register_buffer('r', r)
+            self.register_buffer('theta', theta)
+        self.update_matrix_xp()
+        self.update_displacement()

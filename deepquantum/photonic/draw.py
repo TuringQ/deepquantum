@@ -11,8 +11,13 @@ import svgwrite
 from matplotlib import patches
 from torch import nn
 
-from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate
+from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate, Squeezing, Displacement
 
+info_dic = {'PS': ['teal', 0],
+            'S': ['royalblue', 3],
+            'D': ['green', 3],
+            'U': ['cadetblue', 0]
+            }
 
 class DrawCircuit():
     """Draw the photonic quantum circuit.
@@ -62,18 +67,33 @@ class DrawCircuit():
                 depth[op.wires[0]] = max(bs_depth)           ## BS 经过后相同线路深度
                 depth[op.wires[1]] = max(bs_depth)
             elif isinstance(op, PhaseShift):
+                name_ = 'PS'
                 theta = op.theta.item()
                 order = depth[op.wires[0]]
-                self.draw_ps(order, op.wires, theta)
+                self.draw_ps(order, op.wires, theta, name_)
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = depth[i]+1
             elif isinstance(op, UAnyGate): # need check?
                 order = max(depth[op.wires[0] : op.wires[-1]+1])
-                self.draw_any(order, op.wires)
+                name_ = 'U'
+                self.draw_any(order, op.wires, name_)
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = order + 1
+            elif isinstance(op, Union[Squeezing, Displacement]):
+                r = op.r.item()
+                theta = op.theta.item()
+                order = depth[op.wires[0]]
+                if isinstance(op, Squeezing):
+                    name_ = 'S'
+                else:
+                    name_ = 'D'
+                self.draw_sq(order, op.wires, r, theta, name_)
+                order_dic[order] = order_dic[order] + op.wires
+                for i in op.wires:
+                    depth[i] = depth[i]+1
+
         for key, value in order_dic.items():
             op_line = value  ## here lines represent for no operation
             line_wires = [i for i in range(nmode) if i not in op_line]
@@ -118,24 +138,46 @@ class DrawCircuit():
                                            insert=(x+55, y_up*30+30+26-6),
                                            font_size=7))
 
-    def draw_ps(self, order, wires, theta):
+    def draw_ps(self, order, wires, theta, name=None):
         """
-        draw phaseshift
+        draw phaseshif (rotation) gate
         """
+        fill_c = info_dic[name][0]
+        shift= info_dic[name][1]
         x = 90 * order + 40
         y_up = wires[0]
         # y_down = wires[1]
         self.draw_.add(self.draw_.polyline(points=[(x, y_up*30+30), (x+90, y_up*30+30)],
                                            fill='none', stroke='black', stroke_width=2))
         self.draw_.add(self.draw_.rect(insert=(x+42.5, y_up*30+25), size=(6,12), rx=0, ry=0,
-                                       fill='none', stroke='black', stroke_width=1.5))
-        self.draw_.add(self.draw_.text('PS', insert=(x+40, y_up*30+20), font_size=9))
+                                       fill=fill_c, stroke='black', stroke_width=1.5))
+        self.draw_.add(self.draw_.text(name, insert=(x+40+shift, y_up*30+20), font_size=9))
         self.draw_.add(self.draw_.text('θ ='+str(np.round(theta,3)), insert=(x+55, y_up*30+20), font_size=7))
 
-    def draw_any(self, order, wires):
+    def draw_sq(self, order, wires, r, theta, name=None):
+        """
+        draw squeezing gate, displacement gate
+        """
+        x = 90 * order + 40
+        y_up = wires[0]
+        # y_down = wires[1]
+        self.draw_.add(self.draw_.polyline(points=[(x, y_up*30+30), (x+90, y_up*30+30)],
+                                          fill='none', stroke='black', stroke_width=2))
+        fill_c = info_dic[name][0]
+        shift= info_dic[name][1]
+
+        self.draw_.add(self.draw_.rect(insert=(x+42.5, y_up*30+25), size=(10,12), rx=0, ry=0,
+                                       fill=fill_c, stroke='black', stroke_width=1.5))
+        self.draw_.add(self.draw_.text(name, insert=(x+40+shift, y_up*30+20), font_size=9))
+        self.draw_.add(self.draw_.text('r ='+str(np.round(r,3)), insert=(x+55, y_up*30+18), font_size=7))
+        self.draw_.add(self.draw_.text('θ ='+str(np.round(theta,3)), insert=(x+55, y_up*30+24), font_size=7))
+
+    def draw_any(self, order, wires, name):
         """
         draw arbitrary unitary gate
         """
+        fill_c = info_dic[name][0]
+        shift= info_dic[name][1]
         x = 90 * order + 40
         y_up = wires[0]
         h = (int(len(wires)) - 1) * 30 + 20
@@ -147,8 +189,8 @@ class DrawCircuit():
                                                fill='none', stroke='black', stroke_width=2))
 
         self.draw_.add(self.draw_.rect(insert=(x+20, y_up*30+20), size=(50, h), rx=0, ry=0,
-                                       fill='none', stroke='black', stroke_width=2))
-        self.draw_.add(self.draw_.text('U', insert=((x+41), y_up*30+20+h/2), font_size=10))
+                                       fill=fill_c, stroke='black', stroke_width=2))
+        self.draw_.add(self.draw_.text(name, insert=((x+41), y_up*30+20+h/2), font_size=10))
 
     def draw_lines(self, order, wires):
         """

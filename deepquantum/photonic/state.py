@@ -7,6 +7,7 @@ from typing import Any, Optional
 import torch
 from torch import nn
 
+import deepquantum.photonic as dqp
 from .qmath import dirac_ket
 
 
@@ -115,3 +116,50 @@ class FockState(nn.Module):
             for key, value in ket_dict.items():
                 temp += f'{key}: {value}\n'
             return hash(temp)
+
+
+class GaussianState(nn.Module):
+    """A Gaussian state of n modes.
+
+    Args:
+        state (Any): The Gaussian state, it can be a vacuum state with 'vac', or arbitrary Gaussian states with [``cov``, ``mean``].
+            ``cov`` and ``mean`` are the covariance matrix and the displacement vector of the Gaussian state, respectively.
+            Use ``xxpp`` convention and :math:`\hbar=2` by default. Default: ``'vac'``
+        nmode (int or None, optional): The number of modes in the state. Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+    """
+    def __init__(
+        self,
+        state: Any = 'vac',
+        nmode: Optional[int] = None,
+        cutoff: Optional[int] = 5
+    ) -> None:
+        if state == 'vac':
+            self.cov = dqp.hbar * torch.eye(2 * nmode) / 2
+            self.mean = torch.zeros(2 * nmode)
+        elif isinstance(state, list):
+            cov = state[0]
+            mean = state[1]
+            if not isinstance(mean, torch.Tensor):
+                mean_ts = torch.tensor(mean)
+                self.mean = mean_ts.reshape([1, mean_ts.numel()]).squeeze()
+            else:
+                self.mean = mean
+            if not isinstance(cov, torch.Tensor):
+                self.cov = torch.tensor(cov)
+            else:
+                self.cov = cov
+
+        assert self.cov.size()[0] == self.cov.size()[1] == 2 * nmode, 'The shape of the covariance matrix should be (2*nmode, 2*nmode)'
+        assert self.mean.size()[0] == 2 * nmode, 'The length of the mean vector should be 2*nmode'
+        self.nmode = nmode
+        self.cutoff = cutoff
+        self.is_pure = self.check_purity()
+
+    def check_purity(self, rtol = 1e-5, atol = 1e-8):
+        """Check if the Gaussian state is pure state
+
+        See https://arxiv.org/pdf/quant-ph/0503237.pdf Eq.(2.5)
+        """
+        purity = 1 / torch.sqrt(2 * torch.det(self.cov) / dqp.hbar)
+        return torch.allclose(purity, torch.tensor(1.0, dtype=self.cov.dtype), rtol=rtol, atol=atol)

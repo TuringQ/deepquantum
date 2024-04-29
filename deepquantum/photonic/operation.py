@@ -7,6 +7,7 @@ from typing import List, Optional, Union
 import torch
 from torch import nn
 
+from .qmath import xxpp_to_xpxp, xpxp_to_xxpp
 from ..qmath import inverse_permutation
 
 
@@ -123,6 +124,36 @@ class Gate(Operation):
         x = (matrix @ x).reshape([self.cutoff] * nt + [-1] + [self.cutoff] * (self.nmode - nt))
         x = x.permute(inverse_permutation(pm_shape))
         return x
+
+    def get_symplectic_op(self) -> torch.Tensor:
+        """Get the global symplectic matrix acting on xxpp operators."""
+        matrix = self.update_matrix_xp()
+        matrix_1 = xxpp_to_xpxp(matrix) # here change order to xpxp
+        nmode1 = min(self.wires)
+        nmode2 = self.nmode - nmode1 - len(self.wires)
+        m1 = torch.eye(2 * nmode1, dtype=matrix.dtype, device=matrix.device)
+        m2 = torch.eye(2 * nmode2, dtype=matrix.dtype, device=matrix.device)
+        matrix_2 = torch.block_diag(m1, matrix_1, m2)
+        matrix_3 = xpxp_to_xxpp(matrix_2) # here change order to xxpp
+        return matrix_3
+
+    def get_displacement_op(self) -> torch.Tensor:
+        """Get the global displacement vector acting on xxpp operators."""
+        displacement = self.update_displacement()
+        displacement_1 = xxpp_to_xpxp(displacement) # here change order to xpxp
+        nmode1 = min(self.wires)
+        nmode2 = self.nmode - nmode1 - len(self.wires)
+        v1 = torch.zeros(2 * nmode1)
+        v2 = torch.zeros(2 * nmode2)
+        displacement_2 = torch.cat([v1, displacement_1, v2])
+        displacement_3 = xpxp_to_xxpp(displacement_2) # here change order to xxpp
+        return displacement_3
+
+    def update_displacement(self) -> torch.Tensor:
+        raise NotImplementedError
+
+    def update_matrix_xp(self) -> torch.Tensor:
+        raise NotImplementedError
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass."""
