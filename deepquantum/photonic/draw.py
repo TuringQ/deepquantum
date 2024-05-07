@@ -3,7 +3,7 @@ Draw quantum circuit
 """
 
 from collections import defaultdict
-from typing import Dict, Tuple, Union
+from typing import Dict
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -81,7 +81,7 @@ class DrawCircuit():
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = order + 1
-            elif isinstance(op, Union[Squeezing, Displacement]):
+            elif isinstance(op, (Squeezing, Displacement)):
                 r = op.r.item()
                 theta = op.theta.item()
                 order = depth[op.wires[0]]

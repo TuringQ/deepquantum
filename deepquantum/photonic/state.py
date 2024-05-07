@@ -2,7 +2,7 @@
 Quantum states
 """
 
-from typing import Any, Optional
+from typing import Any, List, Optional, Union
 
 import torch
 from torch import nn
@@ -119,39 +119,43 @@ class FockState(nn.Module):
 
 
 class GaussianState(nn.Module):
-    """A Gaussian state of n modes.
+    """A Gaussian state of n modes, representing by covariance matrix and displacement vector.
 
     Args:
-        state (Any): The Gaussian state, it can be a vacuum state with 'vac', or arbitrary Gaussian states with [``cov``, ``mean``].
-            ``cov`` and ``mean`` are the covariance matrix and the displacement vector of the Gaussian state, respectively.
-            Use ``xxpp`` convention and :math:`\hbar=2` by default. Default: ``'vac'``
+        state (str or List): The Gaussian state, it can be a vacuum state with 'vac', or arbitrary Gaussian states
+            with [``cov``, ``mean``]. ``cov`` and ``mean`` are the covariance matrix and the displacement vector
+            of the Gaussian state, respectively. Use ``xxpp`` convention and :math:`\hbar=2` by default.
+            Default: ``'vac'``
         nmode (int or None, optional): The number of modes in the state. Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        cutoff (int, optional): The Fock space truncation. Default: 5
     """
     def __init__(
         self,
-        state: Any = 'vac',
+        state: Union[str, List] = 'vac',
         nmode: Optional[int] = None,
-        cutoff: Optional[int] = 5
+        cutoff: int = 5
     ) -> None:
+        super().__init__()
         if state == 'vac':
-            self.cov = dqp.hbar * torch.eye(2 * nmode) / 2
-            self.mean = torch.zeros(2 * nmode)
+            cov = (dqp.hbar / 2) * torch.eye(2 * nmode)
+            mean = torch.zeros(2 * nmode, 1)
         elif isinstance(state, list):
             cov = state[0]
             mean = state[1]
-            if not isinstance(mean, torch.Tensor):
-                mean_ts = torch.tensor(mean)
-                self.mean = mean_ts.reshape([1, mean_ts.numel()]).squeeze()
-            else:
-                self.mean = mean
             if not isinstance(cov, torch.Tensor):
-                self.cov = torch.tensor(cov)
-            else:
-                self.cov = cov
-
-        assert self.cov.size()[0] == self.cov.size()[1] == 2 * nmode, 'The shape of the covariance matrix should be (2*nmode, 2*nmode)'
-        assert self.mean.size()[0] == 2 * nmode, 'The length of the mean vector should be 2*nmode'
+                cov = torch.tensor(cov)
+            if not isinstance(mean, torch.Tensor):
+                mean = torch.tensor(mean)
+            if nmode is None:
+                nmode = cov.shape[-1] // 2
+        cov = cov.reshape(-1, 2 * nmode, 2 * nmode)
+        mean = mean.reshape(-1, 2 * nmode, 1)
+        assert cov.ndim == mean.ndim == 3
+        assert cov.shape[-2] == cov.shape[-1] == 2 * nmode, (
+            'The shape of the covariance matrix should be (2*nmode, 2*nmode)')
+        assert mean.shape[-2] == 2 * nmode, 'The length of the mean vector should be 2*nmode'
+        self.register_buffer('cov', cov)
+        self.register_buffer('mean', mean)
         self.nmode = nmode
         self.cutoff = cutoff
         self.is_pure = self.check_purity()
@@ -161,5 +165,6 @@ class GaussianState(nn.Module):
 
         See https://arxiv.org/pdf/quant-ph/0503237.pdf Eq.(2.5)
         """
-        purity = 1 / torch.sqrt(2 * torch.det(self.cov) / dqp.hbar)
-        return torch.allclose(purity, torch.tensor(1.0, dtype=self.cov.dtype), rtol=rtol, atol=atol)
+        purity = 1 / torch.sqrt(torch.det(2 / dqp.hbar * self.cov))
+        unity = torch.tensor(1.0, dtype=purity.dtype, device=purity.device)
+        return torch.allclose(purity, unity, rtol=rtol, atol=atol)

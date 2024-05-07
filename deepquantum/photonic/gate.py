@@ -34,17 +34,20 @@ class PhaseShift(Gate):
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        inv_mode (bool, optional): Whether the gate behaves as the rotation gate, which means the parameter
+            corresponds to the annihilation operator. Default: ``False``
     """
     def __init__(
         self,
         inputs: Any = None,
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
-        cutoff: int = None,
+        cutoff: Optional[int] = None,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
+        inv_mode: bool = False
     ) -> None:
         super().__init__(name='PhaseShift', nmode=nmode, wires=wires, cutoff=cutoff)
         assert len(self.wires) == 1, 'PS gate acts on single mode'
@@ -53,6 +56,7 @@ class PhaseShift(Gate):
         self.noise = noise
         self.mu = mu
         self.sigma = sigma
+        self.inv_mode = inv_mode
         self.init_para(inputs=inputs)
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
@@ -68,12 +72,14 @@ class PhaseShift(Gate):
         return inputs
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
-        """Get the local unitary matrix acting on operators."""
+        """Get the local unitary matrix acting on creation operators."""
         theta = self.inputs_to_tensor(theta)
+        if self.inv_mode:
+            theta = -theta
         return torch.exp(1j * theta).reshape(1, 1)
 
     def update_matrix(self) -> torch.Tensor:
-        """Update the local unitary matrix acting on operators."""
+        """Update the local unitary matrix acting on creation operators."""
         matrix = self.get_matrix(self.theta)
         self.matrix = matrix.detach()
         return matrix
@@ -82,27 +88,23 @@ class PhaseShift(Gate):
         """Get the local unitary matrix acting on Fock state tensors."""
         return torch.stack([matrix[0, 0] ** n for n in range(self.cutoff)]).reshape(-1).diag_embed()
 
-    def get_symplectic_mat(self, theta: Any) -> torch.Tensor:
-        """Get the local symplectic matrix acting on quadratures xxpp."""
+    def get_transform_xp(self, theta: Any) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Get the local affine symplectic transformation acting on quadrature operators in xxpp order."""
+        theta = self.inputs_to_tensor(theta)
+        if self.inv_mode:
+            theta = -theta
         cos = torch.cos(theta)
         sin = torch.sin(theta)
-        return torch.stack([cos, -sin, sin, cos]).reshape(2,2)
+        matrix_xp = torch.stack([cos, sin, -sin, cos]).reshape(2, 2)
+        vector_xp = torch.zeros(2, 1, dtype=theta.dtype, device=theta.device)
+        return matrix_xp, vector_xp
 
-    def get_displacement(self, theta: Any) -> torch.Tensor:
-        """Get the local displacement vectors on quadratures xxpp."""
-        return torch.zeros(2, device=theta.device)
-
-    def update_matrix_xp(self) -> torch.Tensor:
-        """Update the local symplectic matrix acting on operators."""
-        matrix = self.get_symplectic_mat(self.theta)
-        self.matrix_xp = matrix.detach()
-        return matrix
-
-    def update_displacement(self) -> torch.Tensor:
-        """Update the displacement vector acting on operators."""
-        displacement = self.get_displacement(self.theta)
-        self.displacement = displacement
-        return displacement
+    def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Update the local affine symplectic transformation acting on quadrature operators in xxpp order."""
+        matrix_xp, vector_xp = self.get_transform_xp(self.theta)
+        self.matrix_xp = matrix_xp.detach()
+        self.vector_xp = vector_xp.detach()
+        return matrix_xp, vector_xp
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
@@ -112,8 +114,7 @@ class PhaseShift(Gate):
         else:
             self.register_buffer('theta', theta)
         self.update_matrix()
-        self.update_matrix_xp()
-        self.update_displacement()
+        self.update_transform_xp()
 
 
 class BeamSplitter(Gate):
@@ -148,7 +149,7 @@ class BeamSplitter(Gate):
         inputs: Any = None,
         nmode: int = 2,
         wires: Optional[List[int]] = None,
-        cutoff: int = None,
+        cutoff: Optional[int] = None,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
@@ -184,7 +185,7 @@ class BeamSplitter(Gate):
         return theta, phi
 
     def get_matrix(self, theta: Any, phi: Any) -> torch.Tensor:
-        """Get the local unitary matrix acting on operators."""
+        """Get the local unitary matrix acting on creation operators."""
         theta, phi = self.inputs_to_tensor([theta, phi])
         cos = torch.cos(theta)
         sin = torch.sin(theta)
@@ -193,7 +194,7 @@ class BeamSplitter(Gate):
         return torch.stack([cos, -e_m_ip * sin, e_ip * sin, cos]).reshape(2, 2)
 
     def update_matrix(self) -> torch.Tensor:
-        """Update the local unitary matrix acting on operators."""
+        """Update the local unitary matrix acting on creation operators."""
         matrix = self.get_matrix(self.theta, self.phi)
         self.matrix = matrix.detach()
         return matrix
@@ -227,30 +228,24 @@ class BeamSplitter(Gate):
                         )
         return unitary
 
-    def get_symplectic_mat(self, theta: Any, phi: Any) -> torch.Tensor:
-        """Get the local symplectic matrix acting on quadratures xxpp."""
-        unitary_mat = self.get_matrix(theta, phi) # correspond to: U a^+ U^+ = u^T @ a^+
-        unitary_mat = unitary_mat.conj()          # correspond to: U a U^+ = (u^*)^T @ a
-        mat_real = unitary_mat.real
-        mat_imag = unitary_mat.imag
-        return torch.cat([torch.cat([mat_real, mat_imag], dim=1),
-                          torch.cat([-mat_imag, mat_real], dim=1)], dim=0)
+    def get_transform_xp(self, theta: Any, phi: Any) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Get the local affine symplectic transformation acting on quadrature operators in xxpp order."""
+        theta, phi = self.inputs_to_tensor([theta, phi])
+        matrix = self.get_matrix(theta, phi) # correspond to: U a^+ U^+ = u^T @ a^+ and U^+ a U = U @ a
+        matrix = matrix.conj()               # correspond to: U a U^+ = (u^*)^T @ a and U^+ a^+ U = u^* @ a^+
+        mat_real = matrix.real
+        mat_imag = matrix.imag
+        matrix_xp = torch.cat([torch.cat([mat_real, mat_imag], dim=-1),
+                               torch.cat([-mat_imag, mat_real], dim=-1)], dim=-2)
+        vector_xp = torch.zeros(4, 1, dtype=theta.dtype, device=theta.device)
+        return matrix_xp, vector_xp
 
-    def get_displacement(self, theta: Any, phi: Any) -> torch.Tensor:
-        """Get the local displacement vector acting on quadratures xxpp."""
-        return torch.zeros(4, device=theta.device)
-
-    def update_matrix_xp(self) -> torch.Tensor:
-        """Update the local symplectic matrix acting on operators."""
-        matrix = self.get_symplectic_mat(self.theta, self.phi)
-        self.matrix_xp = matrix.detach()
-        return matrix
-
-    def update_displacement(self) -> torch.Tensor:
-        """Update the displacement vector acting on operators."""
-        displacement = self.get_displacement(self.theta, self.phi)
-        self.displacement = displacement
-        return displacement
+    def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Update the local affine symplectic transformation acting on quadrature operators in xxpp order."""
+        matrix_xp, vector_xp = self.get_transform_xp(self.theta, self.phi)
+        self.matrix_xp = matrix_xp.detach()
+        self.vector_xp = vector_xp.detach()
+        return matrix_xp, vector_xp
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
@@ -262,8 +257,7 @@ class BeamSplitter(Gate):
             self.register_buffer('theta', theta)
             self.register_buffer('phi', phi)
         self.update_matrix()
-        self.update_matrix_xp()
-        self.update_displacement()
+        self.update_transform_xp()
 
 
 class MZI(BeamSplitter):
@@ -311,7 +305,7 @@ class MZI(BeamSplitter):
         inputs: Any = None,
         nmode: int = 2,
         wires: Optional[List[int]] = None,
-        cutoff: int = None,
+        cutoff: Optional[int] = None,
         phi_first: bool = True,
         requires_grad: bool = False,
         noise: bool = False,
@@ -366,7 +360,7 @@ class BeamSplitterTheta(BeamSplitter):
         inputs: Any = None,
         nmode: int = 2,
         wires: Optional[List[int]] = None,
-        cutoff: int = None,
+        cutoff: Optional[int] = None,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
@@ -419,7 +413,7 @@ class BeamSplitterPhi(BeamSplitter):
         inputs: Any = None,
         nmode: int = 2,
         wires: Optional[List[int]] = None,
-        cutoff: int = None,
+        cutoff: Optional[int] = None,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
@@ -496,7 +490,7 @@ class BeamSplitterSingle(BeamSplitter):
         inputs: Any = None,
         nmode: int = 2,
         wires: Optional[List[int]] = None,
-        cutoff: int = None,
+        cutoff: Optional[int] = None,
         convention: str = 'rx',
         requires_grad: bool = False,
         noise: bool = False,
@@ -521,7 +515,7 @@ class BeamSplitterSingle(BeamSplitter):
         return inputs
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
-        """Get the local unitary matrix acting on operators."""
+        """Get the local unitary matrix acting on creation operators."""
         theta = self.inputs_to_tensor(theta)
         cos = torch.cos(theta / 2) + 0j
         sin = torch.sin(theta / 2) + 0j
@@ -533,35 +527,29 @@ class BeamSplitterSingle(BeamSplitter):
             return torch.stack([cos, sin, sin, -cos]).reshape(2, 2)
 
     def update_matrix(self) -> torch.Tensor:
-        """Update the local unitary matrix acting on operators."""
+        """Update the local unitary matrix acting on creation operators."""
         matrix = self.get_matrix(self.theta)
         self.matrix = matrix.detach()
         return matrix
 
-    def get_symplectic_mat(self, theta: Any) -> torch.Tensor:
-        """Get the local symplectic matrix acting on quadratures xxpp."""
-        unitary_mat = self.get_matrix(theta)
-        unitary_mat = unitary_mat.conj()
-        mat_real = unitary_mat.real
-        mat_imag = unitary_mat.imag
-        return torch.cat([torch.cat([mat_real, mat_imag], dim=1),
-                          torch.cat([-mat_imag, mat_real], dim=1)], dim=0)
+    def get_transform_xp(self, theta: Any) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Get the local affine symplectic transformation acting on quadrature operators in xxpp order."""
+        theta = self.inputs_to_tensor(theta)
+        matrix = self.get_matrix(theta) # correspond to: U a^+ U^+ = u^T @ a^+ and U^+ a U = U @ a
+        matrix = matrix.conj()          # correspond to: U a U^+ = (u^*)^T @ a and U^+ a^+ U = u^* @ a^+
+        mat_real = matrix.real
+        mat_imag = matrix.imag
+        matrix_xp = torch.cat([torch.cat([mat_real, mat_imag], dim=-1),
+                               torch.cat([-mat_imag, mat_real], dim=-1)], dim=-2)
+        vector_xp = torch.zeros(4, 1, dtype=theta.dtype, device=theta.device)
+        return matrix_xp, vector_xp
 
-    def get_displacement(self, theta: Any) -> torch.Tensor:
-        """Get the local displacement vector acting on quadratures xxpp."""
-        return torch.zeros(4, device=theta.device)
-
-    def update_matrix_xp(self) -> torch.Tensor:
-        """Update the local symplectic matrix acting on operators."""
-        matrix = self.get_symplectic_mat(self.theta)
-        self.matrix_xp = matrix.detach()
-        return matrix
-
-    def update_displacement(self) -> torch.Tensor:
-        """Update the displacement vector acting on operators."""
-        displacement = self.get_displacement(self.theta)
-        self.displacement = displacement
-        return displacement
+    def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Update the local affine symplectic transformation acting on quadrature operators in xxpp order."""
+        matrix_xp, vector_xp = self.get_transform_xp(self.theta)
+        self.matrix_xp = matrix_xp.detach()
+        self.vector_xp = vector_xp.detach()
+        return matrix_xp, vector_xp
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
@@ -571,8 +559,7 @@ class BeamSplitterSingle(BeamSplitter):
         else:
             self.register_buffer('theta', theta)
         self.update_matrix()
-        self.update_matrix_xp()
-        self.update_displacement()
+        self.update_transform_xp()
 
 
 class UAnyGate(Gate):
@@ -594,7 +581,7 @@ class UAnyGate(Gate):
         nmode: int = 1,
         wires: Optional[List[int]] = None,
         minmax: Optional[List[int]] = None,
-        cutoff: int = None,
+        cutoff: Optional[int] = None,
         name: str = 'UAnyGate'
     ) -> None:
         self.nmode = nmode
@@ -655,30 +642,24 @@ class UAnyGate(Gate):
             unitary = self.unitary_state
         return unitary
 
-    def get_symplectic_mat(self) -> torch.Tensor:
-        """Get the local symplectic matrix acting on quadratures xxpp."""
-        unitary_mat = self.matrix
-        unitary_mat = unitary_mat.conj() #the unitary mat for a^+
-        mat_real = unitary_mat.real
-        mat_imag = unitary_mat.imag
-        return torch.cat([torch.cat([mat_real, mat_imag], dim=1),
-                          torch.cat([-mat_imag, mat_real], dim=1)], dim=0)
+    def get_transform_xp(self, matrix: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Get the local affine symplectic transformation acting on quadrature operators in xxpp order."""
+        # correspond to: U a^+ U^+ = u^T @ a^+ and U^+ a U = U @ a
+        # correspond to: U a U^+ = (u^*)^T @ a and U^+ a^+ U = u^* @ a^+
+        matrix = matrix.conj()
+        mat_real = matrix.real
+        mat_imag = matrix.imag
+        matrix_xp = torch.cat([torch.cat([mat_real, mat_imag], dim=-1),
+                               torch.cat([-mat_imag, mat_real], dim=-1)], dim=-2)
+        vector_xp = torch.zeros(2 * self.nmode, 1, dtype=mat_real.dtype, device=mat_real.device)
+        return matrix_xp, vector_xp
 
-    def get_displacement(self) -> torch.Tensor:
-        """Get the local displacement vector acting on quadratures xxpp."""
-        return torch.zeros(2 * self.nmode, device=self.matrix.device) #here assume no displacement??
-
-    def update_matrix_xp(self) -> torch.Tensor:
-        """Update the local symplectic matrix acting on operators."""
-        matrix = self.get_symplectic_mat()
-        self.matrix_xp = matrix.detach()
-        return matrix
-
-    def update_displacement(self) -> torch.Tensor:
-        """Update the displacement vector acting on operators."""
-        displacement = self.get_displacement()
-        self.displacement = displacement
-        return displacement
+    def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Update the local affine symplectic transformation acting on quadrature operators in xxpp order."""
+        matrix_xp, vector_xp = self.get_transform_xp(self.matrix)
+        self.matrix_xp = matrix_xp.detach()
+        self.vector_xp = vector_xp.detach()
+        return matrix_xp, vector_xp
 
 
 class Squeezing(Gate):
@@ -701,7 +682,7 @@ class Squeezing(Gate):
         inputs: Any = None,
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
-        cutoff: int = None,
+        cutoff: Optional[int] = None,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
@@ -733,30 +714,59 @@ class Squeezing(Gate):
             theta = theta + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
         return r, theta
 
-    def get_symplectic_mat(self, r: Any, theta: Any) -> torch.Tensor:
-        """Get the local symplectic matrix acting on quadratures xxpp."""
+    def get_matrix(self, r: Any, theta: Any) -> torch.Tensor:
+        """Get the local unitary matrix acting on annihilation and creation operators."""
+        r, theta = self.inputs_to_tensor([r, theta])
+        ch = torch.cosh(r)
+        sh = torch.sinh(r)
+        e_it = torch.exp(1j * theta)
+        e_m_it = torch.exp(-1j * theta)
+        return torch.stack([ch, -e_it * sh, -e_m_it * sh, ch]).reshape(2, 2)
+
+    def update_matrix(self) -> torch.Tensor:
+        """Update the local unitary matrix acting on annihilation and creation operators."""
+        matrix = self.get_matrix(self.r, self.theta)
+        self.matrix = matrix.detach()
+        return matrix
+
+    def get_unitary_state(self, matrix: torch.Tensor) -> torch.Tensor:
+        """Get the local unitary matrix acting on Fock state tensors.
+
+        See https://arxiv.org/pdf/2004.11002.pdf Eq.(51) and Eq.(52)
+        """
+        sqrt = torch.sqrt(torch.arange(self.cutoff, device=matrix.device))
+        unitary = matrix.new_zeros([self.cutoff] * 2)
+        sech = 1 / matrix[0, 0]
+        e_it_tanh = -matrix[0, 1] / matrix[0, 0]
+        e_m_it_tanh = -matrix[1, 0] / matrix[0, 0]
+        unitary[0, 0] = torch.sqrt(sech)
+        # rank 1
+        for m in range(self.cutoff - 1):
+            unitary[m + 1, 0] = - sqrt[m] / sqrt[m + 1] * unitary[m - 1, 0].clone() * e_it_tanh
+        # rank 2
+        for m in range(self.cutoff):
+            for n in range(self.cutoff - 1):
+                unitary[m, n + 1] = (sqrt[m] * unitary[m - 1, n].clone() * sech
+                                    + sqrt[n] * unitary[m, n - 1].clone() * e_m_it_tanh) / sqrt[n + 1]
+        return unitary
+
+    def get_transform_xp(self, r: Any, theta: Any) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Get the local affine symplectic transformation acting on quadrature operators in xxpp order."""
         r, theta = self.inputs_to_tensor([r, theta])
         ch = torch.cosh(r)
         sh = torch.sinh(r)
         cos = torch.cos(theta)
         sin = torch.sin(theta)
-        return torch.stack([ch - sh * cos, -sh * sin, -sh * sin, ch + sh * cos]).reshape(2, 2)
+        matrix_xp = torch.stack([ch - sh * cos, -sh * sin, -sh * sin, ch + sh * cos]).reshape(2, 2)
+        vector_xp = torch.zeros(2, 1, dtype=r.dtype, device=r.device)
+        return matrix_xp, vector_xp
 
-    def get_displacement(self, r: Any, theta: Any) -> torch.Tensor:
-        """Get the local displacement vector acting on quadratures xxpp."""
-        return torch.zeros(2, device=r.device)
-
-    def update_matrix_xp(self) -> torch.Tensor:
-        """Update the local symplectic matrix acting on operators."""
-        matrix = self.get_symplectic_mat(self.r, self.theta)
-        self.matrix_xp = matrix.detach()
-        return matrix
-
-    def update_displacement(self) -> torch.Tensor:
-        """Update the displacement vector acting on operators."""
-        displacement = self.get_displacement(self.r, self.theta)
-        self.displacement = displacement
-        return displacement
+    def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Update the local affine symplectic transformation acting on quadrature operators in xxpp order."""
+        matrix_xp, vector_xp = self.get_transform_xp(self.r, self.theta)
+        self.matrix_xp = matrix_xp.detach()
+        self.vector_xp = vector_xp.detach()
+        return matrix_xp, vector_xp
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
@@ -767,8 +777,8 @@ class Squeezing(Gate):
         else:
             self.register_buffer('r', r)
             self.register_buffer('theta', theta)
-        self.update_matrix_xp()
-        self.update_displacement()
+        self.update_matrix()
+        self.update_transform_xp()
 
 
 class Displacement(Gate):
@@ -791,7 +801,7 @@ class Displacement(Gate):
         inputs: Any = None,
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
-        cutoff: int = None,
+        cutoff: Optional[int] = None,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
@@ -823,28 +833,56 @@ class Displacement(Gate):
             theta = theta + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
         return r, theta
 
-    def get_symplectic_mat(self, r: Any, theta: Any) -> torch.Tensor:
-        """Get the local symplectic matrix acting on quadratures xxpp."""
-        return torch.eye(2, device=r.device)
+    def get_matrix(self, r: Any, theta: Any) -> torch.Tensor:
+        """Get the local unitary matrix acting on annihilation and creation operators."""
+        return torch.eye(2, dtype=r.dtype, device=r.device) + 0j
 
-    def get_displacement(self, r: Any, theta: Any) -> torch.Tensor:
-        """Get the local displacement vector acting on quadratures xxpp."""
+    def update_matrix(self) -> torch.Tensor:
+        """Update the local unitary matrix acting on annihilation and creation operators."""
+        matrix = self.get_matrix(self.r, self.theta)
+        self.matrix = matrix.detach()
+        return matrix
+
+    def get_unitary_state(self, r: Any, theta: Any) -> torch.Tensor:
+        """Get the local unitary matrix acting on Fock state tensors.
+
+        See https://arxiv.org/pdf/2004.11002.pdf Eq.(57) and Eq.(58)
+        """
+        r, theta = self.inputs_to_tensor(inputs=[r, theta])
+        sqrt = torch.sqrt(torch.arange(self.cutoff, device=r.device))
+        alpha = r * torch.exp(1j * theta)
+        alpha_c = r * torch.exp(-1j * theta)
+        unitary = alpha.new_zeros([self.cutoff] * 2)
+        unitary[0, 0] = torch.exp(- (r ** 2) / 2)
+        # rank 1
+        for m in range(self.cutoff - 1):
+            unitary[m + 1, 0] = alpha / sqrt[m + 1] * unitary[m, 0].clone()
+        # rank 2
+        for m in range(self.cutoff):
+            for n in range(self.cutoff - 1):
+                unitary[m, n + 1] = (-alpha_c * unitary[m, n].clone()
+                                    + sqrt[m] * unitary[m - 1, n].clone()) / sqrt[n + 1]
+        return unitary
+
+    def update_unitary_state(self) -> torch.Tensor:
+        """Update the local unitary matrix acting on Fock state tensors."""
+        return self.get_unitary_state(self.r, self.theta)
+
+    def get_transform_xp(self, r: Any, theta: Any) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Get the local affine symplectic transformation acting on quadrature operators in xxpp order."""
         r, theta = self.inputs_to_tensor([r, theta])
         cos = torch.cos(theta)
         sin = torch.sin(theta)
-        return torch.stack([2 * r * cos, 2 * r * sin])
+        matrix_xp = torch.eye(2, dtype=r.dtype, device=r.device)
+        vector_xp = torch.stack([r * cos, r * sin]).reshape(2, 1) * (2 * dqp.hbar) ** 0.5
+        return matrix_xp, vector_xp
 
-    def update_matrix_xp(self) -> torch.Tensor:
-        """Update the local symplectic matrix acting on operators."""
-        matrix = self.get_symplectic_mat(self.r, self.theta)
-        self.matrix_xp = matrix.detach()
-        return matrix
-
-    def update_displacement(self) -> torch.Tensor:
-        """Update the displacement vector acting on operators."""
-        displacement = self.get_displacement(self.r, self.theta)
-        self.displacement_ = displacement
-        return displacement
+    def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Update the local affine symplectic transformation acting on quadrature operators in xxpp order."""
+        matrix_xp, vector_xp = self.get_transform_xp(self.r, self.theta)
+        self.matrix_xp = matrix_xp.detach()
+        self.vector_xp = vector_xp.detach()
+        return matrix_xp, vector_xp
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
@@ -855,5 +893,5 @@ class Displacement(Gate):
         else:
             self.register_buffer('r', r)
             self.register_buffer('theta', theta)
-        self.update_matrix_xp()
-        self.update_displacement()
+        self.update_matrix()
+        self.update_transform_xp()

@@ -2,7 +2,7 @@
 Base classes
 """
 
-from typing import List, Optional, Union
+from typing import List, Optional, Tuple, Union
 
 import torch
 from torch import nn
@@ -74,28 +74,31 @@ class Gate(Operation):
         nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
-        cutoff (int, optional): The Fock space truncation. Default: 2
+        cutoff (int, optional): The Fock space truncation. Default: ``None``
     """
     def __init__(
         self,
         name: Optional[str] = None,
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
-        cutoff: int = 2
+        cutoff: Optional[int] = None
     ) -> None:
         self.nmode = nmode
         if wires is None:
             wires = [0]
         wires = self._convert_indices(wires)
+        if cutoff is None:
+            cutoff = 2
         super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff)
 
     def update_matrix(self) -> torch.Tensor:
-        """Update the local unitary matrix acting on operators."""
+        """Update the local unitary matrix acting on creation operators."""
         return self.matrix
 
     def get_unitary_op(self) -> torch.Tensor:
-        """Get the global unitary matrix acting on operators."""
+        """Get the global unitary matrix acting on creation operators."""
         matrix = self.update_matrix()
+        assert matrix.shape[-2] == matrix.shape[-1] == len(self.wires), 'The matrix may not act on creation operators.'
         nmode1 = min(self.wires)
         nmode2 = self.nmode - nmode1 - len(self.wires)
         m1 = torch.eye(nmode1, dtype=matrix.dtype, device=matrix.device)
@@ -125,36 +128,62 @@ class Gate(Operation):
         x = x.permute(inverse_permutation(pm_shape))
         return x
 
-    def get_symplectic_op(self) -> torch.Tensor:
-        """Get the global symplectic matrix acting on xxpp operators."""
-        matrix = self.update_matrix_xp()
-        matrix_1 = xxpp_to_xpxp(matrix) # here change order to xpxp
+    def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Update the local affine symplectic transformation acting on quadrature operators in xxpp order."""
+        return self.matrix_xp, self.vector_xp
+
+    def get_symplectic(self) -> torch.Tensor:
+        """Get the global symplectic matrix acting on quadrature operators in xxpp order."""
+        matrix, _ = self.update_transform_xp()
+        assert matrix.shape[-2] == matrix.shape[-1] == 2 * len(self.wires), 'The matrix may not act on xxpp operators.'
+        matrix_xpxp = xxpp_to_xpxp(matrix) # here change order to xpxp
         nmode1 = min(self.wires)
         nmode2 = self.nmode - nmode1 - len(self.wires)
         m1 = torch.eye(2 * nmode1, dtype=matrix.dtype, device=matrix.device)
         m2 = torch.eye(2 * nmode2, dtype=matrix.dtype, device=matrix.device)
-        matrix_2 = torch.block_diag(m1, matrix_1, m2)
-        matrix_3 = xpxp_to_xxpp(matrix_2) # here change order to xxpp
-        return matrix_3
+        return xpxp_to_xxpp(torch.block_diag(m1, matrix_xpxp, m2)) # here change order to xxpp
 
-    def get_displacement_op(self) -> torch.Tensor:
-        """Get the global displacement vector acting on xxpp operators."""
-        displacement = self.update_displacement()
-        displacement_1 = xxpp_to_xpxp(displacement) # here change order to xpxp
+    def get_displacement(self) -> torch.Tensor:
+        """Get the global displacement vector acting on quadrature operators in xxpp order."""
+        _, vector = self.update_transform_xp()
+        assert vector.shape[-2] == 2 * len(self.wires), 'The vector may not act on xxpp operators.'
+        vector_xpxp = xxpp_to_xpxp(vector) # here change order to xpxp
         nmode1 = min(self.wires)
         nmode2 = self.nmode - nmode1 - len(self.wires)
-        v1 = torch.zeros(2 * nmode1)
-        v2 = torch.zeros(2 * nmode2)
-        displacement_2 = torch.cat([v1, displacement_1, v2])
-        displacement_3 = xpxp_to_xxpp(displacement_2) # here change order to xxpp
-        return displacement_3
+        v1 = torch.zeros(2 * nmode1 , 1, dtype=vector.dtype, device=vector.device)
+        v2 = torch.zeros(2 * nmode2 , 1, dtype=vector.dtype, device=vector.device)
+        return xpxp_to_xxpp(torch.cat([v1, vector_xpxp, v2], dim=-2)) # here change order to xxpp
 
-    def update_displacement(self) -> torch.Tensor:
-        raise NotImplementedError
+    def op_gaussian(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
+        """Perform a forward pass for Gaussian states."""
+        cov, mean = x
+        mat_xp, vec_xp = self.update_transform_xp()
+        wires_x1 = list(range(self.wires[0]))
+        wires_x  = self.wires
+        wires_x2 = list(range(self.wires[-1] + 1, self.nmode))
+        wires_p1 = [wire + self.nmode for wire in wires_x1]
+        wires_p  = [wire + self.nmode for wire in self.wires]
+        wires_p2 = [wire + self.nmode for wire in wires_x2]
+        cov_row = mat_xp @ cov[..., wires_x + wires_p, :]
+        cov_row_x = cov_row[..., :len(self.wires), :]
+        cov_row_p = cov_row[..., len(self.wires):, :]
+        cov = torch.cat([cov[..., wires_x1, :], cov_row_x, cov[..., wires_x2, :],
+                         cov[..., wires_p1, :], cov_row_p, cov[..., wires_p2, :]], dim=-2)
+        cov_col = cov[..., wires_x + wires_p] @ mat_xp.mT
+        cov_col_x = cov_col[..., :len(self.wires)]
+        cov_col_p = cov_col[..., len(self.wires):]
+        cov = torch.cat([cov[..., wires_x1], cov_col_x, cov[..., wires_x2],
+                         cov[..., wires_p1], cov_col_p, cov[..., wires_p2]], dim=-1)
+        mean_local = mat_xp @ mean[..., wires_x + wires_p, :] + vec_xp
+        mean_x = mean_local[..., :len(self.wires), :]
+        mean_p = mean_local[..., len(self.wires):, :]
+        mean = torch.cat([mean[..., wires_x1, :], mean_x, mean[..., wires_x2, :],
+                          mean[..., wires_p1, :], mean_p, mean[..., wires_p2, :]], dim=-2)
+        return [cov, mean]
 
-    def update_matrix_xp(self) -> torch.Tensor:
-        raise NotImplementedError
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: Union[torch.Tensor, List[torch.Tensor]]) -> Union[torch.Tensor, List[torch.Tensor]]:
         """Perform a forward pass."""
-        return self.op_state_tensor(x)
+        if isinstance(x, torch.Tensor):
+            return self.op_state_tensor(x)
+        elif isinstance(x, list):
+            return self.op_gaussian(x)

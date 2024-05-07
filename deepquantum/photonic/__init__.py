@@ -18,7 +18,8 @@ from .decompose import UnitaryDecomposer
 from .draw import DrawClements
 from .mapper import UgateMap
 from .qmath import permanent
-from .state import FockState
+from .state import FockState, GaussianState
+from .utils import set_hbar, set_kappa
 
 hbar = 2
 kappa = 2 ** (-0.5)
