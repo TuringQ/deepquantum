@@ -3,11 +3,13 @@ Common functions
 """
 
 import itertools
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import torch
 from scipy import special
 from torch import vmap
+
+import deepquantum.photonic as dqp
 
 
 def dirac_ket(matrix: torch.Tensor) -> Dict:
@@ -167,10 +169,8 @@ def fock_combinations(nmode: int, nphoton: int) -> List:
     return result
 
 
-def xxpp_to_xpxp(matrix):
+def xxpp_to_xpxp(matrix: torch.Tensor) -> torch.Tensor:
     """Transform the representation in xxpp ordering to the representation in xpxp ordering."""
-    if not isinstance(matrix, torch.Tensor):
-        matrix = torch.tensor(matrix)
     nmode = matrix.shape[-2] // 2
     # transformation matrix
     t = torch.zeros([2 * nmode] * 2, dtype=matrix.dtype, device=matrix.device)
@@ -186,10 +186,8 @@ def xxpp_to_xpxp(matrix):
         return t @ matrix
 
 
-def xpxp_to_xxpp(matrix):
+def xpxp_to_xxpp(matrix: torch.Tensor) -> torch.Tensor:
     """Transform the representation in xpxp ordering to the representation in xxpp ordering."""
-    if not isinstance(matrix, torch.Tensor):
-        matrix = torch.tensor(matrix)
     nmode = matrix.shape[-2] // 2
     # transformation matrix
     t = torch.zeros([2 * nmode] * 2, dtype=matrix.dtype, device=matrix.device)
@@ -203,3 +201,13 @@ def xpxp_to_xxpp(matrix):
         return t @ matrix @ t.mT
     elif matrix.shape[-1] == 1:
         return t @ matrix
+
+
+def photon_number_mean_var(cov: torch.Tensor, mean: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Get the expectation value and variance of the photon number for single-mode Gaussian states."""
+    coef = dqp.kappa ** 2 / dqp.hbar
+    cov = cov.reshape(-1, 2, 2)
+    mean = mean.reshape(-1, 2, 1)
+    exp = coef * (vmap(torch.trace)(cov) + (mean.mT @ mean).squeeze()) - 1 / 2
+    var = coef ** 2 * (vmap(torch.trace)(cov @ cov) + 2 * (mean.mT @ cov @ mean).squeeze()) * 2 - 1 / 4
+    return exp, var

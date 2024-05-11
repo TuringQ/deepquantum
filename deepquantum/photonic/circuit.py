@@ -6,7 +6,7 @@ import itertools
 import random
 from collections import defaultdict, Counter
 from copy import copy
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -18,6 +18,7 @@ from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitter
 from .gate import Squeezing, Displacement
 from .operation import Operation, Gate
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
+from .qmath import photon_number_mean_var
 from .state import FockState, GaussianState
 
 
@@ -472,6 +473,74 @@ class QumodeCircuit(Operation):
             return all_results[0]
         else:
             return all_results
+
+    def measure_photon_number(
+        self,
+        wires: Optional[List[int]] = None
+    ) -> Union[Tuple[torch.Tensor, torch.Tensor], None]:
+        """Get the expectation value and variance of the photon number operator."""
+        assert self.backend == 'gaussian'
+        if self.state is None:
+            return
+        cov, mean = self.state
+        if wires is None:
+            wires = self.wires
+        wires = sorted(self._convert_indices(wires))
+        nbatch = cov.shape[0]
+        cov_lst = [] # nbatch * nwire
+        mean_lst = []
+        for i in range(nbatch):
+            cov_i = cov[i]
+            mean_i = mean[i]
+            cov_lst_i, mean_lst_i = self._get_local_covs_means(cov_i, mean_i, wires)
+            cov_lst += cov_lst_i
+            mean_lst += mean_lst_i
+        covs = torch.stack(cov_lst)
+        means = torch.stack(mean_lst)
+        exp, var = photon_number_mean_var(covs, means)
+        exp = exp.reshape(nbatch, len(wires)).squeeze()
+        var = var.reshape(nbatch, len(wires)).squeeze()
+        return exp, var
+
+    def _get_local_covs_means(
+        self,
+        cov: torch.Tensor,
+        mean: torch.Tensor,
+        wires: List[int]
+    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+        """Get the local covariance matrices and mean vectors of a Gaussian state according to the wires to measure."""
+        cov_lst = []
+        mean_lst = []
+        for wire in wires:
+            indices = [wire] + [wire + self.nmode]
+            cov_lst.append(cov[indices][:, indices])
+            mean_lst.append(mean[indices])
+        return cov_lst, mean_lst
+
+    def measure_homodyne(
+        self,
+        shots: int = 1024,
+        wires: Union[int, List[int], None] = None
+    ) -> Union[List, None]:
+        """Get the homodyne measurement results for quadratures x and p."""
+        assert self.backend == 'gaussian'
+        if self.state is None:
+            return
+        cov, mean = self.state
+        if wires is None:
+            wires = self.wires
+        wires = sorted(self._convert_indices(wires))
+        samples = []
+        batches = cov.shape[0]
+        for i in range(batches):
+            cov_i = cov[i]
+            mean_i = mean[i]
+            indices = wires + [wire + self.nmode for wire in wires]
+            cov_sub = cov_i[indices][:, indices]
+            mean_sub = mean_i[indices].squeeze()
+            samples_i = np.random.multivariate_normal(mean_sub, cov_sub, size=shots)
+            samples.append(samples_i)
+        return samples
 
     def draw(self, filename: Optional[str] = None):
         """Visualize the photonic quantum circuit.
