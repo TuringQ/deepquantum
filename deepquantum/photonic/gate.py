@@ -84,8 +84,8 @@ class PhaseShift(Gate):
         self.matrix = matrix.detach()
         return matrix
 
-    def get_unitary_state(self, matrix: torch.Tensor) -> torch.Tensor:
-        """Get the local unitary matrix acting on Fock state tensors."""
+    def get_matrix_state(self, matrix: torch.Tensor) -> torch.Tensor:
+        """Get the local transformation matrix acting on Fock state tensors."""
         return torch.stack([matrix[0, 0] ** n for n in range(self.cutoff)]).reshape(-1).diag_embed()
 
     def get_transform_xp(self, theta: Any) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -158,8 +158,8 @@ class BeamSplitter(Gate):
         if wires is None:
             wires = [0, 1]
         super().__init__(name='BeamSplitter', nmode=nmode, wires=wires, cutoff=cutoff)
-        assert(len(self.wires) == 2), 'BS gate must act on two wires'
-        assert(self.wires[0] + 1 == self.wires[1]), 'BS gate must act on the neighbor wires'
+        assert len(self.wires) == 2, 'BS gate must act on two wires'
+        assert self.wires[0] + 1 == self.wires[1], 'BS gate must act on the neighbor wires'
         self.npara = 2
         self.requires_grad = requires_grad
         self.noise = noise
@@ -199,22 +199,22 @@ class BeamSplitter(Gate):
         self.matrix = matrix.detach()
         return matrix
 
-    def get_unitary_state(self, matrix: torch.Tensor) -> torch.Tensor:
-        """Get the local unitary matrix acting on Fock state tensors.
+    def get_matrix_state(self, matrix: torch.Tensor) -> torch.Tensor:
+        """Get the local transformation matrix acting on Fock state tensors.
 
         See https://arxiv.org/pdf/2004.11002.pdf Eq.(74) and Eq.(75)
         """
         sqrt = torch.sqrt(torch.arange(self.cutoff, device=matrix.device))
-        unitary = matrix.new_zeros([self.cutoff] * 2 * len(self.wires))
-        unitary[0, 0, 0, 0] = 1.0
+        tran_mat = matrix.new_zeros([self.cutoff] * 2 * len(self.wires))
+        tran_mat[0, 0, 0, 0] = 1.0
         # rank 3
         for m in range(self.cutoff):
             for n in range(self.cutoff - m):
                 p = m + n
                 if 0 < p < self.cutoff:
-                    unitary[m, n, p, 0] = (
-                        matrix[0, 0] * sqrt[m] / sqrt[p] * unitary[m - 1, n, p - 1, 0].clone()
-                        + matrix[1, 0] * sqrt[n] / sqrt[p] * unitary[m, n - 1, p - 1, 0].clone()
+                    tran_mat[m, n, p, 0] = (
+                        matrix[0, 0] * sqrt[m] / sqrt[p] * tran_mat[m - 1, n, p - 1, 0].clone()
+                        + matrix[1, 0] * sqrt[n] / sqrt[p] * tran_mat[m, n - 1, p - 1, 0].clone()
                     )
         # rank 4
         for m in range(self.cutoff):
@@ -222,11 +222,11 @@ class BeamSplitter(Gate):
                 for p in range(self.cutoff):
                     q = m + n - p
                     if 0 < q < self.cutoff:
-                        unitary[m, n, p, q] = (
-                            matrix[0, 1] * sqrt[m] / sqrt[q] * unitary[m - 1, n, p, q - 1].clone()
-                            + matrix[1, 1] * sqrt[n] / sqrt[q] * unitary[m, n - 1, p, q - 1].clone()
+                        tran_mat[m, n, p, q] = (
+                            matrix[0, 1] * sqrt[m] / sqrt[q] * tran_mat[m - 1, n, p, q - 1].clone()
+                            + matrix[1, 1] * sqrt[n] / sqrt[q] * tran_mat[m, n - 1, p, q - 1].clone()
                         )
-        return unitary
+        return tran_mat
 
     def get_transform_xp(self, theta: Any, phi: Any) -> Tuple[torch.Tensor, torch.Tensor]:
         """Get the local affine symplectic transformation acting on quadrature operators in xxpp order."""
@@ -600,17 +600,17 @@ class UAnyGate(Gate):
         assert unitary.shape[0] == len(self.wires), 'Please check wires'
         assert is_unitary(unitary), 'Please check the unitary matrix'
         self.register_buffer('matrix', unitary)
-        self.register_buffer('unitary_state', None)
+        self.register_buffer('matrix_state', None)
 
-    def get_unitary_state(self, matrix: torch.Tensor) -> torch.Tensor:
-        """Get the local unitary matrix acting on Fock state tensors.
+    def get_matrix_state(self, matrix: torch.Tensor) -> torch.Tensor:
+        """Get the local transformation matrix acting on Fock state tensors.
 
         See https://arxiv.org/pdf/2004.11002.pdf Eq.(71)
         """
         nt = len(self.wires)
         sqrt = torch.sqrt(torch.arange(self.cutoff, device=matrix.device))
-        unitary = matrix.new_zeros([self.cutoff] *  2 * nt)
-        unitary[tuple([0] * 2 * nt)] = 1.0
+        tran_mat = matrix.new_zeros([self.cutoff] *  2 * nt)
+        tran_mat[tuple([0] * 2 * nt)] = 1.0
         for rank in range(nt + 1, 2 * nt + 1):
             col_num = rank - nt - 1
             matrix_j = matrix[:, col_num]
@@ -628,19 +628,19 @@ class UAnyGate(Gate):
                         state_pre = copy.deepcopy(state)
                         state_pre[i] = state_pre[i] - 1
                         state_pre[len(modes)] = state_pre[len(modes)] - 1
-                        sum_tmp += matrix_j[i] * sqrt[modes[i]] * unitary[tuple(state_pre)].clone()
-                    unitary[tuple(state)] = sum_tmp / sqrt[in_rest]
-        return unitary
+                        sum_tmp += matrix_j[i] * sqrt[modes[i]] * tran_mat[tuple(state_pre)].clone()
+                    tran_mat[tuple(state)] = sum_tmp / sqrt[in_rest]
+        return tran_mat
 
-    def update_unitary_state(self) -> torch.Tensor:
-        """Update the local unitary matrix acting on Fock state tensors."""
-        if self.unitary_state is None:
+    def update_matrix_state(self) -> torch.Tensor:
+        """Update the local transformation matrix acting on Fock state tensors."""
+        if self.matrix_state is None:
             matrix = self.update_matrix()
-            unitary = self.get_unitary_state(matrix)
-            self.register_buffer('unitary_state', unitary)
+            tran_mat = self.get_matrix_state(matrix)
+            self.register_buffer('matrix_state', tran_mat)
         else:
-            unitary = self.unitary_state
-        return unitary
+            tran_mat = self.matrix_state
+        return tran_mat
 
     def get_transform_xp(self, matrix: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """Get the local affine symplectic transformation acting on quadrature operators in xxpp order."""
@@ -715,7 +715,7 @@ class Squeezing(Gate):
         return r, theta
 
     def get_matrix(self, r: Any, theta: Any) -> torch.Tensor:
-        """Get the local unitary matrix acting on annihilation and creation operators."""
+        """Get the local matrix acting on annihilation and creation operators."""
         r, theta = self.inputs_to_tensor([r, theta])
         ch = torch.cosh(r)
         sh = torch.sinh(r)
@@ -724,31 +724,32 @@ class Squeezing(Gate):
         return torch.stack([ch, -e_it * sh, -e_m_it * sh, ch]).reshape(2, 2)
 
     def update_matrix(self) -> torch.Tensor:
-        """Update the local unitary matrix acting on annihilation and creation operators."""
+        """Update the local matrix acting on annihilation and creation operators."""
         matrix = self.get_matrix(self.r, self.theta)
         self.matrix = matrix.detach()
         return matrix
 
-    def get_unitary_state(self, matrix: torch.Tensor) -> torch.Tensor:
-        """Get the local unitary matrix acting on Fock state tensors.
+    def get_matrix_state(self, matrix: torch.Tensor) -> torch.Tensor:
+        """Get the local transformation matrix acting on Fock state tensors.
 
         See https://arxiv.org/pdf/2004.11002.pdf Eq.(51) and Eq.(52)
         """
         sqrt = torch.sqrt(torch.arange(self.cutoff, device=matrix.device))
-        unitary = matrix.new_zeros([self.cutoff] * 2)
+        tran_mat = matrix.new_zeros([self.cutoff] * 2)
         sech = 1 / matrix[0, 0]
         e_it_tanh = -matrix[0, 1] / matrix[0, 0]
         e_m_it_tanh = -matrix[1, 0] / matrix[0, 0]
-        unitary[0, 0] = torch.sqrt(sech)
+        tran_mat[0, 0] = torch.sqrt(sech)
         # rank 1
-        for m in range(self.cutoff - 1):
-            unitary[m + 1, 0] = - sqrt[m] / sqrt[m + 1] * unitary[m - 1, 0].clone() * e_it_tanh
+        for m in range(1, self.cutoff - 1, 2):
+            tran_mat[m + 1, 0] = -sqrt[m] / sqrt[m + 1] * tran_mat[m - 1, 0].clone() * e_it_tanh
         # rank 2
         for m in range(self.cutoff):
             for n in range(self.cutoff - 1):
-                unitary[m, n + 1] = (sqrt[m] * unitary[m - 1, n].clone() * sech
-                                    + sqrt[n] * unitary[m, n - 1].clone() * e_m_it_tanh) / sqrt[n + 1]
-        return unitary
+                if (m + n) % 2 == 1:
+                    tran_mat[m, n + 1] = (sqrt[m] * tran_mat[m - 1, n].clone() * sech
+                                         + sqrt[n] * tran_mat[m, n - 1].clone() * e_m_it_tanh) / sqrt[n + 1]
+        return tran_mat
 
     def get_transform_xp(self, r: Any, theta: Any) -> Tuple[torch.Tensor, torch.Tensor]:
         """Get the local affine symplectic transformation acting on quadrature operators in xxpp order."""
@@ -843,8 +844,8 @@ class Displacement(Gate):
         self.matrix = matrix.detach()
         return matrix
 
-    def get_unitary_state(self, r: Any, theta: Any) -> torch.Tensor:
-        """Get the local unitary matrix acting on Fock state tensors.
+    def get_matrix_state(self, r: Any, theta: Any) -> torch.Tensor:
+        """Get the local transformation matrix acting on Fock state tensors.
 
         See https://arxiv.org/pdf/2004.11002.pdf Eq.(57) and Eq.(58)
         """
@@ -852,21 +853,21 @@ class Displacement(Gate):
         sqrt = torch.sqrt(torch.arange(self.cutoff, device=r.device))
         alpha = r * torch.exp(1j * theta)
         alpha_c = r * torch.exp(-1j * theta)
-        unitary = alpha.new_zeros([self.cutoff] * 2)
-        unitary[0, 0] = torch.exp(- (r ** 2) / 2)
+        tran_mat = alpha.new_zeros([self.cutoff] * 2)
+        tran_mat[0, 0] = torch.exp(-(r ** 2) / 2)
         # rank 1
         for m in range(self.cutoff - 1):
-            unitary[m + 1, 0] = alpha / sqrt[m + 1] * unitary[m, 0].clone()
+            tran_mat[m + 1, 0] = alpha / sqrt[m + 1] * tran_mat[m, 0].clone()
         # rank 2
         for m in range(self.cutoff):
             for n in range(self.cutoff - 1):
-                unitary[m, n + 1] = (-alpha_c * unitary[m, n].clone()
-                                    + sqrt[m] * unitary[m - 1, n].clone()) / sqrt[n + 1]
-        return unitary
+                tran_mat[m, n + 1] = (-alpha_c * tran_mat[m, n].clone()
+                                     + sqrt[m] * tran_mat[m - 1, n].clone()) / sqrt[n + 1]
+        return tran_mat
 
-    def update_unitary_state(self) -> torch.Tensor:
-        """Update the local unitary matrix acting on Fock state tensors."""
-        return self.get_unitary_state(self.r, self.theta)
+    def update_matrix_state(self) -> torch.Tensor:
+        """Update the local transformation matrix acting on Fock state tensors."""
+        return self.get_matrix_state(self.r, self.theta)
 
     def get_transform_xp(self, r: Any, theta: Any) -> Tuple[torch.Tensor, torch.Tensor]:
         """Get the local affine symplectic transformation acting on quadrature operators in xxpp order."""
@@ -874,7 +875,7 @@ class Displacement(Gate):
         cos = torch.cos(theta)
         sin = torch.sin(theta)
         matrix_xp = torch.eye(2, dtype=r.dtype, device=r.device)
-        vector_xp = torch.stack([r * cos, r * sin]).reshape(2, 1) * (2 * dqp.hbar) ** 0.5
+        vector_xp = torch.stack([r * cos, r * sin]).reshape(2, 1) * dqp.hbar ** 0.5 / dqp.kappa
         return matrix_xp, vector_xp
 
     def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:

@@ -95,7 +95,7 @@ class Gate(Operation):
         """Update the local unitary matrix acting on creation operators."""
         return self.matrix
 
-    def get_unitary_op(self) -> torch.Tensor:
+    def get_unitary(self) -> torch.Tensor:
         """Get the global unitary matrix acting on creation operators."""
         matrix = self.update_matrix()
         assert matrix.shape[-2] == matrix.shape[-1] == len(self.wires), 'The matrix may not act on creation operators.'
@@ -105,19 +105,19 @@ class Gate(Operation):
         m2 = torch.eye(nmode2, dtype=matrix.dtype, device=matrix.device)
         return torch.block_diag(m1, matrix, m2)
 
-    def get_unitary_state(self, matrix: torch.Tensor) -> torch.Tensor:
-        """Get the local unitary matrix acting on Fock state tensors."""
+    def get_matrix_state(self, matrix: torch.Tensor) -> torch.Tensor:
+        """Get the local transformation matrix acting on Fock state tensors."""
         raise NotImplementedError
 
-    def update_unitary_state(self) -> torch.Tensor:
-        """Update the local unitary matrix acting on Fock state tensors."""
+    def update_matrix_state(self) -> torch.Tensor:
+        """Update the local transformation matrix acting on Fock state tensors."""
         matrix = self.update_matrix()
-        return self.get_unitary_state(matrix)
+        return self.get_matrix_state(matrix)
 
     def op_state_tensor(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass for state tensors."""
         nt = len(self.wires)
-        matrix = self.update_unitary_state().reshape(self.cutoff ** nt, self.cutoff ** nt)
+        matrix = self.update_matrix_state().reshape(self.cutoff ** nt, self.cutoff ** nt)
         wires = [i + 1 for i in self.wires]
         pm_shape = list(range(self.nmode + 1))
         for i in wires:
@@ -150,8 +150,8 @@ class Gate(Operation):
         vector_xpxp = xxpp_to_xpxp(vector) # here change order to xpxp
         nmode1 = min(self.wires)
         nmode2 = self.nmode - nmode1 - len(self.wires)
-        v1 = torch.zeros(2 * nmode1 , 1, dtype=vector.dtype, device=vector.device)
-        v2 = torch.zeros(2 * nmode2 , 1, dtype=vector.dtype, device=vector.device)
+        v1 = torch.zeros(2 * nmode1, 1, dtype=vector.dtype, device=vector.device)
+        v2 = torch.zeros(2 * nmode2, 1, dtype=vector.dtype, device=vector.device)
         return xpxp_to_xxpp(torch.cat([v1, vector_xpxp, v2], dim=-2)) # here change order to xxpp
 
     def op_gaussian(self, x: List[torch.Tensor]) -> List[torch.Tensor]:

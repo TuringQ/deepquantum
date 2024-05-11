@@ -137,7 +137,7 @@ class GaussianState(nn.Module):
     ) -> None:
         super().__init__()
         if state == 'vac':
-            cov = (dqp.hbar / 2) * torch.eye(2 * nmode)
+            cov = torch.eye(2 * nmode) * dqp.hbar / (4 * dqp.kappa ** 2)
             mean = torch.zeros(2 * nmode, 1)
         elif isinstance(state, list):
             cov = state[0]
@@ -165,6 +165,6 @@ class GaussianState(nn.Module):
 
         See https://arxiv.org/pdf/quant-ph/0503237.pdf Eq.(2.5)
         """
-        purity = 1 / torch.sqrt(torch.det(2 / dqp.hbar * self.cov))
+        purity = 1 / torch.sqrt(torch.det(4 * dqp.kappa ** 2 / dqp.hbar * self.cov))
         unity = torch.tensor(1.0, dtype=purity.dtype, device=purity.device)
         return torch.allclose(purity, unity, rtol=rtol, atol=atol)

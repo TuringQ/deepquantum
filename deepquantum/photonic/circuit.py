@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import torch
 from torch import nn, vmap
+from torch.distributions.multivariate_normal import MultivariateNormal
 
 from .decompose import UnitaryDecomposer
 from .draw import DrawCircuit
@@ -250,7 +251,10 @@ class QumodeCircuit(Operation):
         state = [state.cov, state.mean]
         if data is None:
             self.state = self._forward_helper_gaussian(state=state, stepwise=stepwise)
-            # self.state = self.state.unsqueeze(0)
+            if self.state[0].ndim == 2:
+                self.state[0] = self.state[0].unsqueeze(0)
+            if self.state[1].ndim == 2:
+                self.state[1] = self.state[1].unsqueeze(0)
         else:
             if data.ndim == 1:
                 data = data.unsqueeze(0)
@@ -282,7 +286,7 @@ class QumodeCircuit(Operation):
             sp_mat = self.get_symplectic()
             cov = sp_mat @ cov @ sp_mat.mT
             mean = self.get_displacement(mean)
-            self.state = [cov, mean]
+            self.state = [cov.squeeze(0), mean.squeeze(0)]
         return self.state
 
     def get_symplectic(self) -> torch.Tensor:
@@ -322,16 +326,14 @@ class QumodeCircuit(Operation):
             op.init_para(data[count:count_up])
             count = count_up
 
-    def get_unitary_op(self) -> torch.Tensor:
+    def get_unitary(self) -> torch.Tensor:
         """Get the unitary matrix of the photonic quantum circuit."""
         u = None
         for op in self.operators:
-            print(op)
-            print(op.get_unitary_op())
             if u is None:
-                u = op.get_unitary_op()
+                u = op.get_unitary()
             else:
-                u = op.get_unitary_op() @ u
+                u = op.get_unitary() @ u
         if u is None:
             return torch.eye(self.nmode, dtype=torch.cfloat)
         else:
@@ -349,7 +351,7 @@ class QumodeCircuit(Operation):
     def _get_sub_matrices(self, init_state: torch.Tensor, final_states: torch.Tensor) -> torch.Tensor:
         """Get the sub-matrices for permanent."""
         sub_mats = []
-        u = self.get_unitary_op()
+        u = self.get_unitary()
         for state in final_states:
             sub_mats.append(sub_matrix(u, init_state, state))
         return torch.stack(sub_mats)
@@ -372,7 +374,7 @@ class QumodeCircuit(Operation):
         assert init_state.basis, 'The initial state must be a Fock basis state'
         assert max(final_state) < self.cutoff, 'The number of photons in the final state must be less than cutoff'
         assert sum(final_state) == sum(init_state.state), 'The number of photons should be conserved'
-        u = self.get_unitary_op()
+        u = self.get_unitary()
         sub_mat = sub_matrix(u, init_state.state, final_state)
         nphoton = sum(init_state.state)
         if nphoton == 0:
@@ -476,9 +478,15 @@ class QumodeCircuit(Operation):
 
     def measure_photon_number(
         self,
-        wires: Optional[List[int]] = None
+        wires: Union[int, List[int], None] = None
     ) -> Union[Tuple[torch.Tensor, torch.Tensor], None]:
-        """Get the expectation value and variance of the photon number operator."""
+        """Get the expectation value and variance of the photon number operator.
+
+        Args:
+            wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
+                integers specifying the indices of the wires. Default: ``None`` (which means all wires are
+                measured)
+        """
         assert self.backend == 'gaussian'
         if self.state is None:
             return
@@ -486,20 +494,18 @@ class QumodeCircuit(Operation):
         if wires is None:
             wires = self.wires
         wires = sorted(self._convert_indices(wires))
-        nbatch = cov.shape[0]
-        cov_lst = [] # nbatch * nwire
+        batch = cov.shape[0]
+        cov_lst = [] # batch * nwire
         mean_lst = []
-        for i in range(nbatch):
-            cov_i = cov[i]
-            mean_i = mean[i]
-            cov_lst_i, mean_lst_i = self._get_local_covs_means(cov_i, mean_i, wires)
+        for i in range(batch):
+            cov_lst_i, mean_lst_i = self._get_local_covs_means(cov[i], mean[i], wires)
             cov_lst += cov_lst_i
             mean_lst += mean_lst_i
         covs = torch.stack(cov_lst)
         means = torch.stack(mean_lst)
         exp, var = photon_number_mean_var(covs, means)
-        exp = exp.reshape(nbatch, len(wires)).squeeze()
-        var = var.reshape(nbatch, len(wires)).squeeze()
+        exp = exp.reshape(batch, len(wires)).squeeze()
+        var = var.reshape(batch, len(wires)).squeeze()
         return exp, var
 
     def _get_local_covs_means(
@@ -521,8 +527,14 @@ class QumodeCircuit(Operation):
         self,
         shots: int = 1024,
         wires: Union[int, List[int], None] = None
-    ) -> Union[List, None]:
-        """Get the homodyne measurement results for quadratures x and p."""
+    ) -> Union[torch.Tensor, None]:
+        """Get the homodyne measurement results for quadratures x and p.
+
+        Args:
+            shots (int, optional): The number of times to sample from the quantum state. Default: 1024
+            wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
+                integers specifying the indices of the wires. Default: ``None`` (which means all wires are
+                measured)"""
         assert self.backend == 'gaussian'
         if self.state is None:
             return
@@ -530,17 +542,11 @@ class QumodeCircuit(Operation):
         if wires is None:
             wires = self.wires
         wires = sorted(self._convert_indices(wires))
-        samples = []
-        batches = cov.shape[0]
-        for i in range(batches):
-            cov_i = cov[i]
-            mean_i = mean[i]
-            indices = wires + [wire + self.nmode for wire in wires]
-            cov_sub = cov_i[indices][:, indices]
-            mean_sub = mean_i[indices].squeeze()
-            samples_i = np.random.multivariate_normal(mean_sub, cov_sub, size=shots)
-            samples.append(samples_i)
-        return samples
+        indices = wires + [wire + self.nmode for wire in wires]
+        cov_sub = cov[:, indices][:, :, indices]
+        mean_sub = mean[:, indices].squeeze(-1)
+        samples = MultivariateNormal(mean_sub, cov_sub).sample([shots]) # (shots, batch, 2 * nwire)
+        return samples.permute(1, 0, 2).squeeze()
 
     def draw(self, filename: Optional[str] = None):
         """Visualize the photonic quantum circuit.
