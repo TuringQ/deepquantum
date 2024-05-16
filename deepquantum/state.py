@@ -252,7 +252,6 @@ class MatrixProductState(nn.Module):
             self._buffers[f'tensor{site}'] = tensors[site].squeeze(0)
             self._buffers[f'tensor{site + 1}'] = tensors[site + 1].squeeze(0)
 
-
     def orthogonalize_right2left(self, site: int, dc: int = -1, normalize: bool = False) -> None:
         r"""Orthogonalize the tensor at ``site`` and update the next one at ``site`` - 1.
 
@@ -301,6 +300,26 @@ class MatrixProductState(nn.Module):
         else:
             for site in range(n1, n2, -1):
                 self.orthogonalize_right2left(site, dc, normalize)
+
+    def apply_mpo(self, mpo: List[torch.Tensor], sites: List[int]) -> None:
+        """Use TEBD algorithm to contract tensors (contract local states with local operators), i.e.,
+
+            >>>          a
+            >>>          |
+            >>>    i-----O-----j            a
+            >>>          |        ->        |
+            >>>          b             ik---X---jl
+            >>>          |
+            >>>    k-----T-----l
+        """
+        assert len(mpo) == len(sites)
+        for i, site in enumerate(sites):
+            tensor = torch.einsum('iabj,...kbl->...ikajl', mpo[i], self.tensors[site])
+            s = tensor.shape
+            if len(s) == 5:
+                self._buffers[f'tensor{site}'] = tensor.reshape(s[-5] * s[-4], s[-3], s[-2] * s[-1])
+            else:
+                self._buffers[f'tensor{site}'] = tensor.reshape(-1, s[-5] * s[-4], s[-3], s[-2] * s[-1])
 
     def forward(self) -> None:
         """Pass."""

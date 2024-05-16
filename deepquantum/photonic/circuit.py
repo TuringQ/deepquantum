@@ -476,7 +476,7 @@ class QumodeCircuit(Operation):
         else:
             return all_results
 
-    def measure_photon_number(
+    def photon_number_mean_var(
         self,
         wires: Union[int, List[int], None] = None
     ) -> Union[Tuple[torch.Tensor, torch.Tensor], None]:

@@ -524,7 +524,7 @@ def inner_product_mps(
 from .layer import Observable
 
 def expectation(
-    state: torch.Tensor or List[torch.Tensor],
+    state: Union[torch.Tensor, List[torch.Tensor]],
     observable: Observable,
     den_mat: bool = False,
     chi: Optional[int] = None
