@@ -300,11 +300,11 @@ def multi_kron(lst: List[torch.Tensor]) -> torch.Tensor:
     """
     n = len(lst)
     if n == 1:
-        return lst[0]
+        return lst[0].contiguous()
     else:
         mid = n // 2
         rst = torch.kron(multi_kron(lst[0:mid]), multi_kron(lst[mid:]))
-        return rst
+        return rst.contiguous()
 
 
 def partial_trace(rho: torch.Tensor, nqubit: int, trace_lst: List[int]) -> torch.Tensor:
