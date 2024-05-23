@@ -335,9 +335,9 @@ class QubitCircuit(Operation):
         rst = self.measure(shots=1, with_prob=with_prob, wires=self.wires_condition)
         if self.state.ndim == 2:
             key = [*rst][0]
-            prob = rst[key][1]
             state = self._slice_state_vector(state=self.state, wires=self.wires_condition, bits=key)
             if with_prob:
+                prob = rst[key][1]
                 print(f'The probability of deferred measurement to get "{key}" is {prob}.')
                 return state, key, prob
             else:
@@ -348,9 +348,9 @@ class QubitCircuit(Operation):
             probs = []
             for i, d in enumerate(rst):
                 key = [*d][0]
-                prob = d[key][1]
                 state.append(self._slice_state_vector(state=self.state[i], wires=self.wires_condition, bits=key))
                 if with_prob:
+                    prob = d[key][1]
                     print(f'The probability of deferred measurement to get "{key}" for sample {i} is {prob}.')
                     keys.append(key)
                     probs.append(prob)
