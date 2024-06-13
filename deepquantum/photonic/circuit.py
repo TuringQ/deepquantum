@@ -31,10 +31,11 @@ class QumodeCircuit(Operation):
         init_state (Any): The initial state of the circuit. For Fock backend, it can be a Fock basis state,
             e.g., ``[1,0,0]``, or a Fock state tensor, e.g., ``[(1/2**0.5, [1,0]), (1/2**0.5, [0,1])]``.
             Alternatively, it can be a tensor representation.
-            For Gaussian backend, it can be a vacuum state with 'vac', or arbitrary Gaussian states with [cov, mean]
-            Use ``xxpp`` convention and :math:`\hbar=2` by default.
+            For Gaussian backend, it can be a vacuum state with ``'vac'``, or arbitrary Gaussian states
+            with ``[cov, mean]``. Use ``xxpp`` convention and :math:`\hbar=2` by default.
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        backend (str, optional): Use Fock backend or Gaussian backend. Default: ``fock``
+        backend (str, optional): Use ``'fock'`` for Fock backend or ``'gaussian'`` for Gaussian backend.
+            Default: ``'fock'``
         basis (bool, optional): Whether to use the representation of Fock basis state for the initial state.
             Default: ``True``
         name (str or None, optional): The name of the circuit. Default: ``None``
@@ -47,7 +48,7 @@ class QumodeCircuit(Operation):
         nmode: int,
         init_state: Any,
         cutoff: Optional[int] = None,
-        backend: Optional[str] = 'fock',
+        backend: str = 'fock',
         basis: bool = True,
         name: Optional[str] = None,
         noise: bool = False,
@@ -102,14 +103,20 @@ class QumodeCircuit(Operation):
     def to(self, arg: Any) -> 'QumodeCircuit':
         """Set dtype or device of the ``QumodeCircuit``."""
         if arg == torch.float:
-            self.init_state.to(torch.cfloat)
+            if self.backend == 'fock' and not self.basis:
+                self.init_state.to(torch.cfloat)
+            elif self.backend == 'gaussian':
+                self.init_state.to(torch.float)
             for op in self.operators:
                 if op.npara == 0:
                     op.to(torch.cfloat)
                 elif op.npara > 0:
                     op.to(torch.float)
         elif arg == torch.double:
-            self.init_state.to(torch.cdouble)
+            if self.backend == 'fock' and not self.basis:
+                self.init_state.to(torch.cdouble)
+            elif self.backend == 'gaussian':
+                self.init_state.to(torch.double)
             for op in self.operators:
                 if op.npara == 0:
                     op.to(torch.cdouble)
@@ -367,6 +374,7 @@ class QumodeCircuit(Operation):
             final_state (Any): The final Fock basis state.
             init_state (FockState or None, optional): The initial Fock basis state. Default: ``None``
         """
+        assert self.backend == 'fock'
         if not isinstance(final_state, torch.Tensor):
             final_state = torch.tensor(final_state, dtype=torch.int)
         if init_state is None:
@@ -397,6 +405,7 @@ class QumodeCircuit(Operation):
             final_state (Any): The final Fock basis state.
             init_state (FockState or None, optional): The initial Fock basis state. Default: ``None``
         """
+        assert self.backend == 'fock'
         amplitude = self.get_amplitude(final_state, init_state)
         prob = torch.abs(amplitude) ** 2
         return prob
@@ -423,6 +432,7 @@ class QumodeCircuit(Operation):
                 integers specifying the indices of the wires. Default: ``None`` (which means all wires are
                 measured)
         """
+        assert self.backend == 'fock'
         if self.state is None:
             return
         if wires is None:
@@ -462,9 +472,8 @@ class QumodeCircuit(Operation):
                         sum_idx.remove(idx)
                     ptrace_probs = probs.sum(dim=sum_idx)
                 for p_state in combi:
-                    state_str = ''.join(map(str, p_state))
-                    p_str = f'|{state_str}>'
-                    prob_dict[p_str] = ptrace_probs[tuple(p_state)]
+                    p_state_b = FockState(list(p_state))
+                    prob_dict[p_state_b] = ptrace_probs[p_state]
                 samples = random.choices(list(prob_dict.keys()), list(prob_dict.values()), k=shots)
                 results = dict(Counter(samples))
                 if with_prob:

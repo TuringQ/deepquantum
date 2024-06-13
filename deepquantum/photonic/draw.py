@@ -177,7 +177,7 @@ class DrawCircuit():
         draw arbitrary unitary gate
         """
         fill_c = info_dic[name][0]
-        shift= info_dic[name][1]
+        # shift= info_dic[name][1]
         x = 90 * order + 40
         y_up = wires[0]
         h = (int(len(wires)) - 1) * 30 + 20
@@ -267,8 +267,8 @@ class DrawClements():
                 (3.2*(nmode/2-1)+2.2+2.1, 1-0.25*i-0.05),
                 wid,
                 height,
-                edgecolor = 'green',
-                facecolor = 'green',
+                edgecolor = cl,
+                facecolor = cl,
                 fill=True
                              ) )  ## for PS
             if nmode%2==1:
@@ -349,8 +349,8 @@ class DrawClements():
                 (0.5,1-0.25*i-0.05),
                 wid,
                 height,
-                edgecolor = 'blue',
-                facecolor = 'blue',
+                edgecolor = cl,
+                facecolor = cl,
                 fill=True
                              ) )
             if nmode%2==1:
@@ -388,14 +388,14 @@ class DrawClements():
         # connecting lines i, i+1
         for i  in range(len(coords1)):
             if i%2==0:
-                self.connect1(coords1[i], ax)
+                self.connect1(coordinate=coords1[i], ax=ax, cl='black')
             if i%2==1:
-                self.connect2(coords1[i])
+                self.connect2(coordinate=coords1[i], ax=ax, cl='black')
         for i  in range(len(coords2)):
             if i%2==0:
-                self.connect1(coords2[i], ax)
+                self.connect1(coordinate=coords2[i], ax=ax, cl='black')
             if i%2==1:
-                self.connect2(coords2[i])
+                self.connect2(coordinate=coords2[i], ax=ax, cl='black')
         # plotting paras
         self.plot_paras(self.dic_mzi, self.nmode, fs=self.fontsize-8)
         plt.axis(self.axis_off)
@@ -437,7 +437,7 @@ class DrawClements():
             return None
 
     @staticmethod
-    def connect1(coordinate, ax, cl='dodgerblue', wid=0.1, height=0.08, a=-0.05, b=-0.05, c=0.7, d=-0.05):
+    def connect1(coordinate, ax, cl='black', wid=0.1, height=0.08, a=-0.05, b=-0.05, c=0.7, d=-0.05):
         """
         connect odd column
         """
@@ -449,21 +449,21 @@ class DrawClements():
             ((x0+x1)/2 + a, y0 + b),
             wid,
             height,
-            edgecolor = 'blue',
-            facecolor = 'blue',
+            edgecolor = cl,
+            facecolor = cl,
             fill=True
         ) )
         ax.add_patch(patches.Rectangle(
             ((x0+x1)/2 + c, y0 + d),
             wid,
             height,
-            edgecolor = 'blue',
-            facecolor = 'blue',
+            edgecolor = cl,
+            facecolor = cl,
             fill=True
         ) )
 
     @staticmethod
-    def connect2(coordinate, cl='dodgerblue'):
+    def connect2(coordinate, cl='black'):
         """
         connect even column
         """
