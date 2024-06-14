@@ -231,10 +231,10 @@ class BeamSplitter(Gate):
     def get_transform_xp(self, theta: Any, phi: Any) -> Tuple[torch.Tensor, torch.Tensor]:
         """Get the local affine symplectic transformation acting on quadrature operators in xxpp order."""
         theta, phi = self.inputs_to_tensor([theta, phi])
-        matrix = self.get_matrix(theta, phi) # correspond to: U a^+ U^+ = u^T @ a^+ and U^+ a U = U @ a
-        matrix = matrix.conj()               # correspond to: U a U^+ = (u^*)^T @ a and U^+ a^+ U = u^* @ a^+
+        matrix = self.get_matrix(theta, phi)          # correspond to: U a^+ U^+ = u^T @ a^+ and U^+ a U = u @ a
+        # matrix = matrix.conj() # conflict with vmap # correspond to: U a U^+ = (u^*)^T @ a and U^+ a^+ U = u^* @ a^+
         mat_real = matrix.real
-        mat_imag = matrix.imag
+        mat_imag = -matrix.imag
         matrix_xp = torch.cat([torch.cat([mat_real, mat_imag], dim=-1),
                                torch.cat([-mat_imag, mat_real], dim=-1)], dim=-2)
         vector_xp = torch.zeros(4, 1, dtype=theta.dtype, device=theta.device)
@@ -535,10 +535,10 @@ class BeamSplitterSingle(BeamSplitter):
     def get_transform_xp(self, theta: Any) -> Tuple[torch.Tensor, torch.Tensor]:
         """Get the local affine symplectic transformation acting on quadrature operators in xxpp order."""
         theta = self.inputs_to_tensor(theta)
-        matrix = self.get_matrix(theta) # correspond to: U a^+ U^+ = u^T @ a^+ and U^+ a U = U @ a
-        matrix = matrix.conj()          # correspond to: U a U^+ = (u^*)^T @ a and U^+ a^+ U = u^* @ a^+
+        matrix = self.get_matrix(theta)               # correspond to: U a^+ U^+ = u^T @ a^+ and U^+ a U = u @ a
+        # matrix = matrix.conj() # conflict with vmap # correspond to: U a U^+ = (u^*)^T @ a and U^+ a^+ U = u^* @ a^+
         mat_real = matrix.real
-        mat_imag = matrix.imag
+        mat_imag = -matrix.imag
         matrix_xp = torch.cat([torch.cat([mat_real, mat_imag], dim=-1),
                                torch.cat([-mat_imag, mat_real], dim=-1)], dim=-2)
         vector_xp = torch.zeros(4, 1, dtype=theta.dtype, device=theta.device)
@@ -644,11 +644,11 @@ class UAnyGate(Gate):
 
     def get_transform_xp(self, matrix: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """Get the local affine symplectic transformation acting on quadrature operators in xxpp order."""
-        # correspond to: U a^+ U^+ = u^T @ a^+ and U^+ a U = U @ a
+        # correspond to: U a^+ U^+ = u^T @ a^+ and U^+ a U = u @ a
         # correspond to: U a U^+ = (u^*)^T @ a and U^+ a^+ U = u^* @ a^+
-        matrix = matrix.conj()
+        # matrix = matrix.conj() # conflict with vmap
         mat_real = matrix.real
-        mat_imag = matrix.imag
+        mat_imag = -matrix.imag
         matrix_xp = torch.cat([torch.cat([mat_real, mat_imag], dim=-1),
                                torch.cat([-mat_imag, mat_real], dim=-1)], dim=-2)
         vector_xp = torch.zeros(2 * self.nmode, 1, dtype=mat_real.dtype, device=mat_real.device)
