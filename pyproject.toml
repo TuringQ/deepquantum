@@ -1,0 +1,59 @@
+[build-system]
+requires = ['setuptools >= 69.0', 'wheel']
+build-backend = 'setuptools.build_meta'
+
+[project]
+name = 'deepquantum'
+dynamic = ['version']
+dependencies = [
+    'torch>=2.0.0',
+    'numpy',
+    'matplotlib',
+    'qiskit',
+    'pylatexenc',
+    'scipy',
+    'sympy',
+    'svgwrite',
+    'bayesian-optimization',
+    'thewalrus',
+    'networkx',
+    'tqdm'
+]
+requires-python = '>=3.8'
+authors = [
+    {name = 'TuringQ', email = 'Algorithms-Applications@turingq.com'},
+    {name = 'Junjie He', email = 'hejunjie@turingq.com'},
+    {name = 'Keming Hu', email = 'hukeming@turingq.com'}
+]
+maintainers = [
+    {name = 'Junjie He', email = 'hejunjie@turingq.com'}
+]
+description = 'DeepQuantum for quantum computing'
+readme = 'README.md'
+keywords = ['quantum computing', 'quantum machine learning', 'photonic quantum computing']
+classifiers = [
+    'Development Status :: 4 - Beta',
+    'Intended Audience :: Developers',
+    'Programming Language :: Python :: 3',
+    'Programming Language :: Python :: 3.8',
+    'Programming Language :: Python :: 3.9',
+    'Programming Language :: Python :: 3.10',
+    'Programming Language :: Python :: 3.11',
+    'License :: OSI Approved :: Apache Software License',
+    'Operating System :: OS Independent'
+]
+
+[project.optional-dependencies]
+dev = ['pytest', 'perceval-quandela']
+
+[project.urls]
+Homepage = 'https://deepquantum.turingq.com/'
+Documentation = 'https://ai-assistant.turingq.com/doc/algo-doc/'
+Repository = 'https://github.com/TuringQ/deepquantum.git'
+Issues = 'https://github.com/TuringQ/deepquantum/issues'
+
+[tool.setuptools.dynamic]
+version = {attr = 'deepquantum.__version__'}
+
+[tool.setuptools.packages.find]
+where = ['src']

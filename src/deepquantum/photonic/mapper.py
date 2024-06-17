@@ -17,7 +17,7 @@ from sympy import symbols, Matrix, simplify
 from torch import vmap
 
 
-class UgateMap():
+class UnitaryMapper():
     """Map the quantum gate to the unitary matrix of the photonic quantum circuit based on dual-rail encoding.
 
     Args:
@@ -77,11 +77,10 @@ class UgateMap():
         current_path = os.path.abspath(__file__)
         cur_sep = os.path.sep # obtain seperation
         # print(cur_sep)
-        path_2 = os.path.abspath(os.path.join(current_path, '../..'))
-        path_3 = os.path.abspath(os.path.join(path_2, '..'))
+        path_2 = os.path.abspath(os.path.join(current_path, '..'))
         try:
-            # load the idx tensor data
-            fn = path_3+cur_sep+'cache'+cur_sep+'Idx_%dqb_%dmode_'%(nqubit,nmode)+'aux_%d%d'%(aux[0],aux[1])+'.pt'
+            # load the idx tensor dataf
+            fn = path_2+cur_sep+'cache'+cur_sep+f'Idx_{nqubit}qb_{nmode}mode_aux_{aux[0]}{aux[1]}.pt'
             idx_ts = torch.load(fn)
         except:
             idx_ts = None
@@ -91,10 +90,10 @@ class UgateMap():
         if self.idx_ts is None:
             idx_dic, idx_ts = self.indx_eqs()
             # save the idx tensor data
-            fn = path_3+cur_sep+'cache'+cur_sep+'Idx_%dqb_%dmode_'%(nqubit,nmode)+'aux_%d%d'%(aux[0],aux[1])+'.pt'
-            fn_2 = path_3+cur_sep+'cache'+cur_sep+'Idx_%dqb_%dmode_'%(nqubit,nmode)+'aux_%d%d'%(aux[0],aux[1])+'.pickle'
+            fn = path_2+cur_sep+'cache'+cur_sep+f'Idx_{nqubit}qb_{nmode}mode_aux_{aux[0]}{aux[1]}.pt'
+            fn_2 = path_2+cur_sep+'cache'+cur_sep+f'Idx_{nqubit}qb_{nmode}mode_aux_{aux[0]}{aux[1]}.pickle'
             torch.save(idx_ts, fn)
-            UgateMap.save_dict(idx_dic, fn_2)
+            UnitaryMapper.save_dict(idx_dic, fn_2)
 
     def create_basis(self, aux_position):
         """Create the n-qubit bases in dual-rail encoding."""
@@ -190,7 +189,7 @@ class UgateMap():
         return temp.prod()
     @staticmethod
     def single_output(single_idx, y_test):
-        temp_ = vmap(UgateMap.single_prod, in_dims=(0, None))(single_idx, y_test)
+        temp_ = vmap(UnitaryMapper.single_prod, in_dims=(0, None))(single_idx, y_test)
         return temp_.sum()
 
     def get_transfer_mat(self, y):
@@ -200,7 +199,7 @@ class UgateMap():
         idx_ts = self.idx_ts
         all_inputs = self.all_basis
         num_basis = len(all_inputs)
-        temp_ = vmap(UgateMap.single_output, in_dims=(0, None))(idx_ts, y)
+        temp_ = vmap(UnitaryMapper.single_output, in_dims=(0, None))(idx_ts, y)
         temp_mat = temp_.reshape(num_basis, num_basis) # here already do transpose
         return temp_mat
 
@@ -325,7 +324,7 @@ class UgateMap():
                 print(re1.success, sum(abs(temp_eqs)))
                 if re1.success and  sum(abs(temp_eqs))<precision:
                     re2 = (re1.x).reshape(self.u_dim,self.u_dim) #the result is for aux_pos=[nmode-2,nmode-1],
-                    re3 = UgateMap.exchange(re2, self.aux_position) #need row and column exchange for target aux_pos
+                    re3 = UnitaryMapper.exchange(re2, self.aux_position) #need row and column exchange for target aux_pos
                     result.append(re3)
                     sum_.append(sum(abs(temp_eqs)))
                 print('total:',t, 'trials:', i+1, 'success:', len(result), end='\r')
@@ -351,7 +350,7 @@ class UgateMap():
                 if re1.success and  sum(abs(temp_eqs))<precision:
                     re2 = re1.x[:(self.u_dim)**2] + re1.x[(self.u_dim)**2:]*1j
                     re3 = re2.reshape(self.u_dim, self.u_dim)
-                    re4 = UgateMap.exchange(re3, self.aux_position)
+                    re4 = UnitaryMapper.exchange(re3, self.aux_position)
                     result.append(re4)
                     sum_.append(sum(abs(temp_eqs)))
                 print('total:',t, 'trials:',i, 'success:', len(result), end='\r')
@@ -377,8 +376,8 @@ class UgateMap():
         """
         get the sub_matrix of transfer probs for given input and output state
         """
-        indx1 = UgateMap.set_copy_indx(input_state)    # indicies for copies of rows for U
-        indx2 = UgateMap.set_copy_indx(output_state)   # indicies for copies of columns for
+        indx1 = UnitaryMapper.set_copy_indx(input_state)    # indicies for copies of rows for U
+        indx2 = UnitaryMapper.set_copy_indx(output_state)   # indicies for copies of columns for
         u1 = unitary[indx1,:]  #输入取行
         u2 = u1[:,indx2] #输出取列
         return u2
@@ -410,7 +409,7 @@ class UgateMap():
 
         mat = np.matrix(mat)
         num_coincidence = np.shape(mat)[0]
-        sets = UgateMap.create_subset(num_coincidence) # all S set
+        sets = UnitaryMapper.create_subset(num_coincidence) # all S set
         value_perm = 0
 
         for subset in sets:          # sum all S set

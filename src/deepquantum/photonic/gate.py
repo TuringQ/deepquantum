@@ -128,8 +128,8 @@ class BeamSplitter(Gate):
 
         \text{BS}(\theta, \phi) =
             \begin{pmatrix}
-                \cos\left(\theta\right)           & -e^(-i\phi) \sin\left(\theta\right) \\
-                e^(i\phi) \sin\left(\theta\right) & \cos\left(\theta\right)             \\
+                \cos\left(\theta\right)           & -e^{-i\phi} \sin\left(\theta\right) \\
+                e^{i\phi} \sin\left(\theta\right) & \cos\left(\theta\right)             \\
             \end{pmatrix}
 
     Args:
@@ -271,8 +271,8 @@ class MZI(BeamSplitter):
 
         \text{MZI}(\theta, \phi) = ie^{i\theta/2}
             \begin{pmatrix}
-                e^(i\phi) \sin\left(\th\right) & \cos\left(\th\right)  \\
-                e^(i\phi) \cos\left(\th\right) & -\sin\left(\th\right) \\
+                e^{i\phi} \sin\left(\th\right) & \cos\left(\th\right)  \\
+                e^{i\phi} \cos\left(\th\right) & -\sin\left(\th\right) \\
             \end{pmatrix}
 
     or when `phi_first` is `False`:
@@ -283,7 +283,7 @@ class MZI(BeamSplitter):
 
         \text{MZI}(\theta, \phi) = ie^{i\theta/2}
             \begin{pmatrix}
-                e^(i\phi) \sin\left(\th\right) & e^(i\phi) \cos\left(\th\right) \\
+                e^{i\phi} \sin\left(\th\right) & e^{i\phi} \cos\left(\th\right) \\
                 \cos\left(\th\right)           & -\sin\left(\th\right)          \\
             \end{pmatrix}
 
@@ -392,8 +392,8 @@ class BeamSplitterPhi(BeamSplitter):
 
         \text{BS}(\phi) =
             \begin{pmatrix}
-                \frac{\sqrt{2}}{2} & -\frac{\sqrt{2}}{2}e^(-i\phi) \\
-                \frac{\sqrt{2}}{2}e^(i\phi)  &  \frac{\sqrt{2}}{2} \\
+                \frac{\sqrt{2}}{2} & -\frac{\sqrt{2}}{2}e^{-i\phi} \\
+                \frac{\sqrt{2}}{2}e^{i\phi}  &  \frac{\sqrt{2}}{2} \\
             \end{pmatrix}
 
     Args:
