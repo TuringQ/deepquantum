@@ -182,7 +182,7 @@ class QubitCircuit(Operation):
                     self.state = vmap(self._forward_helper, in_dims=(0, None))(data, state)
                 elif state.ndim == 3:
                     self.state = vmap(self._forward_helper)(data, state)
-            self.init_encoder()
+            self.encode(data[-1])
         return self.state
 
     def _forward_helper(
@@ -335,9 +335,9 @@ class QubitCircuit(Operation):
         rst = self.measure(shots=1, with_prob=with_prob, wires=self.wires_condition)
         if self.state.ndim == 2:
             key = [*rst][0]
-            prob = rst[key][1]
             state = self._slice_state_vector(state=self.state, wires=self.wires_condition, bits=key)
             if with_prob:
+                prob = rst[key][1]
                 print(f'The probability of deferred measurement to get "{key}" is {prob}.')
                 return state, key, prob
             else:
@@ -348,9 +348,9 @@ class QubitCircuit(Operation):
             probs = []
             for i, d in enumerate(rst):
                 key = [*d][0]
-                prob = d[key][1]
                 state.append(self._slice_state_vector(state=self.state[i], wires=self.wires_condition, bits=key))
                 if with_prob:
+                    prob = d[key][1]
                     print(f'The probability of deferred measurement to get "{key}" for sample {i} is {prob}.')
                     keys.append(key)
                     probs.append(prob)
@@ -375,7 +375,10 @@ class QubitCircuit(Operation):
                 u = op.get_unitary()
             else:
                 u = op.get_unitary() @ u
-        return u
+        if u is None:
+            return torch.eye(2 ** self.nqubit, dtype=torch.cfloat)
+        else:
+            return u
 
     def inverse(self, encode: bool = False) -> 'QubitCircuit':
         """Get the inversed circuit.

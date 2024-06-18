@@ -25,23 +25,23 @@ def test_random_circuit():
                                cutoff=sum(ini_state)+1, basis=True)
     encode = True
     for _ in range(ndevice): # take the random circuit
-        j = np.random.uniform(-1,5)
-        if 4<j<5: # add H
-            k = int(np.random.choice(np.arange(nmode-1)))
+        j = np.random.uniform(-1, 5)
+        if 4 < j < 5: # add H
+            k = int(np.random.choice(np.arange(nmode - 1)))
             angle_1 = np.random.uniform(0, 2 * np.pi)
             test_gate.add([k, k+1], BS.H(angle_1))
             dq_gate.bs_h([k, k+1], angle_1)
-        if 2<j<3: # add Rx
-            k = int(np.random.choice(np.arange(nmode-1)))
+        if 2 < j < 3: # add Rx
+            k = int(np.random.choice(np.arange(nmode - 1)))
             angle_1 = np.random.uniform(0, 2 * np.pi)
             test_gate.add([k, k+1], BS.Rx(angle_1))
             dq_gate.bs_rx([k, k+1], angle_1)
-        if 1<j<2: # add Ry
-            k = int(np.random.choice(np.arange(nmode-1)))
+        if 1 < j < 2: # add Ry
+            k = int(np.random.choice(np.arange(nmode - 1)))
             angle_1 = np.random.uniform(0, 2 * np.pi)
             test_gate.add([k, k+1], BS.Ry(angle_1))
             dq_gate.bs_ry([k, k+1], angle_1)
-        if 0<j<1:
+        if 0 < j < 1:
             temp_1 = int(np.random.choice(np.arange(nmode)))
             angle_1 = np.random.uniform(0, 2 * np.pi)
             test_gate.add((temp_1), comp.PS(angle_1))

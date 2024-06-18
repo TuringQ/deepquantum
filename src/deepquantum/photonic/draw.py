@@ -3,7 +3,7 @@ Draw quantum circuit
 """
 
 from collections import defaultdict
-from typing import Dict, Tuple, Union
+from typing import Dict
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,8 +11,13 @@ import svgwrite
 from matplotlib import patches
 from torch import nn
 
-from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate
+from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate, Squeezing, Displacement
 
+info_dic = {'PS': ['teal', 0],
+            'S': ['royalblue', 3],
+            'D': ['green', 3],
+            'U': ['cadetblue', 0]
+            }
 
 class DrawCircuit():
     """Draw the photonic quantum circuit.
@@ -62,18 +67,33 @@ class DrawCircuit():
                 depth[op.wires[0]] = max(bs_depth)           ## BS 经过后相同线路深度
                 depth[op.wires[1]] = max(bs_depth)
             elif isinstance(op, PhaseShift):
+                name_ = 'PS'
                 theta = op.theta.item()
                 order = depth[op.wires[0]]
-                self.draw_ps(order, op.wires, theta)
+                self.draw_ps(order, op.wires, theta, name_)
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = depth[i]+1
             elif isinstance(op, UAnyGate): # need check?
                 order = max(depth[op.wires[0] : op.wires[-1]+1])
-                self.draw_any(order, op.wires)
+                name_ = 'U'
+                self.draw_any(order, op.wires, name_)
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = order + 1
+            elif isinstance(op, (Squeezing, Displacement)):
+                r = op.r.item()
+                theta = op.theta.item()
+                order = depth[op.wires[0]]
+                if isinstance(op, Squeezing):
+                    name_ = 'S'
+                else:
+                    name_ = 'D'
+                self.draw_sq(order, op.wires, r, theta, name_)
+                order_dic[order] = order_dic[order] + op.wires
+                for i in op.wires:
+                    depth[i] = depth[i]+1
+
         for key, value in order_dic.items():
             op_line = value  ## here lines represent for no operation
             line_wires = [i for i in range(nmode) if i not in op_line]
@@ -118,24 +138,46 @@ class DrawCircuit():
                                            insert=(x+55, y_up*30+30+26-6),
                                            font_size=7))
 
-    def draw_ps(self, order, wires, theta):
+    def draw_ps(self, order, wires, theta, name=None):
         """
-        draw phaseshift
+        draw phaseshif (rotation) gate
         """
+        fill_c = info_dic[name][0]
+        shift= info_dic[name][1]
         x = 90 * order + 40
         y_up = wires[0]
         # y_down = wires[1]
         self.draw_.add(self.draw_.polyline(points=[(x, y_up*30+30), (x+90, y_up*30+30)],
                                            fill='none', stroke='black', stroke_width=2))
         self.draw_.add(self.draw_.rect(insert=(x+42.5, y_up*30+25), size=(6,12), rx=0, ry=0,
-                                       fill='none', stroke='black', stroke_width=1.5))
-        self.draw_.add(self.draw_.text('PS', insert=(x+40, y_up*30+20), font_size=9))
+                                       fill=fill_c, stroke='black', stroke_width=1.5))
+        self.draw_.add(self.draw_.text(name, insert=(x+40+shift, y_up*30+20), font_size=9))
         self.draw_.add(self.draw_.text('θ ='+str(np.round(theta,3)), insert=(x+55, y_up*30+20), font_size=7))
 
-    def draw_any(self, order, wires):
+    def draw_sq(self, order, wires, r, theta, name=None):
+        """
+        draw squeezing gate, displacement gate
+        """
+        x = 90 * order + 40
+        y_up = wires[0]
+        # y_down = wires[1]
+        self.draw_.add(self.draw_.polyline(points=[(x, y_up*30+30), (x+90, y_up*30+30)],
+                                          fill='none', stroke='black', stroke_width=2))
+        fill_c = info_dic[name][0]
+        shift= info_dic[name][1]
+
+        self.draw_.add(self.draw_.rect(insert=(x+42.5, y_up*30+25), size=(10,12), rx=0, ry=0,
+                                       fill=fill_c, stroke='black', stroke_width=1.5))
+        self.draw_.add(self.draw_.text(name, insert=(x+40+shift, y_up*30+20), font_size=9))
+        self.draw_.add(self.draw_.text('r ='+str(np.round(r,3)), insert=(x+55, y_up*30+18), font_size=7))
+        self.draw_.add(self.draw_.text('θ ='+str(np.round(theta,3)), insert=(x+55, y_up*30+24), font_size=7))
+
+    def draw_any(self, order, wires, name):
         """
         draw arbitrary unitary gate
         """
+        fill_c = info_dic[name][0]
+        # shift= info_dic[name][1]
         x = 90 * order + 40
         y_up = wires[0]
         h = (int(len(wires)) - 1) * 30 + 20
@@ -147,8 +189,8 @@ class DrawCircuit():
                                                fill='none', stroke='black', stroke_width=2))
 
         self.draw_.add(self.draw_.rect(insert=(x+20, y_up*30+20), size=(50, h), rx=0, ry=0,
-                                       fill='none', stroke='black', stroke_width=2))
-        self.draw_.add(self.draw_.text('U', insert=((x+41), y_up*30+20+h/2), font_size=10))
+                                       fill=fill_c, stroke='black', stroke_width=2))
+        self.draw_.add(self.draw_.text(name, insert=((x+41), y_up*30+20+h/2), font_size=10))
 
     def draw_lines(self, order, wires):
         """
@@ -219,14 +261,14 @@ class DrawClements():
                         va = 'center',)
             plt.text(-0.8, 1-0.25*i, f'{i}', fontsize = fs )
             plt.plot([0, 1.2], [1-0.25*i,1-0.25*i], color = cl)
-            plt.text( 3.2*(nmode/2-1)+2.2+2.1, 1-0.25*i+0.05, f'{phase_angle[i]:.2f}', fontsize=fs-8 )  # phase angle
+            plt.text( 3.2*(nmode/2-1)+2.2+2.1, 1-0.25*i+0.05, f'{phase_angle[i]:.3f}', fontsize=fs-8 )  # phase angle
             ax.add_patch(
             patches.Rectangle(
                 (3.2*(nmode/2-1)+2.2+2.1, 1-0.25*i-0.05),
                 wid,
                 height,
-                edgecolor = 'green',
-                facecolor = 'green',
+                edgecolor = cl,
+                facecolor = cl,
                 fill=True
                              ) )  ## for PS
             if nmode%2==1:
@@ -301,14 +343,14 @@ class DrawClements():
                          va='center',)
             plt.text(-0.8, 1-0.25*i, f'{i}', fontsize = fs )
             plt.plot([0, 1.2], [1-0.25*i,1-0.25*i], color = cl)
-            plt.text( 0.4,1-0.25*i+0.05, f'{phase_angle[i]:.2f}', fontsize=fs-8 )  # phase angle
+            plt.text( 0.4,1-0.25*i+0.05, f'{phase_angle[i]:.3f}', fontsize=fs-8 )  # phase angle
             ax.add_patch(
             patches.Rectangle(
                 (0.5,1-0.25*i-0.05),
                 wid,
                 height,
-                edgecolor = 'blue',
-                facecolor = 'blue',
+                edgecolor = cl,
+                facecolor = cl,
                 fill=True
                              ) )
             if nmode%2==1:
@@ -346,14 +388,14 @@ class DrawClements():
         # connecting lines i, i+1
         for i  in range(len(coords1)):
             if i%2==0:
-                self.connect1(coords1[i], ax)
+                self.connect1(coordinate=coords1[i], ax=ax, cl='black')
             if i%2==1:
-                self.connect2(coords1[i])
+                self.connect2(coordinate=coords1[i], ax=ax, cl='black')
         for i  in range(len(coords2)):
             if i%2==0:
-                self.connect1(coords2[i], ax)
+                self.connect1(coordinate=coords2[i], ax=ax, cl='black')
             if i%2==1:
-                self.connect2(coords2[i])
+                self.connect2(coordinate=coords2[i], ax=ax, cl='black')
         # plotting paras
         self.plot_paras(self.dic_mzi, self.nmode, fs=self.fontsize-8)
         plt.axis(self.axis_off)
@@ -395,7 +437,7 @@ class DrawClements():
             return None
 
     @staticmethod
-    def connect1(coordinate, ax, cl='dodgerblue', wid=0.1, height=0.08, a=-0.05, b=-0.05, c=0.7, d=-0.05):
+    def connect1(coordinate, ax, cl='black', wid=0.1, height=0.08, a=-0.05, b=-0.05, c=0.7, d=-0.05):
         """
         connect odd column
         """
@@ -407,21 +449,21 @@ class DrawClements():
             ((x0+x1)/2 + a, y0 + b),
             wid,
             height,
-            edgecolor = 'blue',
-            facecolor = 'blue',
+            edgecolor = cl,
+            facecolor = cl,
             fill=True
         ) )
         ax.add_patch(patches.Rectangle(
             ((x0+x1)/2 + c, y0 + d),
             wid,
             height,
-            edgecolor = 'blue',
-            facecolor = 'blue',
+            edgecolor = cl,
+            facecolor = cl,
             fill=True
         ) )
 
     @staticmethod
-    def connect2(coordinate, cl='dodgerblue'):
+    def connect2(coordinate, cl='black'):
         """
         connect even column
         """
@@ -441,11 +483,11 @@ class DrawClements():
                 for j in range(len_):
                     plt.text(8.6-3.2*j+3.2*((nmode-6)//2+nmode%2),
                              1-0.25*i[0]+0.05,
-                             f'{temp_values[j][0]:.2f}',
+                             f'{temp_values[j][0]:.3f}',
                              fontsize=fs)
                     plt.text(7.8-3.2*j+3.2*((nmode-6)//2+nmode%2),
                              1-0.25*i[0]+0.05,
-                             f'{temp_values[j][1]:.2f}',
+                             f'{temp_values[j][1]:.3f}',
                              fontsize=fs)
             if i[0]%2 ==1: # 1, 3..
                 temp_values = sort_mzi_dic[i]
@@ -453,11 +495,11 @@ class DrawClements():
                 for j in range(len_):
                     plt.text(8.6-3.2*j+1.6+3.2*((nmode-6)//2),
                              1-0.25*i[0]+0.05,
-                             f'{temp_values[j][0]:.2f}',
+                             f'{temp_values[j][0]:.3f}',
                              fontsize=fs)
                     plt.text(7.8-3.2*j+1.6+3.2*((nmode-6)//2),
                              1-0.25*i[0]+0.05,
-                             f'{temp_values[j][1]:.2f}',
+                             f'{temp_values[j][1]:.3f}',
                              fontsize=fs)
 
     @staticmethod
@@ -470,11 +512,11 @@ class DrawClements():
                 temp_values = sort_mzi_dic[i]
                 len_ = len(temp_values)
                 for j in range(len_):
-                    plt.text(3.2*j+0.6, 1-0.25*i[0]+0.05, f'{temp_values[j][0]:.2f}', fontsize=fs)
-                    plt.text(3.2*j+0.6+0.9, 1-0.25*i[0]+0.05, f'{temp_values[j][1]:.2f}', fontsize=fs)
+                    plt.text(3.2*j+0.6, 1-0.25*i[0]+0.05, f'{temp_values[j][0]:.3f}', fontsize=fs)
+                    plt.text(3.2*j+0.6+0.9, 1-0.25*i[0]+0.05, f'{temp_values[j][1]:.3f}', fontsize=fs)
             if i[0]%2 ==1: # 1, 3..
                 temp_values = sort_mzi_dic[i]
                 len_ = len(temp_values)
                 for j in range(len_):
-                    plt.text(3.2*j+0.6+1.6, 1-0.25*i[0]+0.05, f'{temp_values[j][0]:.2f}', fontsize=fs)
-                    plt.text(3.2*j+0.6+2.4, 1-0.25*i[0]+0.05, f'{temp_values[j][1]:.2f}', fontsize=fs)
+                    plt.text(3.2*j+0.6+1.6, 1-0.25*i[0]+0.05, f'{temp_values[j][0]:.3f}', fontsize=fs)
+                    plt.text(3.2*j+0.6+2.4, 1-0.25*i[0]+0.05, f'{temp_values[j][1]:.3f}', fontsize=fs)

@@ -20,7 +20,7 @@ class UnitaryDecomposer():
             The first char denotes the Clements or Reck architecture.
             The second char denotes single or double arms of outer phase shifters.
             The third char denotes single or double arms of inner phase shifters.
-            The last char denotes the position of a column of phase shiters, i.e., ``'l'`` for left
+            The last char denotes the position of a column of phase shifters, i.e., ``'l'`` for left
             and ``'r'`` for right. Default: ``'cssr'``
     """
     def __init__(self, unitary: Union[np.ndarray, torch.Tensor], method: str = 'cssr') -> None:
