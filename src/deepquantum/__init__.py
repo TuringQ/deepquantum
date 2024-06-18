@@ -3,8 +3,7 @@ This is the top level module from which all basic functions and classes of
 DeepQuantum can be directly imported.
 """
 
-from importlib.metadata import version
-__version__ = version('deepquantum')
+__version__ = '1.0.0'
 
 
 from . import ansatz
@@ -23,6 +22,7 @@ from .ansatz import (
     Ansatz,
     ControlledMultiplier,
     ControlledUa,
+    HHL,
     NumberEncoder,
     PhiAdder,
     PhiModularAdder,
@@ -45,6 +45,7 @@ from .qmath import multi_kron, partial_trace, amplitude_encoding, measure, expec
 from .qmath import meyer_wallach_measure
 from .state import QubitState, MatrixProductState
 
-from .photonic import QumodeCircuit, FockState, permanent
-from .photonic import UgateMap, UnitaryDecomposer, DrawClements
-from .photonic import Clements
+from .photonic import permanent, takagi
+from .photonic import FockState, GaussianState
+from .photonic import QumodeCircuit, Clements, GaussianBosonSampling
+from .photonic import UnitaryMapper, UnitaryDecomposer, DrawClements

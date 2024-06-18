@@ -97,12 +97,9 @@ class OptimizerBayesian(Optimizer):
             param_dict = dict(zip(self.param_dict.keys(), x))
             # pylint: disable=protected-access
             if self.optimizer._space._constraint is None:
-                # pylint: disable=protected-access
                 self.optimizer._space.register(x, target[i])
             else:
-                # pylint: disable=protected-access
                 constraint_value = self.optimizer._space._constraint.eval(**param_dict)
-                # pylint: disable=protected-access
                 self.optimizer._space.register(x, target[i], constraint_value)
 
             if target[i] > self.best_target:
@@ -110,14 +107,14 @@ class OptimizerBayesian(Optimizer):
                 self.best_target = target[i]
         self.iter += 1
 
-    def run(self, nstep: int, if_print: bool=False) -> List:
+    def run(self, nstep: int, if_print: bool = False) -> List:
         for step in range(nstep):
             p1 = self.param_suggest()
             f1 = -self.target_func(p1)
-            if isinstance (f1,torch.Tensor):
+            if isinstance(f1, torch.Tensor):
                 f1 = f1.item()
             if if_print:
-                print(step,"|", f1)
+                print(step, '|', -f1)
             self.param_register([p1], [f1])
         return list(self.best_param_dict.values())
 
@@ -159,7 +156,7 @@ class OptimizerSPSA(Optimizer):
 
     def param_suggest(self) -> np.ndarray:
         tmp_param = np.asarray(list(self.param_dict.values()))
-        delta_lr = self.hyperparam['c'] / (1+self.iter)**self.hyperparam['gamma']
+        delta_lr = self.hyperparam['c'] / (1 + self.iter) ** self.hyperparam['gamma']
         delta = (np.random.randint(0, 2, self.nparam) * 2 - 1) * delta_lr
         param_array = np.zeros((2, self.nparam))
         param_array[0] = tmp_param - delta
@@ -169,15 +166,15 @@ class OptimizerSPSA(Optimizer):
     def param_register(self, param_array: Union[np.ndarray, List], target: Union[np.ndarray, List]) -> None:
         assert len(param_array) == 2
         assert len(target) == 2
-        param_lr = self.hyperparam['a'] / (1+self.iter+self.hyperparam['A'])**self.hyperparam['alpha']
+        param_lr = self.hyperparam['a'] / (1 + self.iter + self.hyperparam['A']) ** self.hyperparam['alpha']
         param1 = param_array[0]
         param2 = param_array[1]
         target1 = target[0]
         target2 = target[1]
         delta = param2 - param1
-        grad = (target2-target1) / delta
-        param_new = 0.5*(param1+param2) - param_lr * grad
-        self.param_dict = dict(zip(self.param_dict.keys(),param_new))
+        grad = (target2 - target1) / delta
+        param_new = 0.5 * (param1 + param2) - param_lr * grad
+        self.param_dict = dict(zip(self.param_dict.keys(), param_new))
         self.iter += 1
 
         if target1 < self.best_target:
@@ -191,23 +188,24 @@ class OptimizerSPSA(Optimizer):
     def ori_random_state(self) -> None:
         np.random.set_state(self.random_state_ori)
 
-    def run(self, nstep: int, if_print: bool=False) -> List:
+    def run(self, nstep: int, if_print: bool = False) -> List:
         for step in range(nstep):
             p1, p2 = self.param_suggest()
             f1 = self.target_func(p1)
             f2 = self.target_func(p2)
-            if isinstance (f1,torch.Tensor):
+            if isinstance(f1, torch.Tensor):
                 f1 = f1.item()
                 f2 = f2.item()
             self.param_register([p1,p2], [f1,f2])
             if if_print:
-                print(step,"|", f1, f2)
+                print(step, '|', f1, f2)
         return list(self.best_param_dict.values())
 
 
 class OptimizerFourier(Optimizer):
-    """Optimizer based on Fourier series approximation of the target function
-        in order to obtain the approximation of gradients.
+    """Optimizer based on Fourier series.
+
+    Obtain the gradient approximation from the target function approximation.
 
     Args:
         target_func (function): The target function to optimize, more specifically, to minimize.
@@ -234,19 +232,19 @@ class OptimizerFourier(Optimizer):
     def gen_a(self) -> np.ndarray:
         a = np.zeros((2*self.r+1, 2*self.r+1))
         mu = np.arange(2*self.r+1)
-        x_mu = 2*np.pi/(2*self.r+1)*(mu-self.r)
+        x_mu = 2 * np.pi * (mu - self.r) / (2 * self.r + 1)
         a[:,0] = 1
         a[:,1:self.r+1] = np.cos(x_mu.reshape(-1,1)@np.arange(1,self.r+1).reshape(1,-1))
         a[:,self.r+1:2*self.r+2] = np.sin(x_mu.reshape(-1,1)@np.arange(1,self.r+1).reshape(1,-1))
         return a
 
     def param_suggest(self) -> np.ndarray:
-        tmp_param = np.asarray(list(self.param_dict.values()),dtype=float).reshape(1,-1)
+        tmp_param = np.asarray(list(self.param_dict.values()), dtype=float).reshape(1, -1)
         mu = np.arange(2*self.r+1)
-        varied_param = 2*np.pi/(2*self.r+1)*(mu-self.r)
-        param_array = np.repeat(tmp_param,self.nparam*(2*self.r+1),axis=0)
+        varied_param = 2 * np.pi * (mu - self.r) / (2 * self.r + 1)
+        param_array = np.repeat(tmp_param, self.nparam*(2*self.r+1), axis=0)
         for param_id in range(self.nparam):
-            param_array[param_id*(2*self.r+1):(param_id+1)*(2*self.r+1),param_id] = varied_param
+            param_array[param_id*(2*self.r+1):(param_id+1)*(2*self.r+1), param_id] = varied_param
         return  param_array
 
     def param_register(self, param_array: np.ndarray, target: np.ndarray):
@@ -268,22 +266,22 @@ class OptimizerFourier(Optimizer):
                             self.u[idx:self.r+idx]+(np.arange(1,self.r+1)*\
                             np.cos(theta*np.arange(1,self.r+1)))@self.u[self.r+idx:self.r*2+idx]
         param_new = param - self.lr * grad
-        self.param_dict = dict(zip(self.param_dict.keys(),param_new))
+        self.param_dict = dict(zip(self.param_dict.keys(), param_new))
         if target.min() < self.best_target:
             self.best_target = target.min()
-            self.best_param_dict = dict(zip(self.param_dict.keys(),param_array[target.argmin()]))
+            self.best_param_dict = dict(zip(self.param_dict.keys(), param_array[target.argmin()]))
         self.iter += 1
 
-    def run(self, nstep: int, if_print: bool=False) -> List:
+    def run(self, nstep: int, if_print: bool = False) -> List:
         for step in range(nstep):
             param_array = self.param_suggest()
             target = np.zeros(len(param_array))
             for i in range(len(param_array)):
-                tmp =  self.target_func(param_array[i])
+                tmp = self.target_func(param_array[i])
                 if isinstance(tmp, torch.Tensor):
                     tmp = tmp.item()
                 target[i] = tmp
             self.param_register(param_array, target)
             if if_print:
-                print(step,"|", target.min())
+                print(step, '|', target.min())
         return list(self.best_param_dict.values())

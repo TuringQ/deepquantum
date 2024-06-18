@@ -333,7 +333,7 @@ class ParametricSingleGate(SingleGate):
         self.npara = 1
         self.requires_grad = requires_grad
         self.inv_mode = False
-        self.init_para(inputs=inputs)
+        self.init_para(inputs)
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
         """Convert inputs to torch.Tensor."""
@@ -357,7 +357,7 @@ class ParametricSingleGate(SingleGate):
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        theta = self.inputs_to_tensor(inputs=inputs)
+        theta = self.inputs_to_tensor(inputs)
         if self.requires_grad:
             self.theta = nn.Parameter(theta)
         else:
@@ -418,7 +418,7 @@ class ParametricDoubleGate(DoubleGate):
         self.npara = 1
         self.requires_grad = requires_grad
         self.inv_mode = False
-        self.init_para(inputs=inputs)
+        self.init_para(inputs)
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
         """Convert inputs to torch.Tensor."""
@@ -442,7 +442,7 @@ class ParametricDoubleGate(DoubleGate):
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        theta = self.inputs_to_tensor(inputs=inputs)
+        theta = self.inputs_to_tensor(inputs)
         if self.requires_grad:
             self.theta = nn.Parameter(theta)
         else:
@@ -513,7 +513,7 @@ class U3Gate(ParametricSingleGate):
                          condition=condition, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
         self.npara = 3
 
-    def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor]:
+    def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Convert inputs to torch.Tensor."""
         if inputs is None:
             theta = torch.rand(1)[0] * torch.pi
@@ -557,7 +557,7 @@ class U3Gate(ParametricSingleGate):
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        theta, phi, lambd = self.inputs_to_tensor(inputs=inputs)
+        theta, phi, lambd = self.inputs_to_tensor(inputs)
         if self.requires_grad:
             self.theta = nn.Parameter(theta)
             self.phi   = nn.Parameter(phi)
@@ -2115,7 +2115,7 @@ class LatentGate(ArbitraryGate):
         super().__init__(name=name, nqubit=nqubit, wires=wires, minmax=minmax, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.requires_grad = requires_grad
-        self.init_para(inputs=inputs)
+        self.init_para(inputs)
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
         """Convert inputs to torch.Tensor."""
@@ -2144,7 +2144,7 @@ class LatentGate(ArbitraryGate):
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        latent = self.inputs_to_tensor(inputs=inputs)
+        latent = self.inputs_to_tensor(inputs)
         if self.requires_grad:
             self.latent = nn.Parameter(latent)
         else:
@@ -2195,14 +2195,14 @@ class HamiltonianGate(ArbitraryGate):
         if isinstance(hamiltonian, list):
             self.ham_lst = hamiltonian
             wires = None
-            minmax = self.get_minmax(hamiltonian=hamiltonian)
+            minmax = self.get_minmax(hamiltonian)
         super().__init__(name=name, nqubit=nqubit, wires=wires, minmax=minmax, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.requires_grad = requires_grad
         self.register_buffer('x', PauliX().matrix)
         self.register_buffer('y', PauliY().matrix)
         self.register_buffer('z', PauliZ().matrix)
-        self.init_para(inputs=(hamiltonian, t))
+        self.init_para([hamiltonian, t])
 
     def _convert_hamiltonian(self, hamiltonian: List) -> List[List]:
         """Convert and check the list representation of the Hamiltonian."""
@@ -2227,15 +2227,15 @@ class HamiltonianGate(ArbitraryGate):
                     minmax[1] = i
         return minmax
 
-    def inputs_to_tensor(self, inputs: Optional[Tuple[Any, Any]] = None) -> torch.Tensor:
+    def inputs_to_tensor(self, inputs: Optional[List] = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """Convert inputs to torch.Tensor."""
         if inputs is None:
             t = torch.rand(1)[0]
             return self.ham_tsr, t
         ham, t = inputs
         if ham is None:
-            ham = self.ham_tsr
-        if isinstance(ham, list):
+            ham_tsr = self.ham_tsr
+        elif isinstance(ham, list):
             ham = self._convert_hamiltonian(ham)
             pauli_dict = {'x': self.x, 'y': self.y, 'z': self.z}
             identity = torch.eye(2, dtype=self.x.dtype, device=self.x.device)
@@ -2267,7 +2267,7 @@ class HamiltonianGate(ArbitraryGate):
 
     def get_matrix(self, hamiltonian: Any, t: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
-        ham, t = self.inputs_to_tensor(inputs=(hamiltonian, t))
+        ham, t = self.inputs_to_tensor([hamiltonian, t])
         matrix = torch.linalg.matrix_exp(-1j * ham * t)
         return matrix
 
@@ -2282,9 +2282,9 @@ class HamiltonianGate(ArbitraryGate):
         self.matrix = matrix.detach()
         return matrix
 
-    def init_para(self, inputs: Optional[Tuple[Any, Any]] = None) -> None:
+    def init_para(self, inputs: Optional[List] = None) -> None:
         """Initialize the parameters."""
-        ham, t = self.inputs_to_tensor(inputs=inputs)
+        ham, t = self.inputs_to_tensor(inputs)
         self.register_buffer('ham_tsr', ham)
         if self.requires_grad:
             self.t = nn.Parameter(t)

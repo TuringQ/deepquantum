@@ -6,17 +6,21 @@ import itertools
 import random
 from collections import defaultdict, Counter
 from copy import copy
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
 from torch import nn, vmap
+from torch.distributions.multivariate_normal import MultivariateNormal
 
+from .decompose import UnitaryDecomposer
 from .draw import DrawCircuit
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
+from .gate import Squeezing, Displacement
 from .operation import Operation, Gate
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
-from .state import FockState
+from .qmath import photon_number_mean_var
+from .state import FockState, GaussianState
 
 
 class QumodeCircuit(Operation):
@@ -24,10 +28,14 @@ class QumodeCircuit(Operation):
 
     Args:
         nmode (int): The number of modes in the circuit.
-        init_state (Any): The initial state of the circuit. It can be a Fock basis state, e.g., ``[1,0,0]``,
-            or a Fock state tensor, e.g., ``[(1/2**0.5, [1,0]), (1/2**0.5, [0,1])]``.
+        init_state (Any): The initial state of the circuit. For Fock backend, it can be a Fock basis state,
+            e.g., ``[1,0,0]``, or a Fock state tensor, e.g., ``[(1/2**0.5, [1,0]), (1/2**0.5, [0,1])]``.
             Alternatively, it can be a tensor representation.
+            For Gaussian backend, it can be a vacuum state with ``'vac'``, or arbitrary Gaussian states
+            with ``[cov, mean]``. Use ``xxpp`` convention and :math:`\hbar=2` by default.
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        backend (str, optional): Use ``'fock'`` for Fock backend or ``'gaussian'`` for Gaussian backend.
+            Default: ``'fock'``
         basis (bool, optional): Whether to use the representation of Fock basis state for the initial state.
             Default: ``True``
         name (str or None, optional): The name of the circuit. Default: ``None``
@@ -40,6 +48,7 @@ class QumodeCircuit(Operation):
         nmode: int,
         init_state: Any,
         cutoff: Optional[int] = None,
+        backend: str = 'fock',
         basis: bool = True,
         name: Optional[str] = None,
         noise: bool = False,
@@ -47,23 +56,31 @@ class QumodeCircuit(Operation):
         sigma: float = 0.1
     ) -> None:
         super().__init__(name=name, nmode=nmode, wires=list(range(nmode)))
-        if isinstance(init_state, FockState):
+        if isinstance(init_state, (FockState, GaussianState)):
             assert nmode == init_state.nmode
             cutoff = init_state.cutoff
-            basis = init_state.basis
             self.init_state = init_state
+            if isinstance(init_state, FockState):
+                backend = 'fock'
+                basis = init_state.basis
+            elif isinstance(init_state, GaussianState):
+                backend = 'gaussian'
         else:
-            self.init_state = FockState(state=init_state, nmode=nmode, cutoff=cutoff, basis=basis)
+            if backend == 'fock':
+                self.init_state = FockState(state=init_state, nmode=nmode, cutoff=cutoff, basis=basis)
+            elif backend == 'gaussian':
+                self.init_state = GaussianState(state=init_state, nmode=nmode, cutoff=cutoff)
             cutoff = self.init_state.cutoff
+
         self.operators = nn.Sequential()
         self.encoders = []
         self.cutoff = cutoff
+        self.backend = backend
         self.basis = basis
         self.noise = noise
         self.mu = mu
         self.sigma = sigma
         self.state = None
-        self.u = None
         self.npara = 0
         self.ndata = 0
         self.depth = np.array([0] * nmode)
@@ -86,14 +103,20 @@ class QumodeCircuit(Operation):
     def to(self, arg: Any) -> 'QumodeCircuit':
         """Set dtype or device of the ``QumodeCircuit``."""
         if arg == torch.float:
-            self.init_state.to(torch.cfloat)
+            if self.backend == 'fock' and not self.basis:
+                self.init_state.to(torch.cfloat)
+            elif self.backend == 'gaussian':
+                self.init_state.to(torch.float)
             for op in self.operators:
                 if op.npara == 0:
                     op.to(torch.cfloat)
                 elif op.npara > 0:
                     op.to(torch.float)
         elif arg == torch.double:
-            self.init_state.to(torch.cdouble)
+            if self.backend == 'fock' and not self.basis:
+                self.init_state.to(torch.cdouble)
+            elif self.backend == 'gaussian':
+                self.init_state.to(torch.double)
             for op in self.operators:
                 if op.npara == 0:
                     op.to(torch.cdouble)
@@ -109,9 +132,33 @@ class QumodeCircuit(Operation):
         self,
         data: Optional[torch.Tensor] = None,
         state: Any = None,
+        is_prob: bool = False,
+        stepwise: bool = False
+    ) -> Union[torch.Tensor, Dict, List[torch.Tensor]]:
+        """Perform a forward pass of the photonic quantum circuit and return the final state.
+
+        Args:
+            data (torch.Tensor or None, optional): The input data for the ``encoders``. Default: ``None``
+            state (Any, optional): The initial state for the photonic quantum circuit. Default: ``None``
+            is_prob (bool, optional): Whether to return probabilities for Fock basis states. Default: ``False``
+            stepwise (bool, optional): Whether to use the forward function of each operator. Default: ``False``
+
+        Returns:
+            Union[torch.Tensor, Dict, List[torch.Tensor]]: The final state of the photonic quantum circuit after
+            applying the ``operators``.
+        """
+        if self.backend == 'fock':
+            return self.forward_fock(data, state, is_prob)
+        elif self.backend == 'gaussian':
+            return self.forward_gaussian(data, state, stepwise)
+
+    def forward_fock(
+        self,
+        data: Optional[torch.Tensor] = None,
+        state: Any = None,
         is_prob: bool = False
     ) -> Union[torch.Tensor, Dict]:
-        """Perform a forward pass of the photonic quantum circuit and return the final state.
+        """Perform a forward pass based on the Fock backend.
 
         Args:
             data (torch.Tensor or None, optional): The input data for the ``encoders``. Default: ``None``
@@ -123,10 +170,10 @@ class QumodeCircuit(Operation):
             applying the ``operators``.
         """
         if state is None:
-            state = self.init_state
-        if isinstance(state, FockState):
+            state = self.init_state.state
+        elif isinstance(state, FockState):
             state = state.state
-        if not isinstance(state, torch.Tensor):
+        elif not isinstance(state, torch.Tensor):
             state = FockState(state=state, nmode=self.nmode, cutoff=self.cutoff, basis=self.basis).state
         if data is None:
             if self.basis:
@@ -150,7 +197,6 @@ class QumodeCircuit(Operation):
                     self.state = vmap(self._forward_helper_tensor)(data, state)
             # for plotting the last data
             self.encode(data[-1])
-            self.u = self.get_unitary_op()
         return self.state
 
     def _forward_helper_basis(
@@ -161,7 +207,6 @@ class QumodeCircuit(Operation):
     ) -> Dict:
         """Perform a forward pass for one sample if the input is a Fock basis state."""
         self.encode(data)
-        self.u = self.get_unitary_op()
         if state is None:
             state = self.init_state.state
         out_dict = {}
@@ -189,6 +234,87 @@ class QumodeCircuit(Operation):
         x = self.operators(self.tensor_rep(state)).squeeze(0)
         return x
 
+    def forward_gaussian(
+        self,
+        data: Optional[torch.Tensor] = None,
+        state: Any = None,
+        stepwise: bool = False
+    ) -> List[torch.Tensor]:
+        """Perform a forward pass based on the Gaussian backend.
+
+        Args:
+            data (torch.Tensor or None, optional): The input data for the ``encoders``. Default: ``None``
+            state (Any, optional): The initial state for the photonic quantum circuit. Default: ``None``
+            stepwise (bool, optional): Whether to use the forward function of each operator. Default: ``False``
+
+        Returns:
+            List[torch.Tensor]: The covariance matrix and displacement vector of the final state
+            of the photonic quantum circuit after applying the ``operators``.
+        """
+        if state is None:
+            state = self.init_state
+        elif not isinstance(state, GaussianState):
+            state = GaussianState(state=state, nmode=self.nmode, cutoff=self.cutoff)
+        state = [state.cov, state.mean]
+        if data is None:
+            self.state = self._forward_helper_gaussian(state=state, stepwise=stepwise)
+            if self.state[0].ndim == 2:
+                self.state[0] = self.state[0].unsqueeze(0)
+            if self.state[1].ndim == 2:
+                self.state[1] = self.state[1].unsqueeze(0)
+        else:
+            if data.ndim == 1:
+                data = data.unsqueeze(0)
+            assert data.ndim == 2
+            if state[0].shape[0] == 1:
+                self.state = vmap(self._forward_helper_gaussian, in_dims=(0, None, None))(data, state, stepwise)
+            else:
+                self.state = vmap(self._forward_helper_gaussian, in_dims=(0, 0, None))(data, state, stepwise)
+            self.encode(data[-1])
+        return self.state
+
+    def _forward_helper_gaussian(
+        self,
+        data: Optional[torch.Tensor] = None,
+        state: Optional[List[torch.Tensor]] = None,
+        stepwise: bool = False
+    ) -> List[torch.Tensor]:
+        """Perform a forward pass for one sample if the input is a Gaussian state."""
+        self.encode(data)
+        if state is None:
+            cov = self.init_state.cov
+            mean = self.init_state.mean
+        else:
+            cov = state[0]
+            mean = state[1]
+        if stepwise:
+            self.state = self.operators([cov, mean])
+        else:
+            sp_mat = self.get_symplectic()
+            cov = sp_mat @ cov @ sp_mat.mT
+            mean = self.get_displacement(mean)
+            self.state = [cov.squeeze(0), mean.squeeze(0)]
+        return self.state
+
+    def get_symplectic(self) -> torch.Tensor:
+        """Get the symplectic matrix of the photonic quantum circuit."""
+        s = None
+        for op in self.operators:
+            if s is None:
+                s = op.get_symplectic()
+            else:
+                s = op.get_symplectic() @ s
+        return s
+
+    def get_displacement(self, init_mean: Any) -> torch.Tensor:
+        """Get the final mean value of the Gaussian state in xxpp order."""
+        if not isinstance(init_mean, torch.Tensor):
+            init_mean = torch.tensor(init_mean)
+        mean = init_mean.reshape(-1, 2 * self.nmode, 1)
+        for op in self.operators:
+            mean = op.get_symplectic() @ mean + op.get_displacement()
+        return mean
+
     def encode(self, data: Optional[torch.Tensor]) -> None:
         """Encode the input data into the photonic quantum circuit parameters.
 
@@ -207,16 +333,18 @@ class QumodeCircuit(Operation):
             op.init_para(data[count:count_up])
             count = count_up
 
-    def get_unitary_op(self) -> torch.Tensor:
+    def get_unitary(self) -> torch.Tensor:
         """Get the unitary matrix of the photonic quantum circuit."""
         u = None
         for op in self.operators:
             if u is None:
-                u = op.get_unitary_op()
+                u = op.get_unitary()
             else:
-                u = op.get_unitary_op() @ u
-        self.u = u
-        return u
+                u = op.get_unitary() @ u
+        if u is None:
+            return torch.eye(self.nmode, dtype=torch.cfloat)
+        else:
+            return u
 
     def _get_all_fock_basis(self, init_state: torch.Tensor) -> torch.Tensor:
         """Get all possible fock basis states according to the initial state."""
@@ -230,8 +358,9 @@ class QumodeCircuit(Operation):
     def _get_sub_matrices(self, init_state: torch.Tensor, final_states: torch.Tensor) -> torch.Tensor:
         """Get the sub-matrices for permanent."""
         sub_mats = []
+        u = self.get_unitary()
         for state in final_states:
-            sub_mats.append(sub_matrix(self.u, init_state, state))
+            sub_mats.append(sub_matrix(u, init_state, state))
         return torch.stack(sub_mats)
 
     def _get_permanent_norms(self, init_state: torch.Tensor, final_states: torch.Tensor) -> torch.Tensor:
@@ -245,6 +374,7 @@ class QumodeCircuit(Operation):
             final_state (Any): The final Fock basis state.
             init_state (FockState or None, optional): The initial Fock basis state. Default: ``None``
         """
+        assert self.backend == 'fock'
         if not isinstance(final_state, torch.Tensor):
             final_state = torch.tensor(final_state, dtype=torch.int)
         if init_state is None:
@@ -252,10 +382,7 @@ class QumodeCircuit(Operation):
         assert init_state.basis, 'The initial state must be a Fock basis state'
         assert max(final_state) < self.cutoff, 'The number of photons in the final state must be less than cutoff'
         assert sum(final_state) == sum(init_state.state), 'The number of photons should be conserved'
-        if self.u is None:
-            u = self.get_unitary_op()
-        else:
-            u = self.u
+        u = self.get_unitary()
         sub_mat = sub_matrix(u, init_state.state, final_state)
         nphoton = sum(init_state.state)
         if nphoton == 0:
@@ -278,6 +405,7 @@ class QumodeCircuit(Operation):
             final_state (Any): The final Fock basis state.
             init_state (FockState or None, optional): The initial Fock basis state. Default: ``None``
         """
+        assert self.backend == 'fock'
         amplitude = self.get_amplitude(final_state, init_state)
         prob = torch.abs(amplitude) ** 2
         return prob
@@ -304,6 +432,7 @@ class QumodeCircuit(Operation):
                 integers specifying the indices of the wires. Default: ``None`` (which means all wires are
                 measured)
         """
+        assert self.backend == 'fock'
         if self.state is None:
             return
         if wires is None:
@@ -343,9 +472,8 @@ class QumodeCircuit(Operation):
                         sum_idx.remove(idx)
                     ptrace_probs = probs.sum(dim=sum_idx)
                 for p_state in combi:
-                    state_str = ''.join(map(str, p_state))
-                    p_str = f'|{state_str}>'
-                    prob_dict[p_str] = ptrace_probs[tuple(p_state)]
+                    p_state_b = FockState(list(p_state))
+                    prob_dict[p_state_b] = ptrace_probs[p_state]
                 samples = random.choices(list(prob_dict.keys()), list(prob_dict.values()), k=shots)
                 results = dict(Counter(samples))
                 if with_prob:
@@ -357,7 +485,79 @@ class QumodeCircuit(Operation):
         else:
             return all_results
 
-    def draw(self, filename: str = None):
+    def photon_number_mean_var(
+        self,
+        wires: Union[int, List[int], None] = None
+    ) -> Union[Tuple[torch.Tensor, torch.Tensor], None]:
+        """Get the expectation value and variance of the photon number operator.
+
+        Args:
+            wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
+                integers specifying the indices of the wires. Default: ``None`` (which means all wires are
+                measured)
+        """
+        assert self.backend == 'gaussian'
+        if self.state is None:
+            return
+        cov, mean = self.state
+        if wires is None:
+            wires = self.wires
+        wires = sorted(self._convert_indices(wires))
+        batch = cov.shape[0]
+        cov_lst = [] # batch * nwire
+        mean_lst = []
+        for i in range(batch):
+            cov_lst_i, mean_lst_i = self._get_local_covs_means(cov[i], mean[i], wires)
+            cov_lst += cov_lst_i
+            mean_lst += mean_lst_i
+        covs = torch.stack(cov_lst)
+        means = torch.stack(mean_lst)
+        exp, var = photon_number_mean_var(covs, means)
+        exp = exp.reshape(batch, len(wires)).squeeze()
+        var = var.reshape(batch, len(wires)).squeeze()
+        return exp, var
+
+    def _get_local_covs_means(
+        self,
+        cov: torch.Tensor,
+        mean: torch.Tensor,
+        wires: List[int]
+    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+        """Get the local covariance matrices and mean vectors of a Gaussian state according to the wires to measure."""
+        cov_lst = []
+        mean_lst = []
+        for wire in wires:
+            indices = [wire] + [wire + self.nmode]
+            cov_lst.append(cov[indices][:, indices])
+            mean_lst.append(mean[indices])
+        return cov_lst, mean_lst
+
+    def measure_homodyne(
+        self,
+        shots: int = 1024,
+        wires: Union[int, List[int], None] = None
+    ) -> Union[torch.Tensor, None]:
+        """Get the homodyne measurement results for quadratures x and p.
+
+        Args:
+            shots (int, optional): The number of times to sample from the quantum state. Default: 1024
+            wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
+                integers specifying the indices of the wires. Default: ``None`` (which means all wires are
+                measured)"""
+        assert self.backend == 'gaussian'
+        if self.state is None:
+            return
+        cov, mean = self.state
+        if wires is None:
+            wires = self.wires
+        wires = sorted(self._convert_indices(wires))
+        indices = wires + [wire + self.nmode for wire in wires]
+        cov_sub = cov[:, indices][:, :, indices]
+        mean_sub = mean[:, indices].squeeze(-1)
+        samples = MultivariateNormal(mean_sub, cov_sub).sample([shots]) # (shots, batch, 2 * nwire)
+        return samples.permute(1, 0, 2).squeeze()
+
+    def draw(self, filename: Optional[str] = None):
         """Visualize the photonic quantum circuit.
 
         Args:
@@ -366,8 +566,9 @@ class QumodeCircuit(Operation):
         self.draw_circuit = DrawCircuit(self.name, self.nmode, self.operators)
         if filename is not None:
             self.draw_circuit.save(filename)
-        if self.nmode > 50:
-            print('Too many modes in the circuit, please save the figure.')
+        else:
+            if self.nmode > 50:
+                print('Too many modes in the circuit, please save the figure.')
         self.draw_circuit.draw()
         return self.draw_circuit.draw_
 
@@ -425,8 +626,8 @@ class QumodeCircuit(Operation):
         wires: int,
         inputs: Any = None,
         encode: bool = False,
-        mu: float = None,
-        sigma: float = None
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
     ) -> None:
         """Add a phase shifter."""
         requires_grad = not encode
@@ -445,8 +646,8 @@ class QumodeCircuit(Operation):
         wires: List[int],
         inputs: Any = None,
         encode: bool = False,
-        mu: float = None,
-        sigma: float = None
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
     ) -> None:
         """Add a beam splitter."""
         requires_grad = not encode
@@ -466,8 +667,8 @@ class QumodeCircuit(Operation):
         inputs: Any = None,
         phi_first: bool = True,
         encode: bool = False,
-        mu: float = None,
-        sigma: float = None
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
     ) -> None:
         """Add a Mach-Zehnder interferometer."""
         requires_grad = not encode
@@ -486,8 +687,8 @@ class QumodeCircuit(Operation):
         wires: List[int],
         inputs: Any = None,
         encode: bool = False,
-        mu: float = None,
-        sigma: float = None
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
     ) -> None:
         r"""Add a beam splitter with fixed :math:`\phi` at :math:`\pi/2`."""
         requires_grad = not encode
@@ -506,8 +707,8 @@ class QumodeCircuit(Operation):
         wires: List[int],
         inputs: Any = None,
         encode: bool = False,
-        mu: float = None,
-        sigma: float = None
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
     ) -> None:
         r"""Add a beam splitter with fixed :math:`\theta` at :math:`\pi/4`."""
         requires_grad = not encode
@@ -526,8 +727,8 @@ class QumodeCircuit(Operation):
         wires: List[int],
         inputs: Any = None,
         encode: bool = False,
-        mu: float = None,
-        sigma: float = None
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
     ) -> None:
         """Add an Rx-type beam splitter."""
         requires_grad = not encode
@@ -546,8 +747,8 @@ class QumodeCircuit(Operation):
         wires: List[int],
         inputs: Any = None,
         encode: bool = False,
-        mu: float = None,
-        sigma: float = None
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
     ) -> None:
         """Add an Ry-type beam splitter."""
         requires_grad = not encode
@@ -566,8 +767,8 @@ class QumodeCircuit(Operation):
         wires: List[int],
         inputs: Any = None,
         encode: bool = False,
-        mu: float = None,
-        sigma: float = None
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
     ) -> None:
         """Add an H-type beam splitter."""
         requires_grad = not encode
@@ -584,8 +785,8 @@ class QumodeCircuit(Operation):
     def dc(
         self,
         wires: List[int],
-        mu: float = None,
-        sigma: float = None
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
     ) -> None:
         """Add a directional coupler."""
         theta = torch.pi / 2
@@ -600,8 +801,8 @@ class QumodeCircuit(Operation):
     def h(
         self,
         wires: List[int],
-        mu: float = None,
-        sigma: float = None
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
     ) -> None:
         """Add a photonic Hadamard gate."""
         theta = torch.pi / 2
@@ -624,3 +825,110 @@ class QumodeCircuit(Operation):
         uany = UAnyGate(unitary=unitary, nmode=self.nmode, wires=wires, minmax=minmax, cutoff=self.cutoff,
                         name=name)
         self.add(uany)
+
+    def clements(
+        self,
+        unitary: Any,
+        wires: Union[int, List[int], None] = None,
+        minmax: Optional[List[int]] = None,
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
+    ) -> None:
+        """Add the Clements architecture of the unitary matrix.
+
+        This is equivalent to ``any``, using `'cssr'`-type Clements decomposition.
+        When ``basis`` is ``False``, this implementation is much faster.
+        """
+        if wires is None:
+            if minmax is None:
+                minmax = [0, self.nmode - 1]
+            self._check_minmax(minmax)
+            wires = list(range(minmax[0], minmax[1] + 1))
+        else:
+            wires = self._convert_indices(wires)
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        # clements decomposition
+        ud = UnitaryDecomposer(unitary, 'cssr')
+        mzi_info = ud.decomp()
+        dic_mzi = mzi_info[1]
+        phase_angle = mzi_info[0]['phase_angle']
+        assert len(phase_angle) == len(wires), 'Please check wires'
+        wires1 = wires[1::2]
+        wires2 = wires[2::2]
+        shift = wires[0] # clements decomposition starts from 0
+        for i in range(len(wires)):
+            if i % 2 == 0:
+                idx = i // 2
+                for j in range(len(wires1)):
+                    phi, theta = dic_mzi[(wires1[j] - 1 - shift, wires1[j] - shift)][idx]
+                    self.mzi(wires=[wires1[j] - 1, wires1[j]], inputs=[theta, phi], mu=mu, sigma=sigma)
+            else:
+                idx = (i - 1) // 2
+                for j in range(len(wires2)):
+                    phi, theta = dic_mzi[(wires2[j] - 1 - shift, wires2[j] - shift)][idx]
+                    self.mzi(wires=[wires2[j] - 1, wires2[j]], inputs=[theta, phi], mu=mu, sigma=sigma)
+        for wire in wires:
+            self.ps(wires=wire, inputs=phase_angle[wire-shift], mu=mu, sigma=sigma)
+
+    def s(
+        self,
+        wires: int,
+        inputs: Any = None,
+        encode: bool = False,
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
+    ) -> None:
+        """Add a squeezing gate."""
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        s = Squeezing(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+                      requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        self.add(s, encode=encode)
+
+    def d(
+        self,
+        wires: int,
+        inputs: Any = None,
+        encode: bool = False,
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
+    ) -> None:
+        """Add a displacement gate."""
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        d = Displacement(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+                         requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        self.add(d, encode=encode)
+
+    def r(
+        self,
+        wires: int,
+        inputs: Any = None,
+        encode: bool = False,
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
+    ) -> None:
+        """Add a rotation gate."""
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        r = PhaseShift(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+                       requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma, inv_mode=True)
+        self.add(r, encode=encode)
