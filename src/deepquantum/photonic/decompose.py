@@ -14,9 +14,9 @@ class UnitaryDecomposer():
 
     Args:
         unitary (np.ndarray or torch.Tensor): The unitary matrix to be decomposed.
-        method (str, optional): The decomposition method, only 16 values (``'rssr'``,``'rsdr'``,``'rdsr'``,
-            ``'rddr'``,``'rssl'``,``'rsdl'``,``'rdsl'``,``'rddl'``,``'cssr'``,``'csdr'``,``'cdsr'``,``'cddr'``,
-            ``'cssl'``,``'csdl'``,``'cdsl'``,``'cddl'``) are valid.
+        method (str, optional): The decomposition method, only 16 values (``'rssr'``, ``'rsdr'``, ``'rdsr'``,
+            ``'rddr'``, ``'rssl'``, ``'rsdl'``, ``'rdsl'``, ``'rddl'``, ``'cssr'``, ``'csdr'``, ``'cdsr'``, ``'cddr'``,
+            ``'cssl'``, ``'csdl'``, ``'cdsl'``, ``'cddl'``) are valid.
             The first char denotes the Clements or Reck architecture.
             The second char denotes single or double arms of outer phase shifters.
             The third char denotes single or double arms of inner phase shifters.
@@ -38,9 +38,8 @@ class UnitaryDecomposer():
         self.method = method
 
     def decomp(self) -> Tuple[Dict, Dict, Dict]:
-        """Decompose the unitary matrix.
-
-        The third dictionary is the representation of the positions and the angles of all phase shifters.
+        """Decompose the unitary matrix.The third dictionary is the representation
+          of the positions and the angles of all phase shifters.
         """
         def period_cut(input_angle: float, period: float = np.pi * 2) -> float:
             return input_angle - np.floor(input_angle/period)*period
@@ -346,7 +345,7 @@ class UnitaryDecomposer():
 
     def sort_mzi(self, mzi_info):
         """
-        sort mzi parameters in the same array for plotting
+        Sort mzi parameters in the same array for plotting.
         """
         dic_mzi = defaultdict(list) #当key不存在时对应的value是[]
         mzi_list = mzi_info['MZI_list']
@@ -356,7 +355,7 @@ class UnitaryDecomposer():
 
     def ps_pos(self, dic_mzi, phase_angle):
         """
-        label the position of each phaseshifter for cssr case
+        Label the position of each phaseshifter for ``'cssr'`` case.
         """
         if self.method == 'cssr':
             dic_pos = {}

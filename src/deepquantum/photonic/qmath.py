@@ -77,7 +77,7 @@ def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.T
     indx2 = set_copy_indx(output_state)
     u1 = u[[indx2]]         # choose rows from the output
     u2 = u1[:, [indx1]]     # choose columns from the input
-    return torch.squeeze(u2)
+    return u2.squeeze(1)
 
 
 def permanent(mat: torch.Tensor) -> torch.Tensor:
@@ -100,7 +100,7 @@ def permanent(mat: torch.Tensor) -> torch.Tensor:
 
 
 def create_subset(num_coincidence: int) -> List:
-    """Create all subsets from {1,2,...,n}."""
+    r"""Create all subsets from :math:`\{1,2,...,n\}`."""
     subsets = []
     for k in range(1, num_coincidence + 1):
         comb_lst = []
@@ -175,7 +175,7 @@ def fock_combinations(nmode: int, nphoton: int) -> List:
 
 
 def xxpp_to_xpxp(matrix: torch.Tensor) -> torch.Tensor:
-    """Transform the representation in xxpp ordering to the representation in xpxp ordering."""
+    """Transform the representation in ``xxpp`` ordering to the representation in ``xpxp`` ordering."""
     nmode = matrix.shape[-2] // 2
     # transformation matrix
     t = torch.zeros([2 * nmode] * 2, dtype=matrix.dtype, device=matrix.device)
@@ -192,7 +192,7 @@ def xxpp_to_xpxp(matrix: torch.Tensor) -> torch.Tensor:
 
 
 def xpxp_to_xxpp(matrix: torch.Tensor) -> torch.Tensor:
-    """Transform the representation in xpxp ordering to the representation in xxpp ordering."""
+    """Transform the representation in ``xpxp`` ordering to the representation in ``xxpp`` ordering."""
     nmode = matrix.shape[-2] // 2
     # transformation matrix
     t = torch.zeros([2 * nmode] * 2, dtype=matrix.dtype, device=matrix.device)
@@ -209,7 +209,7 @@ def xpxp_to_xxpp(matrix: torch.Tensor) -> torch.Tensor:
 
 
 def quadrature_to_ladder(matrix: torch.Tensor) -> torch.Tensor:
-    """Transform the representation in xxpp ordering to the representation in aa^+ ordering."""
+    """Transform the representation in ``xxpp`` ordering to the representation in ``aa^+`` ordering."""
     nmode = matrix.shape[-2] // 2
     matrix = matrix + 0j
     identity = torch.eye(nmode, dtype=matrix.dtype, device=matrix.device)
@@ -222,7 +222,7 @@ def quadrature_to_ladder(matrix: torch.Tensor) -> torch.Tensor:
 
 
 def ladder_to_quadrature(matrix: torch.Tensor) -> torch.Tensor:
-    """Transform the representation in aa^+ ordering to the representation in xxpp ordering."""
+    """Transform the representation in ``aa^+`` ordering to the representation in ``xxpp`` ordering."""
     nmode = matrix.shape[-2] // 2
     matrix = matrix + 0j
     identity = torch.eye(nmode, dtype=matrix.dtype, device=matrix.device)
@@ -248,7 +248,6 @@ def takagi(a: torch.Tensor):
     """Tagaki decomposition for symmetric complex matrix.
 
     See https://math.stackexchange.com/questions/2026110/
-        how-to-find-the-takagi-decomposition-of-a-symmetric-unitary-matrix
     """
     size = a.size()[0]
     a_2 = torch.block_diag(-a.real, a.real)
@@ -288,10 +287,12 @@ def sample_sc_mcmc(prob_func: Callable,
     samples_chain = []
     merged_samples = defaultdict(int)
     cache_prob = {}
+    shots_lst = [shots // num_chain] * num_chain
+    shots_lst[-1] += shots % num_chain
     for trial in range(num_chain):
         cache = []
-        len_cache = 500
-        if shots > 1e5:
+        len_cache = min(shots_lst)
+        if shots_lst[trial] > 1e5:
             len_cache = 4000
         samples = []
         # random start
@@ -304,7 +305,7 @@ def sample_sc_mcmc(prob_func: Callable,
             prob_max = prob_func(sample_0)
             cache_prob[tuple(sample_max.tolist())] = prob_max
         dict_sample = defaultdict(int)
-        for i in tqdm(range(1, shots), desc=f'chain {trial+1}', ncols=80, colour='green'):
+        for i in tqdm(range(1, shots_lst[trial]), desc=f'chain {trial+1}', ncols=80, colour='green'):
             sample_i = proposal_sampler()
             if tuple(sample_i.tolist()) in cache_prob:
                 prob_i = cache_prob[tuple(sample_i.tolist())]
