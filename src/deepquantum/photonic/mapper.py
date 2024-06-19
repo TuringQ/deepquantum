@@ -96,7 +96,7 @@ class UnitaryMapper():
             UnitaryMapper.save_dict(idx_dic, fn_2)
 
     def create_basis(self, aux_position):
-        """Create the n-qubit bases in dual-rail encoding."""
+        """Create the nqubit bases in dual-rail encoding."""
         main_position = [i for i in range(self.nmode) if i not in aux_position]
         # print(main_position)
         all_basis = []
@@ -118,11 +118,9 @@ class UnitaryMapper():
 
     ##############################
     # using symbolic computation finding indicies to avoid repeat computing
-    def get_coeff_sym(self, input_state, output_states=None):
+    def get_coeff_sym(self, input_state: torch.Tensor, output_states: Optional[List]=None):
         """
-        return the transfer state coefficient in a symnolic way
-        input_state: torch.tensor
-        output_states: List[torch.tensor]
+        Return the transfer state coefficient in a symbolic way.
         """
         if output_states is None:
             output_states = self.all_basis
@@ -137,7 +135,7 @@ class UnitaryMapper():
 
     def get_indx_coeff(self, coeff_i, all_inputs=None):
         """
-        get the index of y_var for given state transfer coefficients
+        Get the index of y_var for given state transfer coefficients.
         """
         index_coeff = {}
         if all_inputs is None:
@@ -165,7 +163,7 @@ class UnitaryMapper():
 
     def indx_eqs(self):
         """
-        get the dic of indx of y_mat for each non_linear eqs for nmode
+        Get the dictinonary of indices of y_mat for each nonlinear equations for n modes.
         """
         all_inputs = self.all_basis
         all_outputs = list(map(self.get_coeff_sym, all_inputs))
@@ -205,8 +203,10 @@ class UnitaryMapper():
 
     def f_real(self, y):
         """
-        construct (2**n_qubit)**2 equations for nxn y, obtain real solutions for real part of u_gate
-        y: array with n**2 element
+        Construct :math:`2^{nqubit}*2^{nqubit}` equations for :math:`n*n` matrix y, obtain real solutions for real part of u_gate.
+
+        Args:
+            y: an array with :math:`n^2` element
         """
         transfer_mat = self.get_transfer_mat(y)
         u_gate = self.ugate*self.success # the target quantum gate with probability
@@ -219,7 +219,7 @@ class UnitaryMapper():
 
     def f_real_unitary(self, y):
         """
-        return quantum gate constrains + unitary constrains
+        Return the quantum gate constrains and the unitary constrains.
         """
         eqs_1 = self.f_real(y)
         mat_y = torch.tensor(y).view(self.nmode, self.nmode)
@@ -229,12 +229,10 @@ class UnitaryMapper():
         return eqs
 
     @staticmethod
-    def unitary_constrains(u_temp):
+    def unitary_constrains(u_temp: torch.Tensor):
         """
-        input: torch.tensor
-        return n**2 eqs for nxn matrix under unitary condition
+        Return :math:`n^2` equations for :math:`n*n` matrix with unitary condition.
         """
-        # assert()
         u_size = u_temp.size()
         u_temp_conj = u_temp.conj()
         u_temp_dag = u_temp_conj.transpose(0, 1)
@@ -247,7 +245,7 @@ class UnitaryMapper():
 
     def f_complex_unitary(self, paras):
         """
-        return quantum gate constrains + unitary constrains
+        Return quantum gate constrains and the unitary constrains.
         """
         num_paras = len(paras)
         y = np.array(paras)[0 : int(num_paras/2)] + np.array(paras)[int(num_paras/2):]*1j
@@ -261,8 +259,10 @@ class UnitaryMapper():
 
     def f_complex(self, y):
         """
-        construct (2**n_qubit)**2  for nxn y, obtain complex solutions
-        paras: array with 2*(n**2) element
+        Construct :math:`2^{nqubit}*2^{nqubit}` equations  for :math:`n*n` matrix y, obtain complex solutions.
+
+        Args:
+            y: an array with :math:`2*n^2` element
         """
         num_paras = len(y)*2
         transfer_mat = self.get_transfer_mat(y)
@@ -284,13 +284,10 @@ class UnitaryMapper():
                 eqs_all.append(extra_eq)
         return eqs_all
     @staticmethod
-    def unitary_constrains_complex(u_temp):
+    def unitary_constrains_complex(u_temp: torch.Tensor):
         """
-        input: torch.tensor
-        return n**2 eqs for nxn matrix under unitary condition
+        Return :math:`2*n^2` equations for :math:`n*n` complex matrix with unitary condition.
         """
-        # assert()
-
         u_size = u_temp.size()
         u_temp_conj = u_temp.conj()
         u_temp_dag = u_temp_conj.transpose(0, 1)
@@ -308,7 +305,7 @@ class UnitaryMapper():
 
     def solve_eqs_real(self, total_trials = 10, trials = 1000, precision = 1e-6):
         """
-        solving the non-linear eqautions for matrix satisfying ugate with real solution
+        Solve the non-linear eqautions for matrix satisfying ugate with real solution.
         """
         func = self.f_real_unitary
         results = []
@@ -333,7 +330,7 @@ class UnitaryMapper():
 
     def solve_eqs_complex(self, total_trials = 10, trials = 1000, precision=1e-5):
         """
-        solving the non-linear eqautions for matrix satisfying ugate with complex solution
+        Solve the non-linear eqautions for matrix satisfying ugate with complex solution.
         """
         func = self.f_complex_unitary
         results = []
@@ -374,7 +371,7 @@ class UnitaryMapper():
     @staticmethod
     def sub_matrix_sym(unitary, input_state, output_state):
         """
-        get the sub_matrix of transfer probs for given input and output state
+        Get the sub_matrix of transfer probs for given input and output state.
         """
         indx1 = UnitaryMapper.set_copy_indx(input_state)    # indicies for copies of rows for U
         indx2 = UnitaryMapper.set_copy_indx(output_state)   # indicies for copies of columns for
@@ -387,8 +384,8 @@ class UnitaryMapper():
     ## computing submatrix will invoke
     def set_copy_indx(state):
         """
-        picking up indices from the nonezero elements of state,
-        repeat times depend on the nonezero value
+        Pick up indices from the nonezero elements of state,
+        repeat times depend on the nonezero value.
         """
         inds_nonzero = torch.nonzero(state, as_tuple=False) # nonezero index in state
         # len_ = int(sum(state[inds_nonzero]))
@@ -404,7 +401,7 @@ class UnitaryMapper():
     @staticmethod
     def permanent(mat):
         """
-        Using RyserFormula for permanent, valid for square matrix
+        Use Ryser formula for permanent, only valid for square matrix.
         """
 
         mat = np.matrix(mat)
@@ -427,9 +424,7 @@ class UnitaryMapper():
     @staticmethod
     def product_factorial(state):
         """
-        return the product of the factorial of each element
-        |s_1,s_2,...s_n> -->s_1!*s_2!*...s_n!
-
+        Get the product of the factorial from the state, i.e., :math:`|s_1,s_2,...s_n> --> s_1!*s_2!*...s_n!`.
         """
         temp = special.factorial(state)
         product_fac = 1
@@ -440,9 +435,7 @@ class UnitaryMapper():
     @staticmethod
     ## computing permanent will invoke
     def create_subset(num_coincidence):
-        """
-        all subset from {1,2,...n}
-        """
+        r"""Get all subset from :math:`\{1,2,...n\}`."""
         num_arange = np.arange(num_coincidence)
         all_subset = []
 
@@ -466,7 +459,8 @@ class UnitaryMapper():
     @staticmethod
     def plot_u(unitary, vmax=1, vmin=0, fs=20, len_ticks=5, cl='RdBu'):
         """
-        plotting the matrix in graphic way
+        Plot the matrix in graphic way.
+
         Args:
             unitary: the plotting matrix
             vmax: max value of the unitary matrix
@@ -498,9 +492,8 @@ class UnitaryMapper():
     @staticmethod
     def is_unitary(u_temp):
         """
-        check the matrix is unitary or not
+        Check the matrix is unitary or not.
         """
-        # U_temp = construct_u(paras)
         u_size = u_temp.size()
         u_temp_conj = u_temp.conj()
         u_temp_dag = u_temp_conj.transpose(0, 1)
@@ -510,11 +503,9 @@ class UnitaryMapper():
 
         return all_sum
 
-#########################################################
-###########check the result using perceval #############
     def state_basis(self):
         """
-        map '000' to dual_rail
+        Map '000' to dual_rail.
         """
         state_map = {}
         map_dic = {(1, 0): '0', (0, 1): '1'}
@@ -526,6 +517,3 @@ class UnitaryMapper():
                 s = s + map_dic[temp]
             state_map[s] = i.tolist()
         return state_map
-
-#########################################################
-#########################################################

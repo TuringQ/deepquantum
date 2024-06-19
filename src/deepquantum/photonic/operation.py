@@ -4,11 +4,13 @@ Base classes
 
 from typing import List, Optional, Tuple, Union
 
+import numpy as np
 import torch
 from torch import nn
 
 from .qmath import xxpp_to_xpxp, xpxp_to_xxpp
-from ..qmath import inverse_permutation
+from ..qmath import inverse_permutation, state_to_tensors
+from ..state import MatrixProductState
 
 
 class Operation(nn.Module):
@@ -181,8 +183,78 @@ class Gate(Operation):
                           mean[..., wires_p1, :], mean_p, mean[..., wires_p2, :]], dim=-2)
         return [cov, mean]
 
-    def forward(self, x: Union[torch.Tensor, List[torch.Tensor]]) -> Union[torch.Tensor, List[torch.Tensor]]:
+    def get_mpo(self) -> Tuple[List[torch.Tensor], int]:
+        r"""Convert gate to MPO form with identities at empty sites.
+
+        Note:
+            If sites are not adjacent, insert identities in the middle, i.e.,
+
+            >>>      |       |            |   |   |
+            >>>    --A---x---B--   ->   --A---I---B--
+            >>>      |       |            |   |   |
+
+            where
+
+            >>>         a
+            >>>         |
+            >>>    --i--I--j--
+            >>>         |
+            >>>         b
+
+            means :math:`\delta_{i,j} \delta_{a,b}`
+        """
+        index = self.wires
+        index_left = min(index)
+        nindex = len(index)
+        index_sort = sorted(index)
+        mat = self.update_matrix_state()
+        # transform gate from (out1, out2, ..., in1, in2 ...) to (out1, in1, out2, in2, ...)
+        order = list(np.arange(2 * nindex).reshape((2, nindex)).T.flatten())
+        mat = mat.reshape([self.cutoff] * 2 * nindex).permute(order).reshape([self.cutoff ** 2] * nindex)
+        main_tensors = state_to_tensors(mat, nsite=nindex, qudit=self.cutoff ** 2)
+        # each tensor is in shape of (i, a, b, j)
+        tensors = []
+        previous_i = None
+        for i, main_tensor in zip(index_sort, main_tensors):
+            # insert identities in the middle
+            if previous_i is not None:
+                for _ in range(previous_i + 1, i):
+                    chi = tensors[-1].shape[-1]
+                    identity = torch.eye(chi * self.cutoff, dtype=self.matrix.dtype, device=self.matrix.device)
+                    tensors.append(identity.reshape(chi, self.cutoff, chi, self.cutoff).permute(0, 1, 3, 2))
+            nleft, _, nright = main_tensor.shape
+            tensors.append(main_tensor.reshape(nleft, self.cutoff, self.cutoff, nright))
+            previous_i = i
+        return tensors, index_left
+
+    def op_mps(self, mps: MatrixProductState) -> MatrixProductState:
+        """Perform a forward pass for the ``MatrixProductState``."""
+        mpo_tensors, left = self.get_mpo()
+        right = left + len(mpo_tensors) - 1
+        diff_left = abs(left - mps.center)
+        diff_right = abs(right - mps.center)
+        center_left = diff_left < diff_right
+        if center_left:
+            end1 = left
+            end2 = right
+        else:
+            end1 = right
+            end2 = left
+        wires = list(range(left, right + 1))
+        out = MatrixProductState(nsite=mps.nsite, state=mps.tensors, chi=mps.chi, normalize=mps.normalize)
+        out.center_orthogonalization(end1, dc=-1, normalize=out.normalize)
+        out.apply_mpo(mpo_tensors, wires)
+        out.center_orthogonalization(end2, dc=-1, normalize=out.normalize)
+        out.center_orthogonalization(end1, dc=out.chi, normalize=out.normalize)
+        return out
+
+    def forward(
+        self,
+        x: Union[torch.Tensor, List[torch.Tensor], MatrixProductState]
+    ) -> Union[torch.Tensor, List[torch.Tensor], MatrixProductState]:
         """Perform a forward pass."""
+        if isinstance(x, MatrixProductState):
+            return self.op_mps(x)
         if isinstance(x, torch.Tensor):
             return self.op_state_tensor(x)
         elif isinstance(x, list):

@@ -48,12 +48,9 @@ dev = ['pytest', 'perceval-quandela']
 
 [project.urls]
 Homepage = 'https://deepquantum.turingq.com/'
-Documentation = 'https://ai-assistant.turingq.com/doc/algo-doc/'
+Documentation = 'https://dqapi.turingq.com/'
 Repository = 'https://github.com/TuringQ/deepquantum.git'
 Issues = 'https://github.com/TuringQ/deepquantum/issues'
 
 [tool.setuptools.dynamic]
 version = {attr = 'deepquantum.__version__'}
-
-[tool.setuptools.packages.find]
-where = ['src']

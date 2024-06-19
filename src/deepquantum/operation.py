@@ -351,7 +351,7 @@ class Gate(Operation):
         # transform gate from (out1, out2, ..., in1, in2 ...) to (out1, in1, out2, in2, ...)
         order = list(np.arange(2 * nindex).reshape((2, nindex)).T.flatten())
         u = u.reshape([2] * 2 * nindex).permute(order).reshape([4] * nindex)
-        main_tensors = state_to_tensors(u, nqubit=nindex, qudit=4)
+        main_tensors = state_to_tensors(u, nsite=nindex, qudit=4)
         # each tensor is in shape of (i, a, b, j)
         tensors = []
         previous_i = None
@@ -381,7 +381,7 @@ class Gate(Operation):
             end1 = right
             end2 = left
         wires = list(range(left, right + 1))
-        out = MatrixProductState(nqubit=mps.nqubit, state=mps.tensors, chi=mps.chi, normalize=mps.normalize)
+        out = MatrixProductState(nsite=mps.nsite, state=mps.tensors, chi=mps.chi, normalize=mps.normalize)
         out.center_orthogonalization(end1, dc=-1, normalize=out.normalize)
         out.apply_mpo(mpo_tensors, wires)
         out.center_orthogonalization(end2, dc=-1, normalize=out.normalize)

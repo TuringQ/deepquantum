@@ -665,6 +665,24 @@ class UAnyGate(Gate):
 class Squeezing(Gate):
     r"""Squeezing gate.
 
+    **Matrix Representation:**
+
+    .. math::
+
+        \begin{pmatrix}x\\p\end{pmatrix}
+        \rightarrow
+        S(r,\theta)
+        \begin{pmatrix}x\\p\end{pmatrix}
+
+    .. math::
+
+        S(r, \theta) =
+            \begin{pmatrix}
+            \cosh r-\sinh r *\cos \theta &-\sinh r*\sin  \theta\\
+            -\sinh r*\sin \theta &
+            \cosh r+\sinh r *\cos \theta
+            \end{pmatrix}
+
     Args:
         inputs (Any, optional): The parameters of the gate (:math:`r` and :math:`\theta`). Default: ``None``
         nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
@@ -784,6 +802,16 @@ class Squeezing(Gate):
 
 class Displacement(Gate):
     r"""Displacement gate.
+
+    **Matrix Representation:**
+
+    .. math::
+
+        \begin{pmatrix}x\\p\end{pmatrix}
+        \rightarrow
+        \begin{pmatrix}x\\p\end{pmatrix}+
+        \begin{pmatrix}r*\cos\theta\\r*\sin\theta
+        \end{pmatrix}
 
     Args:
         inputs (Any, optional): The parameters of the gate (:math:`r` and :math:`\theta`). Default: ``None``

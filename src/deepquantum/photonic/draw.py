@@ -1,5 +1,5 @@
 """
-Draw quantum circuit
+Draw quantum circuit.
 """
 
 from collections import defaultdict
@@ -39,6 +39,7 @@ class DrawCircuit():
         self.ops = circuit_operators
 
     def draw(self):
+        """Draw circuit."""
         order_dic = defaultdict(list) # 当key不存在时对应的value是[]
         nmode = self.nmode
         depth = [0] * nmode # record the depth of each mode
@@ -107,7 +108,7 @@ class DrawCircuit():
 
     def save(self, filename):
         """
-        save the circuit as svg
+        Save the circuit as svg.
         """
         self.draw_.saveas(filename)
 
@@ -118,7 +119,7 @@ class DrawCircuit():
 
     def draw_bs(self, name, order, wires, theta, phi = None):
         """
-        draw beamsplitter
+        Draw beamsplitter.
         """
         x = 90 * order + 40
         y_up = wires[0]
@@ -140,7 +141,7 @@ class DrawCircuit():
 
     def draw_ps(self, order, wires, theta, name=None):
         """
-        draw phaseshif (rotation) gate
+        Draw phaseshif (rotation) gate.
         """
         fill_c = info_dic[name][0]
         shift= info_dic[name][1]
@@ -156,7 +157,7 @@ class DrawCircuit():
 
     def draw_sq(self, order, wires, r, theta, name=None):
         """
-        draw squeezing gate, displacement gate
+        Draw squeezing gate, displacement gate.
         """
         x = 90 * order + 40
         y_up = wires[0]
@@ -174,7 +175,7 @@ class DrawCircuit():
 
     def draw_any(self, order, wires, name):
         """
-        draw arbitrary unitary gate
+        Draw arbitrary unitary gate.
         """
         fill_c = info_dic[name][0]
         # shift= info_dic[name][1]
@@ -194,7 +195,7 @@ class DrawCircuit():
 
     def draw_lines(self, order, wires):
         """
-        for acting nothing
+        Act nothing.
         """
         x = 90 * order + 40
         for k in wires:
@@ -233,6 +234,7 @@ class DrawClements():
         self.ps_position = self.ps_pos()
 
     def plotting_clements(self):
+        """Plot  clements structure with ``cssr`` or ``cssl`` type."""
         if self.method == 'cssr':
             assert(self.nmode%2 == 0), 'plotting only valid for even modes'
             self.plotting_clements_1()
@@ -241,7 +243,7 @@ class DrawClements():
 
     def plotting_clements_1(self):
         """
-        plotting CSSR, order: left to right
+        Plot ``cssr`` with left to right order.
         """
         fig, ax = plt.subplots(1, 1)
         fig.set_size_inches(8*3,5*3)
@@ -323,7 +325,7 @@ class DrawClements():
 
     def plotting_clements_2(self):
         """
-        plotting CSSL, order: right to left
+        Plot ``cssl`` with right to left order.
         """
         fig, ax = plt.subplots(1, 1)
         fig.set_size_inches(8*3,5*3)
@@ -405,7 +407,7 @@ class DrawClements():
 
     def sort_mzi(self):
         """
-        sort mzi parameters in the same array for plotting
+        Sort mzi parameters in the same array for plotting.
         """
         dic_mzi = defaultdict( list) #当key不存在时对应的value是[]
         mzi_list = self.mzi_info['MZI_list']
@@ -415,7 +417,7 @@ class DrawClements():
 
     def ps_pos(self):
         """
-        label the position of each phaseshifter for cssr case
+        Label the position of each phaseshifter for ``cssr`` case.
         """
         if self.method == 'cssr':
             dic_pos = { }
@@ -439,7 +441,7 @@ class DrawClements():
     @staticmethod
     def connect1(coordinate, ax, cl='black', wid=0.1, height=0.08, a=-0.05, b=-0.05, c=0.7, d=-0.05):
         """
-        connect odd column
+        Connect odd column.
         """
         x0, x1, y0, y1 = coordinate
     #     print(x0,x1,y0,y1)
@@ -465,7 +467,7 @@ class DrawClements():
     @staticmethod
     def connect2(coordinate, cl='black'):
         """
-        connect even column
+        Connect even column.
         """
         x0, x1, y0, y1 = coordinate
         plt.plot([x0, x0-0.3],[y0, y0+0.25], color = cl)
@@ -474,7 +476,7 @@ class DrawClements():
     @staticmethod
     def plot_paras(sort_mzi_dic, nmode, fs=20):
         """
-        plotting mzi_paras, for CSSL
+        Plot mzi parameters for ``cssl`` case.
         """
         for i in sort_mzi_dic.keys():
             if i[0]%2 == 0: # 0, 2, 4, 6..
@@ -505,7 +507,7 @@ class DrawClements():
     @staticmethod
     def plot_paras_1(sort_mzi_dic, fs=20):
         """
-        plotting mzi_paras, CSSR
+        Plot mzi parameters for ``cssr`` case.
         """
         for i in sort_mzi_dic.keys():
             if i[0]%2 == 0: # 0, 2, 4, 6..
