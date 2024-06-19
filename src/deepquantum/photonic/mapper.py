@@ -435,9 +435,7 @@ class UnitaryMapper():
     @staticmethod
     ## computing permanent will invoke
     def create_subset(num_coincidence):
-        """
-        Get all subset from :math:`\{1,2,...n\}`.
-        """
+        r"""Get all subset from :math:`\{1,2,...n\}`."""
         num_arange = np.arange(num_coincidence)
         all_subset = []
 

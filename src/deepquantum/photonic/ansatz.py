@@ -136,23 +136,13 @@ class GaussianBosonSampling(QumodeCircuit):
             self.s(i, [squeezing[i], 0])
         self.clements(unitary)
 
-    def get_prob_gbs(self, sample: Any) -> torch.Tensor:
-        """Get the probability of one sample obtained from MCMC sampling."""
-        assert self.backend == 'gaussian'
-        if not isinstance(sample, torch.Tensor):
-            sample = torch.tensor(sample, dtype=torch.int)
-        return self._get_probs_gbs_helper(sample, cov=self.cov, detector=self.detector)[0]
-
-    def get_probs_gbs(self, detector: Optional[str] = None) -> List:
-        """Get the probabilities of the final states for GBS by different detectors.
+    def _forward_gaussian_prob(self, detector: Optional[str] = None) -> Dict:
+        """Get the probabilities of all possible final states for GBS by different detectors.
 
         Args:
-            detector (str, optional): Use ``'pnrd'`` for photon-number-resolving detector or
-                ``'threshold'`` for threshold detector. Default: ``'pnrd'``
+            detector (str or None, optional): Use ``'pnrd'`` for photon-number-resolving detector or
+                ``'threshold'`` for threshold detector. Default: ``None``
         """
-        assert self.backend == 'gaussian'
-        if self.state is None:
-            return 'Run the circuit'
         cov, _ = self.state
         batch = cov.shape[0]
         if detector is None:
@@ -165,44 +155,29 @@ class GaussianBosonSampling(QumodeCircuit):
         elif detector == 'threshold':
             final_states = torch.tensor(list(itertools.product(range(2), repeat=self.nmode)))
         probs = []
+        keys = list(map(FockState, final_states.tolist()))
+        if detector == 'pnrd':
+            keys = list(map(FockState, torch.cat([even_basis, odd_basis]).tolist()))
         for i in range(batch):
-            probs_i = torch.tensor(self._get_probs_gbs_helper(final_states, cov[i], detector))
-            keys = list(map(FockState, final_states.tolist()))
+            probs_i = self._get_probs_gbs_helper(final_states, cov[i], detector)
             if detector == 'pnrd':
                 probs_i = torch.cat([probs_i, torch.zeros(len(odd_basis))])
-                keys = list(map(FockState, torch.cat([even_basis, odd_basis]).tolist()))
-            probs_dict = dict(zip(keys, probs_i))
-            probs.append(probs_dict)
-        return probs
+            probs.append(probs_i)
+        return dict(zip(keys, torch.stack(probs).mT))
 
-    def sample(self, shots: int = 1024, detector: Optional[str] = None) -> Dict:
-        """Sample the output states for GBS."""
-        assert self.backend == 'gaussian'
-        if self.state is None:
-            return 'Run the circuit'
-        if detector is None:
-            detector = self.detector
-        else:
-            detector = detector.lower()
-        cov, _ = self.state
-        batch = cov.shape[0]
-        sample_result = []
-        key_set = set()
-        for i in range(batch):
-            sample_i = self._sample_mcmc(shots=shots, cov=cov[i], detector=detector, num_chain=5)
-            key_set = set(sample_i.keys()) | key_set
-            sample_result.append(sample_i)
-        keys = list(key_set)
-        all_values = []
-        for i in range(batch):
-            sample_i = sample_result[i]
-            values_i = [sample_i[key] for key in keys]
-            all_values.append(torch.tensor(values_i))
-        all_values = torch.stack(all_values).mT
-        keys = list(map(FockState, keys))
-        sample_dict = dict(zip(keys, all_values))
-        sample_dict = sort_dict_fock_basis(sample_dict)
-        return sample_dict
+    def  _get_odd_even_fock_basis(self):
+        """Split the fock basis into the odd and even photon number parts."""
+        max_photon = self.nmode * (self.cutoff - 1)
+        odd_lst = []
+        even_lst = []
+        for i in range(0, max_photon + 1):
+            state_tmp = torch.tensor([i] + [0] * (self.nmode - 1), dtype=torch.int)
+            temp_basis = self._get_all_fock_basis(state_tmp)
+            if i % 2 == 0:
+                even_lst.append(temp_basis)
+            else:
+                odd_lst.append(temp_basis)
+        return torch.cat(odd_lst), torch.cat(even_lst)
 
     def _get_prob_gbs(
         self,
@@ -225,12 +200,18 @@ class GaussianBosonSampling(QumodeCircuit):
                 haf = abs(hafnian(sub_mat)) ** 2
             else:
                 haf = hafnian(sub_mat)
-            return haf / (product_factorial(final_state) * torch.sqrt(det_q))
+            prob = haf / (product_factorial(final_state) * torch.sqrt(det_q))
         elif detector == 'threshold':
             assert max(final_state) < 2, 'Threshold detector with maximum 1 photon'
-            return tor(sub_mat) / torch.sqrt(det_q)
+            prob = tor(sub_mat) / torch.sqrt(det_q)
+        return abs(prob.real)
 
-    def _get_probs_gbs_helper(self, final_states: torch.Tensor, cov: torch.Tensor, detector: str = 'pnrd') -> List:
+    def _get_probs_gbs_helper(
+        self,
+        final_states: torch.Tensor,
+        cov: torch.Tensor,
+        detector: str = 'pnrd'
+    ) -> torch.Tensor:
         """Get the probabilities of the final states for GBS."""
         if final_states.dim() == 1:
             final_states = final_states.unsqueeze(0)
@@ -247,28 +228,47 @@ class GaussianBosonSampling(QumodeCircuit):
         elif detector == 'threshold':
             matrix = o_mat
         probs = []
-        stop_prob = 1 - 1e-2
         purity = GaussianState(self.state).check_purity()
         for i in range(len(final_states)):
             prob = self._get_prob_gbs(final_states[i], matrix, det_q, detector, purity)
-            probs.append(abs(prob.real))
-            if sum(probs) >= stop_prob:
-                return probs
-        return probs
+            probs.append(prob)
+        return torch.stack(probs)
 
-    def  _get_odd_even_fock_basis(self):
-        """Split the fock basis into the odd and even photon number parts."""
-        max_photon = self.nmode * (self.cutoff - 1)
-        odd_lst = []
-        even_lst = []
-        for i in range(0, max_photon + 1):
-            state_tmp = torch.tensor([i] + [0] * (self.nmode - 1), dtype=torch.int)
-            temp_basis = self._get_all_fock_basis(state_tmp)
-            if i % 2 == 0:
-                even_lst.append(temp_basis)
-            else:
-                odd_lst.append(temp_basis)
-        return torch.cat(odd_lst), torch.cat(even_lst)
+    def _get_prob_gaussian(self, final_state: Any, state: Optional['GaussianState'] = None) -> torch.Tensor:
+        """Get the probability of the final state for Gaussian backend."""
+        if not isinstance(final_state, torch.Tensor):
+            final_state = torch.tensor(final_state, dtype=torch.int)
+        if state is None:
+            cov, _ = self.state
+        else:
+            cov = state.cov
+        if cov.ndim == 2:
+            cov = cov.unsqueeze(0)
+        assert cov.ndim == 3
+        probs = []
+        for i in range(cov.shape[0]):
+            self.cov = cov[i]
+            probs.append(self._get_probs_gbs_helper(final_state, cov=self.cov, detector=self.detector)[0])
+        return torch.stack(probs).squeeze()
+
+    def _measure_gaussian(self, shots: int = 1024, detector: Optional[str] = None) -> Dict:
+        """Measure the final state for GBS."""
+        if detector is None:
+            detector = self.detector
+        else:
+            detector = detector.lower()
+        cov, _ = self.state
+        batch = cov.shape[0]
+        all_results = []
+        for i in range(batch):
+            samples_i = self._sample_mcmc(shots=shots, cov=cov[i], detector=detector, num_chain=5)
+            keys = list(map(FockState, samples_i.keys()))
+            results = dict(zip(keys, samples_i.values()))
+            all_results.append(results)
+        if batch == 1:
+            return all_results[0]
+        else:
+            return all_results
 
     def _generate_rand_sample(self, detector: str = 'pnrd'):
         """Generate random sample according to uniform proposal distribution."""
@@ -282,7 +282,7 @@ class GaussianBosonSampling(QumodeCircuit):
         return sample
 
     def _proposal_sampler(self):
-        """The proposal sampler for MCMC sampling for the GBS circuit."""
+        """The proposal sampler for MCMC sampling."""
         sample = self._generate_rand_sample(self.detector)
         return sample
 
@@ -290,7 +290,7 @@ class GaussianBosonSampling(QumodeCircuit):
         """Sample the output states for GBS via SC-MCMC method."""
         self.cov = cov
         self.detector = detector
-        merged_samples = sample_sc_mcmc(prob_func=self.get_prob_gbs,
+        merged_samples = sample_sc_mcmc(prob_func=self._get_prob_gaussian,
                                         proposal_sampler=self._proposal_sampler,
                                         shots=shots,
                                         num_chain=num_chain)

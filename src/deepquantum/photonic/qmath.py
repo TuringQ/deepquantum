@@ -100,7 +100,7 @@ def permanent(mat: torch.Tensor) -> torch.Tensor:
 
 
 def create_subset(num_coincidence: int) -> List:
-    """Create all subsets from :math:`\{1,2,...,n\}`."""
+    r"""Create all subsets from :math:`\{1,2,...,n\}`."""
     subsets = []
     for k in range(1, num_coincidence + 1):
         comb_lst = []
@@ -287,10 +287,12 @@ def sample_sc_mcmc(prob_func: Callable,
     samples_chain = []
     merged_samples = defaultdict(int)
     cache_prob = {}
+    shots_lst = [shots // num_chain] * num_chain
+    shots_lst[-1] += shots % num_chain
     for trial in range(num_chain):
         cache = []
-        len_cache = 500
-        if shots > 1e5:
+        len_cache = min(shots_lst)
+        if shots_lst[trial] > 1e5:
             len_cache = 4000
         samples = []
         # random start
@@ -303,7 +305,7 @@ def sample_sc_mcmc(prob_func: Callable,
             prob_max = prob_func(sample_0)
             cache_prob[tuple(sample_max.tolist())] = prob_max
         dict_sample = defaultdict(int)
-        for i in tqdm(range(1, shots), desc=f'chain {trial+1}', ncols=80, colour='green'):
+        for i in tqdm(range(1, shots_lst[trial]), desc=f'chain {trial+1}', ncols=80, colour='green'):
             sample_i = proposal_sampler()
             if tuple(sample_i.tolist()) in cache_prob:
                 prob_i = cache_prob[tuple(sample_i.tolist())]
