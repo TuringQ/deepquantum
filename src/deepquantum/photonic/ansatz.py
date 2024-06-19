@@ -120,16 +120,9 @@ class GaussianBosonSampling(QumodeCircuit):
         assert unitary.dtype in (torch.cfloat, torch.cdouble)
         assert unitary.shape[-1] == unitary.shape[-2] == nmode
         assert is_unitary(unitary)
-        if backend == 'gaussian':
-            init_state = 'vac'
-        elif backend == 'fock':
-            if basis:
-                init_state = [0] * nmode
-            else:
-                init_state = [(1, [0] * nmode)]
         if cutoff is None:
             cutoff = 3
-        super().__init__(nmode=nmode, init_state=init_state, cutoff=cutoff, backend=backend, basis=basis,
+        super().__init__(nmode=nmode, init_state='vac', cutoff=cutoff, backend=backend, basis=basis,
                          name='GBS', noise=noise, mu=mu, sigma=sigma)
         self.detector = detector.lower()
         for i in range(self.nmode):
@@ -234,7 +227,7 @@ class GaussianBosonSampling(QumodeCircuit):
             probs.append(prob)
         return torch.stack(probs)
 
-    def _get_prob_gaussian(self, final_state: Any, state: Optional['GaussianState'] = None) -> torch.Tensor:
+    def _get_prob_gaussian(self, final_state: Any, state: Optional[GaussianState] = None) -> torch.Tensor:
         """Get the probability of the final state for Gaussian backend."""
         if not isinstance(final_state, torch.Tensor):
             final_state = torch.tensor(final_state, dtype=torch.int)

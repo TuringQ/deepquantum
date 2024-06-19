@@ -21,6 +21,7 @@ from .operation import Operation, Gate
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
 from .qmath import photon_number_mean_var
 from .state import FockState, GaussianState
+from ..state import MatrixProductState
 
 
 class QumodeCircuit(Operation):
@@ -28,17 +29,20 @@ class QumodeCircuit(Operation):
 
     Args:
         nmode (int): The number of modes in the circuit.
-        init_state (Any): The initial state of the circuit. For Fock backend, it can be a Fock basis state,
-            e.g., ``[1,0,0]``, or a Fock state tensor, e.g., ``[(1/2**0.5, [1,0]), (1/2**0.5, [0,1])]``.
-            Alternatively, it can be a tensor representation.
-            For Gaussian backend, it can be a vacuum state with ``'vac'``, or arbitrary Gaussian states
-            with ``[cov, mean]``. Use ``xxpp`` convention and :math:`\hbar=2` by default.
+        init_state (Any): The initial state of the circuit. It can be a vacuum state with ``'vac'``.
+            For Fock backend, it can be a Fock basis state, e.g., ``[1,0,0]``, or a Fock state tensor,
+            e.g., ``[(1/2**0.5, [1,0]), (1/2**0.5, [0,1])]``. Alternatively, it can be a tensor representation.
+            For Gaussian backend, it can be arbitrary Gaussian states with ``[cov, mean]``.
+            Use ``xxpp`` convention and :math:`\hbar=2` by default.
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
         backend (str, optional): Use ``'fock'`` for Fock backend or ``'gaussian'`` for Gaussian backend.
             Default: ``'fock'``
         basis (bool, optional): Whether to use the representation of Fock basis state for the initial state.
             Default: ``True``
         name (str or None, optional): The name of the circuit. Default: ``None``
+        mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
+        chi (int or None, optional): The bond dimension for matrix product state representation.
+            Default: ``None``
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
@@ -51,32 +55,49 @@ class QumodeCircuit(Operation):
         backend: str = 'fock',
         basis: bool = True,
         name: Optional[str] = None,
+        mps: bool = False,
+        chi: Optional[int] = None,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
         super().__init__(name=name, nmode=nmode, wires=list(range(nmode)))
-        if isinstance(init_state, (FockState, GaussianState)):
-            assert nmode == init_state.nmode
-            cutoff = init_state.cutoff
+        if isinstance(init_state, (FockState, GaussianState, MatrixProductState)):
+            if isinstance(init_state, MatrixProductState):
+                assert nmode == init_state.nsite
+                assert backend == 'fock' and not basis, 'Only support MPS for Fock backend with Fock state tensor.'
+                mps = True
+                chi = init_state.chi
+                cutoff = init_state.qudit
+            else:
+                assert nmode == init_state.nmode
+                mps = False
+                cutoff = init_state.cutoff
+                if isinstance(init_state, FockState):
+                    backend = 'fock'
+                    basis = init_state.basis
+                elif isinstance(init_state, GaussianState):
+                    backend = 'gaussian'
             self.init_state = init_state
-            if isinstance(init_state, FockState):
-                backend = 'fock'
-                basis = init_state.basis
-            elif isinstance(init_state, GaussianState):
-                backend = 'gaussian'
         else:
-            if backend == 'fock':
-                self.init_state = FockState(state=init_state, nmode=nmode, cutoff=cutoff, basis=basis)
-            elif backend == 'gaussian':
-                self.init_state = GaussianState(state=init_state, nmode=nmode, cutoff=cutoff)
-            cutoff = self.init_state.cutoff
+            if mps:
+                assert backend == 'fock' and not basis, 'Only support MPS for Fock backend with Fock state tensor.'
+                self.init_state = MatrixProductState(nsite=nmode, state=init_state, chi=chi, qudit=cutoff,
+                                                     normalize=False)
+            else:
+                if backend == 'fock':
+                    self.init_state = FockState(state=init_state, nmode=nmode, cutoff=cutoff, basis=basis)
+                elif backend == 'gaussian':
+                    self.init_state = GaussianState(state=init_state, nmode=nmode, cutoff=cutoff)
+                cutoff = self.init_state.cutoff
 
         self.operators = nn.Sequential()
         self.encoders = []
         self.cutoff = cutoff
         self.backend = backend
         self.basis = basis
+        self.mps = mps
+        self.chi = chi
         self.noise = noise
         self.mu = mu
         self.sigma = sigma
@@ -92,7 +113,7 @@ class QumodeCircuit(Operation):
         """
         assert self.nmode == rhs.nmode
         cir = QumodeCircuit(nmode=self.nmode, init_state=self.init_state, cutoff=self.cutoff, basis=self.basis,
-                            name=self.name, noise=self.noise, mu=self.mu, sigma=self.sigma)
+                            name=self.name, mps=self.mps, chi=self.chi, noise=self.noise, mu=self.mu, sigma=self.sigma)
         cir.operators = self.operators + rhs.operators
         cir.encoders = self.encoders + rhs.encoders
         cir.npara = self.npara + rhs.npara
@@ -162,7 +183,7 @@ class QumodeCircuit(Operation):
         data: Optional[torch.Tensor] = None,
         state: Any = None,
         is_prob: bool = False
-    ) -> Union[torch.Tensor, Dict]:
+    ) -> Union[torch.Tensor, List[torch.Tensor], Dict]:
         """Perform a forward pass based on the Fock backend.
 
         Args:
@@ -175,7 +196,10 @@ class QumodeCircuit(Operation):
             applying the ``operators``.
         """
         if state is None:
-            state = self.init_state.state
+            state = self.init_state
+        if isinstance(state, MatrixProductState):
+            assert not self.basis
+            state = state.tensors
         elif isinstance(state, FockState):
             state = state.state
         elif not isinstance(state, torch.Tensor):
@@ -186,7 +210,7 @@ class QumodeCircuit(Operation):
                 self.state = sort_dict_fock_basis(state_dict)
             else:
                 self.state = self._forward_helper_tensor(state=state)
-                if self.state.ndim == self.nmode:
+                if not self.mps and self.state.ndim == self.nmode:
                     self.state = self.state.unsqueeze(0)
         else:
             if data.ndim == 1:
@@ -196,10 +220,17 @@ class QumodeCircuit(Operation):
                 state_dict = vmap(self._forward_helper_basis, in_dims=(0, None, None))(data, state, is_prob)
                 self.state = sort_dict_fock_basis(state_dict)
             else:
-                if state.shape[0] == 1:
-                    self.state = vmap(self._forward_helper_tensor, in_dims=(0, None))(data, state)
+                if self.mps:
+                    assert state[0].ndim in (3, 4)
+                    if state[0].ndim == 3:
+                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, None))(data, state)
+                    elif state[0].ndim == 4:
+                        self.state = vmap(self._forward_helper_tensor)(data, state)
                 else:
-                    self.state = vmap(self._forward_helper_tensor)(data, state)
+                    if state.shape[0] == 1:
+                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, None))(data, state)
+                    else:
+                        self.state = vmap(self._forward_helper_tensor)(data, state)
             # for plotting the last data
             self.encode(data[-1])
         return self.state
@@ -230,12 +261,19 @@ class QumodeCircuit(Operation):
     def _forward_helper_tensor(
         self,
         data: Optional[torch.Tensor] = None,
-        state: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
+        state: Union[torch.Tensor, List[torch.Tensor], MatrixProductState, None] = None
+    ) -> Union[torch.Tensor, List[torch.Tensor]]:
         """Perform a forward pass for one sample if the input is a Fock state tensor."""
         self.encode(data)
         if state is None:
-            state = self.init_state.state
+            state = self.init_state
+        if self.mps:
+            if not isinstance(state, MatrixProductState):
+                state = MatrixProductState(nsite=self.nmode, state=state, chi=self.chi, qudit=self.cutoff,
+                                           normalize=self.init_state.normalize)
+            return self.operators(state).tensors
+        if isinstance(state, FockState):
+            state = state.state
         x = self.operators(self.tensor_rep(state)).squeeze(0)
         return x
 
@@ -383,7 +421,7 @@ class QumodeCircuit(Operation):
         """Get the normalization factors for permanent."""
         return torch.sqrt(product_factorial(init_state) * product_factorial(final_states))
 
-    def get_amplitude(self, final_state: Any, init_state: Optional['FockState'] = None) -> torch.Tensor:
+    def get_amplitude(self, final_state: Any, init_state: Optional[FockState] = None) -> torch.Tensor:
         """Get the transfer amplitude between the final state and the initial state.
 
         Args:
@@ -417,7 +455,7 @@ class QumodeCircuit(Operation):
     def get_prob(
         self,
         final_state: Any,
-        refer_state: Union['FockState', 'GaussianState', None] = None
+        refer_state: Union[FockState, GaussianState, None] = None
     ) -> torch.Tensor:
         """Get the probability of the final state related to the reference state.
 
@@ -431,7 +469,7 @@ class QumodeCircuit(Operation):
         elif self.backend == 'gaussian':
             return self._get_prob_gaussian(final_state, refer_state)
 
-    def _get_prob_fock(self, final_state: Any, init_state: Optional['FockState'] = None) -> torch.Tensor:
+    def _get_prob_fock(self, final_state: Any, init_state: Optional[FockState] = None) -> torch.Tensor:
         """Get the transfer probability between the final state and the initial state for the Fock backend.
 
         Args:
@@ -448,7 +486,7 @@ class QumodeCircuit(Operation):
         prob = torch.abs(amplitude) ** 2
         return prob
 
-    def _get_prob_gaussian(self, final_state: Any, state: Optional['GaussianState'] = None) -> torch.Tensor:
+    def _get_prob_gaussian(self, final_state: Any, state: Optional[GaussianState] = None) -> torch.Tensor:
         """Get the probability of the final state for the Gaussian backend."""
         raise NotImplementedError
 
@@ -471,6 +509,7 @@ class QumodeCircuit(Operation):
             detector (str or None, optional): For Gaussian backend, use ``'pnrd'`` for photon-number-resolving detector
                 or ``'threshold'`` for threshold detector. Default: ``None``
         """
+        assert not self.mps, 'Currently NOT supported.'
         if self.state is None:
             return
         if self.backend == 'fock':
@@ -535,7 +574,7 @@ class QumodeCircuit(Operation):
         else:
             return all_results
 
-    def _measure_gaussian(self):
+    def _measure_gaussian(self, shots: int = 1024, detector: Optional[str] = None) -> Dict:
         """Measure the final state for Gaussian backend."""
         raise NotImplementedError
 

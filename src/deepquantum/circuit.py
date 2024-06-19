@@ -50,18 +50,19 @@ class QubitCircuit(Operation):
     ) -> None:
         super().__init__(name=name, nqubit=nqubit, wires=None, den_mat=den_mat)
         if isinstance(init_state, (QubitState, MatrixProductState)):
-            assert nqubit == init_state.nqubit
             if isinstance(init_state, MatrixProductState):
+                assert nqubit == init_state.nsite
                 assert not den_mat, 'Currently, MPS for density matrix is NOT supported'
                 mps = True
                 chi = init_state.chi
             else:
+                assert nqubit == init_state.nqubit
                 mps = False
                 den_mat = init_state.den_mat
             self.init_state = init_state
         else:
             if mps:
-                self.init_state = MatrixProductState(nqubit=nqubit, state=init_state, chi=chi)
+                self.init_state = MatrixProductState(nsite=nqubit, state=init_state, chi=chi)
                 chi = self.init_state.chi
             else:
                 self.init_state = QubitState(nqubit=nqubit, state=init_state, den_mat=den_mat)
@@ -196,7 +197,7 @@ class QubitCircuit(Operation):
             state = self.init_state
         if self.mps:
             if not isinstance(state, MatrixProductState):
-                state = MatrixProductState(nqubit=self.nqubit, state=state, chi=self.chi,
+                state = MatrixProductState(nsite=self.nqubit, state=state, chi=self.chi,
                                            normalize=self.init_state.normalize)
             return self.operators(state).tensors
         if isinstance(state, QubitState):
@@ -251,18 +252,19 @@ class QubitCircuit(Operation):
     def reset(self, init_state: Any = 'zeros') -> None:
         """Reset the ``QubitCircuit`` according to ``init_state``."""
         if isinstance(init_state, (QubitState, MatrixProductState)):
-            assert self.nqubit == init_state.nqubit
             if isinstance(init_state, MatrixProductState):
+                assert self.nqubit == init_state.nsite
                 assert not self.den_mat, 'Currently, MPS for density matrix is NOT supported'
                 self.mps = True
                 self.chi = init_state.chi
             else:
+                assert self.nqubit == init_state.nqubit
                 self.mps = False
                 self.den_mat = init_state.den_mat
             self.init_state = init_state
         else:
             if self.mps:
-                self.init_state = MatrixProductState(nqubit=self.nqubit, state=init_state, chi=self.chi)
+                self.init_state = MatrixProductState(nsite=self.nqubit, state=init_state, chi=self.chi)
             else:
                 self.init_state = QubitState(nqubit=self.nqubit, state=init_state, den_mat=self.den_mat)
         self.operators = nn.Sequential()
@@ -303,6 +305,7 @@ class QubitCircuit(Operation):
         wires: Union[int, List[int], None] = None
     ) -> Union[Dict, List[Dict], None]:
         """Measure the final state."""
+        assert not self.mps, 'Currently NOT supported.'
         if wires is None:
             wires = list(range(self.nqubit))
         self.wires_measure = self._convert_indices(wires)

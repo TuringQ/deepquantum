@@ -274,12 +274,12 @@ def split_tensor(tensor: torch.Tensor, center_left: bool = True) -> Tuple[torch.
         return qr(tensor)
 
 
-def state_to_tensors(state: torch.Tensor, nqubit: int, qudit: int = 2) -> List[torch.Tensor]:
+def state_to_tensors(state: torch.Tensor, nsite: int, qudit: int = 2) -> List[torch.Tensor]:
     """Convert a quantum state to a list of tensors."""
-    state = state.reshape([qudit] * nqubit)
+    state = state.reshape([qudit] * nsite)
     tensors = []
     nleft = 1
-    for _ in range(nqubit - 1):
+    for _ in range(nsite - 1):
         u, state = split_tensor(state.reshape(nleft * qudit, -1), center_left=False)
         tensors.append(u.reshape(nleft, qudit, -1))
         nleft = state.shape[0]
@@ -550,7 +550,7 @@ def expectation(
     # pylint: disable=import-outside-toplevel
     if isinstance(state, list):
         from .state import MatrixProductState
-        mps = MatrixProductState(nqubit=len(state), state=state, chi=chi)
+        mps = MatrixProductState(nsite=len(state), state=state, chi=chi)
         return inner_product_mps(state, observable(mps).tensors).real
     if den_mat:
         expval = (observable.get_unitary() @ state).diagonal(dim1=-2, dim2=-1).sum(-1).real

@@ -77,7 +77,7 @@ def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.T
     indx2 = set_copy_indx(output_state)
     u1 = u[[indx2]]         # choose rows from the output
     u2 = u1[:, [indx1]]     # choose columns from the input
-    return torch.squeeze(u2)
+    return u2.squeeze(1)
 
 
 def permanent(mat: torch.Tensor) -> torch.Tensor:

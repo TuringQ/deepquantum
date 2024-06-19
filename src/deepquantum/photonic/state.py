@@ -15,9 +15,9 @@ class FockState(nn.Module):
     """A Fock state of n modes, including Fock basis states and Fock state tensors.
 
     Args:
-        state (Any): The Fock state. It can be a Fock basis state, e.g., ``[1,0,0]``,
-            or a Fock state tensor, e.g., ``[(1/2**0.5, [1,0]), (1/2**0.5, [0,1])]``.
-            Alternatively, it can be a tensor representation.
+        state (Any): The Fock state. It can be a vacuum state with ``'vac'`` or ``'zeros'``.
+            It can be a Fock basis state, e.g., ``[1,0,0]``, or a Fock state tensor,
+            e.g., ``[(1/2**0.5, [1,0]), (1/2**0.5, [0,1])]``. Alternatively, it can be a tensor representation.
         nmode (int or None, optional): The number of modes in the state. Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
         basis (bool, optional): Whether the state is a Fock basis state or not. Default: ``True``
@@ -32,6 +32,8 @@ class FockState(nn.Module):
         super().__init__()
         self.basis = basis
         if self.basis:
+            if state in ('vac', 'zeros'):
+                state = [0] * nmode
             # Process Fock basis state
             if not isinstance(state, torch.Tensor):
                 state = torch.tensor(state, dtype=torch.int).reshape(-1)
@@ -52,6 +54,8 @@ class FockState(nn.Module):
             assert len(state_ts) == self.nmode
             assert state_ts.max() < self.cutoff
         else:
+            if state in ('vac', 'zeros'):
+                state = [(1, [0] * nmode)]
             # Process Fock state tensor
             if isinstance(state, torch.Tensor):  # with the dimension of batch size
                 if nmode is None:
@@ -119,10 +123,10 @@ class FockState(nn.Module):
 
 
 class GaussianState(nn.Module):
-    """A Gaussian state of n modes, representing by covariance matrix and displacement vector.
+    r"""A Gaussian state of n modes, representing by covariance matrix and displacement vector.
 
     Args:
-        state (str or List): The Gaussian state, it can be a vacuum state with 'vac', or arbitrary Gaussian states
+        state (str or List): The Gaussian state. It can be a vacuum state with ``'vac'``, or arbitrary Gaussian states
             with [``cov``, ``mean``]. ``cov`` and ``mean`` are the covariance matrix and the displacement vector
             of the Gaussian state, respectively. Use ``xxpp`` convention and :math:`\hbar=2` by default.
             Default: ``'vac'``
