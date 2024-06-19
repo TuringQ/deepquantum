@@ -359,7 +359,7 @@ class GBS_Graph(GaussianBosonSampling):
         samples_ = copy.deepcopy(samples)
         for key in samples_.keys():
             temp_prob = copy.deepcopy(samples_[key])
-            idx = torch.nonzero(torch.tensor(key)).squeeze()
+            idx = torch.nonzero(key.state).squeeze()
             density = nx.density(graph.subgraph(idx.tolist()))
             samples_[key] = [temp_prob, density]
         sort_samples = sort_dict_fock_basis(samples_, 1)

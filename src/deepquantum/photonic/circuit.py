@@ -307,7 +307,7 @@ class QumodeCircuit(Operation):
         return s
 
     def get_displacement(self, init_mean: Any) -> torch.Tensor:
-        """Get the final mean value of the Gaussian state in xxpp order."""
+        """Get the final mean value of the Gaussian state in ``xxpp`` order."""
         if not isinstance(init_mean, torch.Tensor):
             init_mean = torch.tensor(init_mean)
         mean = init_mean.reshape(-1, 2 * self.nmode, 1)
