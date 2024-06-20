@@ -269,10 +269,10 @@ class DrawClements():
                 (3.2*(nmode/2-1)+2.2+2.1, 1-0.25*i-0.05),
                 wid,
                 height,
-                edgecolor = cl,
-                facecolor = cl,
-                fill=True
-                             ) )  ## for PS
+                edgecolor = 'green',
+                facecolor = 'green',
+                fill=True,
+                zorder=3) )  ## for PS
             if nmode%2==1:
                 plt.plot([2.2+3.2*(int((nmode+1)/2)-1),
                           3.2*int((nmode+1)/2-1)+2.2+2.2],
@@ -308,14 +308,14 @@ class DrawClements():
         # connecting lines i, i+1
         for i  in range(len(coords1)):
             if i%2==0:
-                self.connect1(coords1[i], ax, a=-0.5-0.4, c=0.7-0.7)
+                self.connect1(coords1[i], ax, a=-0.5-0.4, c=0.7-0.7, cl=self.color)
             if i%2==1:
-                self.connect2(coords1[i])
+                self.connect2(coords1[i], cl=self.color)
         for i  in range(len(coords2)):
             if i%2==0:
-                self.connect1(coords2[i], ax, a=-0.5-0.4, c=0.7-0.7)
+                self.connect1(coords2[i], ax, a=-0.5-0.4, c=0.7-0.7, cl=self.color)
             if i%2==1:
-                self.connect2(coords2[i])
+                self.connect2(coords2[i], cl=self.color)
         # plotting paras
         self.plot_paras_1(self.dic_mzi, fs=self.fontsize-8)
         plt.axis(self.axis_off)
@@ -390,12 +390,12 @@ class DrawClements():
         # connecting lines i, i+1
         for i  in range(len(coords1)):
             if i%2==0:
-                self.connect1(coordinate=coords1[i], ax=ax, cl='black')
+                self.connect1(coordinate=coords1[i], ax=ax, cl=self.color)
             if i%2==1:
-                self.connect2(coordinate=coords1[i], ax=ax, cl='black')
+                self.connect2(coordinate=coords1[i], ax=ax, cl=self.color)
         for i  in range(len(coords2)):
             if i%2==0:
-                self.connect1(coordinate=coords2[i], ax=ax, cl='black')
+                self.connect1(coordinate=coords2[i], ax=ax, cl=self.color)
             if i%2==1:
                 self.connect2(coordinate=coords2[i], ax=ax, cl='black')
         # plotting paras
@@ -439,7 +439,7 @@ class DrawClements():
             return None
 
     @staticmethod
-    def connect1(coordinate, ax, cl='black', wid=0.1, height=0.08, a=-0.05, b=-0.05, c=0.7, d=-0.05):
+    def connect1(coordinate, ax, cl, wid=0.1, height=0.08, a=-0.05, b=-0.05, c=0.7, d=-0.05):
         """
         Connect odd column.
         """
@@ -465,7 +465,7 @@ class DrawClements():
         ) )
 
     @staticmethod
-    def connect2(coordinate, cl='black'):
+    def connect2(coordinate, cl):
         """
         Connect even column.
         """
