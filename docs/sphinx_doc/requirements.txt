@@ -1,2 +1,4 @@
 sphinx==6.2.1
-sphinx-rtd-theme
+myst-parser==2.0.0
+# sphinx-rtd-theme
+pydata-sphinx-theme

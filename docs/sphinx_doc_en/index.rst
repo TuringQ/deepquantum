@@ -10,9 +10,9 @@ Welcome to DeepQuantum's documentation!
 .. toctree::
    :maxdepth: 2
 
-   引言和概述
-   基础使用指南
-   案例
+   Introduction_and_Overview
+   Basic_Usage_Guide
+   Application_Cases
    deepquantum
 
 
