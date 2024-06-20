@@ -146,7 +146,7 @@ def fock_combinations(nmode: int, nphoton: int) -> List:
 
     Returns:
         List[List[int]]: A list of all possible Fock states, each represented by a list of
-            occupation numbers for each mode.
+        occupation numbers for each mode.
 
     Examples:
         >>> fock_combinations(2, 3)

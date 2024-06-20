@@ -466,7 +466,7 @@ class UnitaryMapper():
             vmax: max value of the unitary matrix
             vmin: min value of the unitary matrix
             fs: fontsize
-            len_ticks: # of ticks in colorbar
+            len_ticks: number of ticks in colorbar
             cl: color of plotting
         """
         plt.rcParams ['figure.figsize'] = (8, 8)
