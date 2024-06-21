@@ -1011,6 +1011,7 @@ class QumodeCircuit(Operation):
         wires: int,
         inputs: Any = None,
         encode: bool = False,
+        inv_mode: bool = False,
         mu: Optional[float] = None,
         sigma: Optional[float] = None
     ) -> None:
@@ -1023,5 +1024,5 @@ class QumodeCircuit(Operation):
         if sigma is None:
             sigma = self.sigma
         r = PhaseShift(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
-                       requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma, inv_mode=True)
+                       requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma, inv_mode=inv_mode)
         self.add(r, encode=encode)

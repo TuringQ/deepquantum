@@ -34,8 +34,7 @@ class PhaseShift(Gate):
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
-        inv_mode (bool, optional): Whether the gate behaves as the rotation gate, which means the parameter
-            corresponds to the annihilation operator. Default: ``False``
+        inv_mode (bool, optional): Whether the rotation in quadrature space is anticlockwise. Default: ``False``
     """
     def __init__(
         self,
@@ -95,7 +94,7 @@ class PhaseShift(Gate):
             theta = -theta
         cos = torch.cos(theta)
         sin = torch.sin(theta)
-        matrix_xp = torch.stack([cos, sin, -sin, cos]).reshape(2, 2)
+        matrix_xp = torch.stack([cos, -sin, sin, cos]).reshape(2, 2)
         vector_xp = torch.zeros(2, 1, dtype=theta.dtype, device=theta.device)
         return matrix_xp, vector_xp
 
