@@ -1,4 +1,4 @@
-# 1. Introduction and Overview
+# Introduction and Overview
 
 Quantum computing is a rapidly growing field, poised to address the enormous computational power demands of the future. The integration of machine learning (deep learning) into quantum machine learning (quantum deep learning) also holds the potential for significant value. In the current Noisy Intermediate-Scale Quantum (NISQ) era, due to the prohibitive cost and limited accessibility of real quantum computing resources, research in QML largely depends on classical computers to simulate quantum circuits. Therefore, with the boundless potential of this field, both domestic and international companies have already laid the groundwork in programming frameworks and software services, capitalizing on early-mover advantages to attract and cultivate potential users, even before the advent of fault-tolerant universal quantum computers.
 
