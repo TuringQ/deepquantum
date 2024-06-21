@@ -1,4 +1,4 @@
-# 2. Basic Usage Guide
+# Basic Usage Guide
 
 Import DeepQuantum and related libraries.
 
@@ -8,13 +8,13 @@ import torch
 import torch.nn as nn
 ```
 
-## 2.1 Quantum Circuit Object
+##  Quantum Circuit Object
 
 The fundamental object in DeepQuantum is QubitCircuit.
 Initialize a quantum circuit with the number of qubits (n), i.e., cir=dq.QubitCircuit(n).
 DeepQuantum can help users to easily implement parameterized quantum circuits for quantum machine learning.
 
-## 2.2 Quantum State
+##  Quantum State
 
 QubitState is a class representing quantum states. For example, we can use QubitState to prepare a single-qubit quantum state, with its data being a torch tensor, stored in the attribute state.
 
@@ -47,7 +47,7 @@ qstate = dq.QubitState(nqubit=3, state='ghz')
 print(qstate.state)
 ```
 
-## 2.3 Basic Quantum Gates
+##  Basic Quantum Gates
 
 We can act various quantum gates on the QubitCircuit. For example, we can act the Hadamard gate on qubit 1: cir.h(1) or act the Rx gate on qubit 2: cir.rx(2, inputs=0.2), and it is similar for multi-qubit gates: cir.cnot(0, 1).
 Also, we can place a layer of quantum gates on the quantum circuit using one line, i.e., cir.rxlayer(). If the quantum gate does not have specified input parameters, variational parameters will be initialized automatically.
@@ -112,9 +112,9 @@ cir.u3(2, controls=[0,1,3])
 cir.draw()
 ```
 
-## 2.4 Measurement and Expectation
+##  Measurement and Expectation
 
-### 2.4.1 Measurement
+###  Measurement
 
 Measurement is one of the core operations in quantum computing. We take the measurement of a GHZ state as an example.
 
@@ -137,7 +137,7 @@ print(cir.measure())
 print(cir.measure(shots=100, wires=[1,2], with_prob=True))
 ```
 
-### 2.4.2 Expectation
+###  Expectation
 
 When employing parameterized quantum circuits in variational quantum algorithms, it often involves calculating the expectation value of an observable for the final state. Here, we'll demonstrate this with the simplest quantum circuit.
 
@@ -155,7 +155,7 @@ cir() # Expectation value can be obtained after running the circuit
 print(cir.expectation())
 ```
 
-### 2.4.3 Conditional Measurement
+###  Conditional Measurement
 
 The condition parameter allows conditional measurement, and the related wires are determined by control bits controls.
 

@@ -1,6 +1,6 @@
-# 3. Application Cases
+#  Application Cases
 
-## 3.1 Hybrid Quantum-Classical Models
+##  Hybrid Quantum-Classical Models
 Hybrid quantum-classical models, combining classical neural networks with quantum neural networks, have been broadly studied and applied in areas such as image processing, recommendation systems, and combinatorial optimization.
 DeepQuantum aligns seamlessly with PyTorch's programming style, enabling the convenient and natural implementation of hybrid quantum-classical models based on DeepQuantum and PyTorch.
 
@@ -44,7 +44,7 @@ for i in net.named_parameters():
     print(i)
 ```
 
-## 3.2 The Flexibility of Quantum Circuits
+##  The Flexibility of Quantum Circuits
 
 DeepQuantum supports circuit concatenation using addition, which is very flexible for the use of quantum circuits.
 
@@ -79,7 +79,7 @@ cir3.observable(0)
 print(cir3.expectation())
 ```
 
-## 3.3 Benchmark for gradient calculation
+##  Benchmark for gradient calculation
 
 For quantum simulators, operational efficiency is a crucial performance metric. In tasks like VQE and quantum machine learning, aside from the forward evolution of quantum circuits, gradient calculation is a pivotal factor affecting efficiency. Comparisons between DeepQuantum and Qiskit are illustrated as follows.
 
@@ -149,7 +149,7 @@ The results are shown below：
 ![Alt text](images/3.3_Gradient_benchmarks.png)
 ![Alt text](images/3.3_Hessian_benchmarks.png)
 
-## 3.4 Large-Scale Simulation
+##  Large-Scale Simulation
 
 Simulating quantum circuits on classical computers demands exponentially growing computational resources as the number of qubits increases. DeepQuantum's underlying implementation of tensor network algorithms enables support for large-scale simulations.
 Users simply need to set mps=True in QubitCircuit and can adjust the precision of the tensor-network-based approximate quantum state using chi. A larger chi results in greater simulation accuracy but slower runtime.
@@ -168,7 +168,7 @@ cir(data)
 print(cir.expectation())
 ```
 
-## 3.5 Quantum Fourier Transform
+##  Quantum Fourier Transform
 
 The quantum Fourier transform is a quantum analog of the discrete Fourier transform.
 DeepQuantum implements the quantum Fourier transform based on the Ansatz class (which validates the newly added arguments on top of QubitCircuit). Users can easily reproduce and develop various quantum algorithms based on the Ansatz class. 
@@ -204,7 +204,7 @@ class QuantumFourierTransform(dq.Ansatz):
             k += 1
 ```
 
-## 3.6 Quantum Phase Estimation
+##  Quantum Phase Estimation
 
 The Quantum Phase Estimation algorithm is a key component in many quantum algorithms. Assuming a unitary operator U acting on its eigenvector $$\ket{u}$$ introduces a phase $$e^{2{\pi}i{\psi}}$$, where the role of the phase estimation algorithm is to estimate the phase $$\psi$$.
 Below is an example demonstrating the implemented Quantum Phase Estimation in DeepQuantum, specifically for the phase shift gate on a single qubit.
@@ -220,7 +220,7 @@ phase_est = int(max_key, 2) / 2 ** t
 print(phase_est == phase)
 ```
 
-## 3.7 Shor's Algorithm
+##  Shor's Algorithm
 
 Shor's Algorithm is one of the most prominent quantum algorithms, designed to solve the problem of factoring integers. Given an integer N, the goal is to find its prime factors.
 Here, we demonstrate Shor's Algorithm using DeepQuantum. In the minimum example of factorizing the integer 15, a specific controlled-Ua gate is utilized to simplify the circuit.
