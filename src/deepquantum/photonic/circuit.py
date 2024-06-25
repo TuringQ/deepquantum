@@ -636,7 +636,8 @@ class QumodeCircuit(Operation):
             shots (int, optional): The number of times to sample from the quantum state. Default: 1024
             wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
                 integers specifying the indices of the wires. Default: ``None`` (which means all wires are
-                measured)"""
+                measured)
+        """
         assert self.backend == 'gaussian'
         if self.state is None:
             return
