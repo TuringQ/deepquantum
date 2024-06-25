@@ -657,12 +657,12 @@ class QumodeCircuit(Operation):
             filename (str or None, optional): The path for saving the figure.
         """
         self.draw_circuit = DrawCircuit(self.name, self.nmode, self.operators)
+        self.draw_circuit.draw()
         if filename is not None:
             self.draw_circuit.save(filename)
         else:
             if self.nmode > 50:
-                print('Too many modes in the circuit, please save the figure.')
-        self.draw_circuit.draw()
+                print('Too many modes in the circuit, please set filename to save the figure.')
         return self.draw_circuit.draw_
 
     def add(
