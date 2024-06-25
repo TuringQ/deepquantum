@@ -461,7 +461,7 @@ class CnotRing(CnotLayer):
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 2
         wires (List[List[int]] or None, optional): The indices of the qubits that the quantum operation
             acts on. Default: ``None``
-        minmax (List[int] or None, optional): The minmum and maximum indices of qubits that the quantum
+        minmax (List[int] or None, optional): The minimum and maximum indices of qubits that the quantum
             operation acts on. Default: ``None``
         step (int, optional): The distance between the control and target qubits of each CNOT gate.
             Default: 1

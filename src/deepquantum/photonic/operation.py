@@ -61,7 +61,7 @@ class Operation(nn.Module):
         return indices
 
     def _check_minmax(self, minmax: List[int]) -> None:
-        """Check the minmum and maximum indices of the modes."""
+        """Check the minimum and maximum indices of the modes."""
         assert isinstance(minmax, list)
         assert len(minmax) == 2
         assert all(isinstance(i, int) for i in minmax)

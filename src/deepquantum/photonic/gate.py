@@ -21,7 +21,7 @@ class PhaseShift(Gate):
 
     .. math::
 
-        PS(\theta) = e^{i\theta}
+        U_{\text{PS}}(\theta) = e^{i\theta}
 
     Args:
         inputs (Any, optional): The parameter of the gate. Default: ``None``
@@ -88,7 +88,7 @@ class PhaseShift(Gate):
         return torch.stack([matrix[0, 0] ** n for n in range(self.cutoff)]).reshape(-1).diag_embed()
 
     def get_transform_xp(self, theta: Any) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Get the local affine symplectic transformation acting on quadrature operators in xxpp order."""
+        """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         theta = self.inputs_to_tensor(theta)
         if self.inv_mode:
             theta = -theta
@@ -99,7 +99,7 @@ class PhaseShift(Gate):
         return matrix_xp, vector_xp
 
     def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Update the local affine symplectic transformation acting on quadrature operators in xxpp order."""
+        """Update the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         matrix_xp, vector_xp = self.get_transform_xp(self.theta)
         self.matrix_xp = matrix_xp.detach()
         self.vector_xp = vector_xp.detach()
@@ -125,11 +125,30 @@ class BeamSplitter(Gate):
 
     .. math::
 
-        \text{BS}(\theta, \phi) =
+        U_{\text{BS}}(\theta, \phi) =
             \begin{pmatrix}
                 \cos\left(\theta\right)           & -e^{-i\phi} \sin\left(\theta\right) \\
                 e^{i\phi} \sin\left(\theta\right) & \cos\left(\theta\right)             \\
             \end{pmatrix}
+
+    **Symplectic Transformation:**
+
+    .. math::
+
+        BS^\dagger(\theta, \phi)
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p} \\
+        \end{pmatrix}
+        BS(\theta, \phi) =
+        \begin{pmatrix}
+            \mathrm{Re}(U_{\text{BS}}) & -\mathrm{Im}(U_{\text{BS}}) \\
+            \mathrm{Im}(U_{\text{BS}}) &  \mathrm{Re}(U_{\text{BS}}) \\
+        \end{pmatrix}
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p} \\
+        \end{pmatrix}
 
     Args:
         inputs (Any, optional): The parameters of the gate. Default: ``None``
@@ -228,7 +247,7 @@ class BeamSplitter(Gate):
         return tran_mat
 
     def get_transform_xp(self, theta: Any, phi: Any) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Get the local affine symplectic transformation acting on quadrature operators in xxpp order."""
+        """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         theta, phi = self.inputs_to_tensor([theta, phi])
         matrix = self.get_matrix(theta, phi)          # correspond to: U a^+ U^+ = u^T @ a^+ and U^+ a U = u @ a
         # matrix = matrix.conj() # conflict with vmap # correspond to: U a U^+ = (u^*)^T @ a and U^+ a^+ U = u^* @ a^+
@@ -240,7 +259,7 @@ class BeamSplitter(Gate):
         return matrix_xp, vector_xp
 
     def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Update the local affine symplectic transformation acting on quadrature operators in xxpp order."""
+        """Update the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         matrix_xp, vector_xp = self.get_transform_xp(self.theta, self.phi)
         self.matrix_xp = matrix_xp.detach()
         self.vector_xp = vector_xp.detach()
@@ -268,23 +287,42 @@ class MZI(BeamSplitter):
 
         \newcommand{\th}{\frac{\theta}{2}}
 
-        \text{MZI}(\theta, \phi) = ie^{i\theta/2}
+        U_{\text{MZI}}(\theta, \phi) = ie^{i\theta/2}
             \begin{pmatrix}
-                e^{i\phi} \sin\left(\th\right) & \cos\left(\th\right)  \\
+                e^{i\phi} \sin\left(\th\right) &  \cos\left(\th\right) \\
                 e^{i\phi} \cos\left(\th\right) & -\sin\left(\th\right) \\
             \end{pmatrix}
 
-    or when `phi_first` is `False`:
+    or when ``phi_first`` is ``False``:
 
     .. math::
 
         \newcommand{\th}{\frac{\theta}{2}}
 
-        \text{MZI}(\theta, \phi) = ie^{i\theta/2}
+        U_{\text{MZI}}(\theta, \phi) = ie^{i\theta/2}
             \begin{pmatrix}
                 e^{i\phi} \sin\left(\th\right) & e^{i\phi} \cos\left(\th\right) \\
                 \cos\left(\th\right)           & -\sin\left(\th\right)          \\
             \end{pmatrix}
+
+    **Symplectic Transformation:**
+
+    .. math::
+
+        MZI^\dagger(\theta, \phi)
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p} \\
+        \end{pmatrix}
+        MZI(\theta, \phi) =
+        \begin{pmatrix}
+            \mathrm{Re}(U_{\text{MZI}}) & -\mathrm{Im}(U_{\text{MZI}}) \\
+            \mathrm{Im}(U_{\text{MZI}}) &  \mathrm{Re}(U_{\text{MZI}}) \\
+        \end{pmatrix}
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p} \\
+        \end{pmatrix}
 
     Args:
         inputs (Any, optional): The parameters of the gate. Default: ``None``
@@ -336,11 +374,30 @@ class BeamSplitterTheta(BeamSplitter):
 
     .. math::
 
-        \text{BS}(\theta) =
+        U_{\text{BS}}(\theta) =
             \begin{pmatrix}
-                \cos\left(\theta\right)  & i\sin\left(\theta\right) \\
+                 \cos\left(\theta\right) & i\sin\left(\theta\right) \\
                 i\sin\left(\theta\right) &  \cos\left(\theta\right) \\
             \end{pmatrix}
+
+    **Symplectic Transformation:**
+
+    .. math::
+
+        BS^\dagger(\theta)
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p} \\
+        \end{pmatrix}
+        BS(\theta) =
+        \begin{pmatrix}
+            \mathrm{Re}(U_{\text{BS}}) & -\mathrm{Im}(U_{\text{BS}}) \\
+            \mathrm{Im}(U_{\text{BS}}) &  \mathrm{Re}(U_{\text{BS}}) \\
+        \end{pmatrix}
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p} \\
+        \end{pmatrix}
 
     Args:
         inputs (Any, optional): The parameter of the gate. Default: ``None``
@@ -389,11 +446,30 @@ class BeamSplitterPhi(BeamSplitter):
 
     .. math::
 
-        \text{BS}(\phi) =
+        U_{\text{BS}}(\phi) =
             \begin{pmatrix}
                 \frac{\sqrt{2}}{2} & -\frac{\sqrt{2}}{2}e^{-i\phi} \\
                 \frac{\sqrt{2}}{2}e^{i\phi}  &  \frac{\sqrt{2}}{2} \\
             \end{pmatrix}
+
+    **Symplectic Transformation:**
+
+    .. math::
+
+        BS^\dagger(\phi)
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p} \\
+        \end{pmatrix}
+        BS(\phi) =
+        \begin{pmatrix}
+            \mathrm{Re}(U_{\text{BS}}) & -\mathrm{Im}(U_{\text{BS}}) \\
+            \mathrm{Im}(U_{\text{BS}}) &  \mathrm{Re}(U_{\text{BS}}) \\
+        \end{pmatrix}
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p} \\
+        \end{pmatrix}
 
     Args:
         inputs (Any, optional): The parameter of the gate. Default: ``None``
@@ -444,31 +520,50 @@ class BeamSplitterSingle(BeamSplitter):
 
         \newcommand{\th}{\frac{\theta}{2}}
 
-        \text{BS-Rx}(\theta) =
+        U_{\text{BS-Rx}}(\theta) =
             \begin{pmatrix}
-                \cos\left(\th\right)  & i\sin\left(\th\right) \\
-                i\sin\left(\th\right) & \cos\left(\th\right)  \\
+                 \cos\left(\th\right) & i\sin\left(\th\right) \\
+                i\sin\left(\th\right) &  \cos\left(\th\right) \\
             \end{pmatrix}
 
     .. math::
 
         \newcommand{\th}{\frac{\theta}{2}}
 
-        \text{BS-Ry}(\theta) =
+        U_{\text{BS-Ry}}(\theta) =
             \begin{pmatrix}
                 \cos\left(\th\right) & -\sin\left(\th\right) \\
-                \sin\left(\th\right) & \cos\left(\th\right)  \\
+                \sin\left(\th\right) &  \cos\left(\th\right) \\
             \end{pmatrix}
 
     .. math::
 
         \newcommand{\th}{\frac{\theta}{2}}
 
-        \text{BS-H}(\theta) =
+        U_{\text{BS-H}}(\theta) =
             \begin{pmatrix}
-                \cos\left(\th\right) & \sin\left(\th\right)  \\
+                \cos\left(\th\right) &  \sin\left(\th\right) \\
                 \sin\left(\th\right) & -\cos\left(\th\right) \\
             \end{pmatrix}
+
+    **Symplectic Transformation:**
+
+    .. math::
+
+        BS^\dagger(\theta)
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p} \\
+        \end{pmatrix}
+        BS(\theta) =
+        \begin{pmatrix}
+            \mathrm{Re}(U_{\text{BS}}) & -\mathrm{Im}(U_{\text{BS}}) \\
+            \mathrm{Im}(U_{\text{BS}}) &  \mathrm{Re}(U_{\text{BS}}) \\
+        \end{pmatrix}
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p} \\
+        \end{pmatrix}
 
     Args:
         inputs (Any, optional): The parameter of the gate. Default: ``None``
@@ -532,7 +627,7 @@ class BeamSplitterSingle(BeamSplitter):
         return matrix
 
     def get_transform_xp(self, theta: Any) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Get the local affine symplectic transformation acting on quadrature operators in xxpp order."""
+        """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         theta = self.inputs_to_tensor(theta)
         matrix = self.get_matrix(theta)               # correspond to: U a^+ U^+ = u^T @ a^+ and U^+ a U = u @ a
         # matrix = matrix.conj() # conflict with vmap # correspond to: U a U^+ = (u^*)^T @ a and U^+ a^+ U = u^* @ a^+
@@ -544,7 +639,7 @@ class BeamSplitterSingle(BeamSplitter):
         return matrix_xp, vector_xp
 
     def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Update the local affine symplectic transformation acting on quadrature operators in xxpp order."""
+        """Update the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         matrix_xp, vector_xp = self.get_transform_xp(self.theta)
         self.matrix_xp = matrix_xp.detach()
         self.vector_xp = vector_xp.detach()
@@ -569,7 +664,7 @@ class UAnyGate(Gate):
         nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
         wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
-        minmax (List[int] or None, optional): The minmum and maximum indices of the modes that the quantum
+        minmax (List[int] or None, optional): The minimum and maximum indices of the modes that the quantum
             operation acts on. Only valid when ``wires`` is ``None``. Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
         name (str, optional): The name of the gate. Default: ``'UAnyGate'``
@@ -642,7 +737,7 @@ class UAnyGate(Gate):
         return tran_mat
 
     def get_transform_xp(self, matrix: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Get the local affine symplectic transformation acting on quadrature operators in xxpp order."""
+        """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         # correspond to: U a^+ U^+ = u^T @ a^+ and U^+ a U = u @ a
         # correspond to: U a U^+ = (u^*)^T @ a and U^+ a^+ U = u^* @ a^+
         # matrix = matrix.conj() # conflict with vmap
@@ -654,7 +749,7 @@ class UAnyGate(Gate):
         return matrix_xp, vector_xp
 
     def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Update the local affine symplectic transformation acting on quadrature operators in xxpp order."""
+        """Update the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         matrix_xp, vector_xp = self.get_transform_xp(self.matrix)
         self.matrix_xp = matrix_xp.detach()
         self.vector_xp = vector_xp.detach()
@@ -664,23 +759,24 @@ class UAnyGate(Gate):
 class Squeezing(Gate):
     r"""Squeezing gate.
 
-    **Matrix Representation:**
+    **Symplectic Transformation:**
 
     .. math::
 
-        \begin{pmatrix}x\\p\end{pmatrix}
-        \rightarrow
-        S(r,\theta)
-        \begin{pmatrix}x\\p\end{pmatrix}
-
-    .. math::
-
-        S(r, \theta) =
-            \begin{pmatrix}
-            \cosh r-\sinh r *\cos \theta &-\sinh r*\sin  \theta\\
-            -\sinh r*\sin \theta &
-            \cosh r+\sinh r *\cos \theta
-            \end{pmatrix}
+        S^{\dagger}(r, \theta)
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p} \\
+        \end{pmatrix}
+        S(r,\theta) =
+        \begin{pmatrix}
+            \cosh r - \sinh r \cos\theta & -\sinh r \sin\theta \\
+            -\sinh r \sin\theta & \cosh r + \sinh r \cos\theta \\
+        \end{pmatrix}
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p} \\
+        \end{pmatrix}
 
     Args:
         inputs (Any, optional): The parameters of the gate (:math:`r` and :math:`\theta`). Default: ``None``
@@ -769,7 +865,7 @@ class Squeezing(Gate):
         return tran_mat
 
     def get_transform_xp(self, r: Any, theta: Any) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Get the local affine symplectic transformation acting on quadrature operators in xxpp order."""
+        """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         r, theta = self.inputs_to_tensor([r, theta])
         ch = torch.cosh(r)
         sh = torch.sinh(r)
@@ -780,7 +876,7 @@ class Squeezing(Gate):
         return matrix_xp, vector_xp
 
     def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Update the local affine symplectic transformation acting on quadrature operators in xxpp order."""
+        """Update the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         matrix_xp, vector_xp = self.get_transform_xp(self.r, self.theta)
         self.matrix_xp = matrix_xp.detach()
         self.vector_xp = vector_xp.detach()
@@ -802,14 +898,22 @@ class Squeezing(Gate):
 class Displacement(Gate):
     r"""Displacement gate.
 
-    **Matrix Representation:**
+    **Symplectic Transformation:**
 
     .. math::
-
-        \begin{pmatrix}x\\p\end{pmatrix}
-        \rightarrow
-        \begin{pmatrix}x\\p\end{pmatrix}+
-        \begin{pmatrix}r*\cos\theta\\r*\sin\theta
+        D^\dagger(\alpha)
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p} \\
+        \end{pmatrix}
+        D(\alpha) =
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p} \\
+        \end{pmatrix} + \frac{\sqrt{\hbar}}{\kappa}
+        \begin{pmatrix}
+            r\cos\theta \\
+            r\sin\theta \\
         \end{pmatrix}
 
     Args:
@@ -897,7 +1001,7 @@ class Displacement(Gate):
         return self.get_matrix_state(self.r, self.theta)
 
     def get_transform_xp(self, r: Any, theta: Any) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Get the local affine symplectic transformation acting on quadrature operators in xxpp order."""
+        """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         r, theta = self.inputs_to_tensor([r, theta])
         cos = torch.cos(theta)
         sin = torch.sin(theta)
@@ -906,7 +1010,7 @@ class Displacement(Gate):
         return matrix_xp, vector_xp
 
     def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Update the local affine symplectic transformation acting on quadrature operators in xxpp order."""
+        """Update the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         matrix_xp, vector_xp = self.get_transform_xp(self.r, self.theta)
         self.matrix_xp = matrix_xp.detach()
         self.vector_xp = vector_xp.detach()

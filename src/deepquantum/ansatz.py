@@ -20,7 +20,7 @@ class Ansatz(QubitCircuit):
         nqubit (int): The number of qubits in the circuit.
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
+        minmax (List[int] or None, optional): The minimum and maximum indices of the qubits that the quantum
             operation acts on. Only valid when ``wires`` is ``None``. Default: ``None``
         ancilla (int, List[int] or None, optional): The indices of the ancilla qubits. Default: ``None``
         controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
@@ -77,7 +77,7 @@ class ControlledMultiplier(Ansatz):
         nqubit (int): The number of qubits in the circuit.
         a (int): Number ``a`` in :math:`b+a*x \mod N`.
         mod (int): The modulus in :math:`b+a*x \mod N`.
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
+        minmax (List[int] or None, optional): The minimum and maximum indices of the qubits that the quantum
             operation acts on. Default: ``None``
         ancilla (int, List[int] or None, optional): The indices of the ancilla qubits. Default: ``None``
         nqubitx (int or None, optional): The number of qubits in the register x.
@@ -142,7 +142,7 @@ class ControlledUa(Ansatz):
         nqubit (int): The number of qubits in the circuit.
         a (int): Number ``a`` in :math:`a*x \mod N`.
         mod (int): The modulus in :math:`a*x \mod N`.
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
+        minmax (List[int] or None, optional): The minimum and maximum indices of the qubits that the quantum
             operation acts on. Default: ``None``
         ancilla (int, List[int] or None, optional): The indices of the ancilla qubits. Default: ``None``
         controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
@@ -253,7 +253,7 @@ class NumberEncoder(Ansatz):
     Args:
         nqubit (int): The number of qubits in the circuit.
         number (int): The integer for converting to bit string.
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
+        minmax (List[int] or None, optional): The minimum and maximum indices of the qubits that the quantum
             operation acts on. Default: ``None``
         den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
@@ -285,7 +285,7 @@ class PhiAdder(Ansatz):
     Args:
         nqubit (int): The number of qubits in the circuit.
         number (int): Number ``a`` in :math:`\Phi(a+b)`.
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
+        minmax (List[int] or None, optional): The minimum and maximum indices of the qubits that the quantum
             operation acts on. Default: ``None``
         controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
         den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
@@ -328,7 +328,7 @@ class PhiModularAdder(Ansatz):
         nqubit (int): The number of qubits in the circuit.
         number (int): Number ``a`` in :math:`\Phi(a+b \mod N)`.
         mod (int): The modulus in :math:`\Phi(a+b \mod N)`.
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
+        minmax (List[int] or None, optional): The minimum and maximum indices of the qubits that the quantum
             operation acts on. Default: ``None``
         ancilla (int, List[int] or None, optional): The indices of the ancilla qubits. Default: ``None``
         controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
@@ -393,7 +393,7 @@ class QuantumConvolutionalNeuralNetwork(Ansatz):
     Args:
         nqubit (int): The number of qubits in the circuit.
         nlayer (int): The number of layers.
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
+        minmax (List[int] or None, optional): The minimum and maximum indices of the qubits that the quantum
             operation acts on. Default: ``None``
         init_state (Any, optional): The initial state of the circuit. Default: ``'zeros'``
         den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
@@ -455,7 +455,7 @@ class QuantumFourierTransform(Ansatz):
 
     Args:
         nqubit (int): The number of qubits in the circuit.
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
+        minmax (List[int] or None, optional): The minimum and maximum indices of the qubits that the quantum
             operation acts on. Default: ``None``
         reverse (bool, optional): Whether to reverse the output order. Default: ``False`` (which means
             the default output order of phase is :math:`x/2, ..., x/2^n`. If ``reverse=True``, the output order
@@ -505,7 +505,7 @@ class QuantumPhaseEstimation(Ansatz):
         nqubit (int): The number of qubits in the circuit.
         ncount (int): The number of counting qubits.
         unitary (Any): The unitary operator.
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
+        minmax (List[int] or None, optional): The minimum and maximum indices of the qubits that the quantum
             operation acts on. Default: ``None``
         den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
@@ -591,7 +591,7 @@ class RandomCircuitG3(Ansatz):
         ngate (int): The number of random gates in the circuit.
         wires (List[int] or None, optional): The indices of the qubits that the random gates act on.
             Default: ``None``
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
+        minmax (List[int] or None, optional): The minimum and maximum indices of the qubits that the quantum
             operation acts on. Only valid when ``wires`` is ``None``. Default: ``None``
         init_state (Any, optional): The initial state of the circuit. Default: ``'zeros'``
         den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
