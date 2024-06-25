@@ -21,7 +21,7 @@ class PhaseShift(Gate):
 
     .. math::
 
-        PS(\theta) = e^{i\theta}
+        U_{\text{PS}}(\theta) = e^{i\theta}
 
     Args:
         inputs (Any, optional): The parameter of the gate. Default: ``None``
