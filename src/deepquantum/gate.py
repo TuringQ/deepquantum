@@ -232,7 +232,7 @@ class ArbitraryGate(Gate):
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
+        minmax (List[int] or None, optional): The minimum and maximum indices of the qubits that the quantum
             operation acts on. Only valid when ``wires`` is ``None``. Default: ``None``
         controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
@@ -2042,7 +2042,7 @@ class UAnyGate(ArbitraryGate):
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
+        minmax (List[int] or None, optional): The minimum and maximum indices of the qubits that the quantum
             operation acts on. Only valid when ``wires`` is ``None``. Default: ``None``
         controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
         name (str, optional): The name of the gate. Default: ``'UAnyGate'``
@@ -2088,7 +2088,7 @@ class LatentGate(ArbitraryGate):
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
+        minmax (List[int] or None, optional): The minimum and maximum indices of the qubits that the quantum
             operation acts on. Only valid when ``wires`` is ``None``. Default: ``None``
         controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
         name (str, optional): The name of the gate. Default: ``'LatentGate'``
@@ -2164,7 +2164,7 @@ class HamiltonianGate(ArbitraryGate):
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Only valid when ``hamiltonian`` is not a list. Default: ``None``
-        minmax (List[int] or None, optional): The minmum and maximum indices of the qubits that the quantum
+        minmax (List[int] or None, optional): The minimum and maximum indices of the qubits that the quantum
             operation acts on. Only valid when ``hamiltonian`` is not a list and ``wires`` is ``None``.
             Default: ``None``
         controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
