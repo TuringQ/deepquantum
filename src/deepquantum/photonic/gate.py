@@ -125,11 +125,30 @@ class BeamSplitter(Gate):
 
     .. math::
 
-        \text{BS}(\theta, \phi) =
+        U_{\text{BS}}(\theta, \phi) =
             \begin{pmatrix}
                 \cos\left(\theta\right)           & -e^{-i\phi} \sin\left(\theta\right) \\
                 e^{i\phi} \sin\left(\theta\right) & \cos\left(\theta\right)             \\
             \end{pmatrix}
+
+    **Symplectic Transformation:**
+
+    .. math::
+
+        BS^\dagger(\theta,\phi)
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p}
+        \end{pmatrix}
+        BS(\theta,\phi) =
+        \begin{pmatrix}
+            \mathrm{Re}(U_{\text{BS}}) & -\mathrm{Im}(U_{\text{BS}})\\
+            \mathrm{Im}(U_{\text{BS}}) & \mathrm{Re}(U_{\text{BS}})
+        \end{pmatrix}
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p}
+        \end{pmatrix}
 
     Args:
         inputs (Any, optional): The parameters of the gate. Default: ``None``
@@ -268,23 +287,42 @@ class MZI(BeamSplitter):
 
         \newcommand{\th}{\frac{\theta}{2}}
 
-        \text{MZI}(\theta, \phi) = ie^{i\theta/2}
+        U_{\text{MZI}}(\theta, \phi) = ie^{i\theta/2}
             \begin{pmatrix}
                 e^{i\phi} \sin\left(\th\right) & \cos\left(\th\right)  \\
                 e^{i\phi} \cos\left(\th\right) & -\sin\left(\th\right) \\
             \end{pmatrix}
 
-    or when `phi_first` is `False`:
+    or when ``phi_first`` is ``False``:
 
     .. math::
 
         \newcommand{\th}{\frac{\theta}{2}}
 
-        \text{MZI}(\theta, \phi) = ie^{i\theta/2}
+        U_{\text{MZI}}(\theta, \phi) = ie^{i\theta/2}
             \begin{pmatrix}
                 e^{i\phi} \sin\left(\th\right) & e^{i\phi} \cos\left(\th\right) \\
                 \cos\left(\th\right)           & -\sin\left(\th\right)          \\
             \end{pmatrix}
+
+    **Symplectic Transformation:**
+
+    .. math::
+
+        MZI^\dagger(\theta,\phi)
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p}
+        \end{pmatrix}
+        MZI(\theta,\phi) =
+        \begin{pmatrix}
+            \mathrm{Re}(U_{\text{MZI}}) & -\mathrm{Im}(U_{\text{MZI}})\\
+            \mathrm{Im}(U_{\text{MZI}}) & \mathrm{Re}(U_{\text{MZI}})
+        \end{pmatrix}
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p}
+        \end{pmatrix}
 
     Args:
         inputs (Any, optional): The parameters of the gate. Default: ``None``
@@ -336,11 +374,30 @@ class BeamSplitterTheta(BeamSplitter):
 
     .. math::
 
-        \text{BS}(\theta) =
+        U_{\text{BS}}(\theta) =
             \begin{pmatrix}
                 \cos\left(\theta\right)  & i\sin\left(\theta\right) \\
                 i\sin\left(\theta\right) &  \cos\left(\theta\right) \\
             \end{pmatrix}
+
+    **Symplectic Transformation:**
+
+    .. math::
+
+        BS^\dagger(\theta)
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p}
+        \end{pmatrix}
+        BS(\theta) =
+        \begin{pmatrix}
+            \mathrm{Re}(U_{\text{BS}}) & -\mathrm{Im}(U_{\text{BS}})\\
+            \mathrm{Im}(U_{\text{BS}}) & \mathrm{Re}(U_{\text{BS}})
+        \end{pmatrix}
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p}
+        \end{pmatrix}
 
     Args:
         inputs (Any, optional): The parameter of the gate. Default: ``None``
@@ -389,11 +446,30 @@ class BeamSplitterPhi(BeamSplitter):
 
     .. math::
 
-        \text{BS}(\phi) =
+        U_{\text{BS}}(\phi) =
             \begin{pmatrix}
                 \frac{\sqrt{2}}{2} & -\frac{\sqrt{2}}{2}e^{-i\phi} \\
                 \frac{\sqrt{2}}{2}e^{i\phi}  &  \frac{\sqrt{2}}{2} \\
             \end{pmatrix}
+
+    **Symplectic Transformation:**
+
+    .. math::
+
+        BS^\dagger(\phi)
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p}
+        \end{pmatrix}
+        BS(\phi) =
+        \begin{pmatrix}
+            \mathrm{Re}(U_{\text{BS}}) & -\mathrm{Im}(U_{\text{BS}})\\
+            \mathrm{Im}(U_{\text{BS}}) & \mathrm{Re}(U_{\text{BS}})
+        \end{pmatrix}
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p}
+        \end{pmatrix}
 
     Args:
         inputs (Any, optional): The parameter of the gate. Default: ``None``
@@ -444,7 +520,7 @@ class BeamSplitterSingle(BeamSplitter):
 
         \newcommand{\th}{\frac{\theta}{2}}
 
-        \text{BS-Rx}(\theta) =
+        U_{\text{BS-Rx}}(\theta) =
             \begin{pmatrix}
                 \cos\left(\th\right)  & i\sin\left(\th\right) \\
                 i\sin\left(\th\right) & \cos\left(\th\right)  \\
@@ -454,7 +530,7 @@ class BeamSplitterSingle(BeamSplitter):
 
         \newcommand{\th}{\frac{\theta}{2}}
 
-        \text{BS-Ry}(\theta) =
+        U_{\text{BS-Ry}}(\theta) =
             \begin{pmatrix}
                 \cos\left(\th\right) & -\sin\left(\th\right) \\
                 \sin\left(\th\right) & \cos\left(\th\right)  \\
@@ -464,11 +540,30 @@ class BeamSplitterSingle(BeamSplitter):
 
         \newcommand{\th}{\frac{\theta}{2}}
 
-        \text{BS-H}(\theta) =
+        U_{\text{BS-H}}(\theta) =
             \begin{pmatrix}
                 \cos\left(\th\right) & \sin\left(\th\right)  \\
                 \sin\left(\th\right) & -\cos\left(\th\right) \\
             \end{pmatrix}
+
+    **Symplectic Transformation:**
+
+    .. math::
+
+        BS^\dagger(\theta)
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p}
+        \end{pmatrix}
+        BS(\theta) =
+        \begin{pmatrix}
+            \mathrm{Re}(U_{\text{BS}}) & -\mathrm{Im}(U_{\text{BS}})\\
+            \mathrm{Im}(U_{\text{BS}}) & \mathrm{Re}(U_{\text{BS}})
+        \end{pmatrix}
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p}
+        \end{pmatrix}
 
     Args:
         inputs (Any, optional): The parameter of the gate. Default: ``None``
@@ -664,23 +759,22 @@ class UAnyGate(Gate):
 class Squeezing(Gate):
     r"""Squeezing gate.
 
-    **Matrix Representation:**
+    **Symplectic Transformation:**
 
     .. math::
 
-        \begin{pmatrix}x\\p\end{pmatrix}
-        \rightarrow
-        S(r,\theta)
-        \begin{pmatrix}x\\p\end{pmatrix}
-
-    .. math::
-
-        S(r, \theta) =
-            \begin{pmatrix}
-            \cosh r-\sinh r *\cos \theta &-\sinh r*\sin  \theta\\
-            -\sinh r*\sin \theta &
-            \cosh r+\sinh r *\cos \theta
-            \end{pmatrix}
+        S^{\dagger}(r,\theta)
+        \begin{pmatrix}
+             \hat{x} \\ \hat{p}
+        \end{pmatrix}
+        S(r,\theta)=
+        \begin{pmatrix}
+             \cosh r-\sinh r\cos \theta &-\sinh r\sin  \theta\\
+             -\sinh r\sin \theta & \cosh r+\sinh r\cos \theta
+        \end{pmatrix}
+        \begin{pmatrix}
+             \hat{x} \\ \hat{p}
+        \end{pmatrix}
 
     Args:
         inputs (Any, optional): The parameters of the gate (:math:`r` and :math:`\theta`). Default: ``None``
@@ -802,14 +896,20 @@ class Squeezing(Gate):
 class Displacement(Gate):
     r"""Displacement gate.
 
-    **Matrix Representation:**
+    **Symplectic Transformation:**
 
     .. math::
-
-        \begin{pmatrix}x\\p\end{pmatrix}
-        \rightarrow
-        \begin{pmatrix}x\\p\end{pmatrix}+
-        \begin{pmatrix}r*\cos\theta\\r*\sin\theta
+        D^\dagger(\alpha)
+        \begin{pmatrix}
+             \hat{x}\\ \hat{p}
+        \end{pmatrix}
+        D(\alpha)=
+        \begin{pmatrix}
+             \hat{x}\\ \hat{p}
+        \end{pmatrix}+
+        \frac{\sqrt{\hbar}}{\kappa}
+        \begin{pmatrix}
+             r\cos\theta\\r\sin\theta
         \end{pmatrix}
 
     Args:
