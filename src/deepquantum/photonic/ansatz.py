@@ -187,12 +187,12 @@ class GaussianBosonSampling(QumodeCircuit):
         else:
             final_state_double = torch.cat([final_state, final_state])
             sub_mat = sub_matrix(matrix, final_state_double, final_state_double)
-        sub_mat = np.round(sub_mat.cpu().numpy(), 6)
+        sub_mat = sub_mat.cpu().numpy()
         if detector == 'pnrd':
             if purity:
-                haf = abs(hafnian(sub_mat)) ** 2
+                haf = abs(hafnian(sub_mat, atol=1e-5)) ** 2
             else:
-                haf = hafnian(sub_mat)
+                haf = hafnian(sub_mat, atol=1e-5)
             prob = haf / (product_factorial(final_state) * torch.sqrt(det_q))
         elif detector == 'threshold':
             assert max(final_state) < 2, 'Threshold detector with maximum 1 photon'

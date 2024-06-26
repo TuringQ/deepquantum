@@ -1,8 +1,17 @@
 # DeepQuantum
 
+<p align="center">
+  <a href="https://github.com/TuringQ/deepquantum">
+    <img width=70% src="docs/assets/deepquantum_logo_light_v1.png" alt="DeepQuantum logo"/>
+  </a>
+</p>
+
+[![docs](https://img.shields.io/badge/docs-link-blue.svg)](https://dqapi.turingq.com/)
 [![PyPI](https://img.shields.io/pypi/v/deepquantum.svg?logo=pypi)](https://pypi.org/project/deepquantum/)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/deepquantum)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg?logo=apache)](./LICENSE)
+[![Downloads](https://img.shields.io/pypi/dm/deepquantum.svg)](https://pypi.org/project/deepquantum/)
+[![Downloads](https://static.pepy.tech/badge/deepquantum)](https://pepy.tech/project/deepquantum)
 
 DeepQuantum is a platform that integrates artificial intelligence (AI) and quantum computing (QC). It is an efficient programming framework designed for quantum machine learning and photonic quantum computing. By leveraging the PyTorch deep learning platform for QC, DeepQuantum provides a powerful and easy-to-use tool for creating and simulating quantum circuits and photonic quantum circuits. This makes it ideal for developers to quickly get started and explore the field in depth. It also serves as a valuable learning platform for quantum computing enthusiasts.
 
