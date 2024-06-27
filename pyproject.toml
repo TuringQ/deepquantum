@@ -34,6 +34,7 @@ keywords = ['quantum computing', 'quantum machine learning', 'photonic quantum c
 classifiers = [
     'Development Status :: 4 - Beta',
     'Intended Audience :: Developers',
+    'Intended Audience :: Science/Research',
     'Programming Language :: Python :: 3',
     'Programming Language :: Python :: 3.8',
     'Programming Language :: Python :: 3.9',
@@ -54,3 +55,6 @@ Issues = 'https://github.com/TuringQ/deepquantum/issues'
 
 [tool.setuptools.dynamic]
 version = {attr = 'deepquantum.__version__'}
+
+[tool.setuptools.package-data]
+'deepquantum.photonic' = ['cache/*']

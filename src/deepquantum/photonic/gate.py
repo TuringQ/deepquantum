@@ -34,7 +34,7 @@ class PhaseShift(Gate):
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
-        inv_mode (bool, optional): Whether the rotation in quadrature space is anticlockwise. Default: ``False``
+        inv_mode (bool, optional): Whether the rotation in the phase space is clockwise. Default: ``False``
     """
     def __init__(
         self,
