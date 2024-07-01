@@ -5,17 +5,14 @@ Ansatze: various photonic quantum circuits
 from typing import Any, Dict, List, Optional
 
 import copy
-import itertools
 import networkx as nx
 import numpy as np
 import torch
 from scipy.optimize import root
-from thewalrus import hafnian, tor
 
 from .circuit import QumodeCircuit
-from .qmath import product_factorial, sub_matrix, sort_dict_fock_basis, takagi, quadrature_to_ladder, sample_sc_mcmc
+from .qmath import sort_dict_fock_basis, takagi
 from ..qmath import is_unitary
-from .state import FockState, GaussianState
 
 
 class Clements(QumodeCircuit):
@@ -123,11 +120,11 @@ class GaussianBosonSampling(QumodeCircuit):
         if cutoff is None:
             cutoff = 3
         super().__init__(nmode=nmode, init_state='vac', cutoff=cutoff, backend=backend, basis=basis,
-                         name='GBS', noise=noise, mu=mu, sigma=sigma)
-        self.detector = detector.lower()
+                         detector=detector, name='GBS', noise=noise, mu=mu, sigma=sigma)
         for i in range(self.nmode):
             self.s(i, [squeezing[i], 0])
         self.clements(unitary)
+
 
 class GBS_Graph(GaussianBosonSampling):
     """Simulate Gaussian Boson Sampling for graph problems."""
