@@ -100,7 +100,7 @@ class QumodeCircuit(Operation):
         self.cutoff = cutoff
         self.backend = backend
         self.basis = basis
-        self.detector = detector
+        self.detector = detector.lower()
         self.mps = mps
         self.chi = chi
         self.noise = noise
@@ -743,7 +743,7 @@ class QumodeCircuit(Operation):
         else:
             return all_results
 
-    def _sample_mcmc_gaussian(self, shots: int, cov: torch.Tensor, mean:torch.Tensor, detector: str, num_chain: int):
+    def _sample_mcmc_gaussian(self, shots: int, cov: torch.Tensor, mean: torch.Tensor, detector: str, num_chain: int):
         """Sample the output states for Gaussian backend via SC-MCMC method."""
         self.cov = cov
         self.mean = mean
