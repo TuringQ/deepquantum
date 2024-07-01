@@ -365,25 +365,20 @@ class QumodeCircuit(Operation):
         if detector == 'pnrd':
             odd_basis, even_basis = self._get_odd_even_fock_basis()
             final_states = even_basis
+            final_states_disp = torch.cat([even_basis, odd_basis])
+            keys = list(map(FockState, final_states_disp.tolist()))
         elif detector == 'threshold':
             final_states = torch.tensor(list(itertools.product(range(2), repeat=self.nmode)))
+            keys = list(map(FockState, final_states.tolist()))
         probs = []
-        keys = list(map(FockState, final_states.tolist()))
         for i in range(batch):
             if detector == 'pnrd' and not torch.allclose(mean[i], torch.zeros_like(mean[i])):
-                final_states_disp = torch.tensor(list(itertools.product(range(self.cutoff), repeat=self.nmode)))
-                keys = list(map(FockState, final_states_disp.tolist()))
-                print(keys, final_states_disp)
-                final_states_ = final_states_disp
-                probs_i = self._get_probs_gbs_helper(final_states_, cov[i], mean[i], detector)
+                probs_i = self._get_probs_gbs_helper(final_states_disp, cov[i], mean[i], detector)
             else:
-                final_states_ = final_states
-                probs_i = self._get_probs_gbs_helper(final_states_, cov[i], mean[i], detector)
+                probs_i = self._get_probs_gbs_helper(final_states, cov[i], mean[i], detector)
                 if detector == 'pnrd':
                     probs_i = torch.cat([probs_i.squeeze(), torch.zeros(len(odd_basis))])
-                    keys = list(map(FockState, torch.cat([even_basis, odd_basis]).tolist()))
             probs.append(probs_i.squeeze())
-            print(probs)
         return dict(zip(keys, torch.stack(probs).mT))
 
     def  _get_odd_even_fock_basis(self):
@@ -647,7 +642,7 @@ class QumodeCircuit(Operation):
         self.mean = mean
         self.detector = detector
         if detector == 'threshold' and not torch.allclose(mean, torch.zeros_like(mean)):
-            print('using pnrd for threshold displaced state detector')
+            print('using pnrd for displaced state when detector is threshold')
             self.detector = 'pnrd'
             merged_samples_pnrd = sample_sc_mcmc(prob_func=self._get_prob_gaussian_single,
                                                  proposal_sampler=self._proposal_sampler,
@@ -700,11 +695,9 @@ class QumodeCircuit(Operation):
 
         if detector == 'pnrd':
             if purity:
-                sub_haf = hafnian(sub_mat, loop=if_loop, atol=1e-5)
                 haf = abs(hafnian(sub_mat, loop=if_loop, atol=1e-5)) ** 2
             else:
                 haf = hafnian(sub_mat, loop=if_loop, atol=1e-5)
-            print(final_state,if_loop, 'sub_haf', sub_haf)
             prob = p_vac * haf / product_factorial(final_state)
         elif detector == 'threshold':
             assert max(final_state) < 2, 'Threshold detector with maximum 1 photon'
