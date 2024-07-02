@@ -41,7 +41,7 @@ class QumodeCircuit(Operation):
         basis (bool, optional): Whether to use the representation of Fock basis state for the initial state.
             Default: ``True``
         detector (str, optional): For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector
-            or ``'threshold'`` for the threshold detector. Default: `'pnrd'``
+            or ``'threshold'`` for the threshold detector. Default: ``'pnrd'``
         name (str or None, optional): The name of the circuit. Default: ``None``
         mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
         chi (int or None, optional): The bond dimension for matrix product state representation.
@@ -718,7 +718,7 @@ class QumodeCircuit(Operation):
 
     def _measure_gaussian(self, shots: int = 1024, with_prob: bool = False, detector: Optional[str] = None) -> Dict:
         """Measure the final state for Gaussian backend.
-        
+
         See https://arxiv.org/pdf/2108.01622
         """
         if detector is None:

@@ -1,9 +1,8 @@
-import os
-os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
-
 import deepquantum as dq
 import numpy as np
 import pytest
+import thewalrus
+import torch
 
 
 def test_random_circuit_two_approaches():
@@ -63,3 +62,26 @@ def test_random_circuit_two_approaches():
         if tmp_error > max_error:
             max_error = tmp_error
     assert max_error < 1e-4
+
+
+def test_gaussian_prob_random_circuit():
+    para_r = np.random.uniform(0, 1, [1, 4])[0]
+    para_theta = np.random.uniform(0, 2 * np.pi, [1, 6])[0]
+
+    cir = dq.QumodeCircuit(nmode=2, init_state='vac', cutoff=5, backend='gaussian')
+    cir.s(wires=0, inputs=[para_r[0], para_theta[0]])
+    cir.s(wires=1, inputs=[para_r[1], para_theta[1]])
+    cir.d(wires=0, inputs=[para_r[2], para_theta[2]])
+    cir.d(wires=1, inputs=[para_r[3], para_theta[3]])
+    cir.bs(wires=[0,1], inputs=[para_theta[4], para_theta[5]])
+
+    cir.to(torch.double)
+    cov, mean = cir(is_prob=False)
+    state = cir(is_prob=True)
+
+    test_prob = thewalrus.quantum.probabilities(mu=mean[0].squeeze().numpy(), cov=cov[0].numpy(), cutoff=5)
+    error = []
+    for i in state.keys():
+        idx = i.state.tolist()
+        error.append(abs(test_prob[tuple(idx)] - state[i].item()))
+    assert sum(error) < 1e-10
