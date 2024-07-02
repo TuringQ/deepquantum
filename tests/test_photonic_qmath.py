@@ -1,6 +1,3 @@
-import os
-os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
-
 import deepquantum.photonic as dqp
 import networkx as nx
 import numpy as np
