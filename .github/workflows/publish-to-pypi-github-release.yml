@@ -13,15 +13,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Check if tag is on main branch
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Check if tag is on latest main
       run: |
-        if [[ $(git branch --contains ${{ github.ref }}) == *"main"* ]]; then
-          echo "This tag is on the main branch"
+        LATEST_MAIN=$(git rev-parse origin/main)
+        TAG_COMMIT=$(git rev-list -n 1 ${{ github.ref }})
+        if [[ "$LATEST_MAIN" == "$TAG_COMMIT" ]]; then
+          echo "This tag is on the latest commit of the main branch"
         else
-          echo "This tag is not on the main branch"
+          echo "This tag is not on the latest commit of the main branch"
           exit 1
         fi
-    - uses: actions/checkout@v4
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
@@ -35,7 +39,7 @@ jobs:
     - name: Build a binary wheel and a source tarball
       run: python3 -m build
     - name: Store the distribution packages
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: python-package-distributions
         path: dist/
@@ -54,7 +58,7 @@ jobs:
 
     steps:
     - name: Download all the dists
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: python-package-distributions
         path: dist/
@@ -75,7 +79,7 @@ jobs:
 
     steps:
     - name: Download all the dists
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: python-package-distributions
         path: dist/
@@ -119,7 +123,7 @@ jobs:
 
     steps:
     - name: Download all the dists
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: python-package-distributions
         path: dist/
