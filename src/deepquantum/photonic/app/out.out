@@ -1,0 +1,11 @@
+************* Module subgraph
+subgraph.py:13:0: R0914: Too many local variables (22/15) (too-many-locals)
+subgraph.py:68:17: C0103: Variable name "w" doesn't conform to snake_case naming style (invalid-name)
+subgraph.py:170:8: C0103: Variable name "w" doesn't conform to snake_case naming style (invalid-name)
+subgraph.py:173:8: C0103: Variable name "w" doesn't conform to snake_case naming style (invalid-name)
+subgraph.py:188:4: C0200: Consider using enumerate instead of iterating with range and len (consider-using-enumerate)
+subgraph.py:194:16: C0103: Variable name "r" doesn't conform to snake_case naming style (invalid-name)
+
+------------------------------------------------------------------
+Your code has been rated at 9.25/10 (previous run: 9.12/10, +0.12)
+
