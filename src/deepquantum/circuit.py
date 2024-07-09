@@ -70,7 +70,6 @@ class QubitCircuit(Operation):
         self.encoders = []
         self.observables = nn.ModuleList()
         self.state = None
-        self.npara = 0
         self.ndata = 0
         self.depth = np.array([0] * nqubit)
         self.reupload = reupload
