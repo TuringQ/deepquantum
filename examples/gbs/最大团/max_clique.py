@@ -9,6 +9,10 @@ import networkx as nx
 import numpy as np
 import torch
 
+from strawberryfields.app import clique
+
+
+
 def clique_shrink(samples, graph, node_select= "uniform") -> list:
     """Shrinks an input subgraph until it forms a clique, code from strawberryfields.
 

@@ -343,7 +343,7 @@ def sample_sc_mcmc(prob_func: Callable,
     return merged_samples
 
 def get_subsets(n):
-    '''Get powerset of [0, 1, ... , n-1]'''
+    """Get powerset of [0, 1, ... , n-1]"""
     subsets = [ ]
     for k in range(n+1):
         subset = [ ]
@@ -353,7 +353,7 @@ def get_subsets(n):
     return subsets
 
 def integer_partition(m, n):
-    """ integer partition"""
+    """integer partition"""
     results = [ ]
     def back_trace(m, n, result=[]):
         if m == 0:
@@ -380,7 +380,7 @@ def count_unique_permutations(nums):
     return backtrack(Counter(nums))
 
 def get_submat_haf(a, z):
-    '''Get submat for hafnian calculation'''
+    """Get submat for hafnian calculation"""
     if not isinstance(z, torch.Tensor):
         z = torch.tensor(z)
     idx1 = 2 * z
@@ -391,7 +391,7 @@ def get_submat_haf(a, z):
     return submat
 
 def get_submat_tor(a, z):
-    '''Get submat for torontonian calculation'''
+    """Get submat for torontonian calculation"""
     if not isinstance(z, torch.Tensor):
         z = torch.tensor(z)
     len_ = a.size()[-1]
@@ -405,9 +405,7 @@ def get_submat_tor(a, z):
         return a[idx][:, idx]
 
 def p_labda(submat, power, if_loop=False):
-    """
-    Return the coefficient of polynomial.
-    """
+    """Return the coefficient of polynomial."""
     sigma_x = torch.tensor([[0, 1], [1, 0]])
     len_ = int(submat.size()[-1]/2)
     x_mat = torch.block_diag(*[sigma_x]*len_)
