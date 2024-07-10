@@ -20,7 +20,7 @@ from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitter
 from .gate import Squeezing, Displacement, DisplacementPosition, DisplacementMomentum
 from .operation import Operation, Gate
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
-from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc
+from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc, hafnian_torch, torontonian_torch
 from .state import FockState, GaussianState
 from ..state import MatrixProductState
 
@@ -618,8 +618,12 @@ class QumodeCircuit(Operation):
             p_vac = torch.exp(-gamma @ mean_ladder.squeeze() / 2) / torch.sqrt(det_q)
             if purity:
                 haf = abs(hafnian(sub_mat, loop=if_loop, atol=1e-5)) ** 2
+                haf2 = abs(hafnian_torch(torch.tensor(sub_mat), if_loop=if_loop)) ** 2
+
             else:
                 haf = hafnian(sub_mat, loop=if_loop, atol=1e-5)
+                haf2 = hafnian_torch(torch.tensor(sub_mat), if_loop=if_loop)
+
             prob = p_vac * haf / product_factorial(final_state)
         elif detector == 'threshold':
             assert max(final_state) < 2, 'Threshold detector with maximum 1 photon'
@@ -627,6 +631,7 @@ class QumodeCircuit(Operation):
                 raise NotImplementedError('Threshold measurement for the displaced states is NOT supported')
             else:
                 prob = tor(sub_mat) / torch.sqrt(det_q)
+
         return abs(prob.real)
 
     def measure(
