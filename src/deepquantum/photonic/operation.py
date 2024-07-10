@@ -22,19 +22,28 @@ class Operation(nn.Module):
         wires (int, List or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int, optional): The Fock space truncation. Default: 2
+        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
+        mu (float, optional): The mean of Gaussian noise. Default: 0
+        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
     def __init__(
         self,
         name: Optional[str] = None,
         nmode: int = 1,
         wires: Union[int, List, None] = None,
-        cutoff: int = 2
+        cutoff: int = 2,
+        noise: bool = False,
+        mu: float = 0,
+        sigma: float = 0.1
     ) -> None:
         super().__init__()
         self.name = name
         self.nmode = nmode
         self.wires = wires
         self.cutoff = cutoff
+        self.noise = noise
+        self.mu = mu
+        self.sigma = sigma
         self.npara = 0
 
     def tensor_rep(self, x: torch.Tensor) -> torch.Tensor:
@@ -77,13 +86,22 @@ class Gate(Operation):
         wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int, optional): The Fock space truncation. Default: ``None``
+        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
+        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
+        mu (float, optional): The mean of Gaussian noise. Default: 0
+        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
     def __init__(
         self,
         name: Optional[str] = None,
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
-        cutoff: Optional[int] = None
+        cutoff: Optional[int] = None,
+        requires_grad: bool = False,
+        noise: bool = False,
+        mu: float = 0,
+        sigma: float = 0.1
     ) -> None:
         self.nmode = nmode
         if wires is None:
@@ -91,7 +109,8 @@ class Gate(Operation):
         wires = self._convert_indices(wires)
         if cutoff is None:
             cutoff = 2
-        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff)
+        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, noise=noise, mu=mu, sigma=sigma)
+        self.requires_grad = requires_grad
 
     def update_matrix(self) -> torch.Tensor:
         """Update the local unitary matrix acting on creation operators."""
@@ -259,3 +278,6 @@ class Gate(Operation):
             return self.op_state_tensor(x)
         elif isinstance(x, list):
             return self.op_gaussian(x)
+
+    def extra_repr(self) -> str:
+        return f'wires={self.wires}'
