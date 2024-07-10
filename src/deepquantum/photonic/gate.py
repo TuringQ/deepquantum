@@ -23,6 +23,25 @@ class PhaseShift(Gate):
 
         U_{\text{PS}}(\theta) = e^{i\theta}
 
+    **Symplectic Transformation:**
+
+    .. math::
+
+        PS^{\dagger}(\theta)
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p} \\
+        \end{pmatrix}
+        PS(\theta) =
+        \begin{pmatrix}
+            \cos\theta & -\sin\theta \\
+            \sin\theta &  \cos\theta \\
+        \end{pmatrix}
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p} \\
+        \end{pmatrix}
+
     Args:
         inputs (Any, optional): The parameter of the gate. Default: ``None``
         nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
@@ -48,13 +67,10 @@ class PhaseShift(Gate):
         sigma: float = 0.1,
         inv_mode: bool = False
     ) -> None:
-        super().__init__(name='PhaseShift', nmode=nmode, wires=wires, cutoff=cutoff)
+        super().__init__(name='PhaseShift', nmode=nmode, wires=wires, cutoff=cutoff, requires_grad=requires_grad,
+                         noise=noise, mu=mu, sigma=sigma)
         assert len(self.wires) == 1, 'PS gate acts on single mode'
         self.npara = 1
-        self.requires_grad = requires_grad
-        self.noise = noise
-        self.mu = mu
-        self.sigma = sigma
         self.inv_mode = inv_mode
         self.init_para(inputs=inputs)
 
@@ -107,13 +123,23 @@ class PhaseShift(Gate):
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        theta = self.inputs_to_tensor(inputs=inputs)
+        noise = self.noise
+        self.noise = False
+        theta = self.inputs_to_tensor(inputs)
+        self.noise = noise
         if self.requires_grad:
             self.theta = nn.Parameter(theta)
         else:
             self.register_buffer('theta', theta)
         self.update_matrix()
         self.update_transform_xp()
+
+    def extra_repr(self) -> str:
+        if self.inv_mode:
+            theta = -self.theta
+        else:
+            theta = self.theta
+        return f'wires={self.wires}, theta={theta.item()}'
 
 
 class BeamSplitter(Gate):
@@ -151,12 +177,12 @@ class BeamSplitter(Gate):
         \end{pmatrix}
 
     Args:
-        inputs (Any, optional): The parameters of the gate. Default: ``None``
+        inputs (Any, optional): The parameters of the gate (:math:`\theta` and :math:`\phi`). Default: ``None``
         nmode (int, optional): The number of modes that the quantum operation acts on. Default: 2
         wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
         mu (float, optional): The mean of Gaussian noise. Default: 0
@@ -175,17 +201,14 @@ class BeamSplitter(Gate):
     ) -> None:
         if wires is None:
             wires = [0, 1]
-        super().__init__(name='BeamSplitter', nmode=nmode, wires=wires, cutoff=cutoff)
-        assert len(self.wires) == 2, 'BS gate must act on two wires'
-        assert self.wires[0] + 1 == self.wires[1], 'BS gate must act on the neighbor wires'
+        super().__init__(name='BeamSplitter', nmode=nmode, wires=wires, cutoff=cutoff, requires_grad=requires_grad,
+                         noise=noise, mu=mu, sigma=sigma)
+        assert len(self.wires) == 2, f'{self.name} must act on two wires'
+        assert self.wires[0] + 1 == self.wires[1], f'{self.name} must act on the adjacent wires'
         self.npara = 2
-        self.requires_grad = requires_grad
-        self.noise = noise
-        self.mu = mu
-        self.sigma = sigma
         self.init_para(inputs=inputs)
 
-    def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor]:
+    def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """Convert inputs to torch.Tensor."""
         if inputs is None:
             theta = torch.rand(1)[0] * 2 * torch.pi
@@ -198,8 +221,13 @@ class BeamSplitter(Gate):
         if not isinstance(phi, (torch.Tensor, nn.Parameter)):
             phi = torch.tensor(phi, dtype=torch.float)
         if self.noise:
-            theta = theta + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
-            phi = phi + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+            theta, phi = self._add_noise(theta, phi)
+        return theta, phi
+
+    def _add_noise(self, theta: torch.Tensor, phi: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Add Gaussian noise to the parameters."""
+        theta = theta + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        phi = phi + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
         return theta, phi
 
     def get_matrix(self, theta: Any, phi: Any) -> torch.Tensor:
@@ -249,12 +277,11 @@ class BeamSplitter(Gate):
     def get_transform_xp(self, theta: Any, phi: Any) -> Tuple[torch.Tensor, torch.Tensor]:
         """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         theta, phi = self.inputs_to_tensor([theta, phi])
-        matrix = self.get_matrix(theta, phi)          # correspond to: U a^+ U^+ = u^T @ a^+ and U^+ a U = u @ a
-        # matrix = matrix.conj() # conflict with vmap # correspond to: U a U^+ = (u^*)^T @ a and U^+ a^+ U = u^* @ a^+
-        mat_real = matrix.real
-        mat_imag = -matrix.imag
-        matrix_xp = torch.cat([torch.cat([mat_real, mat_imag], dim=-1),
-                               torch.cat([-mat_imag, mat_real], dim=-1)], dim=-2)
+        matrix = self.get_matrix(theta, phi)
+        # correspond to: U a^+ U^+ = u^T @ a^+ and U^+ a U = u @ a
+        # correspond to: U a U^+ = (u^*)^T @ a and U^+ a^+ U = u^* @ a^+
+        matrix_xp = torch.cat([torch.cat([matrix.real, -matrix.imag], dim=-1),
+                               torch.cat([matrix.imag,  matrix.real], dim=-1)], dim=-2).reshape(4, 4)
         vector_xp = torch.zeros(4, 1, dtype=theta.dtype, device=theta.device)
         return matrix_xp, vector_xp
 
@@ -267,7 +294,10 @@ class BeamSplitter(Gate):
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        theta, phi = self.inputs_to_tensor(inputs=inputs)
+        noise = self.noise
+        self.noise = False
+        theta, phi = self.inputs_to_tensor(inputs)
+        self.noise = noise
         if self.requires_grad:
             self.theta = nn.Parameter(theta)
             self.phi = nn.Parameter(phi)
@@ -276,6 +306,9 @@ class BeamSplitter(Gate):
             self.register_buffer('phi', phi)
         self.update_matrix()
         self.update_transform_xp()
+
+    def extra_repr(self) -> str:
+        return f'wires={self.wires}, theta={self.theta.item()}, phi={self.phi.item()}'
 
 
 class MZI(BeamSplitter):
@@ -325,13 +358,13 @@ class MZI(BeamSplitter):
         \end{pmatrix}
 
     Args:
-        inputs (Any, optional): The parameters of the gate. Default: ``None``
+        inputs (Any, optional): The parameters of the gate (:math:`\theta` and :math:`\phi`). Default: ``None``
         nmode (int, optional): The number of modes that the quantum operation acts on. Default: 2
         wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
         phi_first (bool, optional): Whether :math:`\phi` is the first phase shifter. Default: ``True``
-        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
         mu (float, optional): The mean of Gaussian noise. Default: 0
@@ -426,17 +459,26 @@ class BeamSplitterTheta(BeamSplitter):
                          noise=noise, mu=mu, sigma=sigma)
         self.npara = 1
 
+    def _add_noise(self, theta: torch.Tensor, phi: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Add Gaussian noise to the parameters."""
+        theta = theta + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        return theta, phi
+
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
         if inputs is None:
             inputs = torch.rand(1)[0] * 2 * torch.pi
-        theta, phi = self.inputs_to_tensor(inputs=[inputs, torch.pi / 2])
+        noise = self.noise
+        self.noise = False
+        theta, phi = self.inputs_to_tensor([inputs, torch.pi / 2])
+        self.noise = noise
         if self.requires_grad:
             self.theta = nn.Parameter(theta)
         else:
             self.register_buffer('theta', theta)
         self.register_buffer('phi', phi)
         self.update_matrix()
+        self.update_transform_xp()
 
 
 class BeamSplitterPhi(BeamSplitter):
@@ -498,17 +540,26 @@ class BeamSplitterPhi(BeamSplitter):
                          noise=noise, mu=mu, sigma=sigma)
         self.npara = 1
 
+    def _add_noise(self, theta: torch.Tensor, phi: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Add Gaussian noise to the parameters."""
+        phi = phi + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        return theta, phi
+
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
         if inputs is None:
             inputs = torch.rand(1)[0] * 2 * torch.pi
-        theta, phi = self.inputs_to_tensor(inputs=[torch.pi / 4, inputs])
+        noise = self.noise
+        self.noise = False
+        theta, phi = self.inputs_to_tensor([torch.pi / 4, inputs])
+        self.noise = noise
         if self.requires_grad:
             self.phi = nn.Parameter(phi)
         else:
             self.register_buffer('phi', phi)
         self.register_buffer('theta', theta)
         self.update_matrix()
+        self.update_transform_xp()
 
 
 class BeamSplitterSingle(BeamSplitter):
@@ -629,12 +680,11 @@ class BeamSplitterSingle(BeamSplitter):
     def get_transform_xp(self, theta: Any) -> Tuple[torch.Tensor, torch.Tensor]:
         """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         theta = self.inputs_to_tensor(theta)
-        matrix = self.get_matrix(theta)               # correspond to: U a^+ U^+ = u^T @ a^+ and U^+ a U = u @ a
-        # matrix = matrix.conj() # conflict with vmap # correspond to: U a U^+ = (u^*)^T @ a and U^+ a^+ U = u^* @ a^+
-        mat_real = matrix.real
-        mat_imag = -matrix.imag
-        matrix_xp = torch.cat([torch.cat([mat_real, mat_imag], dim=-1),
-                               torch.cat([-mat_imag, mat_real], dim=-1)], dim=-2)
+        matrix = self.get_matrix(theta)
+        # correspond to: U a^+ U^+ = u^T @ a^+ and U^+ a U = u @ a
+        # correspond to: U a U^+ = (u^*)^T @ a and U^+ a^+ U = u^* @ a^+
+        matrix_xp = torch.cat([torch.cat([matrix.real, -matrix.imag], dim=-1),
+                               torch.cat([matrix.imag,  matrix.real], dim=-1)], dim=-2).reshape(4, 4)
         vector_xp = torch.zeros(4, 1, dtype=theta.dtype, device=theta.device)
         return matrix_xp, vector_xp
 
@@ -647,13 +697,19 @@ class BeamSplitterSingle(BeamSplitter):
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        theta = self.inputs_to_tensor(inputs=inputs)
+        noise = self.noise
+        self.noise = False
+        theta = self.inputs_to_tensor(inputs)
+        self.noise = noise
         if self.requires_grad:
             self.theta = nn.Parameter(theta)
         else:
             self.register_buffer('theta', theta)
         self.update_matrix()
         self.update_transform_xp()
+
+    def extra_repr(self) -> str:
+        return f'wires={self.wires}, theta={self.theta.item()}'
 
 
 class UAnyGate(Gate):
@@ -684,7 +740,7 @@ class UAnyGate(Gate):
                 minmax = [0, nmode - 1]
             self._check_minmax(minmax)
             wires = list(range(minmax[0], minmax[1] + 1))
-        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff)
+        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, requires_grad=False, noise=False)
         self.minmax = [min(self.wires), max(self.wires)]
         for i in range(len(self.wires) - 1):
             assert self.wires[i] + 1 == self.wires[i + 1], 'The wires should be consecutive integers'
@@ -740,12 +796,10 @@ class UAnyGate(Gate):
         """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         # correspond to: U a^+ U^+ = u^T @ a^+ and U^+ a U = u @ a
         # correspond to: U a U^+ = (u^*)^T @ a and U^+ a^+ U = u^* @ a^+
-        # matrix = matrix.conj() # conflict with vmap
-        mat_real = matrix.real
-        mat_imag = -matrix.imag
-        matrix_xp = torch.cat([torch.cat([mat_real, mat_imag], dim=-1),
-                               torch.cat([-mat_imag, mat_real], dim=-1)], dim=-2)
-        vector_xp = torch.zeros(2 * self.nmode, 1, dtype=mat_real.dtype, device=mat_real.device)
+        matrix_xp = torch.cat([torch.cat([matrix.real, -matrix.imag], dim=-1),
+                               torch.cat([matrix.imag,  matrix.real], dim=-1)], dim=-2)
+        matrix_xp = matrix_xp.reshape(2 * self.nmode, 2 * self.nmode)
+        vector_xp = torch.zeros(2 * self.nmode, 1, dtype=matrix.real.dtype, device=matrix.real.device)
         return matrix_xp, vector_xp
 
     def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -768,7 +822,7 @@ class Squeezing(Gate):
             \hat{x} \\
             \hat{p} \\
         \end{pmatrix}
-        S(r,\theta) =
+        S(r, \theta) =
         \begin{pmatrix}
             \cosh r - \sinh r \cos\theta & -\sinh r \sin\theta \\
             -\sinh r \sin\theta & \cosh r + \sinh r \cos\theta \\
@@ -784,7 +838,7 @@ class Squeezing(Gate):
         wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
         mu (float, optional): The mean of Gaussian noise. Default: 0
@@ -801,16 +855,13 @@ class Squeezing(Gate):
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(name='Squeezing', nmode=nmode, wires=wires, cutoff=cutoff)
+        super().__init__(name='Squeezing', nmode=nmode, wires=wires, cutoff=cutoff, requires_grad=requires_grad,
+                         noise=noise, mu=mu, sigma=sigma)
         assert len(self.wires) == 1, 'Squeezing gate acts on single mode'
         self.npara = 2
-        self.requires_grad = requires_grad
-        self.noise = noise
-        self.mu = mu
-        self.sigma = sigma
         self.init_para(inputs=inputs)
 
-    def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor]:
+    def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """Convert inputs to torch.Tensor."""
         if inputs is None:
             r = torch.rand(1)[0]
@@ -884,7 +935,10 @@ class Squeezing(Gate):
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        r, theta = self.inputs_to_tensor(inputs=inputs)
+        noise = self.noise
+        self.noise = False
+        r, theta = self.inputs_to_tensor(inputs)
+        self.noise = noise
         if self.requires_grad:
             self.r = nn.Parameter(r)
             self.theta = nn.Parameter(theta)
@@ -894,6 +948,9 @@ class Squeezing(Gate):
         self.update_matrix()
         self.update_transform_xp()
 
+    def extra_repr(self) -> str:
+        return f'wires={self.wires}, r={self.r.item()}, theta={self.theta.item()}'
+
 
 class Displacement(Gate):
     r"""Displacement gate.
@@ -901,12 +958,12 @@ class Displacement(Gate):
     **Symplectic Transformation:**
 
     .. math::
-        D^\dagger(\alpha)
+        D^\dagger(r, \theta)
         \begin{pmatrix}
             \hat{x} \\
             \hat{p} \\
         \end{pmatrix}
-        D(\alpha) =
+        D(r, \theta) =
         \begin{pmatrix}
             \hat{x} \\
             \hat{p} \\
@@ -922,7 +979,7 @@ class Displacement(Gate):
         wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
         mu (float, optional): The mean of Gaussian noise. Default: 0
@@ -939,16 +996,13 @@ class Displacement(Gate):
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(name='Displacement', nmode=nmode, wires=wires, cutoff=cutoff)
+        super().__init__(name='Displacement', nmode=nmode, wires=wires, cutoff=cutoff, requires_grad=requires_grad,
+                         noise=noise, mu=mu, sigma=sigma)
         assert len(self.wires) == 1, 'Displacement gate acts on single mode'
         self.npara = 2
-        self.requires_grad = requires_grad
-        self.noise = noise
-        self.mu = mu
-        self.sigma = sigma
         self.init_para(inputs=inputs)
 
-    def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor]:
+    def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """Convert inputs to torch.Tensor."""
         if inputs is None:
             r = torch.rand(1)[0]
@@ -961,8 +1015,13 @@ class Displacement(Gate):
         if not isinstance(theta, (torch.Tensor, nn.Parameter)):
             theta = torch.tensor(theta, dtype=torch.float)
         if self.noise:
-            r = r + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
-            theta = theta + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+            r, theta = self._add_noise(r, theta)
+        return r, theta
+
+    def _add_noise(self, r: torch.Tensor, theta: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Add Gaussian noise to the parameters."""
+        r = r + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        theta = theta + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
         return r, theta
 
     def get_matrix(self, r: Any, theta: Any) -> torch.Tensor:
@@ -980,7 +1039,7 @@ class Displacement(Gate):
 
         See https://arxiv.org/pdf/2004.11002.pdf Eq.(57) and Eq.(58)
         """
-        r, theta = self.inputs_to_tensor(inputs=[r, theta])
+        r, theta = self.inputs_to_tensor([r, theta])
         sqrt = torch.sqrt(torch.arange(self.cutoff, device=r.device))
         alpha = r * torch.exp(1j * theta)
         alpha_c = r * torch.exp(-1j * theta)
@@ -1018,12 +1077,162 @@ class Displacement(Gate):
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        r, theta = self.inputs_to_tensor(inputs=inputs)
+        noise = self.noise
+        self.noise = False
+        r, theta = self.inputs_to_tensor(inputs)
+        self.noise = noise
         if self.requires_grad:
             self.r = nn.Parameter(r)
             self.theta = nn.Parameter(theta)
         else:
             self.register_buffer('r', r)
             self.register_buffer('theta', theta)
+        self.update_matrix()
+        self.update_transform_xp()
+
+    def extra_repr(self) -> str:
+        return f'wires={self.wires}, r={self.r.item()}, theta={self.theta.item()}'
+
+
+class DisplacementPosition(Displacement):
+    r"""Position Displacement gate.
+
+    **Symplectic Transformation:**
+
+    .. math::
+        X^\dagger(x)
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p} \\
+        \end{pmatrix}
+        X(x) =
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p} \\
+        \end{pmatrix} +
+        \begin{pmatrix}
+            x \\
+            0 \\
+        \end{pmatrix}
+
+    Args:
+        inputs (Any, optional): The parameter of the gate. Default: ``None``
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
+        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
+        mu (float, optional): The mean of Gaussian noise. Default: 0
+        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nmode: int = 1,
+        wires: Union[int, List[int], None] = None,
+        cutoff: Optional[int] = None,
+        requires_grad: bool = False,
+        noise: bool = False,
+        mu: float = 0,
+        sigma: float = 0.1
+    ) -> None:
+        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, requires_grad=requires_grad,
+                         noise=noise, mu=mu, sigma=sigma)
+        self.name = 'DisplacementPosition'
+        self.npara = 1
+
+    def _add_noise(self, r: torch.Tensor, theta: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Add Gaussian noise to the parameters."""
+        r = r + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        return r, theta
+
+    def init_para(self, inputs: Any = None) -> None:
+        """Initialize the parameters."""
+        if inputs is None:
+            inputs = torch.rand(1)[0] * 2 - 1
+        inputs = inputs * dqp.kappa / dqp.hbar ** 0.5
+        noise = self.noise
+        self.noise = False
+        r, theta = self.inputs_to_tensor([inputs, 0])
+        self.noise = noise
+        if self.requires_grad:
+            self.r = nn.Parameter(r)
+        else:
+            self.register_buffer('r', r)
+        self.register_buffer('theta', theta)
+        self.update_matrix()
+        self.update_transform_xp()
+
+
+class DisplacementMomentum(Displacement):
+    r"""Momentum Displacement gate.
+
+    **Symplectic Transformation:**
+
+    .. math::
+        Z^\dagger(p)
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p} \\
+        \end{pmatrix}
+        Z(p) =
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p} \\
+        \end{pmatrix} +
+        \begin{pmatrix}
+            0 \\
+            p \\
+        \end{pmatrix}
+
+    Args:
+        inputs (Any, optional): The parameter of the gate. Default: ``None``
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
+        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
+        mu (float, optional): The mean of Gaussian noise. Default: 0
+        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nmode: int = 1,
+        wires: Union[int, List[int], None] = None,
+        cutoff: Optional[int] = None,
+        requires_grad: bool = False,
+        noise: bool = False,
+        mu: float = 0,
+        sigma: float = 0.1
+    ) -> None:
+        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, requires_grad=requires_grad,
+                         noise=noise, mu=mu, sigma=sigma)
+        self.name = 'DisplacementMomentum'
+        self.npara = 1
+
+    def _add_noise(self, r: torch.Tensor, theta: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Add Gaussian noise to the parameters."""
+        r = r + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        return r, theta
+
+    def init_para(self, inputs: Any = None) -> None:
+        """Initialize the parameters."""
+        if inputs is None:
+            inputs = torch.rand(1)[0] * 2 - 1
+        inputs = inputs * dqp.kappa / dqp.hbar ** 0.5
+        noise = self.noise
+        self.noise = False
+        r, theta = self.inputs_to_tensor([inputs, torch.pi / 2])
+        self.noise = noise
+        if self.requires_grad:
+            self.r = nn.Parameter(r)
+        else:
+            self.register_buffer('r', r)
+        self.register_buffer('theta', theta)
         self.update_matrix()
         self.update_transform_xp()

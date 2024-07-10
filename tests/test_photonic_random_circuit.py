@@ -69,11 +69,11 @@ def test_gaussian_prob_random_circuit():
     para_theta = np.random.uniform(0, 2 * np.pi, [1, 6])[0]
 
     cir = dq.QumodeCircuit(nmode=2, init_state='vac', cutoff=5, backend='gaussian')
-    cir.s(wires=0, inputs=[para_r[0], para_theta[0]])
-    cir.s(wires=1, inputs=[para_r[1], para_theta[1]])
-    cir.d(wires=0, inputs=[para_r[2], para_theta[2]])
-    cir.d(wires=1, inputs=[para_r[3], para_theta[3]])
-    cir.bs(wires=[0,1], inputs=[para_theta[4], para_theta[5]])
+    cir.s(0, para_r[0], para_theta[0])
+    cir.s(1, para_r[1], para_theta[1])
+    cir.d(0, para_r[2], para_theta[2])
+    cir.d(1, para_r[3], para_theta[3])
+    cir.bs([0,1], [para_theta[4], para_theta[5]])
 
     cir.to(torch.double)
     cov, mean = cir(is_prob=False)
