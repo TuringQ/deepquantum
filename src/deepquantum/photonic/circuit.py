@@ -17,7 +17,7 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 from .decompose import UnitaryDecomposer
 from .draw import DrawCircuit
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
-from .gate import Squeezing, Displacement
+from .gate import Squeezing, Displacement, DisplacementPosition, DisplacementMomentum
 from .operation import Operation, Gate
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
 from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc
@@ -65,7 +65,7 @@ class QumodeCircuit(Operation):
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(name=name, nmode=nmode, wires=list(range(nmode)))
+        super().__init__(name=name, nmode=nmode, wires=list(range(nmode)), noise=noise, mu=mu, sigma=sigma)
         if isinstance(init_state, (FockState, GaussianState, MatrixProductState)):
             if isinstance(init_state, MatrixProductState):
                 assert nmode == init_state.nsite
@@ -103,11 +103,7 @@ class QumodeCircuit(Operation):
         self.detector = detector.lower()
         self.mps = mps
         self.chi = chi
-        self.noise = noise
-        self.mu = mu
-        self.sigma = sigma
         self.state = None
-        self.npara = 0
         self.ndata = 0
         self.depth = np.array([0] * nmode)
 
@@ -615,7 +611,8 @@ class QumodeCircuit(Operation):
         else:
             final_state_double = torch.cat([final_state, final_state])
             sub_mat = sub_matrix(matrix, final_state_double, final_state_double)
-        sub_mat = sub_mat.cpu().numpy()
+        sub_mat = sub_mat.cpu().detach().numpy()
+        sub_gamma = sub_gamma.cpu().detach().numpy()
         np.fill_diagonal(sub_mat, sub_gamma) # replace all diagonal terms
         if detector == 'pnrd':
             p_vac = torch.exp(-gamma @ mean_ladder.squeeze() / 2) / torch.sqrt(det_q)
@@ -867,6 +864,11 @@ class QumodeCircuit(Operation):
         samples = MultivariateNormal(mean_sub, cov_sub).sample([shots]) # (shots, batch, 2 * nwire)
         return samples.permute(1, 0, 2).squeeze()
 
+    @property
+    def max_depth(self) -> int:
+        """Get the max number of gates on the wires."""
+        return max(self.depth)
+
     def draw(self, filename: Optional[str] = None):
         """Visualize the photonic quantum circuit.
 
@@ -1092,12 +1094,7 @@ class QumodeCircuit(Operation):
                                 requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(bs, encode=encode)
 
-    def dc(
-        self,
-        wires: List[int],
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
-    ) -> None:
+    def dc(self, wires: List[int], mu: Optional[float] = None, sigma: Optional[float] = None) -> None:
         """Add a directional coupler."""
         theta = torch.pi / 2
         if mu is None:
@@ -1108,12 +1105,7 @@ class QumodeCircuit(Operation):
                                 requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
         self.add(bs, encode=False)
 
-    def h(
-        self,
-        wires: List[int],
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
-    ) -> None:
+    def h(self, wires: List[int], mu: Optional[float] = None, sigma: Optional[float] = None) -> None:
         """Add a photonic Hadamard gate."""
         theta = torch.pi / 2
         if mu is None:
@@ -1186,15 +1178,24 @@ class QumodeCircuit(Operation):
     def s(
         self,
         wires: int,
-        inputs: Any = None,
+        r: Any = None,
+        theta: Any = None,
         encode: bool = False,
         mu: Optional[float] = None,
         sigma: Optional[float] = None
     ) -> None:
         """Add a squeezing gate."""
         requires_grad = not encode
-        if inputs is not None:
+        if r is None and theta is None:
+            inputs = None
+        else:
             requires_grad = False
+            if r is None:
+                inputs = [torch.rand(1)[0], theta]
+            elif theta is None:
+                inputs = [r, 0]
+            else:
+                inputs = [r, theta]
         if mu is None:
             mu = self.mu
         if sigma is None:
@@ -1206,15 +1207,24 @@ class QumodeCircuit(Operation):
     def d(
         self,
         wires: int,
-        inputs: Any = None,
+        r: Any = None,
+        theta: Any = None,
         encode: bool = False,
         mu: Optional[float] = None,
         sigma: Optional[float] = None
     ) -> None:
         """Add a displacement gate."""
         requires_grad = not encode
-        if inputs is not None:
+        if r is None and theta is None:
+            inputs = None
+        else:
             requires_grad = False
+            if r is None:
+                inputs = [torch.rand(1)[0], theta]
+            elif theta is None:
+                inputs = [r, 0]
+            else:
+                inputs = [r, theta]
         if mu is None:
             mu = self.mu
         if sigma is None:
@@ -1222,6 +1232,46 @@ class QumodeCircuit(Operation):
         d = Displacement(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
                          requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(d, encode=encode)
+
+    def x(
+        self,
+        wires: int,
+        inputs: Any = None,
+        encode: bool = False,
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
+    ) -> None:
+        """Add a position displacement gate."""
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        dx = DisplacementPosition(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+                                  requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        self.add(dx, encode=encode)
+
+    def z(
+        self,
+        wires: int,
+        inputs: Any = None,
+        encode: bool = False,
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
+    ) -> None:
+        """Add a momentum displacement gate."""
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        dp = DisplacementMomentum(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+                                  requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        self.add(dp, encode=encode)
 
     def r(
         self,
@@ -1243,3 +1293,14 @@ class QumodeCircuit(Operation):
         r = PhaseShift(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
                        requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma, inv_mode=inv_mode)
         self.add(r, encode=encode)
+
+    def f(self, wires: List[int], mu: Optional[float] = None, sigma: Optional[float] = None) -> None:
+        """Add a Fourier gate."""
+        theta = torch.pi / 2
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        f = PhaseShift(inputs=theta, nmode=self.nmode, wires=wires, cutoff=self.cutoff, requires_grad=False,
+                       noise=self.noise, mu=mu, sigma=sigma)
+        self.add(f, encode=False)

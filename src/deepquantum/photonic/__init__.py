@@ -17,7 +17,7 @@ from .circuit import QumodeCircuit
 from .decompose import UnitaryDecomposer
 from .draw import DrawClements
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
-from .gate import Squeezing, Displacement
+from .gate import Squeezing, Displacement, DisplacementPosition, DisplacementMomentum
 from .mapper import UnitaryMapper
 from .qmath import permanent, takagi, xxpp_to_xpxp, xpxp_to_xxpp, quadrature_to_ladder, ladder_to_quadrature, hafnian, torontonian
 from .state import FockState, GaussianState

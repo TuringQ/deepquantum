@@ -101,10 +101,11 @@ print(cir.measure())
 
 ```python
 cir = dq.QumodeCircuit(2, 'vac', cutoff=10, backend='gaussian')
-cir.s(0, [0.1,0])
-cir.d(1, [0.1,0])
+cir.s(0, 0.1)
+cir.d(1, 0.1)
 cir.bs([0,1], [0.2,0.3])
 print(cir())
+print(cir.measure())
 print(cir.photon_number_mean_var(wires=0))
 print(cir.measure_homodyne(wires=1))
 ```
