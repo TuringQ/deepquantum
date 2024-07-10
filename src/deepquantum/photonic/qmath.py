@@ -407,37 +407,34 @@ def get_submat_tor(a, z):
 def p_labda(submat, power, if_loop=False):
     """Return the coefficient of polynomial."""
     sigma_x = torch.tensor([[0, 1], [1, 0]])
-    len_ = int(submat.size()[-1]/2)
+    len_ = int(submat.size()[-1] / 2)
     x_mat = torch.block_diag(*[sigma_x]*len_)
     x_mat = x_mat.to(submat.dtype)
     xaz = x_mat @ submat
     eigen = torch.linalg.eig(xaz)[0] #eigen decomposition
     trace_list = torch.stack([(eigen ** i).sum() for i in range(0, power+1)])
     int_partition = integer_partition(power, power)
-    num_permu = []
-    for i in int_partition:
-        num_permu.append(count_unique_permutations(i))
     if if_loop: #loop hafnian case
         v = torch.diag(submat)
         diag_contribution = torch.stack([v @ torch.linalg.matrix_power(xaz, i-1) @ x_mat @ v.reshape(-1,1)/2 for i in range(1, power+1)])
         diag_contribution = diag_contribution.squeeze()
         coeff =  0
         for k in range(len(int_partition)):
-            prefactor = num_permu[k]
             temp = int_partition[k]
+            prefactor = count_unique_permutations(temp)
             poly_list = trace_list[temp]/(2 * torch.tensor(temp)) + diag_contribution[np.array(temp)-1]
             poly_prod = poly_list.prod()
             coeff = coeff + prefactor/special.factorial(len(temp)) * poly_prod
     else:
         coeff =  0
         for k in range(len(int_partition)):
-            prefactor = num_permu[k]
             temp = int_partition[k]
+            prefactor = count_unique_permutations(temp)
             trace_prod = trace_list[temp].prod()
             coeff = coeff + prefactor/special.factorial(len(temp)) * trace_prod / (2**len(temp)*torch.tensor(temp).prod())
     return coeff
 
-def hafnian(A, if_loop = False, rtol=1e-05, atol=1e-06):
+def hafnian_torch(A, if_loop = False, rtol=1e-05, atol=1e-06):
     """
     Calculate the hafnian for symmetrix matrix, using eigenvalue-trace method
 
@@ -448,6 +445,9 @@ def hafnian(A, if_loop = False, rtol=1e-05, atol=1e-06):
 #     # vmap over torch.allclose isn't supported yet
 #     assert torch.allclose(A, A.mT, rtol=rtol, atol=atol), 'the input matrix should be symmetric'
     size = A.size()[-1]
+    if size % 2 == 1:  # consider odd case
+        A = torch.block_diag(torch.tensor(1), A)
+        size = A.size()[-1]
     if size == 0:
         return 1
     if size == 2:
@@ -455,8 +455,6 @@ def hafnian(A, if_loop = False, rtol=1e-05, atol=1e-06):
             return A[0, 1] + A[0, 0] * A[1, 1]
         else:
             return A[0, 1]
-    if A.size()[-1] % 2 == 1:  # consider odd case
-        A = torch.block_diag(torch.tensor(1), A)
     power = len(A)//2
     haf = 0
     z_sets = get_subsets(power)
@@ -477,7 +475,7 @@ def _tor_helper(submat, sub_gamma):
     exp_term  = sub_gamma @ inv_temp @ sub_gamma.conj()/2
     return torch.exp(exp_term)/torch.sqrt(torch.linalg.det(temp + 0j))
 
-def torontonian(o_mat, gamma=None):
+def torontonian_torch(o_mat, gamma=None):
     """
     Calculate the torontonian function for given matrix.
 
@@ -502,5 +500,3 @@ def torontonian(o_mat, gamma=None):
         coeff_sum = (-1) ** (m - num_) * coeff.sum()
         tor = tor + coeff_sum
     return tor
-
-

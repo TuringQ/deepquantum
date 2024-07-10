@@ -19,7 +19,7 @@ from .draw import DrawClements
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
 from .gate import Squeezing, Displacement, DisplacementPosition, DisplacementMomentum
 from .mapper import UnitaryMapper
-from .qmath import permanent, takagi, xxpp_to_xpxp, xpxp_to_xxpp, quadrature_to_ladder, ladder_to_quadrature, hafnian, torontonian
+from .qmath import permanent, takagi, xxpp_to_xpxp, xpxp_to_xxpp, quadrature_to_ladder, ladder_to_quadrature
 from .state import FockState, GaussianState
 from .utils import set_hbar, set_kappa
 
