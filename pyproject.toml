@@ -17,7 +17,8 @@ dependencies = [
     'bayesian-optimization',
     'thewalrus',
     'networkx',
-    'tqdm'
+    'tqdm',
+    'numba==0.55.2'
 ]
 requires-python = '>=3.8'
 authors = [
