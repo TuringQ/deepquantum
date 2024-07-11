@@ -19,23 +19,22 @@ def set_kappa(kappa: float) -> None:
 
 def load_sample(filename):
     """"load the sample data with the given filename"""
-    # dir_ = os.path.dirname(__file__)
-    # file_path = os.path.join(dir_, filename+'.pkl.gz')
-    with gzip.open(filename+'.pkl.gz','rb') as f:
+    with gzip.open('./data/' + filename + '.pkl.gz','rb') as f:
         sample = pickle.load(f)
     return sample
 
 def save_sample(filename, data):
     """"save the sample data with the given filename"""
-    with gzip.open(filename+'.pkl.gz','wb') as f:
+    with gzip.open('./data/' + filename + '.pkl.gz','wb') as f:
         pickle.dump(data, f)
     return
 
 def load_adj(filename):
-    mat = np.load(filename+'.npy')
+    """"load the adjacent matrix with the given filename"""
+    mat = np.load('./data/' + filename + '.npy')
     return mat
 
 def save_adj(filename, data):
     """"save the adjacent matrix with the given filename"""
-    np.save(filename+'.npy', data)
+    np.save('./data/' + filename + '.npy', data)
     return
