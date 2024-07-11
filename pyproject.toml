@@ -7,7 +7,7 @@ name = 'deepquantum'
 dynamic = ['version']
 dependencies = [
     'torch>=2.0.0',
-    'numpy',
+    'numpy<2',
     'matplotlib',
     'qiskit',
     'pylatexenc',
@@ -18,7 +18,6 @@ dependencies = [
     'thewalrus',
     'networkx',
     'tqdm',
-    'numba==0.55.2'
 ]
 requires-python = '>=3.8'
 authors = [

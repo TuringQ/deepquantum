@@ -24,15 +24,27 @@ DeepQuantum is a platform that integrates artificial intelligence (AI) and quant
 
 # Installation
 
-We recommend installing DeepQuantum via `pip`. If the latest version of PyTorch is not compatible with your CUDA version, manually install a compatible PyTorch 2 version.
+Before installing DeepQuantum, we recommend first manually installing PyTorch 2.
+If the latest version of PyTorch is not compatible with your CUDA version, manually install a compatible PyTorch 2 version.
+
+The PyTorch installation instructions currently recommend:
+1. Install [Miniconda](https://docs.anaconda.com/miniconda/) or [Anaconda](https://www.anaconda.com/download).
+2. Install PyTorch following the [PyTorch installation instructions](https://pytorch.org/get-started/locally/).
+Currently, this suggests running `conda install pytorch -c pytorch`.
+
+If you want to customize your installation, please follow the [PyTorch installation instructions](https://pytorch.org/get-started/locally/) to build from source.
+
+To install DeepQuantum with `pip`, run
 
 ```bash
 pip install deepquantum
+# or for developers
+pip install deepquantum[dev]
 # or use tsinghua source
 pip install deepquantum -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
-Alternatively, you can install it from source:
+Alternatively, to install DeepQuantum from source, run
 
 ```bash
 git clone https://github.com/TuringQ/deepquantum.git
