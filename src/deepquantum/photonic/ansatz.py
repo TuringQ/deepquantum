@@ -123,7 +123,7 @@ class GaussianBosonSampling(QumodeCircuit):
         super().__init__(nmode=nmode, init_state='vac', cutoff=cutoff, backend=backend, basis=basis,
                          detector=detector, name='GBS', noise=noise, mu=mu, sigma=sigma)
         for i in range(self.nmode):
-            self.s(i, [squeezing[i], 0])
+            self.s(i, squeezing[i])
         self.clements(unitary)
 
 
