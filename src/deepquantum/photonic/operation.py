@@ -85,9 +85,7 @@ class Gate(Operation):
         nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
-        cutoff (int, optional): The Fock space truncation. Default: ``None``
-        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
-            Default: ``False`` (which means ``buffer``)
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
@@ -98,7 +96,6 @@ class Gate(Operation):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
-        requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
@@ -110,7 +107,6 @@ class Gate(Operation):
         if cutoff is None:
             cutoff = 2
         super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, noise=noise, mu=mu, sigma=sigma)
-        self.requires_grad = requires_grad
 
     def update_matrix(self) -> torch.Tensor:
         """Update the local unitary matrix acting on creation operators."""
