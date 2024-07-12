@@ -50,7 +50,6 @@ def sort_dict_fock_basis(state_dict: Dict, idx: int = 0) -> Dict:
         sorted_dict[key] = value
     return sorted_dict
 
-
 def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.Tensor) -> torch.Tensor:
     """Get the submatrix for calculating the transfer amplitude and transfer probs from the given matrix,
     the input state and the output state. The rows are chosen according to the output state and the columns
@@ -61,24 +60,9 @@ def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.T
         input_state (torch.Tensor): The input state.
         output_state (torch.Tensor): The output state.
     """
-    def set_copy_indx(state: torch.Tensor) -> List:
-        """Pick up indices from the nonezero elements of state.
-        The repeat times depend on the nonezero value.
-        """
-        inds_nonzero = torch.nonzero(state)
-        temp_ind = []
-        for i in range(len(inds_nonzero)):
-            temp1 = inds_nonzero[i]
-            temp = state[inds_nonzero][i]
-            temp_ind = temp_ind + [int(temp1)] * (int(temp))
-        return temp_ind
-
-    indx1 = set_copy_indx(input_state)
-    indx2 = set_copy_indx(output_state)
-    u1 = u[[indx2]]         # choose rows from the output
-    u2 = u1[:, [indx1]]     # choose columns from the input
+    u1 = torch.repeat_interleave(u, output_state, dim=0)
+    u2 = torch.repeat_interleave(u1, input_state, dim=1)
     return u2.squeeze(1)
-
 
 def permanent(mat: torch.Tensor) -> torch.Tensor:
     """Calculate the permanent."""
@@ -131,10 +115,8 @@ def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
 
 def product_factorial(state: torch.Tensor) -> torch.Tensor:
     """Get the product of the factorial from the Fock state, i.e., :math:`|s_1,s_2,...s_n> --> s_1!*s_2!*...s_n!`."""
-    fac = special.factorial(state.cpu())
-    if not isinstance(fac, torch.Tensor):
-        fac = torch.tensor(fac)
-    return fac.prod(axis=-1, keepdims=True)
+    fac = torch.exp(torch.lgamma(state + 1)) # nature log gamma function
+    return fac.prod(dim=-1, keepdim=True)
 
 
 def fock_combinations(nmode: int, nphoton: int) -> List:
@@ -406,7 +388,7 @@ def get_submat_tor(a, z):
 
 def p_labda(submat, power, if_loop=False):
     """Return the coefficient of polynomial."""
-    sigma_x = torch.tensor([[0, 1], [1, 0]])
+    sigma_x = torch.tensor([[0, 1], [1, 0]], device = submat.device)
     len_ = int(submat.size()[-1] / 2)
     x_mat = torch.block_diag(*[sigma_x]*len_)
     x_mat = x_mat.to(submat.dtype)
@@ -446,7 +428,7 @@ def hafnian_torch(A, if_loop = False, rtol=1e-05, atol=1e-06):
 #     assert torch.allclose(A, A.mT, rtol=rtol, atol=atol), 'the input matrix should be symmetric'
     size = A.size()[-1]
     if size % 2 == 1:  # consider odd case
-        A = torch.block_diag(torch.tensor(1), A)
+        A = torch.block_diag(torch.tensor(1, device = A.device), A)
         size = A.size()[-1]
     if size == 0:
         return 1

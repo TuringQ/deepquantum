@@ -397,6 +397,20 @@ class QumodeCircuit(Operation):
                 odd_lst.append(temp_basis)
         return torch.cat(odd_lst), torch.cat(even_lst)
 
+    def  _get_odd_even_fock_basis2(self):
+        """Split the fock basis into the odd and even photon number parts."""
+        max_photon = self.nmode * (self.cutoff - 1)
+        odd_lst = []
+        even_lst = []
+        for i in range(0, max_photon + 1):
+            state_tmp = torch.tensor([i] + [0] * (self.nmode - 1), dtype=torch.int)
+            temp_basis = self._get_all_fock_basis(state_tmp)
+            if i % 2 == 0:
+                even_lst.append(temp_basis)
+            else:
+                odd_lst.append(temp_basis)
+        return odd_lst, even_lst
+
     def encode(self, data: Optional[torch.Tensor]) -> None:
         """Encode the input data into the photonic quantum circuit parameters.
 

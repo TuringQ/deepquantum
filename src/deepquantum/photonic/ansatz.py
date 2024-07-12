@@ -127,7 +127,6 @@ class GaussianBosonSampling(QumodeCircuit):
         self.clements(unitary)
 
 
-
 class GBS_Graph(GaussianBosonSampling):
     """Simulate Gaussian Boson Sampling for graph problems."""
     def __init__(
