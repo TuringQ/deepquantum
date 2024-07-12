@@ -17,7 +17,7 @@ dependencies = [
     'bayesian-optimization',
     'thewalrus',
     'networkx',
-    'tqdm',
+    'tqdm'
 ]
 requires-python = '>=3.8'
 authors = [
