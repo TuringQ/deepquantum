@@ -81,10 +81,12 @@ class DrawCircuit():
                 if isinstance(op, UAnyGate):
                     name_ = 'U'
                     para_dict = None
+                    width=None
                 else:
                     name_ = 'S2'
                     para_dict = {'r': op.r.item(), 'θ': op.theta.item()}
-                self.draw_any(order, op.wires, name_, para_dict)
+                    width = 15
+                self.draw_any(order, op.wires, name_, width=width, para_dict=para_dict)
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = order + 1
@@ -179,7 +181,7 @@ class DrawCircuit():
         self.draw_.add(self.draw_.text('r ='+str(np.round(r,3)), insert=(x+55, y_up*30+18), font_size=7))
         self.draw_.add(self.draw_.text('θ ='+str(np.round(theta,3)), insert=(x+55, y_up*30+24), font_size=7))
 
-    def draw_any(self, order, wires, name, para_dict=None):
+    def draw_any(self, order, wires, name, width=None, para_dict=None):
         """
         Draw arbitrary unitary gate.
         """
@@ -188,6 +190,8 @@ class DrawCircuit():
         x = 90 * order + 40
         y_up = wires[0]
         h = (int(len(wires)) - 1) * 30 + 20
+        if width is None:
+            width = 50
         for k in wires:
             self.draw_.add(self.draw_.polyline(points=[(x, k*30+30),(x+20, k*30+30)],
                                                fill='none', stroke='black', stroke_width=2))
@@ -195,13 +199,13 @@ class DrawCircuit():
             self.draw_.add(self.draw_.polyline(points=[(x+70, k*30+30),(x+90, k*30+30)],
                                                fill='none', stroke='black', stroke_width=2))
 
-        self.draw_.add(self.draw_.rect(insert=(x+20, y_up*30+20), size=(50, h), rx=0, ry=0,
+        self.draw_.add(self.draw_.rect(insert=(x+20, y_up*30+20), size=(width, h), rx=0, ry=0,
                                        fill=fill_c, stroke='black', stroke_width=2))
-        self.draw_.add(self.draw_.text(name, insert=((x+40), y_up*30+15+h/2), font_size=10))
+        self.draw_.add(self.draw_.text(name, insert=((x+2*(10+width)/3), y_up*30+15+h/2), font_size=10))
         if para_dict is not None:
             for i, key in enumerate(para_dict):
                 self.draw_.add(self.draw_.text(key + '=' + str(np.round(para_dict[key],3)),
-                                               insert=((x+38), y_up*30+15+h/2+8*(i+1)), font_size=7))
+                                               insert=((x+2*(10+width)/3-2), y_up*30+15+h/2+8*(i+1)), font_size=7))
 
 
     def draw_lines(self, order, wires):
