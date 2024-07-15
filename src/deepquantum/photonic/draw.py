@@ -34,7 +34,7 @@ class DrawCircuit():
         nmode = circuit_nmode
         name = circuit_name + '.svg'
         self.draw_ = svgwrite.Drawing(name, profile='full')
-        self.draw_['height'] = f'{10/11 * nmode}cm'
+        self.draw_['height'] = f'{10.5/11 * nmode}cm'
         self.nmode = nmode
         self.name = name
         self.ops = circuit_operators
@@ -76,13 +76,15 @@ class DrawCircuit():
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = depth[i]+1
-            elif isinstance(op, (UAnyGate, Squeezing2)): # need check?
+            elif isinstance(op, (UAnyGate, Squeezing2)):
                 order = max(depth[op.wires[0] : op.wires[-1]+1])
                 if isinstance(op, UAnyGate):
                     name_ = 'U'
+                    para_dict = None
                 else:
                     name_ = 'S2'
-                self.draw_any(order, op.wires, name_)
+                    para_dict = {'r': op.r.item(), 'θ': op.theta.item()}
+                self.draw_any(order, op.wires, name_, para_dict)
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = order + 1
@@ -177,7 +179,7 @@ class DrawCircuit():
         self.draw_.add(self.draw_.text('r ='+str(np.round(r,3)), insert=(x+55, y_up*30+18), font_size=7))
         self.draw_.add(self.draw_.text('θ ='+str(np.round(theta,3)), insert=(x+55, y_up*30+24), font_size=7))
 
-    def draw_any(self, order, wires, name):
+    def draw_any(self, order, wires, name, para_dict=None):
         """
         Draw arbitrary unitary gate.
         """
@@ -195,7 +197,12 @@ class DrawCircuit():
 
         self.draw_.add(self.draw_.rect(insert=(x+20, y_up*30+20), size=(50, h), rx=0, ry=0,
                                        fill=fill_c, stroke='black', stroke_width=2))
-        self.draw_.add(self.draw_.text(name, insert=((x+41), y_up*30+20+h/2), font_size=10))
+        self.draw_.add(self.draw_.text(name, insert=((x+40), y_up*30+15+h/2), font_size=10))
+        if para_dict is not None:
+            for i, key in enumerate(para_dict):
+                self.draw_.add(self.draw_.text(key + '=' + str(np.round(para_dict[key],3)),
+                                               insert=((x+38), y_up*30+15+h/2+8*(i+1)), font_size=7))
+
 
     def draw_lines(self, order, wires):
         """
