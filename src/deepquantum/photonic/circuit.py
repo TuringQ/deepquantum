@@ -17,7 +17,7 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 from .decompose import UnitaryDecomposer
 from .draw import DrawCircuit
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
-from .gate import Squeezing, Displacement, DisplacementPosition, DisplacementMomentum
+from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum
 from .operation import Operation, Gate
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
 from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc
@@ -1204,6 +1204,35 @@ class QumodeCircuit(Operation):
                       requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(s, encode=encode)
 
+    def s2(
+        self,
+        wires: List[int],
+        r: Any = None,
+        theta: Any = None,
+        encode: bool = False,
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
+    ) -> None:
+        """Add a two-mode squeezing gate."""
+        requires_grad = not encode
+        if r is None and theta is None:
+            inputs = None
+        else:
+            requires_grad = False
+            if r is None:
+                inputs = [torch.rand(1)[0], theta]
+            elif theta is None:
+                inputs = [r, 0]
+            else:
+                inputs = [r, theta]
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        s2 = Squeezing2(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+                        requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        self.add(s2, encode=encode)
+
     def d(
         self,
         wires: int,
@@ -1294,7 +1323,7 @@ class QumodeCircuit(Operation):
                        requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma, inv_mode=inv_mode)
         self.add(r, encode=encode)
 
-    def f(self, wires: List[int], mu: Optional[float] = None, sigma: Optional[float] = None) -> None:
+    def f(self, wires: int, mu: Optional[float] = None, sigma: Optional[float] = None) -> None:
         """Add a Fourier gate."""
         theta = torch.pi / 2
         if mu is None:

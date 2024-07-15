@@ -7,11 +7,11 @@ name = 'deepquantum'
 dynamic = ['version']
 dependencies = [
     'torch>=2.0.0',
-    'numpy',
+    'numpy<2',
     'matplotlib',
     'qiskit',
     'pylatexenc',
-    'scipy',
+    'scipy==1.13.1',
     'sympy',
     'svgwrite',
     'bayesian-optimization',
