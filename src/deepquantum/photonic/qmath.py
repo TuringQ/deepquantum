@@ -60,9 +60,11 @@ def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.T
         input_state (torch.Tensor): The input state.
         output_state (torch.Tensor): The output state.
     """
+    output_state = output_state.to(torch.int64)
+    input_state = input_state.to(torch.int64)
     u1 = torch.repeat_interleave(u, output_state, dim=0)
     u2 = torch.repeat_interleave(u1, input_state, dim=1)
-    return u2.squeeze(1)
+    return u2
 
 def permanent(mat: torch.Tensor) -> torch.Tensor:
     """Calculate the permanent."""
@@ -482,3 +484,8 @@ def torontonian_torch(o_mat, gamma=None):
         coeff_sum = (-1) ** (m - num_) * coeff.sum()
         tor = tor + coeff_sum
     return tor
+
+def check_zero(ts):
+    '''Check if ts is zero tensor and support vmap'''
+    is_zero = torch.all(ts==0)
+    return torch.where(is_zero, torch.tensor(0), torch.tensor(1))
