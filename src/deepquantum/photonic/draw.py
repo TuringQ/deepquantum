@@ -80,13 +80,13 @@ class DrawCircuit():
                 order = max(depth[op.wires[0] : op.wires[-1]+1])
                 if isinstance(op, UAnyGate):
                     name_ = 'U'
-                    para_dict = None
-                    width=None
+                    self.draw_any(order, op.wires, name_)
                 else:
                     name_ = 'S2'
+                    r = op.r.item()
+                    theta = op.theta.item()
                     para_dict = {'r': op.r.item(), 'θ': op.theta.item()}
-                    width = 15
-                self.draw_any(order, op.wires, name_, width=width, para_dict=para_dict)
+                    self.draw_sq(order, op.wires, r, theta, name_)
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = order + 1
@@ -170,18 +170,25 @@ class DrawCircuit():
         x = 90 * order + 40
         y_up = wires[0]
         # y_down = wires[1]
-        self.draw_.add(self.draw_.polyline(points=[(x, y_up*30+30), (x+90, y_up*30+30)],
+        for i in range(len(wires)):
+            wire_i = wires[i]
+            self.draw_.add(self.draw_.polyline(points=[(x, wire_i*30+30), (x+90, wire_i*30+30)],
                                           fill='none', stroke='black', stroke_width=2))
         fill_c = info_dic[name][0]
         shift= info_dic[name][1]
 
-        self.draw_.add(self.draw_.rect(insert=(x+42.5, y_up*30+25), size=(10,12), rx=0, ry=0,
+        if len(wires)==1:
+            height = 12
+        if len(wires)==2:
+            height = 12*3+3
+
+        self.draw_.add(self.draw_.rect(insert=(x+42.5, y_up*30+25), size=(10, height), rx=0, ry=0,
                                        fill=fill_c, stroke='black', stroke_width=1.5))
         self.draw_.add(self.draw_.text(name, insert=(x+40+shift, y_up*30+20), font_size=9))
         self.draw_.add(self.draw_.text('r ='+str(np.round(r,3)), insert=(x+55, y_up*30+18), font_size=7))
         self.draw_.add(self.draw_.text('θ ='+str(np.round(theta,3)), insert=(x+55, y_up*30+24), font_size=7))
 
-    def draw_any(self, order, wires, name, width=None, para_dict=None):
+    def draw_any(self, order, wires, name, para_dict=None):
         """
         Draw arbitrary unitary gate.
         """
@@ -190,8 +197,7 @@ class DrawCircuit():
         x = 90 * order + 40
         y_up = wires[0]
         h = (int(len(wires)) - 1) * 30 + 20
-        if width is None:
-            width = 50
+        width = 50
         for k in wires:
             self.draw_.add(self.draw_.polyline(points=[(x, k*30+30),(x+20, k*30+30)],
                                                fill='none', stroke='black', stroke_width=2))
