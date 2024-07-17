@@ -733,8 +733,7 @@ class QumodeCircuit(Operation):
             if with_prob:
                 for k in results:
                     prob = self._get_probs_gaussian_helper(k.state, cov=cov[i], mean=mean[i], detector=detector)[0]
-                    results[k] = results[k], prob ## 这里直接导出cache_prob
-            all_results.append(results)
+                    results[k] = results[k], prob
         if batch == 1:
             return all_results[0]
         else:
