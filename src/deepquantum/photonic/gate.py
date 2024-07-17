@@ -316,7 +316,7 @@ class BeamSplitter(DoubleGate):
 
         See https://arxiv.org/pdf/2004.11002.pdf Eq.(74) and Eq.(75)
         """
-        sqrt = torch.sqrt(torch.arange(self.cutoff, device=matrix.device))
+        sqrt = torch.sqrt(torch.arange(self.cutoff, dtype=torch.double, device=matrix.device))
         tran_mat = matrix.new_zeros([self.cutoff] * 4)
         tran_mat[0, 0, 0, 0] = 1.0
         # rank 3
@@ -325,9 +325,9 @@ class BeamSplitter(DoubleGate):
                 p = m + n
                 if 0 < p < self.cutoff:
                     tran_mat[m, n, p, 0] = (
-                        sqrt[m] * matrix[0, 0] * tran_mat[m - 1, n, p - 1, 0].clone()
-                        + sqrt[n] * matrix[1, 0] * tran_mat[m, n - 1, p - 1, 0].clone()
-                    ) / sqrt[p]
+                        sqrt[m] / sqrt[p] * matrix[0, 0] * tran_mat[m - 1, n, p - 1, 0].clone()
+                        + sqrt[n] / sqrt[p] * matrix[1, 0] * tran_mat[m, n - 1, p - 1, 0].clone()
+                    )
         # rank 4
         for m in range(self.cutoff):
             for n in range(self.cutoff):
@@ -335,9 +335,9 @@ class BeamSplitter(DoubleGate):
                     q = m + n - p
                     if 0 < q < self.cutoff:
                         tran_mat[m, n, p, q] = (
-                            sqrt[m] * matrix[0, 1] * tran_mat[m - 1, n, p, q - 1].clone()
-                            + sqrt[n] * matrix[1, 1] * tran_mat[m, n - 1, p, q - 1].clone()
-                        ) / sqrt[q]
+                            sqrt[m] / sqrt[q] * matrix[0, 1] * tran_mat[m - 1, n, p, q - 1].clone()
+                            + sqrt[n] / sqrt[q] * matrix[1, 1] * tran_mat[m, n - 1, p, q - 1].clone()
+                        )
         return tran_mat
 
     def get_transform_xp(self, theta: Any, phi: Any) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -840,7 +840,7 @@ class UAnyGate(Gate):
         See https://arxiv.org/pdf/2004.11002.pdf Eq.(71)
         """
         nt = len(self.wires)
-        sqrt = torch.sqrt(torch.arange(self.cutoff, device=matrix.device))
+        sqrt = torch.sqrt(torch.arange(self.cutoff, dtype=torch.double, device=matrix.device))
         tran_mat = matrix.new_zeros([self.cutoff] *  2 * nt)
         tran_mat[tuple([0] * 2 * nt)] = 1.0
         for rank in range(nt + 1, 2 * nt + 1):
@@ -973,27 +973,34 @@ class Squeezing(SingleGate):
         self.matrix = matrix.detach()
         return matrix
 
-    def get_matrix_state(self, matrix: torch.Tensor) -> torch.Tensor:
+    def get_matrix_state(self, r: Any, theta: Any) -> torch.Tensor:
         """Get the local transformation matrix acting on Fock state tensors.
 
         See https://arxiv.org/pdf/2004.11002.pdf Eq.(51) and Eq.(52)
         """
-        sqrt = torch.sqrt(torch.arange(self.cutoff, device=matrix.device))
-        tran_mat = matrix.new_zeros([self.cutoff] * 2)
-        sech = 1 / matrix[0, 0]
-        e_it_tanh = -matrix[0, 1] / matrix[0, 0]
-        e_m_it_tanh = -matrix[1, 0] / matrix[0, 0]
+        r, theta = self.inputs_to_tensor([r, theta])
+        sqrt = torch.sqrt(torch.arange(self.cutoff, dtype=r.dtype, device=r.device))
+        sech = 1 / torch.cosh(r)
+        e_it_tanh = torch.exp(1j * theta) * torch.tanh(r)
+        e_m_it_tanh = torch.exp(-1j * theta) * torch.tanh(r)
+        tran_mat = e_it_tanh.new_zeros([self.cutoff] * 2)
         tran_mat[0, 0] = torch.sqrt(sech)
         # rank 1
         for m in range(1, self.cutoff - 1, 2):
-            tran_mat[m + 1, 0] = -sqrt[m] / sqrt[m + 1] * tran_mat[m - 1, 0].clone() * e_it_tanh
+            tran_mat[m + 1, 0] = -sqrt[m] / sqrt[m + 1] * e_it_tanh * tran_mat[m - 1, 0].clone()
         # rank 2
         for m in range(self.cutoff):
             for n in range(self.cutoff - 1):
                 if (m + n) % 2 == 1:
-                    tran_mat[m, n + 1] = (sqrt[m] * tran_mat[m - 1, n].clone() * sech
-                                         + sqrt[n] * tran_mat[m, n - 1].clone() * e_m_it_tanh) / sqrt[n + 1]
+                    tran_mat[m, n + 1] = (
+                        sqrt[m] / sqrt[n + 1] * sech * tran_mat[m - 1, n].clone()
+                        + sqrt[n] / sqrt[n + 1] * e_m_it_tanh * tran_mat[m, n - 1].clone()
+                    )
         return tran_mat
+
+    def update_matrix_state(self) -> torch.Tensor:
+        """Update the local transformation matrix acting on Fock state tensors."""
+        return self.get_matrix_state(self.r, self.theta)
 
     def get_transform_xp(self, r: Any, theta: Any) -> Tuple[torch.Tensor, torch.Tensor]:
         """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
@@ -1121,37 +1128,42 @@ class Squeezing2(DoubleGate):
         self.matrix = matrix.detach()
         return matrix
 
-    def get_matrix_state(self, matrix: torch.Tensor) -> torch.Tensor:
+    def get_matrix_state(self, r: Any, theta: Any) -> torch.Tensor:
         """Get the local transformation matrix acting on Fock state tensors.
 
         See https://arxiv.org/pdf/2004.11002.pdf Eq.(64-67)
         """
-        sqrt = torch.sqrt(torch.arange(self.cutoff, device=matrix.device))
-        tran_mat = matrix.new_zeros([self.cutoff] * 4)
-        sech = 1 / matrix[0, 0]
-        e_it_tanh = matrix[0, 3] / matrix[0, 0]
-        e_m_it_tanh = matrix[3, 0] / matrix[0, 0]
+        r, theta = self.inputs_to_tensor([r, theta])
+        sqrt = torch.sqrt(torch.arange(self.cutoff, dtype=r.dtype, device=r.device))
+        sech = 1 / torch.cosh(r)
+        e_it_tanh = torch.exp(1j * theta) * torch.tanh(r)
+        e_m_it_tanh = torch.exp(-1j * theta) * torch.tanh(r)
+        tran_mat = e_it_tanh.new_zeros([self.cutoff] * 4)
         tran_mat[0, 0, 0, 0] = sech
         # rank 2
         for n in range(1, self.cutoff):
-            tran_mat[n, n, 0, 0] = tran_mat[n - 1, n - 1, 0, 0].clone() * e_it_tanh
+            tran_mat[n, n, 0, 0] = e_it_tanh * tran_mat[n - 1, n - 1, 0, 0].clone()
         # rank 3
         for m in range(1, self.cutoff):
             for n in range(m):
                 p = m - n
                 if p < self.cutoff:
-                    tran_mat[m, n, p, 0] = sqrt[m] / sqrt[p] * tran_mat[m - 1, n, p - 1, 0].clone() * sech
+                    tran_mat[m, n, p, 0] = sech * sqrt[m] / sqrt[p] * tran_mat[m - 1, n, p - 1, 0].clone()
         # rank 4
         for m in range(self.cutoff):
             for n in range(self.cutoff):
-                for p in range(1, self.cutoff):
+                for p in range(self.cutoff):
                     q = p - (m - n)
                     if 0 < q < self.cutoff:
                         tran_mat[m, n, p, q] = (
-                            sqrt[n] * tran_mat[m, n - 1, p, q - 1].clone() * sech
-                            - sqrt[p] * tran_mat[m, n, p - 1, q - 1].clone() * e_m_it_tanh
-                        ) / sqrt[q]
+                            sech * sqrt[n] / sqrt[q] * tran_mat[m, n - 1, p, q - 1].clone()
+                            - e_m_it_tanh * sqrt[p] / sqrt[q] * tran_mat[m, n, p - 1, q - 1].clone()
+                        )
         return tran_mat
+
+    def update_matrix_state(self) -> torch.Tensor:
+        """Update the local transformation matrix acting on Fock state tensors."""
+        return self.get_matrix_state(self.r, self.theta)
 
     def get_transform_xp(self, r: Any, theta: Any) -> Tuple[torch.Tensor, torch.Tensor]:
         """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
@@ -1265,6 +1277,7 @@ class Displacement(SingleGate):
 
     def get_matrix(self, r: Any, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix acting on annihilation and creation operators."""
+        r, theta = self.inputs_to_tensor([r, theta])
         return torch.eye(2, dtype=r.dtype, device=r.device) + 0j
 
     def update_matrix(self) -> torch.Tensor:
@@ -1279,7 +1292,7 @@ class Displacement(SingleGate):
         See https://arxiv.org/pdf/2004.11002.pdf Eq.(57) and Eq.(58)
         """
         r, theta = self.inputs_to_tensor([r, theta])
-        sqrt = torch.sqrt(torch.arange(self.cutoff, device=r.device))
+        sqrt = torch.sqrt(torch.arange(self.cutoff, dtype=r.dtype, device=r.device))
         alpha = r * torch.exp(1j * theta)
         alpha_c = r * torch.exp(-1j * theta)
         tran_mat = alpha.new_zeros([self.cutoff] * 2)
@@ -1290,8 +1303,10 @@ class Displacement(SingleGate):
         # rank 2
         for m in range(self.cutoff):
             for n in range(self.cutoff - 1):
-                tran_mat[m, n + 1] = (-alpha_c * tran_mat[m, n].clone()
-                                     + sqrt[m] * tran_mat[m - 1, n].clone()) / sqrt[n + 1]
+                tran_mat[m, n + 1] = (
+                    - alpha_c / sqrt[n + 1] * tran_mat[m, n].clone()
+                    + sqrt[m] / sqrt[n + 1] * tran_mat[m - 1, n].clone()
+                )
         return tran_mat
 
     def update_matrix_state(self) -> torch.Tensor:
