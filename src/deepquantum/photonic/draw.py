@@ -11,10 +11,11 @@ import svgwrite
 from matplotlib import patches
 from torch import nn
 
-from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate, Squeezing, Displacement
+from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate, Squeezing, Squeezing2, Displacement
 
 info_dic = {'PS': ['teal', 0],
             'S': ['royalblue', 3],
+            'S2': ['royalblue', 0],
             'D': ['green', 3],
             'U': ['cadetblue', 0]
             }
@@ -75,9 +76,12 @@ class DrawCircuit():
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = depth[i]+1
-            elif isinstance(op, UAnyGate): # need check?
+            elif isinstance(op, (UAnyGate, Squeezing2)): # need check?
                 order = max(depth[op.wires[0] : op.wires[-1]+1])
-                name_ = 'U'
+                if isinstance(op, UAnyGate):
+                    name_ = 'U'
+                else:
+                    name_ = 'S2'
                 self.draw_any(order, op.wires, name_)
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
