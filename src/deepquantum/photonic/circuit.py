@@ -20,7 +20,7 @@ from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitter
 from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum
 from .operation import Operation, Gate
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
-from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc
+from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc, sample_fock_mcmc
 from .state import FockState, GaussianState
 from ..state import MatrixProductState
 
@@ -634,6 +634,7 @@ class QumodeCircuit(Operation):
         shots: int = 1024,
         with_prob: bool = False,
         wires: Union[int, List[int], None] = None,
+        mcmc: bool = False,
         detector: Optional[str] = None
     ) -> Union[Dict, List[Dict], None]:
         """Measure the final state.
@@ -652,7 +653,7 @@ class QumodeCircuit(Operation):
         if self.state is None:
             return
         if self.backend == 'fock':
-            return self._measure_fock(shots, with_prob, wires)
+            return self._measure_fock(shots, with_prob, mcmc, wires)
         elif self.backend == 'gaussian':
             return self._measure_gaussian(shots, with_prob, detector)
 
@@ -660,58 +661,78 @@ class QumodeCircuit(Operation):
         self,
         shots: int = 1024,
         with_prob: bool = False,
+        mcmc: bool = False,
         wires: Union[int, List[int], None] = None
     ) -> Union[Dict, List[Dict]]:
         """Measure the final state for Fock backend."""
         if wires is None:
             wires = self.wires
         wires = sorted(self._convert_indices(wires))
-        amp_dis = self.state
         all_results = []
-        if self.basis:
-            batch = len(amp_dis[list(amp_dis.keys())[0]])
+        if mcmc:
+            batch = (torch.tensor(self.init_state.state.reshape(-1).size())/self.nmode).int()
             for i in range(batch):
-                prob_dict = defaultdict(list)
-                for key in amp_dis.keys():
-                    state_b = key.state[wires]
-                    state_b = FockState(state=state_b)
-                    prob_dict[state_b].append(abs(amp_dis[key][i]) ** 2)
-                for key in prob_dict.keys():
-                    prob_dict[key] = sum(prob_dict[key])
-                samples = random.choices(list(prob_dict.keys()), list(prob_dict.values()), k=shots)
-                results = dict(Counter(samples))
-                if with_prob:
-                    for k in results:
-                        results[k] = results[k], prob_dict[k]
+                samples_i = self._sample_mcmc_fock(shots=shots, num_chain=5)
+                keys = list(map(FockState, samples_i.keys()))
+                results = dict(zip(keys, samples_i.values()))
                 all_results.append(results)
         else:
-            state_tensor = self.tensor_rep(amp_dis)
-            batch = state_tensor.shape[0]
-            combi = list(itertools.product(range(self.cutoff), repeat=len(wires)))
-            for i in range(batch):
-                prob_dict = {}
-                state = state_tensor[i]
-                probs = abs(state) ** 2
-                if wires == self.wires:
-                    ptrace_probs = probs
-                else:
-                    sum_idx = list(range(self.nmode))
-                    for idx in wires:
-                        sum_idx.remove(idx)
-                    ptrace_probs = probs.sum(dim=sum_idx)
-                for p_state in combi:
-                    p_state_b = FockState(list(p_state))
-                    prob_dict[p_state_b] = ptrace_probs[p_state]
-                samples = random.choices(list(prob_dict.keys()), list(prob_dict.values()), k=shots)
-                results = dict(Counter(samples))
-                if with_prob:
-                    for k in results:
-                        results[k] = results[k], prob_dict[k]
-                all_results.append(results)
+            amp_dis = self.state
+            
+            if self.basis:
+                batch = len(amp_dis[list(amp_dis.keys())[0]])
+                
+                for i in range(batch):
+                    prob_dict = defaultdict(list)
+                    for key in amp_dis.keys():
+                        state_b = key.state[wires]
+                        state_b = FockState(state=state_b)
+                        prob_dict[state_b].append(abs(amp_dis[key][i]) ** 2)
+                    for key in prob_dict.keys():
+                        prob_dict[key] = sum(prob_dict[key])
+                    samples = random.choices(list(prob_dict.keys()), list(prob_dict.values()), k=shots)
+                    results = dict(Counter(samples))
+                    if with_prob:
+                        for k in results:
+                            results[k] = results[k], prob_dict[k]
+                    all_results.append(results)
+            else:
+                state_tensor = self.tensor_rep(amp_dis)
+                batch = state_tensor.shape[0]
+                combi = list(itertools.product(range(self.cutoff), repeat=len(wires)))
+                for i in range(batch):
+                    prob_dict = {}
+                    state = state_tensor[i]
+                    probs = abs(state) ** 2
+                    if wires == self.wires:
+                        ptrace_probs = probs
+                    else:
+                        sum_idx = list(range(self.nmode))
+                        for idx in wires:
+                            sum_idx.remove(idx)
+                        ptrace_probs = probs.sum(dim=sum_idx)
+                    for p_state in combi:
+                        p_state_b = FockState(list(p_state))
+                        prob_dict[p_state_b] = ptrace_probs[p_state]
+                    samples = random.choices(list(prob_dict.keys()), list(prob_dict.values()), k=shots)
+                    results = dict(Counter(samples))
+                    if with_prob:
+                        for k in results:
+                            results[k] = results[k], prob_dict[k]
+                    all_results.append(results)
         if batch == 1:
             return all_results[0]
         else:
             return all_results
+        
+    def _sample_mcmc_fock(self, shots: int, num_chain: int):
+        """Sample the output states for Fock backend via SC-MCMC method."""
+        
+        merged_samples = sample_sc_mcmc(prob_func=self._get_prob_fock,
+                                            proposal_sampler=self._proposal_sampler,
+                                            shots=shots,
+                                            num_chain=num_chain)
+        return merged_samples
 
     def _measure_gaussian(self, shots: int = 1024, with_prob: bool = False, detector: Optional[str] = None) -> Dict:
         """Measure the final state for Gaussian backend.
@@ -774,7 +795,12 @@ class QumodeCircuit(Operation):
 
     def _proposal_sampler(self):
         """The proposal sampler for MCMC sampling."""
-        sample = self._generate_rand_sample(self.detector)
+        if self.backend == 'fock':
+            sample = torch.zeros(self.nmode)
+            for i in range(sum(self.init_state.state)):
+                sample[torch.randint(self.nmode,(1,))] += 1
+        else:
+            sample = self._generate_rand_sample(self.detector)
         return sample
 
     def _generate_rand_sample(self, detector: str = 'pnrd'):
