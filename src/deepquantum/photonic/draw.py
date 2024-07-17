@@ -34,7 +34,7 @@ class DrawCircuit():
         nmode = circuit_nmode
         name = circuit_name + '.svg'
         self.draw_ = svgwrite.Drawing(name, profile='full')
-        self.draw_['height'] = f'{10/11 * nmode}cm'
+        self.draw_['height'] = f'{10.5/11 * nmode}cm'
         self.nmode = nmode
         self.name = name
         self.ops = circuit_operators
@@ -76,13 +76,16 @@ class DrawCircuit():
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = depth[i]+1
-            elif isinstance(op, (UAnyGate, Squeezing2)): # need check?
+            elif isinstance(op, (UAnyGate, Squeezing2)):
                 order = max(depth[op.wires[0] : op.wires[-1]+1])
                 if isinstance(op, UAnyGate):
                     name_ = 'U'
+                    self.draw_any(order, op.wires, name_)
                 else:
                     name_ = 'S2'
-                self.draw_any(order, op.wires, name_)
+                    r = op.r.item()
+                    theta = op.theta.item()
+                    self.draw_sq(order, op.wires, r, theta, name_)
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = order + 1
@@ -166,18 +169,25 @@ class DrawCircuit():
         x = 90 * order + 40
         y_up = wires[0]
         # y_down = wires[1]
-        self.draw_.add(self.draw_.polyline(points=[(x, y_up*30+30), (x+90, y_up*30+30)],
+        for i in range(len(wires)):
+            wire_i = wires[i]
+            self.draw_.add(self.draw_.polyline(points=[(x, wire_i*30+30), (x+90, wire_i*30+30)],
                                           fill='none', stroke='black', stroke_width=2))
         fill_c = info_dic[name][0]
         shift= info_dic[name][1]
 
-        self.draw_.add(self.draw_.rect(insert=(x+42.5, y_up*30+25), size=(10,12), rx=0, ry=0,
+        if len(wires)==1:
+            height = 12
+        if len(wires)==2:
+            height = 12*3+3
+
+        self.draw_.add(self.draw_.rect(insert=(x+42.5, y_up*30+25), size=(10, height), rx=0, ry=0,
                                        fill=fill_c, stroke='black', stroke_width=1.5))
         self.draw_.add(self.draw_.text(name, insert=(x+40+shift, y_up*30+20), font_size=9))
         self.draw_.add(self.draw_.text('r ='+str(np.round(r,3)), insert=(x+55, y_up*30+18), font_size=7))
         self.draw_.add(self.draw_.text('θ ='+str(np.round(theta,3)), insert=(x+55, y_up*30+24), font_size=7))
 
-    def draw_any(self, order, wires, name):
+    def draw_any(self, order, wires, name, para_dict=None):
         """
         Draw arbitrary unitary gate.
         """
@@ -186,6 +196,7 @@ class DrawCircuit():
         x = 90 * order + 40
         y_up = wires[0]
         h = (int(len(wires)) - 1) * 30 + 20
+        width = 50
         for k in wires:
             self.draw_.add(self.draw_.polyline(points=[(x, k*30+30),(x+20, k*30+30)],
                                                fill='none', stroke='black', stroke_width=2))
@@ -193,9 +204,14 @@ class DrawCircuit():
             self.draw_.add(self.draw_.polyline(points=[(x+70, k*30+30),(x+90, k*30+30)],
                                                fill='none', stroke='black', stroke_width=2))
 
-        self.draw_.add(self.draw_.rect(insert=(x+20, y_up*30+20), size=(50, h), rx=0, ry=0,
+        self.draw_.add(self.draw_.rect(insert=(x+20, y_up*30+20), size=(width, h), rx=0, ry=0,
                                        fill=fill_c, stroke='black', stroke_width=2))
-        self.draw_.add(self.draw_.text(name, insert=((x+41), y_up*30+20+h/2), font_size=10))
+        self.draw_.add(self.draw_.text(name, insert=((x+2*(10+width)/3), y_up*30+15+h/2), font_size=10))
+        if para_dict is not None:
+            for i, key in enumerate(para_dict):
+                self.draw_.add(self.draw_.text(key + '=' + str(np.round(para_dict[key],3)),
+                                               insert=((x+2*(10+width)/3-2), y_up*30+15+h/2+8*(i+1)), font_size=7))
+
 
     def draw_lines(self, order, wires):
         """
