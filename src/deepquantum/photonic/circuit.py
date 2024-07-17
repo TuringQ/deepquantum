@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-from thewalrus import hafnian, tor
+from thewalrus import hafnian, tor, ltor
 from torch import nn, vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
 
@@ -374,16 +374,14 @@ class QumodeCircuit(Operation):
             final_states_all = torch.cat(final_states_all)
         keys = list(map(FockState, final_states_all.tolist()))
         probs = []
-        for i in range(batch):
-            probs_i = self._forward_gaussian_prob_helper(cov[i], mean[i], even_basis, odd_basis, basis, detector)
-            probs.append(probs_i.squeeze())
-        return dict(zip(keys, torch.stack(probs).mT))
+        # for i in range(batch):
+        #     probs_i = self._forward_gaussian_prob_helper(cov[i], mean[i], even_basis, odd_basis, basis, detector)
+        #     probs.append(probs_i.squeeze())
+        # return dict(zip(keys, torch.stack(probs).mT))
 
-        # probs = vmap(self._get_gaussian_prob, in_dims=(0, 0, None, None))(cov, mean, keys, detector=detector)
-
-        # probs = vmap(self._forward_gaussian_prob_helper, in_dims=(0, 0, None, None, None, None))(cov, mean, even_basis,
-        #                                                                                     odd_basis, basis, detector)
-        # return probs
+        probs = vmap(self._forward_gaussian_prob_helper, in_dims=(0, 0, None, None, None, None))(cov, mean, even_basis,
+                                                                                            odd_basis, basis, detector)
+        return dict(zip(keys, probs.mT))
 
         # for i in range(batch):
         #     probs_i = []
@@ -634,14 +632,18 @@ class QumodeCircuit(Operation):
         o_mat = torch.eye(2 * nmode) - torch.inverse(q)
         a_mat = x_mat @ o_mat
         gamma = mean_ladder.conj().mT @ torch.inverse(q)
+        # gamma = (torch.inverse(q) @ mean_ladder).conj()
+        # print(gamma.size(), gamma1.size(), abs(gamma1-gamma.mT).sum())
         if detector == 'pnrd':
             matrix = a_mat
         elif detector == 'threshold':
             matrix = o_mat
         purity = GaussianState(self.state).check_purity()
+        p_vac = torch.exp(-0.5 * mean_ladder.mH@torch.inverse(q)@mean_ladder)/torch.sqrt(torch.det(q))
+        # print('p_0:', p_vac)
         probs = torch.vmap(self._get_prob_gaussian_base,
-                           in_dims=(0, None, None, None, None, None, None))(final_states, matrix, det_q,
-                                                                            mean_ladder, gamma, detector, purity)
+                           in_dims=(0, None, None, None, None, None, None, None))(final_states, matrix, det_q,
+                                                                            mean_ladder, gamma, p_vac, detector, purity)
         return probs
 
     def _get_prob_gaussian_base(
@@ -651,45 +653,44 @@ class QumodeCircuit(Operation):
         det_q: torch.Tensor,
         mean_ladder: torch.Tensor,
         gamma: torch.Tensor,
+        p_vac: torch.Tensor,
         detector: str = 'pnrd',
-        purity: bool = True
+        purity: bool = True,
     ) -> torch.Tensor:
         """Get the probability of the final state for Gaussian backend."""
         if_loop = False
         gamma = gamma.squeeze()
         nmode = len(final_state)
-        if not torch.allclose(gamma, torch.zeros_like(gamma)):
-            if_loop = True
+        if_loop = check_zero(gamma)
         gamma_n1 = torch.repeat_interleave(gamma[:nmode], final_state)
         gamma_n2 = torch.repeat_interleave(gamma[nmode:], final_state)
         sub_gamma = torch.cat([gamma_n1, gamma_n2])
-        if purity and detector == 'pnrd':
-            sub_mat = sub_matrix(matrix[:nmode, :nmode], final_state, final_state)
-            half_len = len(sub_gamma)//2
-            sub_gamma = sub_gamma[:half_len]
-        else:
-            final_state_double = torch.cat([final_state, final_state])
-            sub_mat = sub_matrix(matrix, final_state_double, final_state_double)
-        sub_gamma = sub_gamma.to(sub_mat.dtype)
-        if len(sub_gamma) == 1:
-            sub_mat = sub_gamma
-        else:
-            sub_mat[torch.arange(len(sub_gamma)), torch.arange(len(sub_gamma))] = sub_gamma
         if detector == 'pnrd':
-            p_vac = torch.exp(-gamma @ mean_ladder.squeeze() / 2) / torch.sqrt(det_q)
+            if purity and detector == 'pnrd':
+                sub_mat = sub_matrix(matrix[:nmode, :nmode], final_state, final_state)
+                half_len = len(sub_gamma)//2
+                sub_gamma = sub_gamma[:half_len]
+            else:
+                final_state_double = torch.cat([final_state, final_state])
+                sub_mat = sub_matrix(matrix, final_state_double, final_state_double)
+            sub_gamma = sub_gamma.to(sub_mat.dtype)
+            if len(sub_gamma) == 1:
+                sub_mat = sub_gamma
+            else:
+                sub_mat[torch.arange(len(sub_gamma)), torch.arange(len(sub_gamma))] = sub_gamma
+            # if detector == 'pnrd':
+            p_vac2 = torch.exp(-0.5 * gamma @ mean_ladder.squeeze()) / torch.sqrt(det_q)
             if purity:
                 haf = abs(hafnian_torch(sub_mat, if_loop=if_loop)) ** 2
-
             else:
                 haf = hafnian_torch(sub_mat, if_loop=if_loop)
-
             prob = p_vac * haf / product_factorial(final_state)
+        # temp = [ ]
         elif detector == 'threshold':
     #         assert max(final_state) < 2, 'Threshold detector with maximum 1 photon'
-            if if_loop:
-                raise NotImplementedError('Threshold measurement for the displaced states is NOT supported')
-            else:
-                prob = torontonian_torch(sub_mat) / torch.sqrt(det_q)
+            final_state_double = torch.cat([final_state, final_state])
+            sub_mat = sub_matrix(matrix, final_state_double, final_state_double)
+            prob = p_vac.squeeze() * torontonian_torch(sub_mat, sub_gamma)
         return abs(prob.real)
 
     def measure(

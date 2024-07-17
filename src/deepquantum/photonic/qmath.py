@@ -474,7 +474,8 @@ def torontonian_torch(o_mat, gamma=None):
     assert len(o_mat) % 2 == 0, 'input matrix dimension should be even '
     m = len(o_mat) // 2
     z_sets = get_subsets(m)
-    tor = (-1) ** m * torch.exp(gamma @ gamma.conj() / 2)
+    # tor = (-1) ** m * torch.exp(gamma @ gamma.conj() / 2)
+    tor = (-1) ** m
     for i in range(1, len(z_sets)):
         subset = z_sets[i]
         num_ = len(subset[0])
