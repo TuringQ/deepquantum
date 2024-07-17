@@ -85,7 +85,6 @@ class DrawCircuit():
                     name_ = 'S2'
                     r = op.r.item()
                     theta = op.theta.item()
-                    para_dict = {'r': op.r.item(), 'θ': op.theta.item()}
                     self.draw_sq(order, op.wires, r, theta, name_)
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
