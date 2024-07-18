@@ -20,7 +20,7 @@ from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitter
 from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum
 from .operation import Operation, Gate
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
-from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc, hafnian_torch, torontonian_torch, check_zero
+from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc, hafnian_torch, torontonian_torch
 from .state import FockState, GaussianState
 from ..state import MatrixProductState
 
@@ -356,81 +356,70 @@ class QumodeCircuit(Operation):
                 ``'threshold'`` for the threshold detector. Default: ``None``
         """
         cov, mean = self.state
-        batch = cov.shape[0]
         if detector is None:
             detector = self.detector
         else:
             detector = detector.lower()
             self.detector = detector
         if detector == 'pnrd':
+            idx_loop = torch.all(mean==0, dim=1)
+            idx_loop = idx_loop.squeeze(1)
+            cov_0 = cov[idx_loop]
+            mean_0 = mean[idx_loop]
+            cov_1 = cov[~idx_loop]
+            mean_1 = mean[~idx_loop]
             odd_basis, even_basis = self._get_odd_even_fock_basis(detector=detector)
             basis = [] #threshold case
             final_states_all = torch.cat([torch.cat(even_basis), torch.cat(odd_basis)])
+            keys = list(map(FockState, final_states_all.tolist()))
+            probs = [ ]
+            if len(cov_0) > 0:
+                if_loop = False
+                probs_0 = vmap(self._forward_gaussian_prob_helper, in_dims=(0, 0, None, None, None, None, None))(cov_0, mean_0, even_basis,
+                                                                                                                 odd_basis, basis, detector, if_loop)
+                probs.append(probs_0)
+            if len(cov_1) > 0:
+                if_loop = True
+                probs_1 = vmap(self._forward_gaussian_prob_helper, in_dims=(0, 0, None, None, None, None, None))(cov_1, mean_1, even_basis,
+                                                                                                                 odd_basis, basis, detector, if_loop)
+                probs.append(probs_1)
+            probs = torch.cat(probs) # reorder the result here
         if detector == 'threshold':
             even_basis = [] #pnrd case
             odd_basis= [] #pnrd case
             basis = self._get_odd_even_fock_basis(detector=detector)
             final_states_all = [torch.tensor(i) for i in basis]
             final_states_all = torch.cat(final_states_all)
-        keys = list(map(FockState, final_states_all.tolist()))
-        probs = []
-        # for i in range(batch):
-        #     probs_i = self._forward_gaussian_prob_helper(cov[i], mean[i], even_basis, odd_basis, basis, detector)
-        #     probs.append(probs_i.squeeze())
-        # return dict(zip(keys, torch.stack(probs).mT))
-
-        probs = vmap(self._forward_gaussian_prob_helper, in_dims=(0, 0, None, None, None, None))(cov, mean, even_basis,
+            keys = list(map(FockState, final_states_all.tolist()))
+            probs = vmap(self._forward_gaussian_prob_helper, in_dims=(0, 0, None, None, None, None))(cov, mean, even_basis,
                                                                                             odd_basis, basis, detector)
+        print(probs.size())
         return dict(zip(keys, probs.mT))
-
-        # for i in range(batch):
-        #     probs_i = []
-        #     if detector == 'pnrd':
-        #         for state in even_basis:
-        #             prob_even = self._get_probs_gaussian_helper(state, cov[i], mean[i], detector)
-        #             probs_i.append(prob_even)
-        #         if torch.allclose(mean[i], torch.zeros_like(mean[i])):
-        #             probs_i = torch.cat(probs_i)
-        #             probs_i = torch.cat([probs_i.squeeze(), torch.zeros(len(torch.cat(odd_basis)))])
-        #         else:
-        #             for state in odd_basis:
-        #                 prob_odd = self._get_probs_gaussian_helper(state, cov[i], mean[i], detector)
-        #                 probs_i.append(prob_odd)
-        #             probs_i = torch.cat(probs_i)
-        #     if detector == 'threshold':
-        #         for state in basis:
-        #             state = torch.tensor(state)
-        #             prob = self._get_probs_gaussian_helper(state, cov[i], mean[i], detector)
-        #             probs_i.append(prob)
-        #         probs_i = torch.cat(probs_i)
-        #     probs.append(probs_i.squeeze())
-        # return dict(zip(keys, torch.stack(probs).mT))
-
-    def _forward_gaussian_prob_helper(self, cov, mean, even_basis, odd_basis, basis, detector):
-        probs_i = []
+    def _forward_gaussian_prob_helper(self, cov, mean, even_basis, odd_basis, basis, detector, if_loop):
+        probs_half = []
         if detector == 'pnrd':
             for state in even_basis:
-                prob_even = self._get_probs_gaussian_helper(state, cov, mean, detector)
-                probs_i.append(prob_even)
-            if torch.allclose(mean, torch.zeros_like(mean)):
-                probs_i = torch.cat(probs_i)
-                probs_i = torch.cat([probs_i.squeeze(), torch.zeros(len(torch.cat(odd_basis)))])
-            else:
+                prob_even = self._get_probs_gaussian_helper(state, cov, mean, detector, if_loop)
+                probs_half.append(prob_even)
+            if if_loop:
+                print('displaced')
                 for state in odd_basis:
-                    prob_odd = self._get_probs_gaussian_helper(state, cov, mean, detector)
-                    probs_i.append(prob_odd)
-                probs_i = torch.cat(probs_i)
+                    prob_odd = self._get_probs_gaussian_helper(state, cov, mean, detector, if_loop)
+                    probs_half.append(prob_odd)
+                probs_i = torch.cat(probs_half)
+            else:
+                print('not displaced')
+                probs_half = torch.cat(probs_half)
+                probs_i = torch.cat([probs_half.squeeze(), torch.zeros(len(torch.cat(odd_basis)))])
+            probs_i = probs_i.squeeze()
+            print(probs_i.size())
         if detector == 'threshold':
             for state in basis:
                 state = torch.tensor(state)
-                prob = self._get_probs_gaussian_helper(state, cov, mean, detector)
+                prob = self._get_probs_gaussian_helper(state, cov, mean, detector, if_loop)
                 probs_i.append(prob)
             probs_i = torch.cat(probs_i)
         return probs_i
-
-
-
-
     def  _get_odd_even_fock_basis(self, detector=None):
         """Split the fock basis into the odd and even photon number parts."""
         if detector is None:
@@ -615,9 +604,12 @@ class QumodeCircuit(Operation):
         final_states: torch.Tensor,
         cov: torch.Tensor,
         mean: torch.tensor,
-        detector: str = 'pnrd'
+        detector: str = 'pnrd',
+        if_loop: Optional[bool] = False
     ) -> torch.Tensor:
         """Get the probabilities of the final states for Gaussian backend."""
+        if if_loop is None:
+            if_loop = ~torch.all(mean==0)
         if final_states.ndim == 1:
             final_states = final_states.unsqueeze(0)
         assert final_states.ndim == 2
@@ -633,17 +625,15 @@ class QumodeCircuit(Operation):
         a_mat = x_mat @ o_mat
         gamma = mean_ladder.conj().mT @ torch.inverse(q)
         # gamma = (torch.inverse(q) @ mean_ladder).conj()
-        # print(gamma.size(), gamma1.size(), abs(gamma1-gamma.mT).sum())
         if detector == 'pnrd':
             matrix = a_mat
         elif detector == 'threshold':
             matrix = o_mat
         purity = GaussianState(self.state).check_purity()
         p_vac = torch.exp(-0.5 * mean_ladder.mH@torch.inverse(q)@mean_ladder)/torch.sqrt(torch.det(q))
-        # print('p_0:', p_vac)
         probs = torch.vmap(self._get_prob_gaussian_base,
-                           in_dims=(0, None, None, None, None, None, None, None))(final_states, matrix, det_q,
-                                                                            mean_ladder, gamma, p_vac, detector, purity)
+                           in_dims=(0, None, None, None, None, None, None, None, None))(final_states, matrix, det_q,
+                                                                            mean_ladder, gamma, p_vac, detector, purity, if_loop)
         return probs
 
     def _get_prob_gaussian_base(
@@ -656,12 +646,12 @@ class QumodeCircuit(Operation):
         p_vac: torch.Tensor,
         detector: str = 'pnrd',
         purity: bool = True,
+        if_loop: bool = False
     ) -> torch.Tensor:
         """Get the probability of the final state for Gaussian backend."""
-        if_loop = False
+        # if_loop = False
         gamma = gamma.squeeze()
         nmode = len(final_state)
-        if_loop = check_zero(gamma)
         gamma_n1 = torch.repeat_interleave(gamma[:nmode], final_state)
         gamma_n2 = torch.repeat_interleave(gamma[nmode:], final_state)
         sub_gamma = torch.cat([gamma_n1, gamma_n2])
@@ -685,7 +675,6 @@ class QumodeCircuit(Operation):
             else:
                 haf = hafnian_torch(sub_mat, if_loop=if_loop)
             prob = p_vac * haf / product_factorial(final_state)
-        # temp = [ ]
         elif detector == 'threshold':
     #         assert max(final_state) < 2, 'Threshold detector with maximum 1 photon'
             final_state_double = torch.cat([final_state, final_state])
@@ -795,8 +784,9 @@ class QumodeCircuit(Operation):
             keys = list(map(FockState, samples_i.keys()))
             results = dict(zip(keys, samples_i.values()))
             if with_prob:
+                if_loop = ~torch.all(mean[i]==0)
                 for k in results:
-                    prob = self._get_probs_gaussian_helper(k.state, cov=cov[i], mean=mean[i], detector=detector)[0]
+                    prob = self._get_probs_gaussian_helper(k.state, cov=cov[i], mean=mean[i], detector=detector, if_loop=if_loop)[0]
                     results[k] = results[k], prob ## 这里直接导出cache_prob
             all_results.append(results)
         if batch == 1:
@@ -833,7 +823,8 @@ class QumodeCircuit(Operation):
         """Get the probability of the state for Gaussian backend."""
         if not isinstance(state, torch.Tensor):
             state = torch.tensor(state, dtype=torch.int)
-        prob = self._get_probs_gaussian_helper(state, cov=self.cov, mean=self.mean, detector=self.detector)[0]
+        if_loop = ~torch.all(self.mean==0)
+        prob = self._get_probs_gaussian_helper(state, cov=self.cov, mean=self.mean, detector=self.detector, if_loop=if_loop)[0]
         return prob
 
     def _proposal_sampler(self):

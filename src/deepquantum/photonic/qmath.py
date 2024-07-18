@@ -418,7 +418,7 @@ def p_labda(submat, power, if_loop=False):
             coeff = coeff + prefactor/special.factorial(len(temp)) * trace_prod / (2**len(temp)*torch.tensor(temp).prod())
     return coeff
 
-def hafnian_torch(A, if_loop = False, rtol=1e-05, atol=1e-06):
+def hafnian_torch(A, if_loop=False, rtol=1e-05, atol=1e-06):
     """
     Calculate the hafnian for symmetrix matrix, using eigenvalue-trace method
 
@@ -474,7 +474,6 @@ def torontonian_torch(o_mat, gamma=None):
     assert len(o_mat) % 2 == 0, 'input matrix dimension should be even '
     m = len(o_mat) // 2
     z_sets = get_subsets(m)
-    # tor = (-1) ** m * torch.exp(gamma @ gamma.conj() / 2)
     tor = (-1) ** m
     for i in range(1, len(z_sets)):
         subset = z_sets[i]
@@ -485,8 +484,3 @@ def torontonian_torch(o_mat, gamma=None):
         coeff_sum = (-1) ** (m - num_) * coeff.sum()
         tor = tor + coeff_sum
     return tor
-
-def check_zero(ts):
-    '''Check if ts is zero tensor and support vmap'''
-    is_zero = torch.all(ts==0)
-    return torch.where(is_zero, torch.tensor(0), torch.tensor(1))
