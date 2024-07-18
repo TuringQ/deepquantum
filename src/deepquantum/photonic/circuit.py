@@ -670,12 +670,21 @@ class QumodeCircuit(Operation):
         wires = sorted(self._convert_indices(wires))
         all_results = []
         if mcmc:
-            batch = (torch.tensor(self.init_state.state.reshape(-1).size())/self.nmode).int()
-            for i in range(batch):
-                samples_i = self._sample_mcmc_fock(shots=shots, num_chain=5)
-                keys = list(map(FockState, samples_i.keys()))
-                results = dict(zip(keys, samples_i.values()))
-                all_results.append(results)
+            if self.basis:
+                batch = (len(self.init_state.state.reshape(-1))//self.nmode)
+                for i in range(batch):
+                    samples_i = self._sample_mcmc_fock(shots=shots, num_chain=5)
+                    keys = list(map(FockState, samples_i.keys()))
+                    results = dict(zip(keys, samples_i.values()))
+                    all_results.append(results)
+            else:
+                batch = self.init_state.state.shape[0]
+                for i in range(batch):
+                    samples_i = self._sample_mcmc_fock(shots=shots, num_chain=5)
+                    keys = list(map(FockState, samples_i.keys()))
+                    results = dict(zip(keys, samples_i.values()))
+                    all_results.append(results)
+                
         else:
             amp_dis = self.state
             
@@ -796,9 +805,12 @@ class QumodeCircuit(Operation):
     def _proposal_sampler(self):
         """The proposal sampler for MCMC sampling."""
         if self.backend == 'fock':
-            sample = torch.zeros(self.nmode)
-            for i in range(sum(self.init_state.state)):
-                sample[torch.randint(self.nmode,(1,))] += 1
+            assert self.basis, 'Currently NOT supported.'
+            if self.basis:
+                all_fock_basis = self._get_all_fock_basis(self.init_state.state)
+            # else:
+            #     all_fock_basis = self._get_all_fock_basis(self.init_state.state[0])
+            sample = all_fock_basis[torch.randint(0, len(all_fock_basis), (1,))][0]
         else:
             sample = self._generate_rand_sample(self.detector)
         return sample
