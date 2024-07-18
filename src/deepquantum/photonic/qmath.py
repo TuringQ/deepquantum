@@ -453,10 +453,10 @@ def hafnian_torch(A, if_loop = False, rtol=1e-05, atol=1e-06):
 
 def _tor_helper(submat, sub_gamma):
     size = submat.size()[-1]
-    temp = torch.eye(size)-submat
-    inv_temp = torch.linalg.inv(temp)
-    sub_gamma = sub_gamma.to(inv_temp.dtype)
-    exp_term  = sub_gamma @ inv_temp @ sub_gamma.conj()/2
+    temp = torch.eye(size, device = submat.device)-submat
+    # inv_temp = torch.linalg.inv(temp)
+    sub_gamma = sub_gamma.to(temp.device, temp.dtype)
+    exp_term  = sub_gamma @ torch.linalg.solve(temp, sub_gamma.conj())/2
     return torch.exp(exp_term)/torch.sqrt(torch.linalg.det(temp + 0j))
 
 def torontonian_torch(o_mat, gamma=None):
