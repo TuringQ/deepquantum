@@ -384,6 +384,10 @@ class QumodeCircuit(Operation):
                                                                                                                  odd_basis, basis, detector, if_loop)
                 probs.append(probs_1)
             probs = torch.cat(probs) # reorder the result here
+            if len(cov_0) * len(cov_1) > 0:
+                idx0 = torch.where(~idx_loop==0)[0]
+                idx1 = torch.where(~idx_loop==1)[0]
+                probs = probs[torch.argsort(torch.cat([idx0, idx1]))]
         if detector == 'threshold':
             even_basis = [] #pnrd case
             odd_basis= [] #pnrd case
@@ -392,7 +396,7 @@ class QumodeCircuit(Operation):
             final_states_all = torch.cat(final_states_all)
             keys = list(map(FockState, final_states_all.tolist()))
             probs = vmap(self._forward_gaussian_prob_helper, in_dims=(0, 0, None, None, None, None))(cov, mean, even_basis,
-                                                                                            odd_basis, basis, detector)
+                                                                                            odd_basis, basis, detector, if_loop=True)
         print(probs.size())
         return dict(zip(keys, probs.mT))
     def _forward_gaussian_prob_helper(self, cov, mean, even_basis, odd_basis, basis, detector, if_loop):
@@ -414,6 +418,7 @@ class QumodeCircuit(Operation):
             probs_i = probs_i.squeeze()
             print(probs_i.size())
         if detector == 'threshold':
+            probs_i = []
             for state in basis:
                 state = torch.tensor(state)
                 prob = self._get_probs_gaussian_helper(state, cov, mean, detector, if_loop)
