@@ -278,6 +278,7 @@ def takagi(a: torch.Tensor):
                 if is_unitary(v):
                     return v, diag
 
+
 def sample_sc_mcmc(prob_func: Callable,
                    proposal_sampler: Callable,
                    shots: int = 1024,
