@@ -11,6 +11,8 @@ from . import mapper
 from . import operation
 from . import qmath
 from . import state
+from . import hafnian
+from . import torontonian
 
 from .ansatz import Clements, GaussianBosonSampling, GBS_Graph
 from .circuit import QumodeCircuit
