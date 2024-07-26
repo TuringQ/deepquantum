@@ -5,6 +5,7 @@ import pytest
 import torch
 from deepquantum.photonic.qmath import quadrature_to_ladder, ladder_to_quadrature, takagi
 
+
 def test_quadrature_ladder_transform():
     nmode = 4
     vector = torch.randn(2 * nmode, 1)
@@ -24,4 +25,3 @@ def test_takagi():
         s_diag = torch.diag(diag).to(u.dtype)
         assert torch.allclose(u @ u.mH, torch.eye(size) + 0j, rtol=1e-5, atol=1e-5)
         assert torch.allclose(u @ s_diag @ u.mT, a + 0j, rtol=1e-5, atol=1e-5)
-
