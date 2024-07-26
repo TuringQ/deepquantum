@@ -747,7 +747,6 @@ class QumodeCircuit(Operation):
                     prob_dict[state_b].append(state_dict[key])
                 for key in prob_dict.keys():
                     prob_dict[key] = sum(prob_dict[key])
-                print(prob_dict)
                 results = self._prob_dict_to_measure_result(prob_dict, shots, with_prob)
                 all_results.append(results)
         if batch == 1:
