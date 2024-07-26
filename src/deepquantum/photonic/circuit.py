@@ -400,7 +400,7 @@ class QumodeCircuit(Operation):
             keys = list(map(FockState, final_states_all.tolist()))
             probs = vmap(self._forward_gaussian_prob_helper, in_dims=(0, 0, None, None, None, None))(cov, mean, even_basis,
                                                                                             odd_basis, basis, detector, loop=True)
-        print(probs.size())
+        # print(probs.size())
         return dict(zip(keys, probs.mT))
     def _forward_gaussian_prob_helper(self, cov, mean, even_basis, odd_basis, basis, detector, loop):
         probs_half = []
@@ -409,17 +409,17 @@ class QumodeCircuit(Operation):
                 prob_even = self._get_probs_gaussian_helper(state, cov, mean, detector, loop)
                 probs_half.append(prob_even)
             if loop:
-                print('displaced')
+                # print('displaced')
                 for state in odd_basis:
                     prob_odd = self._get_probs_gaussian_helper(state, cov, mean, detector, loop)
                     probs_half.append(prob_odd)
                 probs_i = torch.cat(probs_half)
             else:
-                print('not displaced')
+                # print('not displaced')
                 probs_half = torch.cat(probs_half)
                 probs_i = torch.cat([probs_half.squeeze(), torch.zeros(len(torch.cat(odd_basis)))])
             probs_i = probs_i.squeeze()
-            print(probs_i.size())
+            # print(probs_i.size())
         if detector == 'threshold':
             probs_i = []
             for state in basis:
