@@ -690,7 +690,7 @@ class QumodeCircuit(Operation):
         """Measure the final state for Fock backend."""
         if isinstance(self.state, torch.Tensor):
             if self.basis:
-                return self._measure_fock_unitary(shots, with_prob, mcmc, wires)
+                return self._measure_fock_unitary(shots, with_prob, wires, mcmc)
             else:
                 assert not mcmc, "Final states have been calculated, we don't need mcmc!"
                 return self._measure_fock_tensor(shots, with_prob, wires)
@@ -732,7 +732,7 @@ class QumodeCircuit(Operation):
             u = self.state
             for fstate in final_states:
                 sub_mats.append(vmap(sub_matrix, in_dims=(0, None, None))(u, state, fstate))
-            sub_mats = torch.stack(sub_mats, dim=1)    
+            sub_mats = torch.stack(sub_mats, dim=1)
             per_norms = self._get_permanent_norms(state, final_states)
             for j in range(batch):
                 rst = vmap(self._get_prob_fock_vmap)(sub_mats[j], per_norms)
@@ -741,12 +741,13 @@ class QumodeCircuit(Operation):
                 for i in range(len(final_states)):
                     final_state = FockState(state=final_states[i])
                     state_dict[final_state] = rst[i]
-                for key in prob_dict.keys():
+                for key in state_dict.keys():
                     state_b = key.state[wires]
                     state_b = FockState(state=state_b)
                     prob_dict[state_b].append(state_dict[key])
                 for key in prob_dict.keys():
                     prob_dict[key] = sum(prob_dict[key])
+                print(prob_dict)
                 results = self._prob_dict_to_measure_result(prob_dict, shots, with_prob)
                 all_results.append(results)
         if batch == 1:
@@ -787,7 +788,7 @@ class QumodeCircuit(Operation):
             return all_results[0]
         else:
             return all_results
-      
+
     def _measure_fock_tensor(
         self,
         shots: int = 1024,
@@ -798,7 +799,7 @@ class QumodeCircuit(Operation):
         if wires is None:
             wires = self.wires
         wires = sorted(self._convert_indices(wires))
-        all_results = [] 
+        all_results = []
         if self.state.is_complex():
             state_tensor = self.tensor_rep(abs(self.state) ** 2)
         else:
@@ -824,7 +825,7 @@ class QumodeCircuit(Operation):
             return all_results[0]
         else:
             return all_results
-        
+
     def _sample_mcmc_fock(self, shots: int, unitary: torch.Tensor, num_chain: int):
         """Sample the output states for Fock backend via SC-MCMC method."""
         self._unitary = unitary
@@ -833,7 +834,7 @@ class QumodeCircuit(Operation):
                                         shots=shots,
                                         num_chain=num_chain)
         return merged_samples
-    
+
     def _prob_func_fock_unitary(self, final_state: torch.Tensor, init_state: Optional[FockState] = None) -> torch.Tensor:
         """Get the probability of the final state according to the unitary matrix for Fock backend.
 
@@ -921,7 +922,7 @@ class QumodeCircuit(Operation):
             # else:
             #     all_fock_basis = self._get_all_fock_basis(self.init_state.state[0])
             sample = all_fock_basis[torch.randint(0, len(all_fock_basis), (1,))][0]
-        else:
+        elif self.backend == 'gaussian':
             sample = self._generate_rand_sample(self.detector)
         return sample
 
