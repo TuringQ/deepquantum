@@ -37,7 +37,12 @@ def count_unique_permutations(nums):
     return backtrack(Counter(nums))
 
 def get_submat_haf(a, z):
-    """Get submat for hafnian calculation"""
+    """
+    Get submat for hafnian calculation
+
+    See https://arxiv.org/abs/1805.12498  paragraph after Eq.(3.20)
+    """
+
     if not isinstance(z, torch.Tensor):
         z = torch.tensor(z)
     idx1 = 2 * z
