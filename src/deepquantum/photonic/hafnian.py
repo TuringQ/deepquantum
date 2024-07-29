@@ -1,34 +1,29 @@
-import itertools
-import torch
+"""
+functions for hafnian
+"""
 import numpy as np
+import torch
 from scipy import special
 from collections import Counter
 
-def get_subsets(n):
-    """Get powerset of [0, 1, ... , n-1]"""
-    subsets = [ ]
-    for k in range(n+1):
-        subset = [ ]
-        for i in itertools.combinations(range(n), k):
-            subset.append(list(i))
-        subsets.append(subset)
-    return subsets
+from .qmath import get_subsets
 
 def integer_partition(m, n):
     """integer partition"""
     results = [ ]
-    def back_trace(m, n, result=[]):
+    def back_track(m, n, result=[]):
         if m == 0:
             results.append(result)
             return
         if m < 0 or n == 0:
             return
-        back_trace(m, n - 1, result)
-        back_trace(m - n, n, result + [n])
-    back_trace(m, n)
+        back_track(m, n - 1, result)
+        back_track(m - n, n, result + [n])
+    back_track(m, n)
     return results
 
 def count_unique_permutations(nums):
+    """" Count the number of unique permutations of a list of numbers."""
     def backtrack(counter):
         if sum(counter.values()) == 0:
             return 1
@@ -85,14 +80,12 @@ def p_labda(submat, power, loop=False):
 
     return coeff
 
-def hafnian(A, loop=False, rtol=1e-05, atol=1e-06):
+def hafnian(A: torch.Tensor, loop=False) -> torch.Tensor:
     """
     Calculate the hafnian for symmetrix matrix, using eigenvalue-trace method
 
     See https://arxiv.org/abs/2108.01622 Eq.(B3)
     """
-    if not isinstance(A, torch.Tensor):
-        A = torch.tensor(A)
 #     # vmap over torch.allclose isn't supported yet
 #     assert torch.allclose(A, A.mT, rtol=rtol, atol=atol), 'the input matrix should be symmetric'
     size = A.size()[-1]
@@ -118,5 +111,14 @@ def hafnian(A, loop=False, rtol=1e-05, atol=1e-06):
         haf = haf + coeff_sum
     return haf
 
+def hafnian_batch(A: torch.Tensor, loop=False) -> torch.Tensor:
+    """
+    Calculate the batch hafnian
+    """
+    if not isinstance(A, torch.Tensor):
+        A = torch.tensor(A)
+    assert A.dim()==3, 'Input tensor should be in batched size'
+    hafs = torch.vmap(hafnian, in_dims=(0, None))(A, loop)
+    return hafs
 
 

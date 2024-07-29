@@ -2,15 +2,15 @@
 Common functions
 """
 
-import itertools
-from typing import Callable, Dict, List, Tuple
-
 import copy
+import itertools
 import numpy as np
 import torch
 from collections import defaultdict
 from torch import vmap
 from tqdm import tqdm
+from typing import Callable, Dict, List, Tuple
+import warnings
 
 import deepquantum.photonic as dqp
 from ..qmath import is_unitary
@@ -61,8 +61,10 @@ def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.T
     """
     output_state = output_state.to(torch.int64)
     input_state = input_state.to(torch.int64)
-    u1 = torch.repeat_interleave(u, output_state, dim=0)
-    u2 = torch.repeat_interleave(u1, input_state, dim=1)
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore') # local warning
+        u1 = torch.repeat_interleave(u, output_state, dim=0)
+        u2 = torch.repeat_interleave(u1, input_state, dim=1)
     return u2
 
 def permanent(mat: torch.Tensor) -> torch.Tensor:
@@ -324,3 +326,13 @@ def sample_sc_mcmc(prob_func: Callable,
         for key, value in dict_sample.items():
             merged_samples[key] += value
     return merged_samples
+
+def get_subsets(n):
+    """Get powerset of [0, 1, ... , n-1]"""
+    subsets = [ ]
+    for k in range(n+1):
+        subset = [ ]
+        for i in itertools.combinations(range(n), k):
+            subset.append(list(i))
+        subsets.append(subset)
+    return subsets

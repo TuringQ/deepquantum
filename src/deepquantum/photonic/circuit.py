@@ -10,9 +10,9 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-# from thewalrus import hafnian, tor, ltor
 from torch import nn, vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
+import warnings
 
 from .decompose import UnitaryDecomposer
 from .draw import DrawCircuit
@@ -613,7 +613,7 @@ class QumodeCircuit(Operation):
         cov: torch.Tensor,
         mean: torch.tensor,
         detector: str = 'pnrd',
-        loop: Optional[bool] = False
+        loop: Optional[bool] = None
     ) -> torch.Tensor:
         """Get the probabilities of the final states for Gaussian backend."""
         if loop is None:
@@ -638,18 +638,16 @@ class QumodeCircuit(Operation):
         elif detector == 'threshold':
             matrix = o_mat
         purity = GaussianState(self.state).check_purity()
-        p_vac = torch.exp(-0.5 * mean_ladder.mH@torch.inverse(q)@mean_ladder)/torch.sqrt(torch.det(q))
+        p_vac = torch.exp(-0.5 * mean_ladder.mH @ torch.inverse(q) @ mean_ladder) / torch.sqrt(torch.det(q))
         probs = torch.vmap(self._get_prob_gaussian_base,
-                           in_dims=(0, None, None, None, None, None, None, None, None))(final_states, matrix, det_q,
-                                                                            mean_ladder, gamma, p_vac, detector, purity, loop)
+                           in_dims=(0, None, None, None, None, None, None))(final_states, matrix, gamma,
+                                                                            p_vac, detector, purity, loop)
         return probs
 
     def _get_prob_gaussian_base(
         self,
         final_state: torch.Tensor,
         matrix: torch.Tensor,
-        det_q: torch.Tensor,
-        mean_ladder: torch.Tensor,
         gamma: torch.Tensor,
         p_vac: torch.Tensor,
         detector: str = 'pnrd',
@@ -660,8 +658,10 @@ class QumodeCircuit(Operation):
         # loop = False
         gamma = gamma.squeeze()
         nmode = len(final_state)
-        gamma_n1 = torch.repeat_interleave(gamma[:nmode], final_state)
-        gamma_n2 = torch.repeat_interleave(gamma[nmode:], final_state)
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore') # local warning
+            gamma_n1 = torch.repeat_interleave(gamma[:nmode], final_state)
+            gamma_n2 = torch.repeat_interleave(gamma[nmode:], final_state)
         sub_gamma = torch.cat([gamma_n1, gamma_n2])
         if detector == 'pnrd':
             if purity and detector == 'pnrd':
@@ -677,7 +677,7 @@ class QumodeCircuit(Operation):
             else:
                 sub_mat[torch.arange(len(sub_gamma)), torch.arange(len(sub_gamma))] = sub_gamma
             # if detector == 'pnrd':
-            p_vac2 = torch.exp(-0.5 * gamma @ mean_ladder.squeeze()) / torch.sqrt(det_q)
+            # p_vac2 = torch.exp(-0.5 * gamma @ mean_ladder.squeeze()) / torch.sqrt(det_q)
             if purity:
                 haf = abs(hafnian(sub_mat, loop=loop)) ** 2
             else:
