@@ -1,7 +1,5 @@
 import deepquantum as dq
 import torch
-import warnings
-warnings.filterwarnings('ignore')
 
 def test_gaussian_backend_auto_grad():
     def get_vac_prob(paras):

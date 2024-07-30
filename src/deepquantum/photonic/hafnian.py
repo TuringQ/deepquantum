@@ -9,8 +9,8 @@ from collections import Counter
 from .qmath import get_subsets
 
 def integer_partition(m, n):
-    """integer partition"""
-    results = [ ]
+    """Partition the integer m into lists of integers <= n"""
+    results = []
     def back_track(m, n, result=[]):
         if m == 0:
             results.append(result)
