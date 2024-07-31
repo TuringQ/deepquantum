@@ -4,13 +4,14 @@ Common functions
 
 import copy
 import itertools
+import warnings
+from collections import defaultdict
+from typing import Callable, Dict, List, Tuple
+
 import numpy as np
 import torch
-from collections import defaultdict
 from torch import vmap
 from tqdm import tqdm
-from typing import Callable, Dict, List, Tuple
-import warnings
 
 import deepquantum.photonic as dqp
 from ..qmath import is_unitary
@@ -49,6 +50,7 @@ def sort_dict_fock_basis(state_dict: Dict, idx: int = 0) -> Dict:
         sorted_dict[key] = value
     return sorted_dict
 
+
 def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.Tensor) -> torch.Tensor:
     """Get the submatrix for calculating the transfer amplitude and transfer probs from the given matrix,
     the input state and the output state. The rows are chosen according to the output state and the columns
@@ -66,6 +68,7 @@ def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.T
         u1 = torch.repeat_interleave(u, output_state, dim=0)
         u2 = torch.repeat_interleave(u1, input_state, dim=1)
     return u2
+
 
 def permanent(mat: torch.Tensor) -> torch.Tensor:
     """Calculate the permanent."""
@@ -96,6 +99,17 @@ def create_subset(num_coincidence: int) -> List:
         temp = torch.tensor(comb_lst).reshape(len(comb_lst), k)
         subsets.append(temp)
     return subsets
+
+
+def get_powerset(n: int) -> List:
+    """Get the powerset of ``{0, 1, ... , n-1}``"""
+    powerset = []
+    for k in range(n + 1):
+        subset = []
+        for i in itertools.combinations(range(n), k):
+            subset.append(list(i))
+        powerset.append(subset)
+    return powerset
 
 
 def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
@@ -326,13 +340,3 @@ def sample_sc_mcmc(prob_func: Callable,
         for key, value in dict_sample.items():
             merged_samples[key] += value
     return merged_samples
-
-def get_powersets(n):
-    """Get powerset of [0, 1, ... , n-1]"""
-    subsets = [ ]
-    for k in range(n+1):
-        subset = [ ]
-        for i in itertools.combinations(range(n), k):
-            subset.append(list(i))
-        subsets.append(subset)
-    return subsets
