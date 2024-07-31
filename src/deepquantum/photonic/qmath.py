@@ -297,7 +297,7 @@ def sample_sc_mcmc(prob_func: Callable,
             else:
                 prob_i = prob_func(sample_i)
                 cache_prob[tuple(sample_i.tolist())] = prob_i
-            rand_num = torch.rand(1)
+            rand_num = torch.rand(1, device= prob_i.device)
             samples.append(sample_i)
             # MCMC transfer to new state
             if prob_i / prob_max > rand_num:
