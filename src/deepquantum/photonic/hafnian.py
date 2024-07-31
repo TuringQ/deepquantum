@@ -2,25 +2,26 @@
 functions for hafnian
 """
 import numpy as np
+from functools import lru_cache
 import torch
 from scipy import special
 from collections import Counter
 
 from .qmath import get_subsets
 
-def integer_partition(m, n):
-    """Partition the integer m into lists of integers <= n"""
-    results = []
-    def back_track(m, n, result=[]):
-        if m == 0:
-            results.append(result)
-            return
-        if m < 0 or n == 0:
-            return
-        back_track(m, n - 1, result)
-        back_track(m - n, n, result + [n])
-    back_track(m, n)
-    return results
+@lru_cache(maxsize=None)
+def integer_partition(remaining, max_num):
+    """Generate all unique integer partitions of m using integers up to n."""
+    if remaining == 0:
+        return [[]]
+    if remaining < 0 or max_num == 0:
+        return []
+    result = []
+    if remaining >= max_num:
+        for part in integer_partition(remaining - max_num, max_num):
+            result.append([max_num] + part)
+    result.extend(integer_partition(remaining, max_num - 1))
+    return result
 
 def count_unique_permutations(nums):
     """" Count the number of unique permutations of a list of numbers."""
@@ -52,16 +53,17 @@ def get_submat_haf(a, z):
     submat = a[idx][:, idx]
     return submat
 
-def p_labda(submat, power, loop=False):
+def p_labda(submat, int_partition, power, loop=False):
     """Return the coefficient of polynomial."""
     sigma_x = torch.tensor([[0, 1], [1, 0]], device = submat.device)
     len_ = int(submat.size()[-1] / 2)
     x_mat = torch.block_diag(*[sigma_x]*len_)
     x_mat = x_mat.to(submat.dtype)
     xaz = x_mat @ submat
-    eigen = torch.linalg.eig(xaz)[0] #eigen decomposition
+    # eigen = torch.linalg.eig(xaz)[0] #eigen decomposition
+    eigen = torch.linalg.eigvals(xaz) #eigen decomposition
     trace_list = torch.stack([(eigen ** i).sum() for i in range(0, power+1)])
-    int_partition = integer_partition(power, power)
+    # int_partition = integer_partition(power, power)
     if loop: #loop hafnian case
         v = torch.diag(submat)
         diag_contribution = torch.stack([v @ torch.linalg.matrix_power(xaz, i-1) @ x_mat @ v.reshape(-1,1)/2 for i in range(1, power+1)])
@@ -107,11 +109,12 @@ def hafnian(A: torch.Tensor, loop=False) -> torch.Tensor:
     power = len(A)//2
     haf = 0
     z_sets = get_subsets(power)
+    int_partition = integer_partition(power, power)
     for i in range(1, len(z_sets)):
         subset = z_sets[i]
         num_ = len(subset[0])
         sub_mats = torch.vmap(get_submat_haf, in_dims=(None, 0))(A, torch.tensor(subset))
-        coeff = torch.vmap(p_labda, in_dims=(0, None, None))(sub_mats, power, loop)
+        coeff = torch.vmap(p_labda, in_dims=(0, None, None, None))(sub_mats, int_partition, power, loop)
         coeff_sum = (-1) ** (power-num_) * coeff.sum()
         haf = haf + coeff_sum
     return haf
