@@ -1,16 +1,20 @@
 """
 functions for hafnian
 """
-import numpy as np
-from functools import lru_cache
-import torch
-from scipy import special
-from collections import Counter
 
-from .qmath import get_powersets
+from collections import Counter
+from functools import lru_cache
+from typing import List, Union
+
+import numpy as np
+import torch
+from scipy.special import factorial
+
+from .qmath import get_powerset
+
 
 @lru_cache(maxsize=None)
-def integer_partition(remaining, max_num):
+def integer_partition(remaining: int, max_num: int) -> List:
     """Generate all unique integer partitions of m using integers up to n."""
     if remaining == 0:
         return [[]]
@@ -23,110 +27,87 @@ def integer_partition(remaining, max_num):
     result.extend(integer_partition(remaining, max_num - 1))
     return result
 
-def count_unique_permutations(nums):
-    """" Count the number of unique permutations of a list of numbers."""
-    def backtrack(counter):
-        if sum(counter.values()) == 0:
-            return 1
-        total_count = 0
-        for key in counter:
-            if counter[key] > 0:
-                counter[key] -= 1
-                total_count += backtrack(counter)
-                counter[key] += 1
-        return total_count
-    return backtrack(Counter(nums))
 
-def get_submat_haf(a, z):
+def count_unique_permutations(nums: Union[List, np.array]) -> np.float64:
+    """Count the number of unique permutations of a list of numbers."""
+    total_permutations = factorial(len(nums))
+    num_counts = Counter(nums)
+    repetitions = 1
+    for count in num_counts.values():
+        repetitions *= factorial(count)
+    unique_permutations = total_permutations // repetitions
+    return unique_permutations
+
+
+def get_submat_haf(a: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
+    """Get the sub-matrix for hafnian calculation.
+
+    See https://arxiv.org/abs/1805.12498 paragraph after Eq.(3.20)
     """
-    Get submat for hafnian calculation
-
-    See https://arxiv.org/abs/1805.12498  paragraph after Eq.(3.20)
-    """
-
-    if not isinstance(z, torch.Tensor):
-        z = torch.tensor(z)
     idx1 = 2 * z
-    idx2 = idx1+1
+    idx2 = idx1 + 1
     idx = torch.cat([idx1, idx2])
     idx = torch.sort(idx)[0]
     submat = a[idx][:, idx]
     return submat
 
-def p_labda(submat, int_partition, power, loop=False):
-    """Return the coefficient of polynomial."""
-    sigma_x = torch.tensor([[0, 1], [1, 0]], device = submat.device)
-    len_ = int(submat.size()[-1] / 2)
-    x_mat = torch.block_diag(*[sigma_x]*len_)
-    x_mat = x_mat.to(submat.dtype)
-    xaz = x_mat @ submat
-    # eigen = torch.linalg.eig(xaz)[0] #eigen decomposition
-    eigen = torch.linalg.eigvals(xaz) #eigen decomposition
-    trace_list = torch.stack([(eigen ** i).sum() for i in range(0, power+1)])
-    # int_partition = integer_partition(power, power)
-    if loop: #loop hafnian case
-        v = torch.diag(submat)
-        diag_contribution = torch.stack([v @ torch.linalg.matrix_power(xaz, i-1) @ x_mat @ v.reshape(-1,1)/2 for i in range(1, power+1)])
-        diag_contribution = diag_contribution.squeeze()
-        coeff =  0
-        for k in range(len(int_partition)):
-            temp = int_partition[k]
-            prefactor = count_unique_permutations(temp)
-            poly_list = trace_list[temp]/(2 * torch.tensor(temp)) + diag_contribution[np.array(temp)-1]
-            poly_prod = poly_list.prod()
-            coeff = coeff + prefactor/special.factorial(len(temp)) * poly_prod
-            # coeff = coeff + prefactor/torch.exp(torch.lgamma(torch.tensor(len(temp)+1))) * poly_prod
-    else:
-        coeff =  0
-        for k in range(len(int_partition)):
-            temp = int_partition[k]
-            prefactor = count_unique_permutations(temp)
-            trace_prod = trace_list[temp].prod()
-            coeff = coeff + prefactor/special.factorial(len(temp)) * trace_prod / (2**len(temp)*torch.tensor(temp).prod())
-            # coeff = coeff + prefactor/torch.exp(torch.lgamma(torch.tensor(len(temp)+1))) * trace_prod / (2**len(temp)*torch.tensor(temp).prod())
 
+def poly_lambda(submat: torch.Tensor, int_partition: List, power: int, loop: bool = False) -> torch.Tensor:
+    """Get the coefficient of the polynomial."""
+    sigma_x_list = [torch.tensor([[0, 1], [1, 0]], dtype=submat.dtype, device=submat.device)] * (submat.shape[-1] // 2)
+    x_mat = torch.block_diag(*sigma_x_list)
+    xaz = x_mat @ submat
+    eigen = torch.linalg.eigvals(xaz) # eigen decomposition
+    trace_list = torch.stack([(eigen ** i).sum() for i in range(0, power + 1)])
+    coeff = 0
+    if loop: # loop hafnian case
+        v = torch.diag(submat)
+        diag_term = torch.stack([v @ torch.linalg.matrix_power(xaz, i - 1) @ x_mat @ v / 2 for i in range(1, power + 1)])
+    for orders in int_partition:
+        ncount = count_unique_permutations(orders)
+        orders = torch.tensor(orders, device=submat.device)
+        poly_list = trace_list[orders] / (2 * orders)
+        if loop:
+            poly_list += diag_term[orders - 1]
+        poly_prod = poly_list.prod()
+        coeff += ncount / factorial(len(orders)) * poly_prod
     return coeff
 
-def hafnian(A: torch.Tensor, loop=False) -> torch.Tensor:
-    """
-    Calculate the hafnian for symmetrix matrix, using eigenvalue-trace method
+
+def hafnian(matrix: torch.Tensor, loop: bool = False) -> torch.Tensor:
+    """Calculate the hafnian for symmetric matrix, using the eigenvalue-trace method.
 
     See https://arxiv.org/abs/2108.01622 Eq.(B3)
     """
-#     # vmap over torch.allclose isn't supported yet
-#     assert torch.allclose(A, A.mT, rtol=rtol, atol=atol), 'the input matrix should be symmetric'
-    size = A.size()[-1]
-    if size % 2 == 1:  # consider odd case
-        A = torch.block_diag(torch.tensor(1, device = A.device), A)
-        size = A.size()[-1]
+    size = matrix.shape[-1]
+    if size % 2 == 1:
+        return torch.tensor(0, dtype=matrix.dtype, device=matrix.device)
     if size == 0:
-        return 1
+        return torch.tensor(1, dtype=matrix.dtype, device=matrix.device)
     if size == 2:
         if loop:
-            return A[0, 1] + A[0, 0] * A[1, 1]
+            return matrix[0, 1] + matrix[0, 0] * matrix[1, 1]
         else:
-            return A[0, 1]
-    power = len(A)//2
+            return matrix[0, 1]
+    power = size // 2
     haf = 0
-    z_sets = get_powersets(power)
+    powerset = get_powerset(power)
     int_partition = integer_partition(power, power)
-    for i in range(1, len(z_sets)):
-        subset = z_sets[i]
-        num_ = len(subset[0])
-        sub_mats = torch.vmap(get_submat_haf, in_dims=(None, 0))(A, torch.tensor(subset))
-        coeff = torch.vmap(p_labda, in_dims=(0, None, None, None))(sub_mats, int_partition, power, loop)
-        coeff_sum = (-1) ** (power-num_) * coeff.sum()
-        haf = haf + coeff_sum
+    for i in range(1, len(powerset)):
+        z_sets = torch.tensor(powerset[i], device=matrix.device)
+        num_z = len(z_sets[0])
+        submats = torch.vmap(get_submat_haf, in_dims=(None, 0))(matrix, z_sets)
+        coeff = torch.vmap(poly_lambda, in_dims=(0, None, None, None))(submats, int_partition, power, loop)
+        coeff_sum = (-1) ** (power - num_z) * coeff.sum()
+        haf += coeff_sum
     return haf
 
-def hafnian_batch(A: torch.Tensor, loop=False) -> torch.Tensor:
-    """
-    Calculate the batch hafnian
-    """
-    if not isinstance(A, torch.Tensor):
-        A = torch.tensor(A)
-    assert A.dim()==3, 'Input tensor should be in batched size'
-    hafs = torch.vmap(hafnian, in_dims=(0, None))(A, loop)
+
+def hafnian_batch(matrix: torch.Tensor, loop: bool = False) -> torch.Tensor:
+    """Calculate the batch hafnian."""
+    assert matrix.dim() == 3, 'Input tensor should be in batched size'
+    batch = matrix.shape[0]
+    for i in range(batch):
+        assert torch.allclose(matrix[i], matrix[i].mT)
+    hafs = torch.vmap(hafnian, in_dims=(0, None))(matrix, loop)
     return hafs
-
-
