@@ -5,7 +5,7 @@ functions for torontonian
 import itertools
 import torch
 
-from .qmath import get_subsets
+from .qmath import get_powersets
 
 def get_submat_tor(a, z):
     """Get submat for torontonian calculation"""
@@ -40,7 +40,7 @@ def torontonian(o_mat: torch.Tensor, gamma=None) -> torch.Tensor:
         gamma = torch.zeros(len(o_mat))
     assert len(o_mat) % 2 == 0, 'input matrix dimension should be even '
     m = len(o_mat) // 2
-    z_sets = get_subsets(m)
+    z_sets = get_powersets(m)
     tor = (-1) ** m
     for i in range(1, len(z_sets)):
         subset = z_sets[i]

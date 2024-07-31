@@ -7,7 +7,7 @@ import torch
 from scipy import special
 from collections import Counter
 
-from .qmath import get_subsets
+from .qmath import get_powersets
 
 @lru_cache(maxsize=None)
 def integer_partition(remaining, max_num):
@@ -108,7 +108,7 @@ def hafnian(A: torch.Tensor, loop=False) -> torch.Tensor:
             return A[0, 1]
     power = len(A)//2
     haf = 0
-    z_sets = get_subsets(power)
+    z_sets = get_powersets(power)
     int_partition = integer_partition(power, power)
     for i in range(1, len(z_sets)):
         subset = z_sets[i]

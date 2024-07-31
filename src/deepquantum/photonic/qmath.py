@@ -327,7 +327,7 @@ def sample_sc_mcmc(prob_func: Callable,
             merged_samples[key] += value
     return merged_samples
 
-def get_subsets(n):
+def get_powersets(n):
     """Get powerset of [0, 1, ... , n-1]"""
     subsets = [ ]
     for k in range(n+1):
