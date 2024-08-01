@@ -61,8 +61,6 @@ def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.T
         input_state (torch.Tensor): The input state.
         output_state (torch.Tensor): The output state.
     """
-    output_state = output_state.to(torch.int64)
-    input_state = input_state.to(torch.int64)
     with warnings.catch_warnings():
         warnings.filterwarnings('ignore') # local warning
         u1 = torch.repeat_interleave(u, output_state, dim=0)
