@@ -81,7 +81,11 @@ def hafnian(matrix: torch.Tensor, loop: bool = False) -> torch.Tensor:
     """
     size = matrix.shape[-1]
     if size % 2 == 1:
-        return torch.tensor(0, dtype=matrix.dtype, device=matrix.device)
+        if loop:
+            matrix = torch.block_diag(torch.tensor(1, dtype=matrix.dtype, device=matrix.device), matrix)
+            size = matrix.shape[-1]
+        else:
+            return torch.tensor(0, dtype=matrix.dtype, device=matrix.device)
     if size == 0:
         return torch.tensor(1, dtype=matrix.dtype, device=matrix.device)
     if size == 2:
