@@ -29,7 +29,7 @@ def test_gaussian_backend_auto_grad():
     target_prob = 0.5 # set vacuum state prob
     optimizer = torch.optim.Adam(para_ini, lr=0.05)
     best_para = []
-    for epoch in range(500):
+    for _ in range(500):
         optimizer.zero_grad()
         vac_prob = get_vac_prob(para_ini) # forward
         loss = abs(target_prob - vac_prob)
