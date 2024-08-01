@@ -394,7 +394,7 @@ class QumodeCircuit(Operation):
                 probs.append(probs_0)
             if len(cov_1) > 0:
                 loop = True
-                probs_1 = batch_forward(cov_0, mean_0, even_basis, odd_basis, basis, detector, loop)
+                probs_1 = batch_forward(cov_1, mean_1, even_basis, odd_basis, basis, detector, loop)
                 probs.append(probs_1)
             probs = torch.cat(probs) # reorder the result here
             if len(cov_0) * len(cov_1) > 0:
