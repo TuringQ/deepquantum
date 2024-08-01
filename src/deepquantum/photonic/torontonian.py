@@ -1,19 +1,19 @@
 """
 functions for torontonian
-
 """
+
 import itertools
+from typing import Optional
+
 import torch
 
-from .qmath import get_powersets
+from .qmath import get_powerset
 
-def get_submat_tor(a, z):
-    """Get submat for torontonian calculation"""
-    if not isinstance(z, torch.Tensor):
-        z = torch.tensor(z)
-    len_ = a.size()[-1]
+
+def get_submat_tor(a: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
+    """Get the sub-matrix for torontonian calculation."""
     idx1 = z
-    idx2 = idx1 + int((len_)/2)
+    idx2 = idx1 + a.shape[-1] // 2
     idx = torch.cat([idx1, idx2])
     idx = torch.sort(idx)[0]
     if a.dim() == 1:
@@ -22,47 +22,42 @@ def get_submat_tor(a, z):
         return a[idx][:, idx]
 
 
-def _tor_helper(submat, sub_gamma):
-    size = submat.size()[-1]
-    temp = torch.eye(size, device = submat.device)-submat
-    # inv_temp = torch.linalg.inv(temp)
-    sub_gamma = sub_gamma.to(temp.device, temp.dtype)
-    exp_term  = sub_gamma @ torch.linalg.solve(temp, sub_gamma.conj())/2
-    return torch.exp(exp_term)/torch.sqrt(torch.linalg.det(temp + 0j))
+def _tor_helper(submat: torch.Tensor, sub_gamma: torch.Tensor) -> torch.Tensor:
+    size = submat.shape[-1]
+    cov_q_inv = torch.eye(size, dtype=submat.dtype, device=submat.device) - submat
+    exp_term = sub_gamma @ torch.linalg.solve(cov_q_inv, sub_gamma.conj()) / 2
+    return torch.exp(exp_term) / torch.sqrt(torch.linalg.det(cov_q_inv))
 
-def torontonian(o_mat: torch.Tensor, gamma=None) -> torch.Tensor:
-    """
-    Calculate the torontonian function for given matrix.
+
+def torontonian(o_mat: torch.Tensor, gamma: Optional[torch.Tensor] = None) -> torch.Tensor:
+    """Calculate the torontonian function for the given matrix.
 
     See https://research-information.bris.ac.uk/ws/portalfiles/portal/329011096/thesis.pdf Eq.(3.54)
     """
+    size = o_mat.shape[-1]
     if gamma is None:
-        gamma = torch.zeros(len(o_mat))
-    assert len(o_mat) % 2 == 0, 'input matrix dimension should be even '
-    m = len(o_mat) // 2
-    z_sets = get_powersets(m)
+        gamma = torch.zeros(size, dtype=o_mat.dtype, device=o_mat.device)
+    m = size // 2
+    powerset = get_powerset(m)
     tor = (-1) ** m
-    for i in range(1, len(z_sets)):
-        subset = z_sets[i]
-        num_ = len(subset[0])
-        sub_mats = torch.vmap(get_submat_tor, in_dims=(None, 0))(o_mat, torch.tensor(subset))
-        sub_gammas = torch.vmap(get_submat_tor, in_dims=(None, 0))(gamma, torch.tensor(subset))
+    for i in range(1, len(powerset)):
+        y_sets = torch.tensor(powerset[i], device=o_mat.device)
+        num_y = len(y_sets[0])
+        sub_mats = torch.vmap(get_submat_tor, in_dims=(None, 0))(o_mat, y_sets)
+        sub_gammas = torch.vmap(get_submat_tor, in_dims=(None, 0))(gamma, y_sets)
         coeff = torch.vmap(_tor_helper)(sub_mats, sub_gammas)
-        coeff_sum = (-1) ** (m - num_) * coeff.sum()
-        tor = tor + coeff_sum
+        coeff_sum = (-1) ** (m - num_y) * coeff.sum()
+        tor += coeff_sum
     return tor
 
-def torontonian_batch(A: torch.Tensor, gamma=None) -> torch.Tensor:
-    """
-    Calculate the batch torontonian
-    """
-    if not isinstance(A, torch.Tensor):
-        A = torch.tensor(A)
-    assert A.dim()==3, 'Input tensor should be in batched size'
+
+def torontonian_batch(o_mat: torch.Tensor, gamma: Optional[torch.Tensor] = None) -> torch.Tensor:
+    """Calculate the batch torontonian."""
+    assert o_mat.dim() == 3, 'Input tensor should be in batched size'
+    assert o_mat.shape[-2] == o_mat.shape[-1]
+    assert o_mat.shape[-1] % 2 == 0, 'Input matrix dimension should be even'
     if gamma is None: # torontonian case
-        tors = torch.vmap(torontonian, in_dims=(0, None))(A, gamma)
+        tors = torch.vmap(torontonian, in_dims=(0, None))(o_mat, gamma)
     else: # loop torontonian case
-        if not isinstance(gamma, torch.Tensor):
-            gamma = torch.tensor(gamma)
-        tors = torch.vmap(torontonian, in_dims=(0, 0))(A, gamma)
+        tors = torch.vmap(torontonian, in_dims=(0, 0))(o_mat, gamma)
     return tors
