@@ -45,7 +45,7 @@ from .qmath import multi_kron, partial_trace, amplitude_encoding, measure, expec
 from .qmath import meyer_wallach_measure
 from .state import QubitState, MatrixProductState
 
-from .photonic import permanent, takagi
+from .photonic import permanent, takagi, hafnian, torontonian
 from .photonic import FockState, GaussianState
 from .photonic import QumodeCircuit, Clements, GaussianBosonSampling
 from .photonic import UnitaryMapper, UnitaryDecomposer, DrawClements
