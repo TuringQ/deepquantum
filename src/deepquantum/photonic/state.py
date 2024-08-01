@@ -35,23 +35,35 @@ class FockState(nn.Module):
             if state in ('vac', 'zeros'):
                 state = [0] * nmode
             # Process Fock basis state
+
             if not isinstance(state, torch.Tensor):
-                state = torch.tensor(state, dtype=torch.int).reshape(-1)
+                state = torch.tensor(state, dtype=torch.int)
             else:
-                state = state.int().reshape(-1)
+                state = state.int()
+            if state.ndim == 1:
+                state = state.unsqueeze(0)
             if nmode is None:
-                nmode = state.numel()
+                nmode = state[0].numel()
             if cutoff is None:
-                cutoff = sum(state) + 1
+                cutoff_row  = torch.sum(state, dim=-1) + 1
+                cutoff = torch.max(cutoff_row).item()
             self.nmode = nmode
             self.cutoff = cutoff
             state_ts = torch.zeros(self.nmode, dtype=torch.int, device=state.device)
-            size = len(state)
-            if self.nmode > size:
-                state_ts[:size] = state[:]
+            batch, size = state.shape
+            if batch == 1:
+                state_ts = state[0]
             else:
-                state_ts[:] = state[:self.nmode]
-            assert len(state_ts) == self.nmode
+                if self.nmode > size:
+                    state_ts[:size] = state[:]
+                else:
+                    state_ts = state
+
+            # if self.nmode > size:
+            #     state_ts[:size] = state[:]
+            # else:
+            #     state_ts[:] = state[:self.nmode]
+            assert size == self.nmode
             assert state_ts.max() < self.cutoff
         else:
             if state in ('vac', 'zeros'):

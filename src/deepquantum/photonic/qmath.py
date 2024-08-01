@@ -12,6 +12,7 @@ from collections import defaultdict
 from scipy import special
 from torch import vmap
 from tqdm import tqdm
+import warnings
 
 import deepquantum.photonic as dqp
 from ..qmath import is_unitary
@@ -50,7 +51,6 @@ def sort_dict_fock_basis(state_dict: Dict, idx: int = 0) -> Dict:
         sorted_dict[key] = value
     return sorted_dict
 
-
 def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.Tensor) -> torch.Tensor:
     """Get the submatrix for calculating the transfer amplitude and transfer probs from the given matrix,
     the input state and the output state. The rows are chosen according to the output state and the columns
@@ -61,24 +61,13 @@ def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.T
         input_state (torch.Tensor): The input state.
         output_state (torch.Tensor): The output state.
     """
-    def set_copy_indx(state: torch.Tensor) -> List:
-        """Pick up indices from the nonezero elements of state.
-        The repeat times depend on the nonezero value.
-        """
-        inds_nonzero = torch.nonzero(state)
-        temp_ind = []
-        for i in range(len(inds_nonzero)):
-            temp1 = inds_nonzero[i]
-            temp = state[inds_nonzero][i]
-            temp_ind = temp_ind + [int(temp1)] * (int(temp))
-        return temp_ind
-
-    indx1 = set_copy_indx(input_state)
-    indx2 = set_copy_indx(output_state)
-    u1 = u[[indx2]]         # choose rows from the output
-    u2 = u1[:, [indx1]]     # choose columns from the input
-    return u2.squeeze(1)
-
+    output_state = output_state.to(torch.int64)
+    input_state = input_state.to(torch.int64)
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore') # local warning
+        u1 = torch.repeat_interleave(u, output_state, dim=0)
+        u2 = torch.repeat_interleave(u1, input_state, dim=1)
+    return u2
 
 def permanent(mat: torch.Tensor) -> torch.Tensor:
     """Calculate the permanent."""
@@ -167,7 +156,7 @@ def fock_combinations(nmode: int, nphoton: int) -> List:
             if num_sum == 0:
                 result.append(state)
             return
-        for i in range(num_sum + 1):
+        for i in torch.arange(num_sum + 1):
             backtrack(state + [i], length - 1, num_sum - i)
 
     backtrack([], nmode, nphoton)
