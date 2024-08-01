@@ -1,5 +1,6 @@
 import deepquantum.photonic as dqp
 import numpy as np
+import pytest
 import thewalrus
 import torch
 from deepquantum.photonic.qmath import quadrature_to_ladder
