@@ -1,4 +1,5 @@
 import deepquantum as dq
+import pytest
 import torch
 
 
