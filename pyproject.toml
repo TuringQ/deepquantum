@@ -6,7 +6,7 @@ build-backend = 'setuptools.build_meta'
 name = 'deepquantum'
 dynamic = ['version']
 dependencies = [
-    'torch>=2.0.0',
+    'torch>=2.0.0,<=2.2.2',
     'numpy<2',
     'matplotlib',
     'qiskit',
@@ -15,7 +15,6 @@ dependencies = [
     'sympy',
     'svgwrite',
     'bayesian-optimization',
-    'thewalrus',
     'networkx',
     'tqdm'
 ]
@@ -23,7 +22,8 @@ requires-python = '>=3.8'
 authors = [
     {name = 'TuringQ', email = 'Algorithms-Applications@turingq.com'},
     {name = 'Junjie He', email = 'hejunjie@turingq.com'},
-    {name = 'Keming Hu', email = 'hukeming@turingq.com'}
+    {name = 'Keming Hu', email = 'hukeming@turingq.com'},
+    {name = 'Yuze Zhu', email = 'zhuyuze@turingq.com'}
 ]
 maintainers = [
     {name = 'Junjie He', email = 'hejunjie@turingq.com'}
@@ -45,7 +45,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-dev = ['pytest', 'perceval-quandela']
+dev = ['pytest', 'perceval-quandela', 'thewalrus']
 
 [project.urls]
 Homepage = 'https://deepquantum.turingq.com/'

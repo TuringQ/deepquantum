@@ -2,7 +2,6 @@
 functions for torontonian
 """
 
-import itertools
 from typing import Optional
 
 import torch

@@ -1,11 +1,9 @@
-import deepquantum.photonic as dqp
+import deepquantum as dq
 import numpy as np
 import pytest
 import thewalrus
 import torch
-from deepquantum.photonic.qmath import quadrature_to_ladder
-from deepquantum.photonic.hafnian import hafnian
-from deepquantum.photonic.torontonian import torontonian
+from deepquantum.photonic import quadrature_to_ladder, hafnian, torontonian
 
 
 def test_hafnian():
@@ -30,7 +28,7 @@ def test_hafnian_loop():
 
 def test_torontonian():
     nmode = 15
-    cir = dqp.QumodeCircuit(nmode=nmode, init_state='vac', cutoff=5, backend='gaussian')
+    cir = dq.QumodeCircuit(nmode=nmode, init_state='vac', cutoff=5, backend='gaussian')
     for i in range(nmode):
         cir.s(wires=i)
         cir.d(wires=i)
@@ -50,7 +48,7 @@ def test_torontonian():
 
 def test_torontonian_loop():
     nmode = 10
-    cir = dqp.QumodeCircuit(nmode=nmode, init_state='vac', cutoff=5, backend='gaussian')
+    cir = dq.QumodeCircuit(nmode=nmode, init_state='vac', cutoff=5, backend='gaussian')
     for i in range(nmode):
         cir.s(wires=i)
         cir.d(wires=i)
@@ -68,3 +66,26 @@ def test_torontonian_loop():
     tor1 = torontonian(o_mat, gamma)
     tor2 = thewalrus.ltor(o_mat.detach().numpy(), gamma.detach().numpy())
     assert abs(tor1 - tor2) < 1e-6
+
+
+def test_gaussian_prob_random_circuit():
+    para_r = np.random.uniform(0, 1, [1, 4])[0]
+    para_theta = np.random.uniform(0, 2 * np.pi, [1, 6])[0]
+
+    cir = dq.QumodeCircuit(nmode=2, init_state='vac', cutoff=5, backend='gaussian')
+    cir.s(0, para_r[0], para_theta[0])
+    cir.s(1, para_r[1], para_theta[1])
+    cir.d(0, para_r[2], para_theta[2])
+    cir.d(1, para_r[3], para_theta[3])
+    cir.bs([0,1], [para_theta[4], para_theta[5]])
+
+    cir.to(torch.double)
+    cov, mean = cir(is_prob=False)
+    state = cir(is_prob=True)
+
+    test_prob = thewalrus.quantum.probabilities(mu=mean[0].squeeze().numpy(), cov=cov[0].numpy(), cutoff=5)
+    error = []
+    for i in state.keys():
+        idx = i.state.tolist()
+        error.append(abs(test_prob[tuple(idx)] - state[i].item()))
+    assert sum(error) < 1e-10

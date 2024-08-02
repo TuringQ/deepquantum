@@ -29,7 +29,8 @@ If the latest version of PyTorch is not compatible with your CUDA version, manua
 
 The PyTorch installation instructions currently recommend:
 1. Install [Miniconda](https://docs.anaconda.com/miniconda/) or [Anaconda](https://www.anaconda.com/download).
-2. Install PyTorch following the [PyTorch installation instructions](https://pytorch.org/get-started/locally/).
+2. Setup conda environment. For example, run `conda create -n <ENV_NAME> python=3.10` and `conda activate <ENV_NAME>`.
+3. Install PyTorch following the [PyTorch installation instructions](https://pytorch.org/get-started/locally/).
 Currently, this suggests running `conda install pytorch -c pytorch`.
 
 If you want to customize your installation, please follow the [PyTorch installation instructions](https://pytorch.org/get-started/locally/) to build from source.
