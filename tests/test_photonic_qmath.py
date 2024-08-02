@@ -1,9 +1,7 @@
-import deepquantum.photonic as dqp
 import networkx as nx
-import numpy as np
 import pytest
 import torch
-from deepquantum.photonic.qmath import quadrature_to_ladder, ladder_to_quadrature, takagi
+from deepquantum.photonic import quadrature_to_ladder, ladder_to_quadrature, takagi
 
 
 def test_quadrature_ladder_transform():

@@ -18,12 +18,12 @@ from .decompose import UnitaryDecomposer
 from .draw import DrawCircuit
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
 from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum
-from .hafnian import hafnian
+from .hafnian_ import hafnian
 from .operation import Operation, Gate
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
 from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc
 from .state import FockState, GaussianState
-from .torontonian import torontonian
+from .torontonian_ import torontonian
 from ..state import MatrixProductState
 
 
@@ -616,7 +616,7 @@ class QumodeCircuit(Operation):
         self,
         final_states: torch.Tensor,
         cov: torch.Tensor,
-        mean: torch.tensor,
+        mean: torch.Tensor,
         detector: str = 'pnrd',
         loop: Optional[bool] = None
     ) -> torch.Tensor:
