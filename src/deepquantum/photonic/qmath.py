@@ -120,7 +120,7 @@ def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
 
 def product_factorial(state: torch.Tensor) -> torch.Tensor:
     """Get the product of the factorial from the Fock state, i.e., :math:`|s_1,s_2,...s_n> --> s_1!*s_2!*...s_n!`."""
-    fac = special.factorial(state.cpu())
+    fac = torch.exp(torch.lgamma(state+1))
     if not isinstance(fac, torch.Tensor):
         fac = torch.tensor(fac)
     return fac.prod(axis=-1, keepdims=True)
