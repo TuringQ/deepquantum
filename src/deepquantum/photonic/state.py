@@ -38,24 +38,23 @@ class FockState(nn.Module):
             if not isinstance(state, torch.Tensor):
                 state = torch.tensor(state, dtype=torch.long)
             else:
-                state = state.int()
+                state = state.long()
             if state.ndim == 1:
                 state = state.unsqueeze(0)
+            assert state.ndim == 2
             if nmode is None:
-                nmode = state[0].numel()
+                nmode = state.shape[-1]
             if cutoff is None:
-                cutoff_row  = torch.sum(state, dim=-1) + 1
-                cutoff = torch.max(cutoff_row).item()
+                cutoff = torch.max(torch.sum(state, dim=-1)).item() + 1
             self.nmode = nmode
             self.cutoff = cutoff
             batch, size = state.shape
-            state_ts = torch.zeros((batch, nmode), dtype=torch.long, device=state.device)
+            state_ts = torch.zeros([batch, nmode], dtype=torch.long, device=state.device)
             if nmode > size:
-                state_ts[:,:size] = state[:,:]
+                state_ts[:, :size] = state[:, :]
             else:
-                state_ts[:,:] = state[:,:nmode]
-            if batch == 1:
-                state_ts = state_ts[0]
+                state_ts[:, :] = state[:, :nmode]
+            state_ts = state_ts.squeeze(0)
             assert state_ts.max() < self.cutoff
         else:
             if state in ('vac', 'zeros'):
