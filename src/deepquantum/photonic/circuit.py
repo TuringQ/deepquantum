@@ -542,7 +542,7 @@ class QumodeCircuit(Operation):
         else:
             nmode = len(init_state)
             nphoton = self._nphoton
-        states = torch.tensor(fock_combinations(nmode, nphoton), dtype=torch.int, device=init_state.device)
+        states = torch.tensor(fock_combinations(nmode, nphoton), dtype=torch.long, device=init_state.device)
         max_values, _ = torch.max(states, dim=1)
         mask = max_values < self.cutoff
         return torch.masked_select(states, mask.unsqueeze(1)).view(-1, states.shape[-1])
