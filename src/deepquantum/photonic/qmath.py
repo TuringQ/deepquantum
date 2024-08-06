@@ -12,7 +12,6 @@ import numpy as np
 import torch
 from torch import vmap
 from tqdm import tqdm
-import warnings
 
 import deepquantum.photonic as dqp
 from ..qmath import is_unitary
@@ -51,6 +50,7 @@ def sort_dict_fock_basis(state_dict: Dict, idx: int = 0) -> Dict:
         sorted_dict[key] = value
     return sorted_dict
 
+
 def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.Tensor) -> torch.Tensor:
     """Get the submatrix for calculating the transfer amplitude and transfer probs from the given matrix,
     the input state and the output state. The rows are chosen according to the output state and the columns
@@ -66,6 +66,7 @@ def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.T
         u1 = torch.repeat_interleave(u, output_state, dim=0)
         u2 = torch.repeat_interleave(u1, input_state, dim=1)
     return u2
+
 
 def permanent(mat: torch.Tensor) -> torch.Tensor:
     """Calculate the permanent."""
@@ -163,7 +164,7 @@ def fock_combinations(nmode: int, nphoton: int) -> List:
             if num_sum == 0:
                 result.append(state)
             return
-        for i in torch.arange(num_sum + 1):
+        for i in range(num_sum + 1):
             backtrack(state + [i], length - 1, num_sum - i)
 
     backtrack([], nmode, nphoton)
