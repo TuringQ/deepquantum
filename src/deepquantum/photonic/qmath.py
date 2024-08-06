@@ -65,7 +65,6 @@ def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.T
         warnings.filterwarnings('ignore') # local warning
         u1 = torch.repeat_interleave(u, output_state, dim=0)
         u2 = torch.repeat_interleave(u1, input_state, dim=1)
-    print('test')
     return u2
 
 def permanent(mat: torch.Tensor) -> torch.Tensor:
