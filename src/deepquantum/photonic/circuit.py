@@ -109,7 +109,7 @@ class QumodeCircuit(Operation):
         self.ndata = 0
         self.depth = np.array([0] * nmode)
         self._nphoton = None
-        self.addmode = None
+        self._state_expand = None
 
     def __add__(self, rhs: 'QumodeCircuit') -> 'QumodeCircuit':
         """Addition of the ``QumodeCircuit``.
@@ -214,55 +214,46 @@ class QumodeCircuit(Operation):
         elif not isinstance(state, torch.Tensor):
             state = FockState(state=state, nmode=self.nmode, cutoff=self.cutoff, basis=self.basis).state
         # preprocessing of batched initial states
-        if self.basis and state.ndim != 1:
-            nphoton_row = torch.sum(state, dim=-1, keepdim=True)
-            max_photon = torch.max(nphoton_row).item()
+        if self.basis and state.ndim == 2:
+            nphotons = torch.sum(state, dim=-1, keepdim=True)
+            max_photon = torch.max(nphotons).item()
             self._nphoton = max_photon
-            # add mode if photon number is not conserved
-            if any(nphoton_row[i] != max_photon for i in range(nphoton_row.shape[0])):
-                anci_state = [max_photon]*state.shape[0]
-                state = torch.cat((state,torch.unsqueeze(torch.tensor(anci_state),1)-nphoton_row),dim=-1)
-                self.addmode = state
+            # expand the Fock state if the photon number is not conserved
+            if any(nphoton < max_photon for nphoton in nphotons):
+                state = torch.cat([state, max_photon - nphotons], dim=-1)
+                self._state_expand = state
         if data is None:
             if self.basis:
                 if state.ndim == 1:
                     self.state = self._forward_helper_basis(state=state, is_prob=is_prob)
-                else:
+                elif state.ndim == 2:
                     self.state = vmap(self._forward_helper_basis, in_dims=(None, 0, None))(data, state, is_prob)
             else:
                 self.state = self._forward_helper_tensor(state=state, is_prob=is_prob)
                 if not self.mps and self.state.ndim == self.nmode:
                     self.state = self.state.unsqueeze(0)
         else:
-            if data.ndim == 0:
-                data = data.unsqueeze(0)
             if data.ndim == 1:
                 data = data.unsqueeze(0)
             assert data.ndim == 2
             if self.basis:
-                if data.shape[0] == 1:
-                    if state.ndim == 1:
-                        self.state = self._forward_helper_basis(state=state, is_prob=is_prob)
-                    else:
-                        self.state = vmap(self._forward_helper_basis, in_dims=(None, 0, None))(data, state, is_prob)
-                else:
-                    if state.ndim == 1:
-                        self.state = vmap(self._forward_helper_basis, in_dims=(0, None, None))(data, state, is_prob)
-                    else:
-                        assert state.shape[0] == data.shape[0], 'batch size of initial state and data should be the same'
-                        self.state = vmap(self._forward_helper_basis, in_dims=(0, 0, None))(data, state, is_prob)
+                assert state.ndim in (1, 2)
+                if state.ndim == 1:
+                    self.state = vmap(self._forward_helper_basis, in_dims=(0, None, None))(data, state, is_prob)
+                elif state.ndim == 2:
+                    self.state = vmap(self._forward_helper_basis, in_dims=(0, 0, None))(data, state, is_prob)
             else:
                 if self.mps:
                     assert state[0].ndim in (3, 4)
                     if state[0].ndim == 3:
                         self.state = vmap(self._forward_helper_tensor, in_dims=(0, None, None))(data, state, is_prob)
                     elif state[0].ndim == 4:
-                        self.state = vmap(self._forward_helper_tensor)(data, state, is_prob)
+                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, 0, None))(data, state, is_prob)
                 else:
                     if state.shape[0] == 1:
                         self.state = vmap(self._forward_helper_tensor, in_dims=(0, None, None))(data, state, is_prob)
                     else:
-                        self.state = vmap(self._forward_helper_tensor)(data, state, is_prob)
+                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, 0, None))(data, state, is_prob)
             # for plotting the last data
             self.encode(data[-1])
         if self.basis and is_prob is not None:
@@ -537,11 +528,10 @@ class QumodeCircuit(Operation):
     def _get_all_fock_basis(self, init_state: torch.Tensor) -> torch.Tensor:
         """Get all possible fock basis states according to the initial state."""
         if self._nphoton is None:
-            nphoton = torch.max(sum(init_state))
-            nmode = len(init_state)
+            nphoton = torch.max(torch.sum(init_state, dim=-1))
         else:
-            nmode = len(init_state)
             nphoton = self._nphoton
+        nmode = len(init_state)
         states = torch.tensor(fock_combinations(nmode, nphoton), dtype=torch.long, device=init_state.device)
         max_values, _ = torch.max(states, dim=1)
         mask = max_values < self.cutoff
@@ -551,8 +541,8 @@ class QumodeCircuit(Operation):
         """Get the sub-matrices for permanent."""
         sub_mats = []
         u = self.get_unitary()
-        if self.addmode is not None:
-            u = torch.block_diag(u,torch.eye(1))
+        if self._state_expand is not None:
+            u = torch.block_diag(u, torch.eye(1, dtype=u.dtype, device=u.device))
         for state in final_states:
             sub_mats.append(sub_matrix(u, init_state, state))
         return torch.stack(sub_mats)
@@ -583,16 +573,13 @@ class QumodeCircuit(Operation):
             amp = torch.tensor(1.)
         else:
             per = permanent(sub_mat)
-            amp = per / self._get_permanent_norms(init_state.state, final_state).to(per.dtype).to(per.device)
+            amp = per / self._get_permanent_norms(init_state.state, final_state)
         return amp
 
     def _get_amplitude_fock_vmap(self, sub_mat: torch.Tensor, per_norm: torch.Tensor) -> torch.Tensor:
         """Get the transfer amplitude."""
-        if sub_mat.size(-1) == sub_mat.size(-2):
-            per = permanent(sub_mat)
-        else:
-            per = torch.zeros(1)
-        amp = per / per_norm.to(per.dtype).to(per.device)
+        per = permanent(sub_mat)
+        amp = per / per_norm
         return amp.reshape(-1)
 
     def get_prob(
@@ -799,15 +786,14 @@ class QumodeCircuit(Operation):
         if self.state.ndim == 2:
             self.state = self.state.unsqueeze(0)
         batch = self.state.shape[0]
-        if self.init_state.state.ndim == 1:
-            init_state = self.init_state.state.unsqueeze(0)
-        else:
-            init_state = self.init_state.state
-        init_batch = init_state.shape[0]
+        init_state = self.init_state.state
+        if init_state.ndim == 1:
+            init_state = init_state.unsqueeze(0)
+        batch_init = init_state.shape[0]
         all_results = []
         if mcmc:
             for i in range(batch):
-                if init_batch == 1:
+                if batch_init == 1:
                     self._init_state = init_state[0]
                 else:
                     self._init_state = init_state[i]
@@ -820,12 +806,12 @@ class QumodeCircuit(Operation):
                         results[k] = results[k], prob
                 all_results.append(results)
         else:
-            if init_batch == 1:
-                result = vmap(self._measure_fock_unitary_helper,in_dims=(None, 0, None))(init_state[0], self.state, wires)
+            if batch_init == 1:
+                result = vmap(self._measure_fock_unitary_helper, in_dims=(None, 0, None))(init_state[0], self.state, wires)
             else:
-                if self.addmode is not None:
-                    init_state = self.addmode
-                result = vmap(self._measure_fock_unitary_helper,in_dims=(0, 0, None))(init_state, self.state, wires)
+                if self._state_expand is not None:
+                    init_state = self._state_expand
+                result = vmap(self._measure_fock_unitary_helper, in_dims=(0, 0, None))(init_state, self.state, wires)
             for i in range(batch):
                 prob_dict = {}
                 for key in result.keys():
@@ -841,18 +827,18 @@ class QumodeCircuit(Operation):
         self,
         init_state: torch.Tensor,
         unitary: torch.Tensor,
-        wires: Union[int, List[int], None] = None,
+        wires: Union[int, List[int], None] = None
     ) -> Dict:
-        """VMAP helper for Measure the final state according to the unitary matrix for Fock backend.
+        """VMAP helper for measuring the final state according to the unitary matrix for Fock backend.
 
         Returns:
-            Dict: A dictionary of (batched and wired) probabilities for final states.
+            Dict: A dictionary of probabilities for final states.
         """
         sub_mats = []
         state = init_state
         u = unitary
-        if self.addmode is not None:
-            u = torch.block_diag(u,torch.eye(1))
+        if self._state_expand is not None:
+            u = torch.block_diag(u, torch.eye(1, dtype=u.dtype, device=u.device))
         final_states = self._get_all_fock_basis(init_state)
         for fstate in final_states:
             sub_mats.append(sub_matrix(u, state, fstate))
@@ -967,7 +953,7 @@ class QumodeCircuit(Operation):
             amp = torch.tensor(1.)
         else:
             per = permanent(sub_mat)
-            amp = per / self._get_permanent_norms(init_state, final_state).to(per.dtype).to(per.device)
+            amp = per / self._get_permanent_norms(init_state, final_state)
         prob = torch.abs(amp) ** 2
         return prob
 
