@@ -24,10 +24,10 @@ def test_mapper():
     init_state = [1,0,1,0,0,0]
     test_circuit = dq.QumodeCircuit(nmode=6, init_state=init_state, basis=True)
     test_circuit.any(cnot_test, list(range(6)))
-    temp_cnot = torch.zeros((4, 4), dtype=torch.float64)
+    temp_cnot = torch.zeros((4, 4), dtype=torch.cdouble)
     for i in range(4):
-        temp_re = test_circuit(state=basis[i])
+        temp_re = test_circuit(state=basis[i], is_prob=False)
         for j in range(4):
             out_state = dq.FockState(basis[j])
-            temp_cnot[i][j] = (temp_re[out_state]).real
-    assert torch.allclose(temp_cnot, torch.tensor(cnot * success))
+            temp_cnot[i][j] = temp_re[out_state]
+    assert torch.allclose(temp_cnot, torch.tensor(cnot * success) + 0j)

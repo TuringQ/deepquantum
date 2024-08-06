@@ -2,11 +2,11 @@
 Utilities
 """
 
-import numpy as np
-import os
-import pickle
 import gzip
+import pickle
+
 import deepquantum.photonic as dqp
+import numpy as np
 
 
 def set_hbar(hbar: float) -> None:

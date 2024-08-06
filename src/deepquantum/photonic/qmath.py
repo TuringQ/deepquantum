@@ -2,14 +2,14 @@
 Common functions
 """
 
+import copy
 import itertools
+import warnings
+from collections import defaultdict
 from typing import Callable, Dict, List, Tuple
 
-import copy
 import numpy as np
 import torch
-from collections import defaultdict
-from scipy import special
 from torch import vmap
 from tqdm import tqdm
 import warnings
@@ -61,8 +61,6 @@ def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.T
         input_state (torch.Tensor): The input state.
         output_state (torch.Tensor): The output state.
     """
-    output_state = output_state.to(torch.int64)
-    input_state = input_state.to(torch.int64)
     with warnings.catch_warnings():
         warnings.filterwarnings('ignore') # local warning
         u1 = torch.repeat_interleave(u, output_state, dim=0)
@@ -100,6 +98,17 @@ def create_subset(num_coincidence: int) -> List:
     return subsets
 
 
+def get_powerset(n: int) -> List:
+    """Get the powerset of ``{0, 1, ... , n-1}``"""
+    powerset = []
+    for k in range(n + 1):
+        subset = []
+        for i in itertools.combinations(range(n), k):
+            subset.append(list(i))
+        powerset.append(subset)
+    return powerset
+
+
 def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
     """Calculate the permanent by Ryser's formula."""
     def helper(subset: torch.Tensor, mat: torch.Tensor) -> torch.Tensor:
@@ -120,10 +129,8 @@ def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
 
 def product_factorial(state: torch.Tensor) -> torch.Tensor:
     """Get the product of the factorial from the Fock state, i.e., :math:`|s_1,s_2,...s_n> --> s_1!*s_2!*...s_n!`."""
-    fac = torch.exp(torch.lgamma(state+1))
-    if not isinstance(fac, torch.Tensor):
-        fac = torch.tensor(fac)
-    return fac.prod(axis=-1, keepdims=True)
+    fac = torch.exp(torch.lgamma(state + 1)) # nature log gamma function
+    return fac.prod(dim=-1, keepdim=True)
 
 
 def fock_combinations(nmode: int, nphoton: int) -> List:
