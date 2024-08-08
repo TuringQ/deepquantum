@@ -206,6 +206,11 @@ class QumodeCircuit(Operation):
             assert not is_prob
         if state is None:
             state = self.init_state
+        else:
+            if self.basis:
+                self.init_state.state = state
+                self._nphoton = None
+                self._state_expand = None
         if isinstance(state, MatrixProductState):
             assert not self.basis
             state = state.tensors
