@@ -233,15 +233,25 @@ class QumodeCircuit(Operation):
                 if not self.mps and self.state.ndim == self.nmode:
                     self.state = self.state.unsqueeze(0)
         else:
+            without_batch = False
             if data.ndim == 1:
                 data = data.unsqueeze(0)
+                without_batch = True
             assert data.ndim == 2
             if self.basis:
                 assert state.ndim in (1, 2)
                 if state.ndim == 1:
                     self.state = vmap(self._forward_helper_basis, in_dims=(0, None, None))(data, state, is_prob)
+                    if without_batch:
+                        if is_prob is None:
+                            self.state = self.state.squeeze(0)
+                        else:
+                            self.state = dict((key, self.state[key][0]) for key in self.state.keys())
                 elif state.ndim == 2:
-                    self.state = vmap(self._forward_helper_basis, in_dims=(0, 0, None))(data, state, is_prob)
+                    if data.shape[0] == 1:
+                        self.state = vmap(self._forward_helper_basis, in_dims=(None, 0, None))(data, state, is_prob)
+                    else:
+                        self.state = vmap(self._forward_helper_basis, in_dims=(0, 0, None))(data, state, is_prob)
             else:
                 if self.mps:
                     assert state[0].ndim in (3, 4)
@@ -792,6 +802,7 @@ class QumodeCircuit(Operation):
         batch_init = init_state.shape[0]
         all_results = []
         if mcmc:
+            self._nphoton = None
             for i in range(batch):
                 if batch_init == 1:
                     self._init_state = init_state[0]
@@ -809,9 +820,11 @@ class QumodeCircuit(Operation):
             if batch_init == 1:
                 result = vmap(self._measure_fock_unitary_helper, in_dims=(None, 0, None))(init_state[0], self.state, wires)
             else:
+                u = self.state
                 if self._state_expand is not None:
                     init_state = self._state_expand
-                result = vmap(self._measure_fock_unitary_helper, in_dims=(0, 0, None))(init_state, self.state, wires)
+                    u = vmap(torch.block_diag, in_dims=(0, None))(self.state, torch.eye(1, dtype=self.state.dtype, device=self.state.device))
+                result = vmap(self._measure_fock_unitary_helper, in_dims=(0, 0, None))(init_state, u, wires)
             for i in range(batch):
                 prob_dict = {}
                 for key in result.keys():
@@ -837,8 +850,6 @@ class QumodeCircuit(Operation):
         sub_mats = []
         state = init_state
         u = unitary
-        if self._state_expand is not None:
-            u = torch.block_diag(u, torch.eye(1, dtype=u.dtype, device=u.device))
         final_states = self._get_all_fock_basis(init_state)
         for fstate in final_states:
             sub_mats.append(sub_matrix(u, state, fstate))

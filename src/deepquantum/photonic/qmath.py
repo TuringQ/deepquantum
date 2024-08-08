@@ -114,10 +114,9 @@ def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
     """Calculate the permanent by Ryser's formula."""
     def helper(subset: torch.Tensor, mat: torch.Tensor) -> torch.Tensor:
         num_elements = subset.numel()
-        s = torch.sum(mat[:, subset], dim=1)
+        s = torch.sum(mat[:, subset], dim=-1)
         value_times = torch.prod(s) * (-1) ** num_elements
         return value_times
-
     num_coincidence = mat.size()[0]
     sets = create_subset(num_coincidence)
     value_perm = 0
