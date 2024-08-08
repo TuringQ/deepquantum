@@ -119,9 +119,10 @@ def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
         s = torch.sum(mat[:, subset], dim=-1)
         value_times = torch.prod(s) * (-1) ** num_elements
         return value_times
+
     num_coincidence = mat.size()[0]
     sets = create_subset(num_coincidence)
-    value_perm = 0
+    value_perm = torch.tensor(0, dtype=mat.dtype, device=mat.device)
     for subset in sets:
         temp_value = vmap(helper, in_dims=(0, None))(subset, mat)
         value_perm += temp_value.sum()
@@ -131,8 +132,8 @@ def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
 
 def product_factorial(state: torch.Tensor) -> torch.Tensor:
     """Get the product of the factorial from the Fock state, i.e., :math:`|s_1,s_2,...s_n> --> s_1!*s_2!*...s_n!`."""
-    fac = torch.exp(torch.lgamma(state + 1)) # nature log gamma function
-    return fac.prod(dim=-1, keepdim=True)
+    dtype = state.dtype
+    return torch.exp(torch.lgamma(state.double() + 1).sum(-1, keepdim=True)).to(dtype) # nature log gamma function
 
 
 def fock_combinations(nmode: int, nphoton: int) -> List:
