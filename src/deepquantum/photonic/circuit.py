@@ -813,7 +813,7 @@ class QumodeCircuit(Operation):
                 results = dict(zip(keys, samples_i.values()))
                 if with_prob:
                     for k in results:
-                        prob = self._prob_func_fock_unitary(k.state)
+                        prob = self._prob_func_fock_unitary(k.state.to(init_state.device))
                         results[k] = results[k], prob
                 all_results.append(results)
         else:
