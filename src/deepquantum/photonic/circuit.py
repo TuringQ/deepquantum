@@ -1024,7 +1024,7 @@ class QumodeCircuit(Operation):
         """The proposal sampler for MCMC sampling."""
         if self.backend == 'fock':
             assert self.basis, 'Currently NOT supported.'
-            sample = self._all_fock_basis[torch.randint(0, len(self._all_fock_basis), (1,))[0]]
+            sample = self._all_fock_basis[torch.randint(0, len(self._all_fock_basis), (1,))[0]]
         elif self.backend == 'gaussian':
             sample = self._generate_rand_sample(self.detector)
         return sample
