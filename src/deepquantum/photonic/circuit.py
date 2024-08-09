@@ -221,7 +221,9 @@ class QumodeCircuit(Operation):
             state = FockState(state=state, nmode=self.nmode, cutoff=self.cutoff, basis=self.basis).state
         # preprocessing of batched initial states
         if self.basis:
-            if state.ndim == 2:
+            if state.ndim == 1:
+                self._all_fock_basis = self._get_all_fock_basis(state)
+            elif state.ndim == 2:
                 nphotons = torch.sum(state, dim=-1, keepdim=True)
                 max_photon = torch.max(nphotons).item()
                 self._nphoton = max_photon
@@ -229,9 +231,10 @@ class QumodeCircuit(Operation):
                 if any(nphoton < max_photon for nphoton in nphotons):
                     state = torch.cat([state, max_photon - nphotons], dim=-1)
                     self._state_expand = state
-            self._all_fock_basis = self._get_all_fock_basis(state[0])
+                self._all_fock_basis = self._get_all_fock_basis(state[0])
         if data is None:
             if self.basis:
+                assert state.ndim in (1, 2)
                 if state.ndim == 1:
                     self.state = self._forward_helper_basis(state=state, is_prob=is_prob)
                 elif state.ndim == 2:
@@ -254,7 +257,7 @@ class QumodeCircuit(Operation):
                         if is_prob is None:
                             self.state = self.state.squeeze(0)
                         else:
-                            self.state = {key: value.squeeze() for key, value in self.state.items()}
+                            self.state = {key: value.squeeze(0) for key, value in self.state.items()}
                 elif state.ndim == 2:
                     if data.shape[0] == 1:
                         self.state = vmap(self._forward_helper_basis, in_dims=(None, 0, None))(data, state, is_prob)
