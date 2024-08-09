@@ -959,8 +959,8 @@ class QumodeCircuit(Operation):
         """Get the probability of the state for Gaussian backend."""
         if not isinstance(state, torch.Tensor):
             state = torch.tensor(state, dtype=torch.long)
-        loop = ~torch.all(self.mean==0)
-        prob = self._get_probs_gaussian_helper(state, cov=self.cov, mean=self.mean, detector=self.detector, loop=loop)[0]
+        loop = ~torch.all(self._mean==0)
+        prob = self._get_probs_gaussian_helper(state, cov=self._cov, mean=self._mean, detector=self.detector, loop=loop)[0]
         return prob
 
     def _proposal_sampler(self):
