@@ -122,7 +122,7 @@ def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
 
     num_coincidence = mat.size()[0]
     sets = create_subset(num_coincidence)
-    value_perm = torch.tensor(0, dtype=mat.dtype, device=mat.device)
+    value_perm = 0
     for subset in sets:
         temp_value = vmap(helper, in_dims=(0, None))(subset, mat)
         value_perm += temp_value.sum()
