@@ -668,7 +668,9 @@ class QumodeCircuit(Operation):
             mean = state.mean
         if cov.ndim == 2:
             cov = cov.unsqueeze(0)
-        assert cov.ndim == 3
+        if mean.ndim == 2:
+            mean = mean.unsqueeze(0)
+        assert cov.ndim == mean.ndim == 3
         batch = cov.shape[0]
         probs = []
         for i in range(batch):
