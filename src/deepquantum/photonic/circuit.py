@@ -260,7 +260,7 @@ class QumodeCircuit(Operation):
                             self.state = {key: value.squeeze(0) for key, value in self.state.items()}
                 elif state.ndim == 2:
                     if data.shape[0] == 1:
-                        self.state = vmap(self._forward_helper_basis, in_dims=(None, 0, None))(data, state, is_prob)
+                        self.state = vmap(self._forward_helper_basis, in_dims=(None, 0, None))(data[0], state, is_prob)
                     else:
                         self.state = vmap(self._forward_helper_basis, in_dims=(0, 0, None))(data, state, is_prob)
             else:
@@ -591,9 +591,18 @@ class QumodeCircuit(Operation):
         assert max(final_state) < self.cutoff, 'The number of photons in the final state must be less than cutoff'
         if unitary is None:
             unitary = self.get_unitary()
-        sub_mat = sub_matrix(unitary, init_state.state, final_state)
-        per = permanent(sub_mat)
-        amp = per / self._get_permanent_norms(init_state.state, final_state)
+        if init_state.state.ndim == 1:
+            sub_mat = sub_matrix(unitary, init_state.state, final_state)
+            per = permanent(sub_mat)
+            amp = per / self._get_permanent_norms(init_state.state, final_state)
+        else:
+            nphotons = torch.sum(init_state.state, dim=-1)
+            nphotons_eq_idx = torch.where(nphotons == torch.sum(final_state))
+            sub_mat = vmap(sub_matrix, in_dims=(None, 0, None))(unitary, init_state.state[nphotons_eq_idx], final_state)
+            per_norms = vmap(self._get_permanent_norms, in_dims=(0, None))(init_state.state[nphotons_eq_idx], final_state)
+            rst = vmap(self._get_amplitude_fock_vmap)(sub_mat, per_norms).flatten()
+            amp = torch.zeros(init_state.state.shape[0], dtype=rst.dtype, device=rst.device)
+            amp[nphotons_eq_idx] = rst
         return amp
 
     def _get_amplitude_fock_vmap(self, sub_mat: torch.Tensor, per_norm: torch.Tensor) -> torch.Tensor:
