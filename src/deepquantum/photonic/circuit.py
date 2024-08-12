@@ -591,18 +591,18 @@ class QumodeCircuit(Operation):
         assert max(final_state) < self.cutoff, 'The number of photons in the final state must be less than cutoff'
         if unitary is None:
             unitary = self.get_unitary()
-        if init_state.state.ndim == 1:
-            sub_mat = sub_matrix(unitary, init_state.state, final_state)
+        state = init_state.state
+        if state.ndim == 1:
+            sub_mat = sub_matrix(unitary, state, final_state)
             per = permanent(sub_mat)
-            amp = per / self._get_permanent_norms(init_state.state, final_state)
+            amp = per / self._get_permanent_norms(state, final_state)
         else:
-            nphotons = torch.sum(init_state.state, dim=-1)
-            nphotons_eq_idx = torch.where(nphotons == torch.sum(final_state))
-            sub_mat = vmap(sub_matrix, in_dims=(None, 0, None))(unitary, init_state.state[nphotons_eq_idx], final_state)
-            per_norms = vmap(self._get_permanent_norms, in_dims=(0, None))(init_state.state[nphotons_eq_idx], final_state)
-            rst = vmap(self._get_amplitude_fock_vmap)(sub_mat, per_norms).flatten()
-            amp = torch.zeros(init_state.state.shape[0], dtype=rst.dtype, device=rst.device)
-            amp[nphotons_eq_idx] = rst
+            idx_nonzero = torch.where(torch.sum(state, dim=-1) == torch.sum(final_state))
+            sub_mats = vmap(sub_matrix, in_dims=(None, 0, None))(unitary, state[idx_nonzero], final_state)
+            per_norms = vmap(self._get_permanent_norms, in_dims=(0, None))(state[idx_nonzero], final_state)
+            rst = vmap(self._get_amplitude_fock_vmap)(sub_mats, per_norms).flatten()
+            amp = torch.zeros(state.shape[0], dtype=rst.dtype, device=rst.device)
+            amp[idx_nonzero] = rst
         return amp
 
     def _get_amplitude_fock_vmap(self, sub_mat: torch.Tensor, per_norm: torch.Tensor) -> torch.Tensor:
