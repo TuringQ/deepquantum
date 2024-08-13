@@ -582,11 +582,12 @@ class QumodeCircuit(Operation):
             amp = per / self._get_permanent_norms(state, final_state)
         else:
             idx_nonzero = torch.where(torch.sum(state, dim=-1) == torch.sum(final_state))
-            sub_mats = vmap(sub_matrix, in_dims=(None, 0, None))(unitary, state[idx_nonzero], final_state)
-            per_norms = vmap(self._get_permanent_norms, in_dims=(0, None))(state[idx_nonzero], final_state)
-            rst = vmap(self._get_amplitude_fock_vmap)(sub_mats, per_norms).flatten()
-            amp = torch.zeros(state.shape[0], dtype=rst.dtype, device=rst.device)
-            amp[idx_nonzero] = rst
+            amp = torch.zeros(state.shape[0], dtype=unitary.dtype, device=unitary.device)
+            if idx_nonzero[0].numel() != 0:
+                sub_mats = vmap(sub_matrix, in_dims=(None, 0, None))(unitary, state[idx_nonzero], final_state)
+                per_norms = self._get_permanent_norms(state[idx_nonzero], final_state)
+                rst = vmap(self._get_amplitude_fock_vmap)(sub_mats, per_norms).flatten()
+                amp[idx_nonzero] = rst
         return amp
 
     def _get_amplitude_fock_vmap(self, sub_mat: torch.Tensor, per_norm: torch.Tensor) -> torch.Tensor:
@@ -873,13 +874,10 @@ class QumodeCircuit(Operation):
         Returns:
             Dict: A dictionary of probabilities for final states.
         """
-        sub_mats = []
         state = init_state
         u = unitary
         final_states = self._all_fock_basis
-        for fstate in final_states:
-            sub_mats.append(sub_matrix(u, state, fstate))
-        sub_mats = torch.stack(sub_mats)
+        sub_mats = vmap(sub_matrix, in_dims=(None, None, 0))(u, state, final_states)
         per_norms = self._get_permanent_norms(state, final_states)
         rst = vmap(self._get_prob_fock_vmap)(sub_mats, per_norms)
         state_dict = {}
