@@ -132,9 +132,7 @@ def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
 
 def product_factorial(state: torch.Tensor) -> torch.Tensor:
     """Get the product of the factorial from the Fock state, i.e., :math:`|s_1,s_2,...s_n> --> s_1!*s_2!*...s_n!`."""
-    dtype = state.dtype
-    return torch.exp(torch.lgamma(state.double() + 1).sum(-1, keepdim=True)).to(dtype) # nature log gamma function
-
+    return torch.exp(torch.lgamma(state.double() + 1).sum(-1, keepdim=True)).round() # nature log gamma function
 
 def fock_combinations(nmode: int, nphoton: int) -> List:
     """Generate all possible combinations of Fock states for a given number of modes and photons.

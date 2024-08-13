@@ -34,11 +34,11 @@ def test_batched_fock_basis_states():
 
         for key in res2.keys():
             # test is_prob=False
-            assert torch.allclose(res2[key], re2[key][i], atol=1e-5)
+            assert torch.allclose(res2[key], re2[key][i], atol=1e-6)
 
         for key in res3.keys():
             # test is prob = True
-            assert torch.allclose(res3[key], re3[key][i], atol=1e-5)
+            assert torch.allclose(res3[key], re3[key][i], atol=1e-6)
 
 
 def test_batched_fock_basis_states_and_data():
@@ -72,8 +72,8 @@ def test_batched_fock_basis_states_and_data():
 
         for key in res2.keys():
             # test is_prob=False
-            assert torch.allclose(res2[key], re2[key][i], atol=1e-5)
+            assert torch.allclose(res2[key], re2[key][i], atol=1e-6)
 
         for key in res3.keys():
             # test is prob = True
-            assert torch.allclose(res3[key], re3[key][i], atol=1e-5)
+            assert torch.allclose(res3[key], re3[key][i], atol=1e-6)
