@@ -64,12 +64,14 @@ def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.T
     with warnings.catch_warnings():
         warnings.filterwarnings('ignore') # local warning
         u1 = torch.repeat_interleave(u, output_state, dim=0)
-        u2 = torch.repeat_interleave(u1, input_state, dim=1)
+        u2 = torch.repeat_interleave(u1, input_state, dim=-1)
     return u2
 
 
 def permanent(mat: torch.Tensor) -> torch.Tensor:
     """Calculate the permanent."""
+    if mat.numel() == 0:
+        return torch.tensor(1, dtype=mat.dtype, device=mat.device)
     shape = mat.shape
     if len(mat.size()) == 0:
         return mat
@@ -114,7 +116,7 @@ def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
     """Calculate the permanent by Ryser's formula."""
     def helper(subset: torch.Tensor, mat: torch.Tensor) -> torch.Tensor:
         num_elements = subset.numel()
-        s = torch.sum(mat[:, subset], dim=1)
+        s = torch.sum(mat[:, subset], dim=-1)
         value_times = torch.prod(s) * (-1) ** num_elements
         return value_times
 
@@ -130,9 +132,7 @@ def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
 
 def product_factorial(state: torch.Tensor) -> torch.Tensor:
     """Get the product of the factorial from the Fock state, i.e., :math:`|s_1,s_2,...s_n> --> s_1!*s_2!*...s_n!`."""
-    fac = torch.exp(torch.lgamma(state + 1)) # nature log gamma function
-    return fac.prod(dim=-1, keepdim=True)
-
+    return torch.exp(torch.lgamma(state.double() + 1).sum(-1, keepdim=True)).float() # nature log gamma function
 
 def fock_combinations(nmode: int, nphoton: int) -> List:
     """Generate all possible combinations of Fock states for a given number of modes and photons.

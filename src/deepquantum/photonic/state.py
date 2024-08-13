@@ -36,22 +36,25 @@ class FockState(nn.Module):
                 state = [0] * nmode
             # Process Fock basis state
             if not isinstance(state, torch.Tensor):
-                state = torch.tensor(state, dtype=torch.int).reshape(-1)
+                state = torch.tensor(state, dtype=torch.long)
             else:
-                state = state.int().reshape(-1)
+                state = state.long()
+            if state.ndim == 1:
+                state = state.unsqueeze(0)
+            assert state.ndim == 2
             if nmode is None:
-                nmode = state.numel()
+                nmode = state.shape[-1]
             if cutoff is None:
-                cutoff = sum(state) + 1
+                cutoff = torch.max(torch.sum(state, dim=-1)).item() + 1
             self.nmode = nmode
             self.cutoff = cutoff
-            state_ts = torch.zeros(self.nmode, dtype=torch.int, device=state.device)
-            size = len(state)
-            if self.nmode > size:
-                state_ts[:size] = state[:]
+            batch, size = state.shape
+            state_ts = torch.zeros([batch, nmode], dtype=torch.long, device=state.device)
+            if nmode > size:
+                state_ts[:, :size] = state[:, :]
             else:
-                state_ts[:] = state[:self.nmode]
-            assert len(state_ts) == self.nmode
+                state_ts[:, :] = state[:, :nmode]
+            state_ts = state_ts.squeeze(0)
             assert state_ts.max() < self.cutoff
         else:
             if state in ('vac', 'zeros'):
@@ -93,8 +96,15 @@ class FockState(nn.Module):
         """Return a string representation of the ``FockState``."""
         if self.basis:
             # Represent Fock basis state as a string
-            state_str = ''.join(map(str, self.state.tolist()))
-            return f'|{state_str}>'
+            if self.state.ndim == 1:
+                state_str = ''.join(map(str, self.state.tolist()))
+                return f'|{state_str}>'
+            else:
+                temp = ''
+                for i in range(self.state.shape[0]):
+                    state_str = ''.join(map(str, self.state[i].tolist()))
+                    temp += f'state_{i}: |{state_str}>\n'
+                return temp
         else:
             # Represent Fock state tensor using Dirac notation
             ket_dict = dirac_ket(self.state)
