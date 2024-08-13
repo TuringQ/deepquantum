@@ -232,32 +232,23 @@ class QumodeCircuit(Operation):
                     state = torch.cat([state, max_photon - nphotons], dim=-1)
                     self._state_expand = state
                 self._all_fock_basis = self._get_all_fock_basis(state[0])
-        if data is None:
+        if data is None or data.ndim == 1:
             if self.basis:
                 assert state.ndim in (1, 2)
                 if state.ndim == 1:
-                    self.state = self._forward_helper_basis(state=state, is_prob=is_prob)
+                    self.state = self._forward_helper_basis(data, state, is_prob)
                 elif state.ndim == 2:
                     self.state = vmap(self._forward_helper_basis, in_dims=(None, 0, None))(data, state, is_prob)
             else:
-                self.state = self._forward_helper_tensor(state=state, is_prob=is_prob)
+                self.state = self._forward_helper_tensor(data, state, is_prob)
                 if not self.mps and self.state.ndim == self.nmode:
                     self.state = self.state.unsqueeze(0)
         else:
-            without_batch = False
-            if data.ndim == 1:
-                data = data.unsqueeze(0)
-                without_batch = True
             assert data.ndim == 2
             if self.basis:
                 assert state.ndim in (1, 2)
                 if state.ndim == 1:
                     self.state = vmap(self._forward_helper_basis, in_dims=(0, None, None))(data, state, is_prob)
-                    if without_batch:
-                        if is_prob is None:
-                            self.state = self.state.squeeze(0)
-                        else:
-                            self.state = {key: value.squeeze(0) for key, value in self.state.items()}
                 elif state.ndim == 2:
                     if data.shape[0] == 1:
                         self.state = vmap(self._forward_helper_basis, in_dims=(None, 0, None))(data[0], state, is_prob)
@@ -289,14 +280,17 @@ class QumodeCircuit(Operation):
     ) -> Union[torch.Tensor, Dict]:
         """Perform a forward pass for one sample if the input is a Fock basis state."""
         self.encode(data)
+        unitary = self.get_unitary()
         if is_prob is None:
-            return self.get_unitary()
+            return unitary
         else:
             if state is None:
                 state = self.init_state.state
             out_dict = {}
             final_states = self._all_fock_basis
-            sub_mats = self._get_sub_matrices(state, final_states)
+            if self._state_expand is not None:
+                unitary = torch.block_diag(unitary, torch.eye(1, dtype=unitary.dtype, device=unitary.device))
+            sub_mats = vmap(sub_matrix, in_dims=(None, None, 0))(unitary, state, final_states)
             per_norms = self._get_permanent_norms(state, final_states)
             if is_prob:
                 rst = vmap(self._get_prob_fock_vmap)(sub_mats, per_norms)
@@ -555,19 +549,9 @@ class QumodeCircuit(Operation):
         mask = max_values < self.cutoff
         return torch.masked_select(states, mask.unsqueeze(1)).view(-1, states.shape[-1])
 
-    def _get_sub_matrices(self, init_state: torch.Tensor, final_states: torch.Tensor) -> torch.Tensor:
-        """Get the sub-matrices for permanent."""
-        sub_mats = []
-        u = self.get_unitary()
-        if self._state_expand is not None:
-            u = torch.block_diag(u, torch.eye(1, dtype=u.dtype, device=u.device))
-        for state in final_states:
-            sub_mats.append(sub_matrix(u, init_state, state))
-        return torch.stack(sub_mats)
-
-    def _get_permanent_norms(self, init_state: torch.Tensor, final_states: torch.Tensor) -> torch.Tensor:
+    def _get_permanent_norms(self, init_state: torch.Tensor, final_state: torch.Tensor) -> torch.Tensor:
         """Get the normalization factors for permanent."""
-        return torch.sqrt(product_factorial(init_state) * product_factorial(final_states))
+        return torch.sqrt(product_factorial(init_state) * product_factorial(final_state))
 
     def get_amplitude(
         self,
