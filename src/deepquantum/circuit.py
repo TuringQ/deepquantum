@@ -159,16 +159,14 @@ class QubitCircuit(Operation):
             state = state.tensors
         elif isinstance(state, QubitState):
             state = state.state
-        if data is None:
-            self.state = self._forward_helper(state=state)
+        if data is None or data.ndim == 1:
+            self.state = self._forward_helper(data, state)
             if not self.mps:
                 if self.state.ndim == 2:
                     self.state = self.state.unsqueeze(0)
                 if state.ndim == 2:
                     self.state = self.state.squeeze(0)
         else:
-            if data.ndim == 1:
-                data = data.unsqueeze(0)
             assert data.ndim == 2
             if self.mps:
                 assert state[0].ndim in (3, 4)

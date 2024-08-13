@@ -6,7 +6,7 @@ build-backend = 'setuptools.build_meta'
 name = 'deepquantum'
 dynamic = ['version']
 dependencies = [
-    'torch>=2.0.0,<=2.2.2',
+    'torch>=2.0.0',
     'numpy<2',
     'matplotlib',
     'qiskit',
