@@ -353,15 +353,13 @@ class QumodeCircuit(Operation):
         elif not isinstance(state, GaussianState):
             state = GaussianState(state=state, nmode=self.nmode, cutoff=self.cutoff)
         state = [state.cov, state.mean]
-        if data is None:
-            self.state = self._forward_helper_gaussian(state=state, stepwise=stepwise)
+        if data is None or data.ndim == 1:
+            self.state = self._forward_helper_gaussian(data, state, stepwise)
             if self.state[0].ndim == 2:
                 self.state[0] = self.state[0].unsqueeze(0)
             if self.state[1].ndim == 2:
                 self.state[1] = self.state[1].unsqueeze(0)
         else:
-            if data.ndim == 1:
-                data = data.unsqueeze(0)
             assert data.ndim == 2
             if state[0].shape[0] == 1:
                 self.state = vmap(self._forward_helper_gaussian, in_dims=(0, None, None))(data, state, stepwise)
@@ -581,9 +579,9 @@ class QumodeCircuit(Operation):
             per = permanent(sub_mat)
             amp = per / self._get_permanent_norms(state, final_state)
         else:
-            idx_nonzero = torch.where(torch.sum(state, dim=-1) == torch.sum(final_state))
+            idx_nonzero = torch.where(torch.sum(state, dim=-1) == torch.sum(final_state))[0]
             amp = torch.zeros(state.shape[0], dtype=unitary.dtype, device=unitary.device)
-            if idx_nonzero[0].numel() != 0:
+            if idx_nonzero.numel() != 0:
                 sub_mats = vmap(sub_matrix, in_dims=(None, 0, None))(unitary, state[idx_nonzero], final_state)
                 per_norms = self._get_permanent_norms(state[idx_nonzero], final_state)
                 rst = vmap(self._get_amplitude_fock_vmap)(sub_mats, per_norms).flatten()
@@ -848,7 +846,8 @@ class QumodeCircuit(Operation):
         else:
             if batch_init == 1:
                 self._all_fock_basis = self._get_all_fock_basis(init_state[0])
-                prob_dict_batch = vmap(self._measure_fock_unitary_helper, in_dims=(None, 0, None))(init_state[0], self.state, wires)
+                prob_dict_batch = vmap(self._measure_fock_unitary_helper,
+                                       in_dims=(None, 0, None))(init_state[0], self.state, wires)
             else:
                 u = self.state
                 if self._state_expand is not None:
@@ -874,11 +873,9 @@ class QumodeCircuit(Operation):
         Returns:
             Dict: A dictionary of probabilities for final states.
         """
-        state = init_state
-        u = unitary
         final_states = self._all_fock_basis
-        sub_mats = vmap(sub_matrix, in_dims=(None, None, 0))(u, state, final_states)
-        per_norms = self._get_permanent_norms(state, final_states)
+        sub_mats = vmap(sub_matrix, in_dims=(None, None, 0))(unitary, init_state, final_states)
+        per_norms = self._get_permanent_norms(init_state, final_states)
         rst = vmap(self._get_prob_fock_vmap)(sub_mats, per_norms)
         state_dict = {}
         prob_dict = defaultdict(list)
@@ -967,7 +964,12 @@ class QumodeCircuit(Operation):
                                         num_chain=num_chain)
         return merged_samples
 
-    def _measure_gaussian(self, shots: int = 1024, with_prob: bool = False, detector: Optional[str] = None) -> List[Dict]:
+    def _measure_gaussian(
+        self,
+        shots: int = 1024,
+        with_prob: bool = False,
+        detector: Optional[str] = None
+    ) -> List[Dict]:
         """Measure the final state for Gaussian backend.
 
         See https://arxiv.org/pdf/2108.01622
