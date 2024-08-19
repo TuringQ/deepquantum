@@ -21,7 +21,7 @@ from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, Dis
 from .hafnian_ import hafnian
 from .operation import Operation, Gate
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
-from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc
+from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc, xxpp_to_xpxp
 from .state import FockState, GaussianState
 from .torontonian_ import torontonian
 from ..state import MatrixProductState
@@ -1088,6 +1088,61 @@ class QumodeCircuit(Operation):
             mean_lst.append(mean[indices])
         return cov_lst, mean_lst
 
+    def measure_dyne(self, covmat, wires, shots):
+        """Performs the general-dyne measurement specified in covmat, the indices should correspond
+        with the ordering of the covmat of the measurement
+        """
+        wires = torch.tensor(wires)
+        indices = torch.zeros(2*len(wires), dtype=torch.int64)
+        indices[::2] = 2 * wires
+        indices[1::2] = 2 * wires + 1
+        cov, mean = self.state
+        size = cov.size()
+        assert covmat.size()[-1] == len(indices), "Covariance matrix size does not match indices provided"
+
+        cov_xpxp = xxpp_to_xpxp(cov)
+        mean_xpxp = xxpp_to_xpxp(mean)
+
+        cov_order = vmap(self.exchange_row_cols, in_dims=(0, None))(cov_xpxp, indices) # update cov 相邻的wires
+        idx = self.nmode - len(wires)
+        sigma_a = cov_order[:, :2*idx, :2*idx]
+        sigma_b = cov_order[:, 2*idx:, 2*idx:]
+        sigma_ab = cov_order[:, :2*idx, 2*idx:]
+        sigma_a2 = sigma_a - sigma_ab @ torch.linalg.inv(sigma_b + covmat) @ sigma_ab.mT # update the unmeasured part
+        sigma_a3 = cov.new_zeros(size[0], size[-1], size[-1])
+        sigma_a3[:, :2*idx, :2*idx] = sigma_a2 # update the total cov mat
+        sigma_a3[:, 2*idx:, 2*idx:] = torch.stack([torch.eye(len(indices))]*size[0])
+
+        mean_b = mean_xpxp[:, indices].squeeze(-1)  #  update mean
+        print(mean_b)
+        samples = MultivariateNormal(mean_b, sigma_b).sample([shots]) # (shots, batch, 2 * nwire) xpxp order
+
+        ## transfer back to xxpp order
+
+        self.state = [sigma_a3, mean]
+
+        return samples.permute(1, 0, 2).squeeze()
+
+    def exchange_row_cols(self, cov, meas_indices):
+        """
+        reorder the covariance matrix to place the measured wires to the end, using xpxp order, support vmap
+        """
+        row_list =[ ]
+        col_list = [ ]
+        idx_min= meas_indices[0]
+        idx_max = meas_indices[-1]
+        if idx_max == cov.size()[-1]:
+            return cov
+        else:
+            exchange_list = list(range(0, idx_min, 2)) + list(range(idx_max+1, cov.size()[-1],2)) + \
+                            list(range(idx_min, idx_max, 2)) # 相邻的wires
+            for i in exchange_list:
+                row_list.append(cov[[i, i+1]])
+            cov1 = torch.cat(row_list)
+            for i in exchange_list:
+                col_list.append(cov1[:, [i,i+1]])
+            cov2 = torch.cat(col_list, dim=1)
+            return cov2
     def measure_homodyne(
         self,
         shots: int = 1024,
