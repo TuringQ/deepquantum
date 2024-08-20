@@ -21,7 +21,7 @@ from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, Dis
 from .hafnian_ import hafnian
 from .operation import Operation, Gate
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
-from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc, xxpp_to_xpxp
+from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc, xxpp_to_xpxp, xpxp_to_xxpp
 from .state import FockState, GaussianState
 from .torontonian_ import torontonian
 from ..state import MatrixProductState
@@ -1103,46 +1103,80 @@ class QumodeCircuit(Operation):
         cov_xpxp = xxpp_to_xpxp(cov)
         mean_xpxp = xxpp_to_xpxp(mean)
 
-        cov_order = vmap(self.exchange_row_cols, in_dims=(0, None))(cov_xpxp, indices) # update cov 相邻的wires
+        exchange_mat, cov_order = self.exchange_row_cols(cov_xpxp, indices.tolist()) # reorder cov
+        mean_order = exchange_mat @ mean_xpxp
         idx = self.nmode - len(wires)
         sigma_a = cov_order[:, :2*idx, :2*idx]
         sigma_b = cov_order[:, 2*idx:, 2*idx:]
         sigma_ab = cov_order[:, :2*idx, 2*idx:]
-        sigma_a2 = sigma_a - sigma_ab @ torch.linalg.inv(sigma_b + covmat) @ sigma_ab.mT # update the unmeasured part
+        temp = sigma_ab @ torch.linalg.inv(sigma_b + covmat)
+        sigma_a2 = sigma_a - temp @ sigma_ab.mT # update the unmeasured part
         sigma_a3 = cov.new_zeros(size[0], size[-1], size[-1])
         sigma_a3[:, :2*idx, :2*idx] = sigma_a2 # update the total cov mat
         sigma_a3[:, 2*idx:, 2*idx:] = torch.stack([torch.eye(len(indices))]*size[0])
+        exchange_mat_inv = torch.linalg.inv(exchange_mat)
+        sigma_a4 = exchange_mat_inv @ sigma_a3 @ exchange_mat_inv.mT # transfer back to xxpp order
+        cov_xxpp = xpxp_to_xxpp(sigma_a4)
 
-        mean_b = mean_xpxp[:, indices].squeeze(-1)  #  update mean
-        print(mean_b)
-        samples = MultivariateNormal(mean_b, sigma_b).sample([shots]) # (shots, batch, 2 * nwire) xpxp order
-
-        ## transfer back to xxpp order
-
-        self.state = [sigma_a3, mean]
-
-        return samples.permute(1, 0, 2).squeeze()
-
-    def exchange_row_cols(self, cov, meas_indices):
+        mean_b = mean_order[:, 2*idx:].squeeze(-1)
+        mean_a = mean_order[:, :2*idx].squeeze(-1)
+        samples = MultivariateNormal(mean_b, sigma_b).sample([shots]) # xpxp order, shape: (shots, batch, 2 * nwire)
+        samples = samples.permute(1, 0, 2)
+        samples_mean = samples.mean(dim=1)
+        temp2  = (samples_mean - mean_b).unsqueeze(2)
+        mean_a2 = mean_a.unsqueeze(2) + temp @ temp2
+        mean_order[:, :2*idx] = mean_a2
+        mean_order[:, 2*idx:] = temp2 * 0
+        mean_xxpp = xpxp_to_xxpp(exchange_mat_inv @ mean_order)# transfer back
+        self.state = [cov_xxpp, mean_xxpp]
+        return samples
+    def exchange_row_cols(self, cov, measure_indices, reverse=False):
         """
-        reorder the covariance matrix to place the measured wires to the end, using xpxp order, support vmap
+        reorder the covariance matrix to place the measured wires to the end, using xpxp order
         """
-        row_list =[ ]
-        col_list = [ ]
-        idx_min= meas_indices[0]
-        idx_max = meas_indices[-1]
-        if idx_max == cov.size()[-1]:
-            return cov
-        else:
-            exchange_list = list(range(0, idx_min, 2)) + list(range(idx_max+1, cov.size()[-1],2)) + \
-                            list(range(idx_min, idx_max, 2)) # 相邻的wires
-            for i in exchange_list:
-                row_list.append(cov[[i, i+1]])
-            cov1 = torch.cat(row_list)
-            for i in exchange_list:
-                col_list.append(cov1[:, [i,i+1]])
-            cov2 = torch.cat(col_list, dim=1)
-            return cov2
+        def permute_mat(i, j, size):
+            """
+            return the permute matrix for exchanging i-th row with j-th row of matrix a
+            """
+            p_row = torch.eye(size, dtype=torch.float)
+            p_row[[i, j]] = p_row[[j, i]]
+            return p_row
+
+        n = cov.size()[-1]
+        len_ = len(measure_indices)
+        j_indices = range(n - len_, n+1)
+        exchange_mat = torch.eye(n, dtype=cov.dtype)
+        for k in range(len(measure_indices)-1, -1, -1):
+            i = measure_indices[k]
+            j = j_indices[k]
+            p_mat = permute_mat(i, j, n)
+            p_mat = p_mat.to(cov.dtype)
+            exchange_mat = p_mat @ exchange_mat
+        if reverse:
+            exchange_mat = torch.linalg.inv(exchange_mat)
+        exchange_mat = torch.stack([exchange_mat] * cov.size()[0])
+        cov2 = exchange_mat @ cov @ exchange_mat.mT
+        return exchange_mat, cov2
+    # def exchange_row_cols(self, cov, meas_indices):
+    #     """
+    #     reorder the covariance matrix to place the measured wires to the end, using xpxp order, support vmap
+    #     """
+    #     row_list =[ ]
+    #     col_list = [ ]
+    #     idx_min= meas_indices[0]
+    #     idx_max = meas_indices[-1]
+    #     if idx_max == cov.size()[-1]:
+    #         return cov
+    #     else:
+    #         exchange_list = list(range(0, idx_min, 2)) + list(range(idx_max+1, cov.size()[-1],2)) + \
+    #                         list(range(idx_min, idx_max, 2)) # 相邻的wires
+    #         for i in exchange_list:
+    #             row_list.append(cov[[i, i+1]])
+    #         cov1 = torch.cat(row_list)
+    #         for i in exchange_list:
+    #             col_list.append(cov1[:, [i,i+1]])
+    #         cov2 = torch.cat(col_list, dim=1)
+    #         return cov2
     def measure_homodyne(
         self,
         shots: int = 1024,
