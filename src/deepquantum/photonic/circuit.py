@@ -1089,8 +1089,10 @@ class QumodeCircuit(Operation):
         return cov_lst, mean_lst
 
     def measure_dyne(self, covmat, wires, shots):
-        """Performs the general-dyne measurement specified in covmat, the indices should correspond
-        with the ordering of the covmat of the measurement
+        """Performs the general-dyne measurement specified in covmat.
+
+        See Quantum Continuous Variables: A Primer of Theoretical Methods
+        by Alessio Serafini page 121
         """
         wires = torch.tensor(wires)
         indices = torch.zeros(2*len(wires), dtype=torch.int64)
@@ -1115,7 +1117,7 @@ class QumodeCircuit(Operation):
         sigma_a3[:, :2*idx, :2*idx] = sigma_a2 # update the total cov mat
         sigma_a3[:, 2*idx:, 2*idx:] = torch.stack([torch.eye(len(indices))]*size[0])
         exchange_mat_inv = torch.linalg.inv(exchange_mat)
-        sigma_a4 = exchange_mat_inv @ sigma_a3 @ exchange_mat_inv.mT # transfer back to xxpp order
+        sigma_a4 = exchange_mat_inv @ sigma_a3 @ exchange_mat_inv.mT # transfer back to  normal xpxp order
         cov_xxpp = xpxp_to_xxpp(sigma_a4)
 
         mean_b = mean_order[:, 2*idx:].squeeze(-1)
@@ -1129,14 +1131,16 @@ class QumodeCircuit(Operation):
         mean_order[:, 2*idx:] = temp2 * 0
         mean_xxpp = xpxp_to_xxpp(exchange_mat_inv @ mean_order)# transfer back
         self.state = [cov_xxpp, mean_xxpp]
+
+        samples = torch.cat([samples[:,:,::2], samples[:,:,1::2]], dim=-1) # xxpp order
         return samples
     def exchange_row_cols(self, cov, measure_indices, reverse=False):
         """
-        reorder the covariance matrix to place the measured wires to the end, using xpxp order
+        Reorder the covariance matrix to place the measured wires to the end, using xpxp order
         """
         def permute_mat(i, j, size):
             """
-            return the permute matrix for exchanging i-th row with j-th row of matrix a
+            Return the permute matrix for exchanging i-th row with j-th row of matrix a
             """
             p_row = torch.eye(size, dtype=torch.float)
             p_row[[i, j]] = p_row[[j, i]]
@@ -1157,30 +1161,11 @@ class QumodeCircuit(Operation):
         exchange_mat = torch.stack([exchange_mat] * cov.size()[0])
         cov2 = exchange_mat @ cov @ exchange_mat.mT
         return exchange_mat, cov2
-    # def exchange_row_cols(self, cov, meas_indices):
-    #     """
-    #     reorder the covariance matrix to place the measured wires to the end, using xpxp order, support vmap
-    #     """
-    #     row_list =[ ]
-    #     col_list = [ ]
-    #     idx_min= meas_indices[0]
-    #     idx_max = meas_indices[-1]
-    #     if idx_max == cov.size()[-1]:
-    #         return cov
-    #     else:
-    #         exchange_list = list(range(0, idx_min, 2)) + list(range(idx_max+1, cov.size()[-1],2)) + \
-    #                         list(range(idx_min, idx_max, 2)) # 相邻的wires
-    #         for i in exchange_list:
-    #             row_list.append(cov[[i, i+1]])
-    #         cov1 = torch.cat(row_list)
-    #         for i in exchange_list:
-    #             col_list.append(cov1[:, [i,i+1]])
-    #         cov2 = torch.cat(col_list, dim=1)
-    #         return cov2
     def measure_homodyne(
         self,
         shots: int = 1024,
-        wires: Union[int, List[int], None] = None
+        wires: Union[int, List[int], None] = None,
+        thetas: Any = None
     ) -> Union[torch.Tensor, None]:
         """Get the homodyne measurement results for quadratures x and p.
 
@@ -1189,19 +1174,32 @@ class QumodeCircuit(Operation):
             wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
                 integers specifying the indices of the wires. Default: ``None`` (which means all wires are
                 measured)
+            thetas (Any): The measurement angles.
         """
         assert self.backend == 'gaussian'
         if self.state is None:
             return
-        cov, mean = self.state
         if wires is None:
             wires = self.wires
         wires = sorted(self._convert_indices(wires))
-        indices = wires + [wire + self.nmode for wire in wires]
-        cov_sub = cov[:, indices][:, :, indices]
-        mean_sub = mean[:, indices].squeeze(-1)
-        samples = MultivariateNormal(mean_sub, cov_sub).sample([shots]) # (shots, batch, 2 * nwire)
-        return samples.permute(1, 0, 2).squeeze()
+        if thetas is None:
+           thetas = torch.zeros(len(wires))
+        if not isinstance(thetas, torch.Tensor):
+            thetas = torch.tensor(thetas, dtype=self.state[0].dtype)
+        if thetas.dim() == 0:
+           thetas = thetas.unsqueeze(0)
+        for i in range(len(wires)):
+            theta = thetas[i]
+            self.r(wires[i], -theta) # x_\phi = cos(theta)*x + sin(theta)*p
+        self.forward() # update state
+        eps = 2e-4
+        covmat = torch.zeros(2 * len(wires))
+        covmat[::2] = eps ** 2
+        covmat[1::2] = 1/eps ** 2
+        covmat = torch.diag(covmat)
+        samples = self.measure_dyne(covmat, wires, shots) # x_\phi_1 x_\phi_2 p_\phi_1 p_\phi_2 order
+
+        return samples
 
     @property
     def max_depth(self) -> int:

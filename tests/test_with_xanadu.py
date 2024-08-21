@@ -1,9 +1,11 @@
 import deepquantum as dq
 import numpy as np
 import pytest
+import strawberryfields as sf
 import thewalrus
 import torch
 from deepquantum.photonic import quadrature_to_ladder, hafnian, torontonian
+from strawberryfields.ops import Sgate, BSgate, Rgate, MeasureHomodyne, Dgate
 
 
 def test_hafnian():
@@ -89,3 +91,37 @@ def test_gaussian_prob_random_circuit():
         idx = i.state.tolist()
         error.append(abs(test_prob[tuple(idx)] - state[i].item()))
     assert sum(error) < 1e-10
+
+def test_measure_homodyne():
+    n = 3
+    r1 = np.random.rand(1)
+    r2 = np.random.rand(1)
+    r3 = np.random.rand(1)
+    bs1 = np.random.rand(2)
+    bs2 = np.random.rand(2)
+    meas_angle = np.random.rand(2)
+
+    prog0 = sf.Program(n)
+    with prog0.context as q:
+        Sgate(r1) | q[0]
+        Dgate(r2) | q[1]
+        Sgate(r3) | q[1]
+        BSgate(*bs1) | (q[0], q[1])
+        BSgate(*bs2) | (q[1], q[2])
+        MeasureHomodyne(meas_angle[0]) | q[0]
+        MeasureHomodyne(meas_angle[1]) | q[1]
+    eng0 = sf.Engine("gaussian")
+    result0 = eng0.run(prog0)
+
+    circ = dq.QumodeCircuit(nmode=n, init_state='vac', cutoff=3, backend='gaussian', basis=True)
+    circ.s([0], r=r1)
+    circ.d([1], r=r2)
+    circ.s([1], r=r3)
+    circ.bs([0,1], inputs=bs1)
+    circ.bs([1,2], inputs=bs2)
+    circ.to(torch.double)
+    st = circ()
+    re = circ.measure_homodyne(wires=[0,1], shots=1, thetas=meas_angle)
+    err = abs(circ.state[0][0] - result0.state.cov()).max() # comparing the covariance matrix after the measurement
+    assert err < 1e-6
+
