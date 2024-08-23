@@ -17,7 +17,7 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 from .decompose import UnitaryDecomposer
 from .draw import DrawCircuit
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
-from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum
+from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum, Homodyne
 from .hafnian_ import hafnian
 from .operation import Operation, Gate
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
@@ -355,10 +355,11 @@ class QumodeCircuit(Operation):
         state = [state.cov, state.mean]
         if data is None or data.ndim == 1:
             self.state = self._forward_helper_gaussian(data, state, stepwise)
-            if self.state[0].ndim == 2:
-                self.state[0] = self.state[0].unsqueeze(0)
-            if self.state[1].ndim == 2:
-                self.state[1] = self.state[1].unsqueeze(0)
+            if isinstance(self.state, List):
+                if self.state[0].ndim == 2:
+                    self.state[0] = self.state[0].unsqueeze(0)
+                if self.state[1].ndim == 2:
+                    self.state[1] = self.state[1].unsqueeze(0)
         else:
             assert data.ndim == 2
             if state[0].shape[0] == 1:
@@ -383,13 +384,33 @@ class QumodeCircuit(Operation):
             mean = self.init_state.mean
         else:
             cov, mean = state
-        if stepwise:
-            return self.operators([cov, mean])
+
+        idx_h = []
+        for i in range(len(self.operators)):
+            if isinstance (self.operators[i], Homodyne):
+                idx_h.append(i)
+        if idx_h:
+            assert isinstance(self.operators[-1], Homodyne), 'The last operator must be homodyne'
+            assert len(idx_h) == 1 , 'Only one homodyne operator necessary'
+            operators_1 = self.operators[:idx_h[0]]
+            operators_2 = self.operators[idx_h[0]:]
+
+            if stepwise:
+                return operators_1([cov, mean]) # need update
+            else:
+                sp_mat = self.get_symplectic(operators_1)
+                cov = sp_mat @ cov @ sp_mat.mT
+                mean = self.get_displacement(mean, operators_1)
+                sample = self.operators[idx_h[0]]([cov, mean]) # homodyne in the last place
+                return sample
         else:
-            sp_mat = self.get_symplectic()
-            cov = sp_mat @ cov @ sp_mat.mT
-            mean = self.get_displacement(mean)
-            return [cov.squeeze(0), mean.squeeze(0)]
+            if stepwise:
+                return self.operators([cov, mean])
+            else:
+                sp_mat = self.get_symplectic()
+                cov = sp_mat @ cov @ sp_mat.mT
+                mean = self.get_displacement(mean)
+                return [cov.squeeze(0), mean.squeeze(0)]
 
     def _forward_gaussian_prob(self, cov: torch.Tensor, mean: torch.Tensor, detector: Optional[str] = None) -> Dict:
         """Get the probabilities of all possible final states for Gaussian backend by different detectors.
@@ -519,22 +540,26 @@ class QumodeCircuit(Operation):
         else:
             return u
 
-    def get_symplectic(self) -> torch.Tensor:
+    def get_symplectic(self, operators: Optional[nn.Sequential]=None) -> torch.Tensor:
         """Get the symplectic matrix of the photonic quantum circuit."""
         s = None
-        for op in self.operators:
+        if operators is None:
+            operators = self.operators
+        for op in operators:
             if s is None:
                 s = op.get_symplectic()
             else:
                 s = op.get_symplectic() @ s
         return s
 
-    def get_displacement(self, init_mean: Any) -> torch.Tensor:
+    def get_displacement(self, init_mean: Any, operators: Optional[nn.Sequential]=None) -> torch.Tensor:
         """Get the final mean value of the Gaussian state in ``xxpp`` order."""
         if not isinstance(init_mean, torch.Tensor):
             init_mean = torch.tensor(init_mean)
         mean = init_mean.reshape(-1, 2 * self.nmode, 1)
-        for op in self.operators:
+        if operators is None:
+            operators = self.operators
+        for op in operators:
             mean = op.get_symplectic() @ mean + op.get_displacement()
         return mean
 
@@ -1088,84 +1113,10 @@ class QumodeCircuit(Operation):
             mean_lst.append(mean[indices])
         return cov_lst, mean_lst
 
-    def measure_dyne(self, covmat, wires, shots):
-        """Performs the general-dyne measurement specified in covmat.
-
-        See Quantum Continuous Variables: A Primer of Theoretical Methods
-        by Alessio Serafini page 121
-        """
-        wires = torch.tensor(wires)
-        indices = torch.zeros(2*len(wires), dtype=torch.int64)
-        indices[::2] = 2 * wires
-        indices[1::2] = 2 * wires + 1
-        cov, mean = self.state
-        size = cov.size()
-        assert covmat.size()[-1] == len(indices), "Covariance matrix size does not match indices provided"
-
-        cov_xpxp = xxpp_to_xpxp(cov)
-        mean_xpxp = xxpp_to_xpxp(mean)
-
-        exchange_mat, cov_order = self.exchange_row_cols(cov_xpxp, indices.tolist()) # reorder cov
-        mean_order = exchange_mat @ mean_xpxp
-        idx = self.nmode - len(wires)
-        sigma_a = cov_order[:, :2*idx, :2*idx]
-        sigma_b = cov_order[:, 2*idx:, 2*idx:]
-        sigma_ab = cov_order[:, :2*idx, 2*idx:]
-        temp = sigma_ab @ torch.linalg.inv(sigma_b + covmat)
-        sigma_a2 = sigma_a - temp @ sigma_ab.mT # update the unmeasured part
-        sigma_a3 = cov.new_zeros(size[0], size[-1], size[-1])
-        sigma_a3[:, :2*idx, :2*idx] = sigma_a2 # update the total cov mat
-        sigma_a3[:, 2*idx:, 2*idx:] = torch.stack([torch.eye(len(indices))]*size[0])
-        exchange_mat_inv = torch.linalg.inv(exchange_mat)
-        sigma_a4 = exchange_mat_inv @ sigma_a3 @ exchange_mat_inv.mT # transfer back to  normal xpxp order
-        cov_xxpp = xpxp_to_xxpp(sigma_a4)
-
-        mean_b = mean_order[:, 2*idx:].squeeze(-1)
-        mean_a = mean_order[:, :2*idx].squeeze(-1)
-        samples = MultivariateNormal(mean_b, sigma_b).sample([shots]) # xpxp order, shape: (shots, batch, 2 * nwire)
-        samples = samples.permute(1, 0, 2)
-        samples_mean = samples.mean(dim=1)
-        temp2  = (samples_mean - mean_b).unsqueeze(2)
-        mean_a2 = mean_a.unsqueeze(2) + temp @ temp2
-        mean_order[:, :2*idx] = mean_a2
-        mean_order[:, 2*idx:] = temp2 * 0
-        mean_xxpp = xpxp_to_xxpp(exchange_mat_inv @ mean_order)# transfer back
-        self.state = [cov_xxpp, mean_xxpp]
-
-        samples = torch.cat([samples[:,:,::2], samples[:,:,1::2]], dim=-1) # xxpp order
-        return samples
-    def exchange_row_cols(self, cov, measure_indices, reverse=False):
-        """
-        Reorder the covariance matrix to place the measured wires to the end, using xpxp order
-        """
-        def permute_mat(i, j, size):
-            """
-            Return the permute matrix for exchanging i-th row with j-th row of matrix a
-            """
-            p_row = torch.eye(size, dtype=torch.float)
-            p_row[[i, j]] = p_row[[j, i]]
-            return p_row
-
-        n = cov.size()[-1]
-        len_ = len(measure_indices)
-        j_indices = range(n - len_, n+1)
-        exchange_mat = torch.eye(n, dtype=cov.dtype)
-        for k in range(len(measure_indices)-1, -1, -1):
-            i = measure_indices[k]
-            j = j_indices[k]
-            p_mat = permute_mat(i, j, n)
-            p_mat = p_mat.to(cov.dtype)
-            exchange_mat = p_mat @ exchange_mat
-        if reverse:
-            exchange_mat = torch.linalg.inv(exchange_mat)
-        exchange_mat = torch.stack([exchange_mat] * cov.size()[0])
-        cov2 = exchange_mat @ cov @ exchange_mat.mT
-        return exchange_mat, cov2
     def measure_homodyne(
         self,
         shots: int = 1024,
-        wires: Union[int, List[int], None] = None,
-        thetas: Any = None
+        wires: Union[int, List[int], None] = None
     ) -> Union[torch.Tensor, None]:
         """Get the homodyne measurement results for quadratures x and p.
 
@@ -1174,32 +1125,19 @@ class QumodeCircuit(Operation):
             wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
                 integers specifying the indices of the wires. Default: ``None`` (which means all wires are
                 measured)
-            thetas (Any): The measurement angles.
         """
         assert self.backend == 'gaussian'
         if self.state is None:
             return
+        cov, mean = self.state
         if wires is None:
             wires = self.wires
         wires = sorted(self._convert_indices(wires))
-        if thetas is None:
-           thetas = torch.zeros(len(wires))
-        if not isinstance(thetas, torch.Tensor):
-            thetas = torch.tensor(thetas, dtype=self.state[0].dtype)
-        if thetas.dim() == 0:
-           thetas = thetas.unsqueeze(0)
-        for i in range(len(wires)):
-            theta = thetas[i]
-            self.r(wires[i], -theta) # x_\phi = cos(theta)*x + sin(theta)*p
-        self.forward() # update state
-        eps = 2e-4
-        covmat = torch.zeros(2 * len(wires))
-        covmat[::2] = eps ** 2
-        covmat[1::2] = 1/eps ** 2
-        covmat = torch.diag(covmat)
-        samples = self.measure_dyne(covmat, wires, shots) # x_\phi_1 x_\phi_2 p_\phi_1 p_\phi_2 order
-
-        return samples
+        indices = wires + [wire + self.nmode for wire in wires]
+        cov_sub = cov[:, indices][:, :, indices]
+        mean_sub = mean[:, indices].squeeze(-1)
+        samples = MultivariateNormal(mean_sub, cov_sub).sample([shots]) # (shots, batch, 2 * nwire)
+        return samples.permute(1, 0, 2).squeeze()
 
     @property
     def max_depth(self) -> int:
@@ -1670,3 +1608,25 @@ class QumodeCircuit(Operation):
         f = PhaseShift(inputs=theta, nmode=self.nmode, wires=wires, cutoff=self.cutoff, requires_grad=False,
                        noise=self.noise, mu=mu, sigma=sigma)
         self.add(f, encode=False)
+
+    def homodyne(
+        self,
+        inputs: Any = None,
+        wires: Optional[int] = None,
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None) -> None:
+        """Add homodyne measurement."""
+        if wires is None:
+            wires = list(range(self.nmode))
+        wires = sorted(self._convert_indices(wires))
+        if inputs is None:
+            inputs = torch.rand(len(wires)) * 2 * torch.pi
+        if not isinstance(inputs, torch.Tensor):
+            inputs = torch.tensor(inputs)
+        if inputs.dim() == 0:
+           inputs = inputs.unsqueeze(0)
+        for i in range(len(wires)):
+            theta = inputs[i]
+            self.r(wires[i], -theta) # x_\phi = cos(theta)*x + sin(theta)*p
+        homodyne_ = Homodyne(inputs=inputs * 0., nmode=self.nmode, wires=wires, cutoff=self.cutoff, mu=mu, sigma=sigma)
+        self.add(homodyne_)

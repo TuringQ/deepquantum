@@ -8,9 +8,11 @@ from typing import Any, List, Optional, Tuple, Union
 
 import torch
 from torch import nn
+from torch.distributions.multivariate_normal import MultivariateNormal
 
 import deepquantum.photonic as dqp
 from .operation import Gate
+from .qmath import xxpp_to_xpxp, xpxp_to_xxpp
 from ..qmath import is_unitary
 
 
@@ -1490,3 +1492,183 @@ class DisplacementMomentum(Displacement):
         self.register_buffer('theta', theta)
         self.update_matrix()
         self.update_transform_xp()
+
+class Generaldyne(Gate):
+    """Generaldyne measurement.
+
+    Args:
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
+        wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        covmat (Any): Performs the general-dyne measurement specified in covmat. Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        name (str, optional): The name of the gate. Default: ``'Generaldyne'`
+    """
+    def __init__(
+        self,
+        nmode: int = 1,
+        wires: Union[int, List[int], None] = None,
+        covmat: Any = None,
+        cutoff: Optional[int] = None,
+        name: str = 'Generaldyne'
+    ) -> None:
+        self.nmode = nmode
+        if wires is None:
+            wires = list(range(nmode))
+        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, noise=False)
+        if not isinstance(covmat, torch.Tensor):
+            covmat = torch.tensor(covmat).reshape(-1, 2 * len(self.wires))
+        assert covmat.shape[-1] == 2 * len(self.wires), "Covariance matrix size does not match wires provided"
+        self.covmat = covmat
+    def get_matrix_state(self, matrix: torch.Tensor) -> torch.Tensor:
+        """Get the local transformation matrix acting on Fock state tensors.
+        """
+        raise NotImplementedError
+
+    def update_matrix_state(self) -> torch.Tensor:
+        """Update the local transformation matrix acting on Fock state tensors."""
+        raise NotImplementedError
+
+    def get_transform_xp(self, matrix: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
+        raise NotImplementedError
+
+    def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Update the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
+        raise NotImplementedError
+
+    def forward(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
+        """Perform a forward pass for Gaussian states.
+
+        See Quantum Continuous Variables: A Primer of Theoretical Methods
+        by Alessio Serafini page 121
+        """
+        cov, mean =  x
+        covmat = self.covmat
+        covmat = covmat.to(cov.dtype)
+        wires = torch.tensor(self.wires)
+        indices = torch.zeros(2*len(wires), dtype=torch.int64)
+        indices[::2] = 2 * wires
+        indices[1::2] = 2 * wires + 1
+        size = cov.size()
+        cov_xpxp = xxpp_to_xpxp(cov)
+        mean_xpxp = xxpp_to_xpxp(mean)
+
+        exchange_mat, cov_order = self.exchange_row_cols(cov_xpxp, indices.tolist()) # reorder cov
+        mean_order = exchange_mat @ mean_xpxp
+        idx = self.nmode - len(wires)
+        sigma_a = cov_order[:, :2*idx, :2*idx]
+        sigma_b = cov_order[:, 2*idx:, 2*idx:]
+        sigma_ab = cov_order[:, :2*idx, 2*idx:]
+
+        temp = sigma_ab @ torch.linalg.inv(sigma_b + covmat)
+        sigma_a2 = sigma_a - temp @ sigma_ab.mT # update the unmeasured part
+        sigma_a3 = cov.new_zeros(size[0], size[-1], size[-1])
+        sigma_a3[:, :2*idx, :2*idx] = sigma_a2 # update the total cov mat
+        sigma_a3[:, 2*idx:, 2*idx:] = torch.stack([torch.eye(len(indices))]*size[0])
+        exchange_mat_inv = torch.linalg.inv(exchange_mat)
+        sigma_a4 = exchange_mat_inv @ sigma_a3 @ exchange_mat_inv.mT # transfer back to  normal xpxp order
+        cov_xxpp = xpxp_to_xxpp(sigma_a4)
+
+        mean_b = mean_order[:, 2*idx:].squeeze(-1)
+        mean_a = mean_order[:, :2*idx].squeeze(-1)
+        samples = MultivariateNormal(mean_b, sigma_b).sample([1]) # xpxp order, shape: (shots, batch, 2 * nwire) shots=1000?
+        # print('samples', samples)
+        samples = samples.permute(1, 0, 2)
+        temp2  = (samples[0] - mean_b).unsqueeze(2)
+        mean_a2 = mean_a.unsqueeze(2) + temp @ temp2
+        mean_order[:, :2*idx] = mean_a2
+        mean_order[:, 2*idx:] = temp2 * 0
+        mean_xxpp = xpxp_to_xxpp(exchange_mat_inv @ mean_order)# transfer back
+        samples = torch.cat([samples[:,:,::2], samples[:,:,1::2]], dim=-1) # xxpp order
+        return samples, [cov_xxpp, mean_xxpp]
+
+    def exchange_row_cols(self, cov, measure_indices, reverse=False):
+        """
+        Reorder the covariance matrix to place the measured wires to the end, using xpxp order
+        """
+        def permute_mat(i, j, size):
+            """
+            Return the permute matrix for exchanging i-th row with j-th row of matrix a
+            """
+            p_row = torch.eye(size, dtype=torch.float)
+            p_row[[i, j]] = p_row[[j, i]]
+            return p_row
+
+        n = cov.size()[-1]
+        len_ = len(measure_indices)
+        j_indices = range(n - len_, n+1)
+        exchange_mat = torch.eye(n, dtype=cov.dtype)
+        for k in range(len(measure_indices)-1, -1, -1):
+            i = measure_indices[k]
+            j = j_indices[k]
+            p_mat = permute_mat(i, j, n)
+            p_mat = p_mat.to(cov.dtype)
+            exchange_mat = p_mat @ exchange_mat
+        if reverse:
+            exchange_mat = torch.linalg.inv(exchange_mat)
+        exchange_mat = torch.stack([exchange_mat] * cov.size()[0])
+        cov2 = exchange_mat @ cov @ exchange_mat.mT
+        return exchange_mat, cov2
+
+class Homodyne(Generaldyne):
+    """Homodyne measurement.
+
+    Args:
+        inputs (Any, optional): The parameter of the gate. Default: ``None``
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
+        wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        name (str, optional): The name of the gate. Default: ``'UAnyGate'`
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nmode: int = 1,
+        wires: Union[int, List[int], None] = None,
+        cutoff: Optional[int] = None,
+        noise: bool = False,
+        mu: float = 0,
+        sigma: float = 0.1,
+        name: str = 'Homodyne'
+    ) -> None:
+        self.nmode = nmode
+        self.noise = noise
+        self.mu = mu
+        self.sigma = sigma
+        if wires is None:
+            wires = list(range(nmode))
+        wires = sorted(self._convert_indices(wires))
+        eps = 2e-4
+        covmat = torch.zeros(2 * len(wires))
+        covmat[::2] = eps ** 2
+        covmat[1::2] = 1/eps ** 2
+        covmat = torch.diag(covmat)
+        super().__init__(name=name, nmode=nmode, wires=wires, covmat=covmat, cutoff=cutoff)
+        self.requires_grad = False
+        self.init_para(inputs)
+    def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
+        """Convert inputs to torch.Tensor."""
+        # while isinstance(inputs, list):
+        #     inputs = inputs[0]
+        if inputs is None:
+            inputs = torch.rand(len(self.wires)) * 2 * torch.pi
+        elif not isinstance(inputs, (torch.Tensor, nn.Parameter)):
+            inputs = torch.tensor(inputs, dtype=torch.float)
+        if inputs.dim() == 0:
+           inputs = inputs.unsqueeze(0)
+        if self.noise:
+            inputs = inputs + torch.normal(self.mu, self.sigma, size=(len(self.wires), )).squeeze()
+        return inputs
+    def init_para(self, inputs: Any = None) -> None:
+        """Initialize the parameters."""
+        thetas = self.inputs_to_tensor(inputs)
+        if self.requires_grad:
+            self.thetas = nn.Parameter(thetas)
+        else:
+            self.register_buffer('thetas', thetas)
+
+    def extra_repr(self) -> str:
+        thetas = self.thetas
+        return f'wires={self.wires}, thetas={thetas.detach().tolist()}'
