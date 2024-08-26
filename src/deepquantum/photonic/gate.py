@@ -1572,7 +1572,7 @@ class Generaldyne(Gate):
 
         mean_b = mean_order[:, 2*idx:].squeeze(-1)
         mean_a = mean_order[:, :2*idx].squeeze(-1)
-        samples = MultivariateNormal(mean_b, sigma_b).sample([1]) # xpxp order, shape: (shots, batch, 2 * nwire) shots=1000?
+        samples = MultivariateNormal(mean_b, sigma_b + covmat).sample([1]) # xpxp order, shape: (shots, batch, 2 * nwire) shots=1000?
         # print('samples', samples)
         samples = samples.permute(1, 0, 2)
         temp2  = (samples[0] - mean_b).unsqueeze(2)
@@ -1580,8 +1580,9 @@ class Generaldyne(Gate):
         mean_order[:, :2*idx] = mean_a2
         mean_order[:, 2*idx:] = temp2 * 0
         mean_xxpp = xpxp_to_xxpp(exchange_mat_inv @ mean_order)# transfer back
-        samples = torch.cat([samples[:,:,::2], samples[:,:,1::2]], dim=-1) # xxpp order
-        return samples, [cov_xxpp, mean_xxpp]
+        samples_half = samples[:,:,::2] # xxpp order
+        # samples = torch.cat([samples[:,:,::2], samples[:,:,1::2]], dim=-1) # xxpp order
+        return samples_half, [cov_xxpp, mean_xxpp]
 
     def exchange_row_cols(self, cov, measure_indices, reverse=False):
         """
