@@ -353,6 +353,19 @@ class QumodeCircuit(Operation):
         elif not isinstance(state, GaussianState):
             state = GaussianState(state=state, nmode=self.nmode, cutoff=self.cutoff)
         state = [state.cov, state.mean]
+        idx_h = []
+        for i in range(len(self.operators)):
+            if isinstance (self.operators[i], Homodyne):
+                idx_h.append(i)
+        if idx_h:
+            assert isinstance(self.operators[-1], Homodyne), 'The last operator must be homodyne'
+            assert len(idx_h) == 1 , 'Only one homodyne operator necessary'
+            operators_1 = self.operators[:idx_h[0]]
+            operators_2 = self.operators[idx_h[0]:]
+            self._operators = operators_1
+        else:
+            self._operators = self.operators
+
         if data is None or data.ndim == 1:
             self.state = self._forward_helper_gaussian(data, state, stepwise)
             if isinstance(self.state, List):
@@ -367,6 +380,10 @@ class QumodeCircuit(Operation):
             else:
                 self.state = vmap(self._forward_helper_gaussian, in_dims=(0, 0, None))(data, state, stepwise)
             self.encode(data[-1])
+        if idx_h:
+            sample = self.operators[idx_h[0]](self.state)
+            self.state = sample
+
         if is_prob:
             self.state = self._forward_gaussian_prob(self.state[0], self.state[1], detector)
         return self.state
@@ -384,33 +401,14 @@ class QumodeCircuit(Operation):
             mean = self.init_state.mean
         else:
             cov, mean = state
-
-        idx_h = []
-        for i in range(len(self.operators)):
-            if isinstance (self.operators[i], Homodyne):
-                idx_h.append(i)
-        if idx_h:
-            assert isinstance(self.operators[-1], Homodyne), 'The last operator must be homodyne'
-            assert len(idx_h) == 1 , 'Only one homodyne operator necessary'
-            operators_1 = self.operators[:idx_h[0]]
-            operators_2 = self.operators[idx_h[0]:]
-
-            if stepwise:
-                return operators_1([cov, mean]) # need update
-            else:
-                sp_mat = self.get_symplectic(operators_1)
-                cov = sp_mat @ cov @ sp_mat.mT
-                mean = self.get_displacement(mean, operators_1)
-                sample = self.operators[idx_h[0]]([cov, mean]) # homodyne in the last place
-                return sample
+        operators = self._operators
+        if stepwise:
+            return operators([cov, mean])
         else:
-            if stepwise:
-                return self.operators([cov, mean])
-            else:
-                sp_mat = self.get_symplectic()
-                cov = sp_mat @ cov @ sp_mat.mT
-                mean = self.get_displacement(mean)
-                return [cov.squeeze(0), mean.squeeze(0)]
+            sp_mat = self.get_symplectic(operators)
+            cov = sp_mat @ cov @ sp_mat.mT
+            mean = self.get_displacement(mean, operators)
+            return [cov.squeeze(0), mean.squeeze(0)]
 
     def _forward_gaussian_prob(self, cov: torch.Tensor, mean: torch.Tensor, detector: Optional[str] = None) -> Dict:
         """Get the probabilities of all possible final states for Gaussian backend by different detectors.
@@ -1611,8 +1609,9 @@ class QumodeCircuit(Operation):
 
     def homodyne(
         self,
-        inputs: Any = None,
         wires: Optional[int] = None,
+        inputs: Any = None,
+        encode: bool = False,
         mu: Optional[float] = None,
         sigma: Optional[float] = None) -> None:
         """Add homodyne measurement."""
@@ -1627,6 +1626,6 @@ class QumodeCircuit(Operation):
            inputs = inputs.unsqueeze(0)
         for i in range(len(wires)):
             theta = inputs[i]
-            self.r(wires[i], -theta) # x_\phi = cos(theta)*x + sin(theta)*p
+            self.r(wires=wires[i], inputs=-theta, encode=encode) # x_\phi = cos(theta)*x + sin(theta)*p
         homodyne_ = Homodyne(inputs=inputs * 0., nmode=self.nmode, wires=wires, cutoff=self.cutoff, mu=mu, sigma=sigma)
         self.add(homodyne_)
