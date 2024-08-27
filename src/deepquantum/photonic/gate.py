@@ -12,7 +12,6 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 
 import deepquantum.photonic as dqp
 from .operation import Gate
-from .qmath import xxpp_to_xpxp, xpxp_to_xxpp
 from ..qmath import is_unitary
 
 
@@ -1547,70 +1546,31 @@ class Generaldyne(Gate):
         covmat = self.covmat
         covmat = covmat.to(cov.dtype)
         wires = torch.tensor(self.wires)
-        indices = torch.zeros(2*len(wires), dtype=torch.int64)
-        indices[::2] = 2 * wires
-        indices[1::2] = 2 * wires + 1
         size = cov.size()
-        cov_xpxp = xxpp_to_xpxp(cov)
-        mean_xpxp = xxpp_to_xpxp(mean)
+        indices = torch.cat([wires, wires+self.nmode]) # xxpp order
+        all_idx = torch.arange(2*self.nmode)
+        mask = ~torch.isin(all_idx, indices)
+        idx_rest = all_idx[mask]
 
-        exchange_mat, cov_order = self.exchange_row_cols(cov_xpxp, indices.tolist()) # reorder cov
-        mean_order = exchange_mat @ mean_xpxp
-        idx = self.nmode - len(wires)
-        sigma_a = cov_order[:, :2*idx, :2*idx]
-        sigma_b = cov_order[:, 2*idx:, 2*idx:]
-        sigma_ab = cov_order[:, :2*idx, 2*idx:]
+        cov_a = cov[:, idx_rest[:, None], idx_rest]
+        cov_b = cov[:, indices[:, None], indices]
+        cov_ab = cov[:, idx_rest[:, None], indices]
+        mean_b_ = mean[:, indices].squeeze(-1)
+        mean_a_ = mean[:, idx_rest].squeeze(-1)
+        temp = cov_ab @ torch.linalg.inv(cov_b + covmat)
+        cov_a2 = cov_a - temp @ cov_ab.mT # update the unmeasured part
+        cov_a3 = torch.stack([torch.eye(size[-1])]*size[0])
+        cov_a3 = cov_a3.to(cov_a2.dtype)
+        cov_a3[:, idx_rest[:, None], idx_rest] = cov_a2 # update the total cov mat
 
-        temp = sigma_ab @ torch.linalg.inv(sigma_b + covmat)
-        sigma_a2 = sigma_a - temp @ sigma_ab.mT # update the unmeasured part
-        sigma_a3 = cov.new_zeros(size[0], size[-1], size[-1])
-        sigma_a3[:, :2*idx, :2*idx] = sigma_a2 # update the total cov mat
-        sigma_a3[:, 2*idx:, 2*idx:] = torch.stack([torch.eye(len(indices))]*size[0])
-        exchange_mat_inv = torch.linalg.inv(exchange_mat)
-        sigma_a4 = exchange_mat_inv @ sigma_a3 @ exchange_mat_inv.mT # transfer back to  normal xpxp order
-        cov_xxpp = xpxp_to_xxpp(sigma_a4)
-
-        mean_b = mean_order[:, 2*idx:].squeeze(-1)
-        mean_a = mean_order[:, :2*idx].squeeze(-1)
-        samples = MultivariateNormal(mean_b, sigma_b + covmat).sample([1]) # xpxp order, shape: (shots, batch, 2 * nwire) shots=1000?
-        # print('samples', samples)
+        samples = MultivariateNormal(mean_b_, cov_b + covmat).sample([1]) # xxpp order, shape: (shots, batch, 2 * nwire) shots=1000?
         samples = samples.permute(1, 0, 2)
-        temp2  = (samples[0] - mean_b).unsqueeze(2)
-        mean_a2 = mean_a.unsqueeze(2) + temp @ temp2
-        mean_order[:, :2*idx] = mean_a2
-        mean_order[:, 2*idx:] = temp2 * 0
-        mean_xxpp = xpxp_to_xxpp(exchange_mat_inv @ mean_order)# transfer back
-        samples_half = samples[:,:,::2] # xxpp order
-        # samples = torch.cat([samples[:,:,::2], samples[:,:,1::2]], dim=-1) # xxpp order
-        return samples_half, [cov_xxpp, mean_xxpp]
-
-    def exchange_row_cols(self, cov, measure_indices, reverse=False):
-        """
-        Reorder the covariance matrix to place the measured wires to the end, using xpxp order
-        """
-        def permute_mat(i, j, size):
-            """
-            Return the permute matrix for exchanging i-th row with j-th row of matrix a
-            """
-            p_row = torch.eye(size, dtype=torch.float)
-            p_row[[i, j]] = p_row[[j, i]]
-            return p_row
-
-        n = cov.size()[-1]
-        len_ = len(measure_indices)
-        j_indices = range(n - len_, n+1)
-        exchange_mat = torch.eye(n, dtype=cov.dtype)
-        for k in range(len(measure_indices)-1, -1, -1):
-            i = measure_indices[k]
-            j = j_indices[k]
-            p_mat = permute_mat(i, j, n)
-            p_mat = p_mat.to(cov.dtype)
-            exchange_mat = p_mat @ exchange_mat
-        if reverse:
-            exchange_mat = torch.linalg.inv(exchange_mat)
-        exchange_mat = torch.stack([exchange_mat] * cov.size()[0])
-        cov2 = exchange_mat @ cov @ exchange_mat.mT
-        return exchange_mat, cov2
+        temp2  = (samples[0] - mean_b_).unsqueeze(2)
+        mean_a2 = mean_a_.unsqueeze(2) + temp @ temp2
+        mean_new = torch.zeros_like(mean)
+        mean_new[:, idx_rest] = mean_a2
+        samples_half = samples[:,:,:len(self.wires)] # xxpp order
+        return samples_half, [cov_a3, mean_new]
 
 class Homodyne(Generaldyne):
     """Homodyne measurement.
@@ -1638,27 +1598,26 @@ class Homodyne(Generaldyne):
         self.noise = noise
         self.mu = mu
         self.sigma = sigma
-        if wires is None:
-            wires = list(range(nmode))
         wires = sorted(self._convert_indices(wires))
         eps = 2e-4
         covmat = torch.zeros(2 * len(wires))
-        covmat[::2] = eps ** 2
-        covmat[1::2] = 1/eps ** 2
+        covmat[:len(wires)] = eps ** 2
+        covmat[len(wires):] = 1/eps ** 2 # xxpp
         covmat = torch.diag(covmat)
         super().__init__(name=name, nmode=nmode, wires=wires, covmat=covmat, cutoff=cutoff)
+        assert len(self.wires) == 1, f'{self.name} must act on one mode'
         self.requires_grad = False
         self.init_para(inputs)
+        self.npara = 1
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
         """Convert inputs to torch.Tensor."""
-        # while isinstance(inputs, list):
-        #     inputs = inputs[0]
         if inputs is None:
             inputs = torch.rand(len(self.wires)) * 2 * torch.pi
         elif not isinstance(inputs, (torch.Tensor, nn.Parameter)):
             inputs = torch.tensor(inputs, dtype=torch.float)
         if inputs.dim() == 0:
            inputs = inputs.unsqueeze(0)
+        assert len(inputs) == len(self.wires)
         if self.noise:
             inputs = inputs + torch.normal(self.mu, self.sigma, size=(len(self.wires), )).squeeze()
         return inputs
@@ -1673,3 +1632,14 @@ class Homodyne(Generaldyne):
     def extra_repr(self) -> str:
         thetas = self.thetas
         return f'wires={self.wires}, thetas={thetas.detach().tolist()}'
+
+    def forward(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
+        """Perform a forward pass for Gaussian states."""
+        cov, mean =  x
+        theta = self.thetas[0]
+        r = PhaseShift(inputs=-theta, nmode=self.nmode, wires=self.wires, cutoff=self.cutoff)
+        sp_mat = r.get_symplectic()
+        sp_mat = sp_mat.to(cov.dtype)
+        cov = sp_mat @ cov @ sp_mat.mT
+        mean = sp_mat @ mean
+        return super().forward([cov, mean])

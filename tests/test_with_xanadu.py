@@ -119,7 +119,8 @@ def test_measure_homodyne():
     circ.s([1], r=r3)
     circ.bs([0,1], inputs=bs1)
     circ.bs([1,2], inputs=bs2)
-    circ.homodyne(wires=[0,1], inputs=list(meas_angle))
+    circ.homodyne(wires=[0], inputs=meas_angle[0])
+    circ.homodyne(wires=[1], inputs=meas_angle[1])
     circ.to(torch.double)
     st = circ()
     err = abs(st[1][0] - result0.state.cov()).max() # comparing the covariance matrix after the measurement

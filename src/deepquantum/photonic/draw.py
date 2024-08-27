@@ -28,7 +28,13 @@ class DrawCircuit():
         circuit_nmode (int): The number of modes in the circuit.
         circuit_operators (nn.Sequential): The operators of the circuit.
     """
-    def __init__(self, circuit_name: str, circuit_nmode: int, circuit_operators: nn.Sequential) -> None:
+    def __init__(
+        self,
+        circuit_name: str,
+        circuit_nmode: int,
+        circuit_operators: nn.Sequential,
+        measurements: nn.ModuleList
+    ) -> None:
         if circuit_name is None:
             circuit_name = 'circuit'
         nmode = circuit_nmode
@@ -38,6 +44,7 @@ class DrawCircuit():
         self.nmode = nmode
         self.name = name
         self.ops = circuit_operators
+        self.mea = measurements
 
     def draw(self):
         """Draw circuit."""
@@ -101,17 +108,16 @@ class DrawCircuit():
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = depth[i]+1
-            elif isinstance(op, Homodyne):
-                name_ = 'M'
-                thetas = op.thetas.detach()
-                k=0
-                for i in op.wires:
-                    order = depth[i]
-                    self.draw_homodyne(order, i, thetas[k].item(), name_)
-                    order_dic[order] = order_dic[order] + [i]
-                    depth[i] = depth[i]+1
-                    k = k + 1
-
+        if len(self.mea) > 0:
+            for mea in self.mea:
+                if isinstance(mea, Homodyne):
+                    name_ = 'M'
+                    thetas = mea.thetas.detach()
+                    for i in mea.wires:
+                        order = depth[i]
+                        self.draw_homodyne(order, i, thetas[0].item(), name_)
+                        order_dic[order] = order_dic[order] + [i]
+                        depth[i] = depth[i]+1
         for key, value in order_dic.items():
             op_line = value  ## here lines represent for no operation
             line_wires = [i for i in range(nmode) if i not in op_line]

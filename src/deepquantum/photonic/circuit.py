@@ -21,7 +21,7 @@ from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, Dis
 from .hafnian_ import hafnian
 from .operation import Operation, Gate
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
-from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc, xxpp_to_xpxp, xpxp_to_xxpp
+from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc
 from .state import FockState, GaussianState
 from .torontonian_ import torontonian
 from ..state import MatrixProductState
@@ -98,6 +98,7 @@ class QumodeCircuit(Operation):
                 cutoff = self.init_state.cutoff
 
         self.operators = nn.Sequential()
+        self.measurements = nn.ModuleList()
         self.encoders = []
         self.cutoff = cutoff
         self.backend = backend
@@ -353,19 +354,6 @@ class QumodeCircuit(Operation):
         elif not isinstance(state, GaussianState):
             state = GaussianState(state=state, nmode=self.nmode, cutoff=self.cutoff)
         state = [state.cov, state.mean]
-        idx_h = []
-        for i in range(len(self.operators)):
-            if isinstance (self.operators[i], Homodyne):
-                idx_h.append(i)
-        if idx_h:
-            assert isinstance(self.operators[-1], Homodyne), 'The last operator must be homodyne'
-            assert len(idx_h) == 1 , 'Only one homodyne operator necessary'
-            operators_1 = self.operators[:idx_h[0]]
-            operators_2 = self.operators[idx_h[0]:]
-            self._operators = operators_1
-        else:
-            self._operators = self.operators
-
         if data is None or data.ndim == 1:
             self.state = self._forward_helper_gaussian(data, state, stepwise)
             if isinstance(self.state, List):
@@ -380,10 +368,13 @@ class QumodeCircuit(Operation):
             else:
                 self.state = vmap(self._forward_helper_gaussian, in_dims=(0, 0, None))(data, state, stepwise)
             self.encode(data[-1])
-        if idx_h:
-            sample = self.operators[idx_h[0]](self.state)
-            self.state = sample
-
+        if len(self.measurements) > 0: # at least one generaldyne operators
+            samples = []
+            for mea_op in self.measurements:
+               sample = mea_op(self.state)
+               self.state = sample[1]
+               samples.append(sample[0].mT)
+            self.state = (torch.stack(samples, dim=-1).squeeze(), self.state)
         if is_prob:
             self.state = self._forward_gaussian_prob(self.state[0], self.state[1], detector)
         return self.state
@@ -401,7 +392,7 @@ class QumodeCircuit(Operation):
             mean = self.init_state.mean
         else:
             cov, mean = state
-        operators = self._operators
+        operators = self.operators
         if stepwise:
             return operators([cov, mean])
         else:
@@ -1148,7 +1139,7 @@ class QumodeCircuit(Operation):
         Args:
             filename (str or None, optional): The path for saving the figure.
         """
-        self.draw_circuit = DrawCircuit(self.name, self.nmode, self.operators)
+        self.draw_circuit = DrawCircuit(self.name, self.nmode, self.operators, self.measurements)
         self.draw_circuit.draw()
         if filename is not None:
             self.draw_circuit.save(filename)
@@ -1615,17 +1606,8 @@ class QumodeCircuit(Operation):
         mu: Optional[float] = None,
         sigma: Optional[float] = None) -> None:
         """Add homodyne measurement."""
-        if wires is None:
-            wires = list(range(self.nmode))
-        wires = sorted(self._convert_indices(wires))
-        if inputs is None:
-            inputs = torch.rand(len(wires)) * 2 * torch.pi
-        if not isinstance(inputs, torch.Tensor):
-            inputs = torch.tensor(inputs)
-        if inputs.dim() == 0:
-           inputs = inputs.unsqueeze(0)
-        for i in range(len(wires)):
-            theta = inputs[i]
-            self.r(wires=wires[i], inputs=-theta, encode=encode) # x_\phi = cos(theta)*x + sin(theta)*p
-        homodyne_ = Homodyne(inputs=inputs * 0., nmode=self.nmode, wires=wires, cutoff=self.cutoff, mu=mu, sigma=sigma)
-        self.add(homodyne_)
+        homodyne_ = Homodyne(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, mu=mu, sigma=sigma)
+        if encode:
+            self.ndata = self.ndata + homodyne_.npara
+            self.encoders.append(homodyne_)
+        self.measurements.append(homodyne_)
