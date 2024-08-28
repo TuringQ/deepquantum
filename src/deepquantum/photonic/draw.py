@@ -11,7 +11,8 @@ import svgwrite
 from matplotlib import patches
 from torch import nn
 
-from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate, Squeezing, Squeezing2, Displacement, Homodyne
+from .measurement import Homodyne
+from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate, Squeezing, Squeezing2, Displacement
 
 info_dic = {'PS': ['teal', 0],
             'S': ['royalblue', 3],
@@ -112,10 +113,10 @@ class DrawCircuit():
             for mea in self.mea:
                 if isinstance(mea, Homodyne):
                     name_ = 'M'
-                    thetas = mea.thetas.detach()
+                    theta = mea.theta.detach()
                     for i in mea.wires:
                         order = depth[i]
-                        self.draw_homodyne(order, i, thetas[0].item(), name_)
+                        self.draw_homodyne(order, i, theta.item(), name_)
                         order_dic[order] = order_dic[order] + [i]
                         depth[i] = depth[i]+1
         for key, value in order_dic.items():

@@ -6,7 +6,7 @@ import itertools
 import random
 import warnings
 from collections import defaultdict, Counter
-from copy import copy
+from copy import copy, deepcopy
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -16,8 +16,9 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 
 from .decompose import UnitaryDecomposer
 from .draw import DrawCircuit
+from .measurement import Homodyne
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
-from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum, Homodyne
+from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum
 from .hafnian_ import hafnian
 from .operation import Operation, Gate
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
@@ -368,13 +369,6 @@ class QumodeCircuit(Operation):
             else:
                 self.state = vmap(self._forward_helper_gaussian, in_dims=(0, 0, None))(data, state, stepwise)
             self.encode(data[-1])
-        if len(self.measurements) > 0: # at least one generaldyne operators
-            samples = []
-            for mea_op in self.measurements:
-               sample = mea_op(self.state)
-               self.state = sample[1]
-               samples.append(sample[0].mT)
-            self.state = (torch.stack(samples, dim=-1).squeeze(), self.state)
         if is_prob:
             self.state = self._forward_gaussian_prob(self.state[0], self.state[1], detector)
         return self.state
@@ -392,13 +386,12 @@ class QumodeCircuit(Operation):
             mean = self.init_state.mean
         else:
             cov, mean = state
-        operators = self.operators
         if stepwise:
-            return operators([cov, mean])
+            return self.operators([cov, mean])
         else:
-            sp_mat = self.get_symplectic(operators)
+            sp_mat = self.get_symplectic()
             cov = sp_mat @ cov @ sp_mat.mT
-            mean = self.get_displacement(mean, operators)
+            mean = self.get_displacement(mean)
             return [cov.squeeze(0), mean.squeeze(0)]
 
     def _forward_gaussian_prob(self, cov: torch.Tensor, mean: torch.Tensor, detector: Optional[str] = None) -> Dict:
@@ -1107,7 +1100,10 @@ class QumodeCircuit(Operation):
         shots: int = 1024,
         wires: Union[int, List[int], None] = None
     ) -> Union[torch.Tensor, None]:
-        """Get the homodyne measurement results for quadratures x and p.
+        """Get the homodyne measurement results for quadratures x and p. If `circ.homodyne` is performed in the QumodeCircuit,
+        the measurements results will be the quadrature x (rotated with corresponding angles) of the target wires (shots=1).
+        the gaussian states after measurements are stored in `circ.state_measured`. Otherwise, the measurements results will be the
+        samples from general multinormal distribution.
 
         Args:
             shots (int, optional): The number of times to sample from the quantum state. Default: 1024
@@ -1119,14 +1115,23 @@ class QumodeCircuit(Operation):
         if self.state is None:
             return
         cov, mean = self.state
-        if wires is None:
-            wires = self.wires
-        wires = sorted(self._convert_indices(wires))
-        indices = wires + [wire + self.nmode for wire in wires]
-        cov_sub = cov[:, indices][:, :, indices]
-        mean_sub = mean[:, indices].squeeze(-1)
-        samples = MultivariateNormal(mean_sub, cov_sub).sample([shots]) # (shots, batch, 2 * nwire)
-        return samples.permute(1, 0, 2).squeeze()
+        if len(self.measurements) > 0: # at least one generaldyne operators
+            samples = []
+            self.state_measured = deepcopy(self.state)
+            for mea_op in self.measurements:
+               sample = mea_op(self.state_measured)
+               self.state_measured = sample[1]
+               samples.append(sample[0].mT)
+            return torch.stack(samples, dim=-1).squeeze()
+        else:
+            if wires is None:
+                wires = self.wires
+            wires = sorted(self._convert_indices(wires))
+            indices = wires + [wire + self.nmode for wire in wires]
+            cov_sub = cov[:, indices][:, :, indices]
+            mean_sub = mean[:, indices].squeeze(-1)
+            samples = MultivariateNormal(mean_sub, cov_sub).sample([shots]) # (shots, batch, 2 * nwire)
+            return samples.permute(1, 0, 2).squeeze()
 
     @property
     def max_depth(self) -> int:
