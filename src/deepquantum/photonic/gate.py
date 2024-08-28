@@ -8,7 +8,6 @@ from typing import Any, List, Optional, Tuple, Union
 
 import torch
 from torch import nn
-from torch.distributions.multivariate_normal import MultivariateNormal
 
 import deepquantum.photonic as dqp
 from .operation import Gate

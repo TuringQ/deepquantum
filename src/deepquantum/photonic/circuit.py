@@ -357,11 +357,10 @@ class QumodeCircuit(Operation):
         state = [state.cov, state.mean]
         if data is None or data.ndim == 1:
             self.state = self._forward_helper_gaussian(data, state, stepwise)
-            if isinstance(self.state, List):
-                if self.state[0].ndim == 2:
-                    self.state[0] = self.state[0].unsqueeze(0)
-                if self.state[1].ndim == 2:
-                    self.state[1] = self.state[1].unsqueeze(0)
+            if self.state[0].ndim == 2:
+                self.state[0] = self.state[0].unsqueeze(0)
+            if self.state[1].ndim == 2:
+                self.state[1] = self.state[1].unsqueeze(0)
         else:
             assert data.ndim == 2
             if state[0].shape[0] == 1:
