@@ -6,7 +6,7 @@ import itertools
 import random
 import warnings
 from collections import defaultdict, Counter
-from copy import copy, deepcopy
+from copy import copy
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -16,10 +16,10 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 
 from .decompose import UnitaryDecomposer
 from .draw import DrawCircuit
-from .measurement import Homodyne
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
 from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum
 from .hafnian_ import hafnian
+from .measurement import Homodyne
 from .operation import Operation, Gate
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
 from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc
@@ -99,8 +99,8 @@ class QumodeCircuit(Operation):
                 cutoff = self.init_state.cutoff
 
         self.operators = nn.Sequential()
-        self.measurements = nn.ModuleList()
         self.encoders = []
+        self.measurements = nn.ModuleList()
         self.cutoff = cutoff
         self.backend = backend
         self.basis = basis
@@ -108,6 +108,7 @@ class QumodeCircuit(Operation):
         self.mps = mps
         self.chi = chi
         self.state = None
+        self.state_measured = None
         self.ndata = 0
         self.depth = np.array([0] * nmode)
         self._nphoton = None
@@ -521,26 +522,22 @@ class QumodeCircuit(Operation):
         else:
             return u
 
-    def get_symplectic(self, operators: Optional[nn.Sequential]=None) -> torch.Tensor:
+    def get_symplectic(self) -> torch.Tensor:
         """Get the symplectic matrix of the photonic quantum circuit."""
         s = None
-        if operators is None:
-            operators = self.operators
-        for op in operators:
+        for op in self.operators:
             if s is None:
                 s = op.get_symplectic()
             else:
                 s = op.get_symplectic() @ s
         return s
 
-    def get_displacement(self, init_mean: Any, operators: Optional[nn.Sequential]=None) -> torch.Tensor:
+    def get_displacement(self, init_mean: Any) -> torch.Tensor:
         """Get the final mean value of the Gaussian state in ``xxpp`` order."""
         if not isinstance(init_mean, torch.Tensor):
             init_mean = torch.tensor(init_mean)
         mean = init_mean.reshape(-1, 2 * self.nmode, 1)
-        if operators is None:
-            operators = self.operators
-        for op in operators:
+        for op in self.operators:
             mean = op.get_symplectic() @ mean + op.get_displacement()
         return mean
 
@@ -1099,30 +1096,33 @@ class QumodeCircuit(Operation):
         shots: int = 1024,
         wires: Union[int, List[int], None] = None
     ) -> Union[torch.Tensor, None]:
-        """Get the homodyne measurement results for quadratures x and p. If `circ.homodyne` is performed in the QumodeCircuit,
-        the measurements results will be the quadrature x (rotated with corresponding angles) of the target wires (shots=1).
-        the gaussian states after measurements are stored in `circ.state_measured`. Otherwise, the measurements results will be the
-        samples from general multinormal distribution.
+        """Get the homodyne measurement results.
+        
+        If ``self.measurements`` is specified via ``self.homodyne``, return the results of the conditional homodyne measurement.
+        Otherwise, return the results of the ideal homodyne measurement.
+        The Gaussian states after measurements are stored in ``self.state_measured``.
 
         Args:
             shots (int, optional): The number of times to sample from the quantum state. Default: 1024
-            wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
-                integers specifying the indices of the wires. Default: ``None`` (which means all wires are
+            wires (int, List[int] or None, optional): The wires to measure for the ideal homodyne. It can be an integer or
+                a list of integers specifying the indices of the wires. Default: ``None`` (which means all wires are
                 measured)
         """
         assert self.backend == 'gaussian'
         if self.state is None:
             return
-        cov, mean = self.state
-        if len(self.measurements) > 0: # at least one generaldyne operators
+        if len(self.measurements) > 0:
             samples = []
-            self.state_measured = deepcopy(self.state)
-            for mea_op in self.measurements:
-               sample = mea_op(self.state_measured)
-               self.state_measured = sample[1]
-               samples.append(sample[0].mT)
-            return torch.stack(samples, dim=-1).squeeze()
+            batch = self.state[0].shape[0]
+            cov  = torch.stack([self.state[0]] * shots).reshape(shots * batch, 2 * self.nmode, 2 * self.nmode)
+            mean = torch.stack([self.state[1]] * shots).reshape(shots * batch, 2 * self.nmode, 1)
+            self.state_measured = [cov, mean]
+            for op_m in self.measurements:
+                self.state_measured = op_m(self.state_measured)
+                samples.append(op_m.samples.reshape(shots, batch, -1).permute(1, 0, 2))
+            return torch.cat(samples, dim=-1).squeeze() # (batch, shots, nwire)
         else:
+            cov, mean = self.state
             if wires is None:
                 wires = self.wires
             wires = sorted(self._convert_indices(wires))
@@ -1605,13 +1605,18 @@ class QumodeCircuit(Operation):
     def homodyne(
         self,
         wires: Optional[int] = None,
-        inputs: Any = None,
+        phi: Any = 0.,
         encode: bool = False,
         mu: Optional[float] = None,
-        sigma: Optional[float] = None) -> None:
-        """Add homodyne measurement."""
-        homodyne_ = Homodyne(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, mu=mu, sigma=sigma)
+        sigma: Optional[float] = None
+    ) -> None:
+        """Add a homodyne measurement."""
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        homodyne = Homodyne(inputs=phi, nmode=self.nmode, wires=wires, cutoff=self.cutoff, mu=mu, sigma=sigma)
         if encode:
-            self.ndata = self.ndata + homodyne_.npara
-            self.encoders.append(homodyne_)
-        self.measurements.append(homodyne_)
+            self.encoders.append(homodyne)
+            self.ndata = self.ndata + homodyne.npara
+        self.measurements.append(homodyne)
