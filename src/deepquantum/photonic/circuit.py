@@ -19,6 +19,7 @@ from .draw import DrawCircuit
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
 from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum
 from .hafnian_ import hafnian
+from .measurement import Homodyne
 from .operation import Operation, Gate
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
 from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc
@@ -99,6 +100,7 @@ class QumodeCircuit(Operation):
 
         self.operators = nn.Sequential()
         self.encoders = []
+        self.measurements = nn.ModuleList()
         self.cutoff = cutoff
         self.backend = backend
         self.basis = basis
@@ -106,6 +108,7 @@ class QumodeCircuit(Operation):
         self.mps = mps
         self.chi = chi
         self.state = None
+        self.state_measured = None
         self.ndata = 0
         self.depth = np.array([0] * nmode)
         self._nphoton = None
@@ -1093,26 +1096,41 @@ class QumodeCircuit(Operation):
         shots: int = 1024,
         wires: Union[int, List[int], None] = None
     ) -> Union[torch.Tensor, None]:
-        """Get the homodyne measurement results for quadratures x and p.
+        """Get the homodyne measurement results.
+
+        If ``self.measurements`` is specified via ``self.homodyne``, return the results of the conditional homodyne measurement.
+        Otherwise, return the results of the ideal homodyne measurement.
+        The Gaussian states after measurements are stored in ``self.state_measured``.
 
         Args:
             shots (int, optional): The number of times to sample from the quantum state. Default: 1024
-            wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
-                integers specifying the indices of the wires. Default: ``None`` (which means all wires are
+            wires (int, List[int] or None, optional): The wires to measure for the ideal homodyne. It can be an integer or
+                a list of integers specifying the indices of the wires. Default: ``None`` (which means all wires are
                 measured)
         """
         assert self.backend == 'gaussian'
         if self.state is None:
             return
-        cov, mean = self.state
-        if wires is None:
-            wires = self.wires
-        wires = sorted(self._convert_indices(wires))
-        indices = wires + [wire + self.nmode for wire in wires]
-        cov_sub = cov[:, indices][:, :, indices]
-        mean_sub = mean[:, indices].squeeze(-1)
-        samples = MultivariateNormal(mean_sub, cov_sub).sample([shots]) # (shots, batch, 2 * nwire)
-        return samples.permute(1, 0, 2).squeeze()
+        if len(self.measurements) > 0:
+            samples = []
+            batch = self.state[0].shape[0]
+            cov  = torch.stack([self.state[0]] * shots).reshape(shots * batch, 2 * self.nmode, 2 * self.nmode)
+            mean = torch.stack([self.state[1]] * shots).reshape(shots * batch, 2 * self.nmode, 1)
+            self.state_measured = [cov, mean]
+            for op_m in self.measurements:
+                self.state_measured = op_m(self.state_measured)
+                samples.append(op_m.samples.reshape(shots, batch, -1).permute(1, 0, 2))
+            return torch.cat(samples, dim=-1).squeeze() # (batch, shots, nwire)
+        else:
+            cov, mean = self.state
+            if wires is None:
+                wires = self.wires
+            wires = sorted(self._convert_indices(wires))
+            indices = wires + [wire + self.nmode for wire in wires]
+            cov_sub = cov[:, indices][:, :, indices]
+            mean_sub = mean[:, indices].squeeze(-1)
+            samples = MultivariateNormal(mean_sub, cov_sub).sample([shots]) # (shots, batch, 2 * nwire)
+            return samples.permute(1, 0, 2).squeeze()
 
     @property
     def max_depth(self) -> int:
@@ -1125,7 +1143,7 @@ class QumodeCircuit(Operation):
         Args:
             filename (str or None, optional): The path for saving the figure.
         """
-        self.draw_circuit = DrawCircuit(self.name, self.nmode, self.operators)
+        self.draw_circuit = DrawCircuit(self.name, self.nmode, self.operators, self.measurements)
         self.draw_circuit.draw()
         if filename is not None:
             self.draw_circuit.save(filename)
@@ -1583,3 +1601,61 @@ class QumodeCircuit(Operation):
         f = PhaseShift(inputs=theta, nmode=self.nmode, wires=wires, cutoff=self.cutoff, requires_grad=False,
                        noise=self.noise, mu=mu, sigma=sigma)
         self.add(f, encode=False)
+
+    def homodyne(
+        self,
+        wires: Optional[int] = None,
+        phi: Any = None,
+        eps: float = 2e-4,
+        encode: bool = False,
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
+    ) -> None:
+        """Add a homodyne measurement."""
+        requires_grad = not encode
+        if phi is not None:
+            requires_grad = False
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        homodyne = Homodyne(phi=phi, nmode=self.nmode, wires=wires, cutoff=self.cutoff, eps=eps,
+                            requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        if encode:
+            self.encoders.append(homodyne)
+            self.ndata = self.ndata + homodyne.npara
+        self.measurements.append(homodyne)
+
+    def homodyne_x(
+        self,
+        wires: Optional[int] = None,
+        eps: float = 2e-4,
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
+    ) -> None:
+        """Add a homodyne measurement for quadrature x."""
+        phi = 0.
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        homodyne = Homodyne(phi=phi, nmode=self.nmode, wires=wires, cutoff=self.cutoff, eps=eps,
+                            requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
+        self.measurements.append(homodyne)
+
+    def homodyne_p(
+        self,
+        wires: Optional[int] = None,
+        eps: float = 2e-4,
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
+    ) -> None:
+        """Add a homodyne measurement for quadrature p."""
+        phi = np.pi / 2
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        homodyne = Homodyne(phi=phi, nmode=self.nmode, wires=wires, cutoff=self.cutoff, eps=eps,
+                            requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
+        self.measurements.append(homodyne)

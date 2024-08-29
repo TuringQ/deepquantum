@@ -9,6 +9,7 @@ from . import draw
 from . import gate
 from . import hafnian_
 from . import mapper
+from . import measurement
 from . import operation
 from . import qmath
 from . import state
@@ -22,6 +23,7 @@ from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitter
 from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum
 from .hafnian_ import hafnian
 from .mapper import UnitaryMapper
+from .measurement import Generaldyne, Homodyne
 from .qmath import permanent, takagi, xxpp_to_xpxp, xpxp_to_xxpp, quadrature_to_ladder, ladder_to_quadrature
 from .state import FockState, GaussianState
 from .torontonian_ import torontonian
