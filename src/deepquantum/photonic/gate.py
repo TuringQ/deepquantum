@@ -1490,3 +1490,58 @@ class DisplacementMomentum(Displacement):
         self.register_buffer('theta', theta)
         self.update_matrix()
         self.update_transform_xp()
+
+class Delay(SingleGate):
+    r"""Delay loop.
+    Args:
+        inputs (Any, optional): The parameters of the delay loop, including [N, bs_theta, r_theta]. Default: ``None``
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
+        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
+        mu (float, optional): The mean of Gaussian noise. Default: 0
+        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nmode: int = 1,
+        wires: Union[int, List[int], None] = None,
+        cutoff: Optional[int] = None,
+        requires_grad: bool = False,
+        noise: bool = False,
+        mu: float = 0,
+        sigma: float = 0.1
+    ) -> None:
+        super().__init__(name='Delay', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
+                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        self.npara = 3
+        self.init_para(inputs)
+
+    def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Convert inputs to torch.Tensor."""
+        # if inputs is None:
+        #     r = torch.rand(1)[0]
+        #     theta = torch.rand(1)[0] * 2 * torch.pi
+        # else:
+        #     r = inputs[0]
+        #     theta = inputs[1]
+        if not isinstance(inputs, torch.Tensor):
+            inputs = torch.tensor(inputs, dtype=torch.float)
+        # if self.noise:
+        #     r, theta = self._add_noise(r, theta)
+        return inputs
+
+    def init_para(self, inputs: Any = None) -> None:
+        """Initialize the parameters."""
+        noise = self.noise
+        self.noise = False
+        inputs = self.inputs_to_tensor(inputs)
+        self.noise = noise
+        self.register_buffer('inputs', inputs)
+
+    def extra_repr(self) -> str:
+        return f'wires={self.wires}, inputs={self.inputs.detach()}'
