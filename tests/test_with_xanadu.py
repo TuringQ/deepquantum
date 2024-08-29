@@ -92,6 +92,7 @@ def test_gaussian_prob_random_circuit():
         error.append(abs(test_prob[tuple(idx)] - state[i].item()))
     assert sum(error) < 1e-10
 
+
 def test_measure_homodyne():
     n = 3
     r1 = np.random.rand(1)
@@ -99,32 +100,31 @@ def test_measure_homodyne():
     r3 = np.random.rand(1)
     bs1 = np.random.rand(2)
     bs2 = np.random.rand(2)
-    meas_angle = np.random.rand(2)
+    phi = np.random.rand(2)
 
-    prog0 = sf.Program(n)
-    with prog0.context as q:
+    prog = sf.Program(n)
+    with prog.context as q:
         Sgate(r1) | q[0]
         Dgate(r2) | q[1]
         Sgate(r3) | q[1]
         BSgate(*bs1) | (q[0], q[1])
         BSgate(*bs2) | (q[1], q[2])
-        MeasureHomodyne(meas_angle[0]) | q[0]
-        MeasureHomodyne(meas_angle[1]) | q[1]
-    eng0 = sf.Engine("gaussian")
-    result0 = eng0.run(prog0)
+        MeasureHomodyne(phi[0]) | q[0]
+        MeasureHomodyne(phi[1]) | q[1]
+    eng = sf.Engine('gaussian')
+    result = eng.run(prog)
 
-    circ = dq.QumodeCircuit(nmode=n, init_state='vac', cutoff=3, backend='gaussian', basis=True)
-    circ.s([0], r=r1)
-    circ.d([1], r=r2)
-    circ.s([1], r=r3)
-    circ.bs([0,1], inputs=bs1)
-    circ.bs([1,2], inputs=bs2)
-    circ.homodyne(wires=[0], inputs=meas_angle[0])
-    circ.homodyne(wires=[1], inputs=meas_angle[1])
-    circ.to(torch.double)
-    st = circ()
-    mea = circ.measure_homodyne()
-    st2 = circ.state_measured
-    err = abs(st2[0] - result0.state.cov()).max() # comparing the covariance matrix after the measurement
+    cir = dq.QumodeCircuit(nmode=n, init_state='vac', cutoff=3, backend='gaussian')
+    cir.s(0, r=r1)
+    cir.d(1, r=r2)
+    cir.s(1, r=r3)
+    cir.bs([0,1], inputs=bs1)
+    cir.bs([1,2], inputs=bs2)
+    cir.homodyne(wires=0, phi=phi[0])
+    cir.homodyne(wires=1, phi=phi[1])
+    cir.to(torch.double)
+    cir()
+    sample = cir.measure_homodyne()
+    state = cir.state_measured
+    err = abs(state[0] - result.state.cov()).max() # compare the covariance matrix after the measurement
     assert err < 1e-6
-
