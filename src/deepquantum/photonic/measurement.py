@@ -2,15 +2,12 @@
 Photonic measurements
 """
 
-import copy
-import itertools
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, List, Optional, Union
 
 import torch
 from torch import nn
 from torch.distributions.multivariate_normal import MultivariateNormal
 
-import deepquantum.photonic as dqp
 from .gate import PhaseShift
 from .operation import Operation
 
@@ -74,11 +71,11 @@ class Generaldyne(Operation):
         mean_b = mean[:, idx]
 
         cov_a = cov_a - cov_ab @ torch.linalg.solve(cov_b + self.cov_m, cov_ab.mT) # update the unmeasured part
-        cov_out = torch.stack([torch.eye(size[-1], dtype=cov.dtype, device=cov.dtype)] * size[0])
+        cov_out = torch.stack([torch.eye(size[-1], dtype=cov.dtype, device=cov.device)] * size[0])
         cov_out[:, idx_rest[:, None], idx_rest] = cov_a # update the total cov mat
 
         mean_m = MultivariateNormal(mean_b.squeeze(-1), cov_b + self.cov_m).sample([1])[0] # (batch, 2 * nwire)
-        mean_a = mean_a + cov_ab @ torch.linalg.solve(cov_b + self.cov_m, mean_m - mean_b)
+        mean_a = mean_a + cov_ab @ torch.linalg.solve(cov_b + self.cov_m, mean_m.unsqueeze(-1) - mean_b)
         mean_out = torch.zeros_like(mean)
         mean_out[:, idx_rest] = mean_a
         self.samples = mean_m[:, :len(self.wires)] # xxpp order
@@ -156,4 +153,4 @@ class Homodyne(Generaldyne):
         return super().forward([cov, mean])
 
     def extra_repr(self) -> str:
-        return f'wires={self.wires}, theta={self.phi.item()}'
+        return f'wires={self.wires}, phi={self.phi.item()}'

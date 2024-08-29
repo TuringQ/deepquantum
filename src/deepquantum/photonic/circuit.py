@@ -1097,7 +1097,7 @@ class QumodeCircuit(Operation):
         wires: Union[int, List[int], None] = None
     ) -> Union[torch.Tensor, None]:
         """Get the homodyne measurement results.
-    
+
         If ``self.measurements`` is specified via ``self.homodyne``, return the results of the conditional homodyne measurement.
         Otherwise, return the results of the ideal homodyne measurement.
         The Gaussian states after measurements are stored in ``self.state_measured``.
@@ -1624,4 +1624,38 @@ class QumodeCircuit(Operation):
         if encode:
             self.encoders.append(homodyne)
             self.ndata = self.ndata + homodyne.npara
+        self.measurements.append(homodyne)
+
+    def homodyne_x(
+        self,
+        wires: Optional[int] = None,
+        eps: float = 2e-4,
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
+    ) -> None:
+        """Add a homodyne measurement for quadrature x."""
+        phi = 0.
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        homodyne = Homodyne(phi=phi, nmode=self.nmode, wires=wires, cutoff=self.cutoff, eps=eps,
+                            requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
+        self.measurements.append(homodyne)
+
+    def homodyne_p(
+        self,
+        wires: Optional[int] = None,
+        eps: float = 2e-4,
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
+    ) -> None:
+        """Add a homodyne measurement for quadrature p."""
+        phi = np.pi / 2
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        homodyne = Homodyne(phi=phi, nmode=self.nmode, wires=wires, cutoff=self.cutoff, eps=eps,
+                            requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
         self.measurements.append(homodyne)

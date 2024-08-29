@@ -11,8 +11,8 @@ import svgwrite
 from matplotlib import patches
 from torch import nn
 
-from .measurement import Homodyne
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate, Squeezing, Squeezing2, Displacement
+from .measurement import Homodyne
 
 info_dic = {'PS': ['teal', 0],
             'S': ['royalblue', 3],
@@ -113,10 +113,10 @@ class DrawCircuit():
             for mea in self.mea:
                 if isinstance(mea, Homodyne):
                     name_ = 'M'
-                    theta = mea.theta.detach()
+                    phi = mea.phi.detach()
                     for i in mea.wires:
                         order = depth[i]
-                        self.draw_homodyne(order, i, theta.item(), name_)
+                        self.draw_homodyne(order, i, phi.item(), name_)
                         order_dic[order] = order_dic[order] + [i]
                         depth[i] = depth[i]+1
         for key, value in order_dic.items():
@@ -165,7 +165,7 @@ class DrawCircuit():
 
     def draw_ps(self, order, wires, theta=0, name=None):
         """
-        Draw phaseshif (rotation) gate.
+        Draw phaseshift (rotation) gate.
         """
         fill_c = info_dic[name][0]
         shift= info_dic[name][1]
@@ -180,17 +180,14 @@ class DrawCircuit():
         self.draw_.add(self.draw_.text(name, insert=(x+40+shift, y_up*30+20), font_size=9))
         self.draw_.add(self.draw_.text('θ ='+str(np.round(theta,3)), insert=(x+55, y_up*30+20), font_size=7))
 
-    def draw_homodyne(self, order, wire, theta, name=None):
+    def draw_homodyne(self, order, wire, phi, name=None):
         """
-        Draw phaseshif (rotation) gate.
+        Draw homodyne measurement.
         """
-        # fill_c = info_dic[name][0]
         fill_c = 'black'
-        # shift= info_dic[name][1]
         shift = 5
         x = 90 * order + 40
         y_up = wire
-        # y_down = wires[1]
         self.draw_.add(self.draw_.polyline(points=[(x, y_up*30+30), (x+90, y_up*30+30)],
                                            fill='none', stroke='black', stroke_width=2))
         self.draw_.add(self.draw_.rect(insert=(x+42.5, y_up*30+25), size=(14,14), rx=0, ry=0,
@@ -213,7 +210,7 @@ class DrawCircuit():
         rotation = 45
         self.draw_.add(self.draw_.path(d=line_path, stroke='white', fill='none', stroke_width=1.5,
                                       transform = f"rotate({rotation} {arc_center_x} {arc_center_y})"))
-        self.draw_.add(self.draw_.text('θ ='+str(np.round(theta,3)), insert=(x+55, y_up*30+20), font_size=7))
+        self.draw_.add(self.draw_.text('ϕ ='+str(np.round(phi,3)), insert=(x+55, y_up*30+20), font_size=7))
 
 
     def draw_sq(self, order, wires, r, theta, name=None):
