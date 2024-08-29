@@ -1605,17 +1605,22 @@ class QumodeCircuit(Operation):
     def homodyne(
         self,
         wires: Optional[int] = None,
-        phi: Any = 0.,
+        phi: Any = None,
+        eps: float = 2e-4,
         encode: bool = False,
         mu: Optional[float] = None,
         sigma: Optional[float] = None
     ) -> None:
         """Add a homodyne measurement."""
+        requires_grad = not encode
+        if phi is not None:
+            requires_grad = False
         if mu is None:
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        homodyne = Homodyne(inputs=phi, nmode=self.nmode, wires=wires, cutoff=self.cutoff, mu=mu, sigma=sigma)
+        homodyne = Homodyne(phi=phi, nmode=self.nmode, wires=wires, cutoff=self.cutoff, eps=eps,
+                            requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         if encode:
             self.encoders.append(homodyne)
             self.ndata = self.ndata + homodyne.npara
