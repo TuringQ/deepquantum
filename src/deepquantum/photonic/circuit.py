@@ -1097,7 +1097,7 @@ class QumodeCircuit(Operation):
         wires: Union[int, List[int], None] = None
     ) -> Union[torch.Tensor, None]:
         """Get the homodyne measurement results.
-        
+    
         If ``self.measurements`` is specified via ``self.homodyne``, return the results of the conditional homodyne measurement.
         Otherwise, return the results of the ideal homodyne measurement.
         The Gaussian states after measurements are stored in ``self.state_measured``.
