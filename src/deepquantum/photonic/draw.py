@@ -105,14 +105,14 @@ class DrawCircuit():
                     name_ = 'S'
                 else:
                     name_ = 'D'
-                self.draw_sq(order, op.wires, r, theta, name_)
+                self.draw_sq(order, op.wires, r, theta, name=name_)
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = depth[i]+1
             elif isinstance(op, Delay):
                 name_ = ''
                 order = depth[op.wires[0]]
-                self.draw_sq(order, op.wires, r, theta, name_, delay=True)
+                self.draw_sq(order, op.wires, inputs=op.inputs, name=name_, delay=True)
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = depth[i]+1
@@ -155,20 +155,22 @@ class DrawCircuit():
         """
         x = 90 * order + 40
         y_up = wires[0]
-        # y_down = wires[1]
-        self.draw_.add(self.draw_.polyline(points=[(x, y_up*30+30), (x+30, y_up*30+30),
-                                                   (x+60, y_up*30+30+30), (x+90, y_up*30+30+30)],
+        y_down = wires[1]
+        y_delta = abs(y_down - y_up)
+        shift = -10
+        self.draw_.add(self.draw_.polyline(points=[(x, y_up*30+30), (x+30+shift, y_up*30+30), # need shift
+                                                   (x+60+shift, y_up*30+30+30*y_delta), (x+90, y_up*30+30+30*y_delta)],
                                            fill='none', stroke='black', stroke_width=2))
-        self.draw_.add(self.draw_.polyline(points=[(x, y_up*30+30+30), (x+30, y_up*30+30+30),
-                                                   (x+60, y_up*30+30), (x+90, y_up*30+30)],
+        self.draw_.add(self.draw_.polyline(points=[(x, y_up*30+30+30*y_delta), (x+30+shift, y_up*30+30+30*y_delta),
+                                                   (x+60+shift, y_up*30+30), (x+90, y_up*30+30)],
                                            fill='none', stroke='black', stroke_width=2))
-        self.draw_.add(self.draw_.text(name, insert=(x+40-(len(name)-2)*3, y_up*30+25), font_size=9))
+        self.draw_.add(self.draw_.text(name, insert=(x+40-(len(name)-2)*3+shift, y_up*30+25), font_size=9))
         self.draw_.add(self.draw_.text('θ ='+ str(np.round(theta,3)),
-                                       insert=(x+55, y_up*30+30+20-6),
+                                       insert=(x+55+shift, y_up*30+30+20-6),
                                        font_size=7))
         if phi is not None:
             self.draw_.add(self.draw_.text('ϕ ='+ str(np.round(phi,3)),
-                                           insert=(x+55, y_up*30+30+26-6),
+                                           insert=(x+55+shift, y_up*30+30+26-6),
                                            font_size=7))
 
     def draw_ps(self, order, wires, theta=0, name=None):
@@ -221,7 +223,7 @@ class DrawCircuit():
         self.draw_.add(self.draw_.text('ϕ ='+str(np.round(phi,3)), insert=(x+55, y_up*30+20), font_size=7))
 
 
-    def draw_sq(self, order, wires, r, theta, name=None, delay=False):
+    def draw_sq(self, order, wires, r=None, theta=None, inputs=None, name=None, delay=False):
         """
         Draw squeezing gate, displacement gate.
         """
@@ -232,7 +234,11 @@ class DrawCircuit():
             self.draw_.add(self.draw_.polyline(points=[(x, wire_i*30+30), (x+90, wire_i*30+30)],
                                           fill='none', stroke='black', stroke_width=2))
         if delay: # delay loop
-           self.draw_.add(self.draw_.circle(center=(x+46, y_up*30+25-4), r=9, stroke='black', fill='white', stroke_width=1.2))
+            self.draw_.add(self.draw_.circle(center=(x+46, y_up*30+25-4), r=9, stroke='black', fill='white', stroke_width=1.2))
+            self.draw_.add(self.draw_.text('N ='+str(inputs[0].tolist()), insert=(x+40, y_up*30+18), font_size=5))
+            self.draw_.add(self.draw_.text('bs_θ ='+str(np.round(inputs[1].tolist(),2)), insert=(x+58, y_up*30+18), font_size=6))
+            self.draw_.add(self.draw_.text('r_θ ='+str(np.round(inputs[2].tolist(),2)), insert=(x+58, y_up*30+24), font_size=6))
+
         else: # squeezing gate
             fill_c = info_dic[name][0]
             shift= info_dic[name][1]

@@ -6,7 +6,7 @@ import itertools
 import random
 import warnings
 from collections import defaultdict, Counter
-from copy import copy
+from copy import copy, deepcopy
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -114,6 +114,7 @@ class QumodeCircuit(Operation):
         self._nphoton = None
         self._state_expand = None
         self._all_fock_basis = None
+        self._if_delayloop = False
 
     def __add__(self, rhs: 'QumodeCircuit') -> 'QumodeCircuit':
         """Addition of the ``QumodeCircuit``.
@@ -356,6 +357,9 @@ class QumodeCircuit(Operation):
         elif not isinstance(state, GaussianState):
             state = GaussianState(state=state, nmode=self.nmode, cutoff=self.cutoff)
         state = [state.cov, state.mean]
+        if self._if_delayloop:
+            self.state = self._forward_gaussian_delayloop()
+            return self.state
         if data is None or data.ndim == 1:
             self.state = self._forward_helper_gaussian(data, state, stepwise)
             if self.state[0].ndim == 2:
@@ -372,6 +376,63 @@ class QumodeCircuit(Operation):
         if is_prob:
             self.state = self._forward_gaussian_prob(self.state[0], self.state[1], detector)
         return self.state
+
+    def _forward_gaussian_delayloop(self):
+        """Forward pass for Gaussian backend with delay loop."""
+        delay_wires = [ ]
+        cut_idx = [0]
+        ops = self.operators
+        nmode = self.nmode
+        for i in range(len(ops)):
+            op = ops[i]
+            if isinstance(op, Delay):
+                delay_wires.append(op.wires[0])
+                cut_idx = cut_idx + [int(op.wires[0]), int(op.wires[0])+int(op.inputs[0])+1]
+                nmode = nmode + int(op.inputs[0])
+        delay_wires = torch.tensor(delay_wires)
+        assert torch.equal(torch.unique(delay_wires), delay_wires), 'single wire with multiple delay loops is not allowed'
+        cut_idx = cut_idx + [nmode]
+        cut_idx = list(set(cut_idx))
+        lst = list(range(nmode))
+        sublists = [lst[cut_idx[i]:cut_idx[i+1]] for i in range(len(cut_idx)-1)]
+        cir = self._construct_equal_circuit(nmode=nmode, init_state='vac', sublists=sublists, k=0)[0]
+        self._sublists = sublists
+        return cir()
+
+    def _construct_equal_circuit(self, nmode, init_state, sublists, k):
+        """Construct the equivalent circuit for the circuit including delay loop."""
+        def shift(a):
+            if len(a) <=1:
+                return a
+            return a[-1:] + a[:-1]
+        cir = QumodeCircuit(nmode=nmode, init_state=init_state, cutoff=self.cutoff, backend='gaussian', basis=True)
+        ops = self.operators
+        meas = self.measurements
+        sublists_copy = deepcopy(sublists)
+        for i in range(len(ops)):
+            op = ops[i]
+            if not isinstance(op, Delay):
+                op_copy = deepcopy(op)
+                op_copy.nmode = nmode
+                wires = [ ]
+                for w in op.wires:
+                    wires.append(sublists[w][-1])
+                op_copy.wires = wires # consider 2 wires case, 可能跨BS操作, draw BS (已解决)
+                cir.add(op_copy)
+            else:
+                idx_ = op.wires[0]
+                idx_para = k % len(op.inputs[1]) # periodic parameters
+                wires = [sublists[idx_][-2], sublists[idx_][-1]]
+                cir.bs(wires,[op.inputs[1][idx_para],0], encode=True)
+                cir.r(sublists[idx_][-2], op.inputs[2][idx_para], encode=True)
+                sublists_copy[idx_] = shift(sublists[idx_][:-1]) +  [sublists[idx_][-1]]  # consider shift (已解决), Rgate
+        for mea in meas:
+            wire = mea.wires[0]
+            phi = mea.phi
+            wire2 = sublists[wire][-1]
+            cir.homodyne(wire2, phi)
+        self.unfold_circuit = cir
+        return cir, sublists_copy
 
     def _forward_helper_gaussian(
         self,
@@ -1111,6 +1172,21 @@ class QumodeCircuit(Operation):
         assert self.backend == 'gaussian'
         if self.state is None:
             return
+        if self._if_delayloop:
+            samples = []
+            init_state = 'vac'    # initial state expand
+            nmode = self.unfold_circuit.nmode
+            sublists = self._sublists
+            for i in range(0, shots):
+                temp = self._construct_equal_circuit(nmode, init_state, sublists, i)
+                cir = temp[0]    # try encoding
+                cir()
+                sample_i = self.unfold_circuit.measure_homodyne(shots=1)
+                init_state = self.unfold_circuit.state_measured
+                sublists = temp[1]
+                samples.append(sample_i)
+            return torch.stack(samples)
+
         if len(self.measurements) > 0:
             samples = []
             batch = self.state[0].shape[0]
@@ -1668,13 +1744,12 @@ class QumodeCircuit(Operation):
         mu: Optional[float] = None,
         sigma: Optional[float] = None
     ) -> None:
-        """Add a rotation gate."""
+        """Add a delay loop."""
         requires_grad = False
-        if inputs is not None:
-            requires_grad = False
         if mu is None:
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        delay = Delay(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff)
-        self.add(delay, encode=encode)
+        delay = Delay(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, requires_grad=requires_grad)
+        self.add(delay, encode=False)
+        self._if_delayloop = True
