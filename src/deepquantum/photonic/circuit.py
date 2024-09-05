@@ -1123,6 +1123,8 @@ class QumodeCircuit(Operation):
             return torch.cat(samples, dim=-1).squeeze() # (batch, shots, nwire)
         else:
             cov, mean = self.state
+            size = cov.size()
+            cov = cov + 1e-8 * torch.stack([torch.eye(size[-1], dtype=cov.dtype, device=cov.device)] * size[0]) # positive definite cov
             if wires is None:
                 wires = self.wires
             wires = sorted(self._convert_indices(wires))
