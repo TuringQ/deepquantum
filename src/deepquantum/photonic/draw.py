@@ -225,7 +225,7 @@ class DrawCircuit():
 
     def draw_sq(self, order, wires, r=None, theta=None, inputs=None, name=None, delay=False):
         """
-        Draw squeezing gate, displacement gate.
+        Draw squeezing gate, displacement gate, delay loop.
         """
         x = 90 * order + 40
         y_up = wires[0]
