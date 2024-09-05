@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from .qmath import xxpp_to_xpxp, xpxp_to_xxpp
+from .qmath import xxpp_to_xpxp, xpxp_to_xxpp, permute_mat
 from ..qmath import inverse_permutation, state_to_tensors
 from ..state import MatrixProductState
 
@@ -120,7 +120,14 @@ class Gate(Operation):
         nmode2 = self.nmode - nmode1 - len(self.wires)
         m1 = torch.eye(nmode1, dtype=matrix.dtype, device=matrix.device)
         m2 = torch.eye(nmode2, dtype=matrix.dtype, device=matrix.device)
-        return torch.block_diag(m1, matrix, m2)
+        # return torch.block_diag(m1, matrix, m2)
+        u_global = torch.block_diag(m1, matrix, m2)
+        if len(self.wires) == 2:
+            indices_1 = [self.wires[0]+1]
+            indices_2 = [self.wires[1]]
+            permute_m = permute_mat(u_global, indices_1, indices_2) # consider non-adjacent wires
+            u_global = permute_m @ u_global @ permute_m
+        return u_global
 
     def get_matrix_state(self, matrix: torch.Tensor) -> torch.Tensor:
         """Get the local transformation matrix acting on Fock state tensors."""
@@ -158,7 +165,15 @@ class Gate(Operation):
         nmode2 = self.nmode - nmode1 - len(self.wires)
         m1 = torch.eye(2 * nmode1, dtype=matrix.dtype, device=matrix.device)
         m2 = torch.eye(2 * nmode2, dtype=matrix.dtype, device=matrix.device)
-        return xpxp_to_xxpp(torch.block_diag(m1, matrix_xpxp, m2)) # here change order to xxpp
+        # return xpxp_to_xxpp(torch.block_diag(m1, matrix_xpxp, m2)) # here change order to xxpp
+        sp_global = torch.block_diag(m1, matrix_xpxp, m2) # xpxp
+        if len(self.wires) == 2:
+            indices_1 = [2*(self.wires[0]+1), 2*(self.wires[0]+1)+1 ]
+            indices_2 = [2*self.wires[1], 2*self.wires[1]+1]
+            permute_m = permute_mat(sp_global, indices_1, indices_2)
+            sp_global = permute_m @ sp_global @ permute_m
+        return xpxp_to_xxpp(sp_global) # here change order to xxpp
+
 
     def get_displacement(self) -> torch.Tensor:
         """Get the global displacement vector acting on quadrature operators in xxpp order."""
