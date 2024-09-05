@@ -423,7 +423,7 @@ class QumodeCircuit(Operation):
                 idx_ = op.wires[0]
                 idx_para = k % len(op.inputs[1]) # periodic parameters
                 wires = [sublists[idx_][-2], sublists[idx_][-1]]
-                cir.bs(wires,[op.inputs[1][idx_para],0], encode=True)
+                cir.bs(wires,[op.inputs[1][idx_para], 0], encode=True)
                 cir.r(sublists[idx_][-2], op.inputs[2][idx_para], encode=True)
                 sublists_copy[idx_] = shift(sublists[idx_][:-1]) +  [sublists[idx_][-1]]  # consider shift (已解决), Rgate
         for mea in meas:
@@ -431,6 +431,7 @@ class QumodeCircuit(Operation):
             phi = mea.phi
             wire2 = sublists[wire][-1]
             cir.homodyne(wire2, phi)
+        cir.to(torch.double)
         self.unfold_circuit = cir
         return cir, sublists_copy
 
