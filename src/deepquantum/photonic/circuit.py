@@ -382,17 +382,18 @@ class QumodeCircuit(Operation):
         delay_wires = [ ]
         cut_idx = [0]
         ops = self.operators
-        nmode = self.nmode
+        temp_sum = 0
         for i in range(len(ops)):
             op = ops[i]
             if isinstance(op, Delay):
                 delay_wires.append(op.wires[0])
-                cut_idx = cut_idx + [int(op.wires[0]), int(op.wires[0])+int(op.inputs[0])+1]
-                nmode = nmode + int(op.inputs[0])
+                cut_idx = cut_idx + [temp_sum+int(op.wires[0]), temp_sum+int(op.wires[0])+int(op.inputs[0])+1]
+                temp_sum = temp_sum + int(op.inputs[0])
+        nmode = self.nmode + temp_sum
         delay_wires = torch.tensor(delay_wires)
         assert torch.equal(torch.unique(delay_wires), delay_wires), 'single wire with multiple delay loops is not allowed'
         cut_idx = cut_idx + [nmode]
-        cut_idx = list(set(cut_idx))
+        cut_idx = sorted(list(set(cut_idx)))
         lst = list(range(nmode))
         sublists = [lst[cut_idx[i]:cut_idx[i+1]] for i in range(len(cut_idx)-1)]
         cir = self._construct_equal_circuit(nmode=nmode, init_state='vac', sublists=sublists, k=0)[0]
@@ -400,7 +401,7 @@ class QumodeCircuit(Operation):
         return cir()
 
     def _construct_equal_circuit(self, nmode, init_state, sublists, k):
-        """Construct the equivalent circuit for the circuit including delay loop."""
+        """Construct the equivalent circuit for the circuit with delay loop."""
         def shift(a):
             if len(a) <=1:
                 return a
@@ -417,7 +418,7 @@ class QumodeCircuit(Operation):
                 wires = [ ]
                 for w in op.wires:
                     wires.append(sublists[w][-1])
-                op_copy.wires = wires # consider 2 wires case, 可能跨BS操作, draw BS (已解决)
+                op_copy.wires = wires
                 cir.add(op_copy)
             else:
                 idx_ = op.wires[0]
@@ -425,13 +426,13 @@ class QumodeCircuit(Operation):
                 wires = [sublists[idx_][-2], sublists[idx_][-1]]
                 cir.bs(wires,[op.inputs[1][idx_para], 0], encode=True)
                 cir.r(sublists[idx_][-2], op.inputs[2][idx_para], encode=True)
-                sublists_copy[idx_] = shift(sublists[idx_][:-1]) +  [sublists[idx_][-1]]  # consider shift (已解决), Rgate
+                sublists_copy[idx_] = shift(sublists[idx_][:-1]) +  [sublists[idx_][-1]]
         for mea in meas:
             wire = mea.wires[0]
             phi = mea.phi
             wire2 = sublists[wire][-1]
             cir.homodyne(wire2, phi)
-        cir.to(torch.double)
+        cir.to(next(ops.buffers()).dtype)
         self.unfold_circuit = cir
         return cir, sublists_copy
 
@@ -1175,12 +1176,12 @@ class QumodeCircuit(Operation):
             return
         if self._if_delayloop:
             samples = []
-            init_state = 'vac'    # initial state expand
+            init_state = 'vac'    # XXX initial state expand
             nmode = self.unfold_circuit.nmode
             sublists = self._sublists
             for i in range(0, shots):
                 temp = self._construct_equal_circuit(nmode, init_state, sublists, i)
-                cir = temp[0]    # try encoding
+                cir = temp[0]    # XXX try encoding
                 cir()
                 sample_i = self.unfold_circuit.measure_homodyne(shots=1)
                 init_state = self.unfold_circuit.state_measured
