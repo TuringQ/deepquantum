@@ -338,3 +338,8 @@ def sample_sc_mcmc(prob_func: Callable,
         for key, value in dict_sample.items():
             merged_samples[key] += value
     return merged_samples
+
+def is_positive_definite(mat):
+    """Check if the matrix is positive definite"""
+    diag = torch.linalg.svdvals(mat)
+    return torch.all(diag > 0)
