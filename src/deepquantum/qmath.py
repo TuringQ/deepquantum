@@ -106,11 +106,11 @@ def is_density_matrix(rho: torch.Tensor) -> bool:
     return True
 
 
-def is_positive_definite(mat):
+def is_positive_definite(mat: torch.Tensor) -> bool:
     """Check if the matrix is positive definite"""
-    is_sym = torch.equal(mat, mat.mT) # check symmetricity
+    is_herm = torch.equal(mat, mat.mH)
     diag = torch.linalg.eigvalsh(mat)
-    return is_sym and torch.all(diag > 0).item()
+    return is_herm and torch.all(diag > 0).item()
 
 
 def safe_inverse(x: Any, epsilon: float = 1e-12) -> Any:
