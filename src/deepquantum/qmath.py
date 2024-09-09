@@ -106,6 +106,13 @@ def is_density_matrix(rho: torch.Tensor) -> bool:
     return True
 
 
+def is_positive_definite(mat):
+    """Check if the matrix is positive definite"""
+    is_sym = torch.equal(mat, mat.mT) # check symmetricity
+    diag = torch.linalg.eigvalsh(mat)
+    return is_sym and torch.all(diag > 0).item()
+
+
 def safe_inverse(x: Any, epsilon: float = 1e-12) -> Any:
     """Safe inversion."""
     return x / (x ** 2 + epsilon)

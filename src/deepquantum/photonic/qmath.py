@@ -134,6 +134,7 @@ def product_factorial(state: torch.Tensor) -> torch.Tensor:
     """Get the product of the factorial from the Fock state, i.e., :math:`|s_1,s_2,...s_n> --> s_1!*s_2!*...s_n!`."""
     return torch.exp(torch.lgamma(state.double() + 1).sum(-1, keepdim=True)).float() # nature log gamma function
 
+
 def fock_combinations(nmode: int, nphoton: int) -> List:
     """Generate all possible combinations of Fock states for a given number of modes and photons.
 
@@ -241,7 +242,7 @@ def photon_number_mean_var(cov: torch.Tensor, mean: torch.Tensor) -> Tuple[torch
     return exp, var
 
 
-def takagi(a: torch.Tensor):
+def takagi(a: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     """Tagaki decomposition for symmetric complex matrix.
 
     See https://math.stackexchange.com/questions/2026110/
@@ -338,8 +339,3 @@ def sample_sc_mcmc(prob_func: Callable,
         for key, value in dict_sample.items():
             merged_samples[key] += value
     return merged_samples
-
-def is_positive_definite(mat):
-    """Check if the matrix is positive definite"""
-    diag = torch.linalg.svdvals(mat)
-    return torch.all(diag > 0)

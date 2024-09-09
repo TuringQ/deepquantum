@@ -22,9 +22,10 @@ from .hafnian_ import hafnian
 from .measurement import Homodyne
 from .operation import Operation, Gate
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
-from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc, is_positive_definite
+from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc
 from .state import FockState, GaussianState
 from .torontonian_ import torontonian
+from ..qmath import is_positive_definite
 from ..state import MatrixProductState
 
 
@@ -1123,13 +1124,15 @@ class QumodeCircuit(Operation):
             return torch.cat(samples, dim=-1).squeeze() # (batch, shots, nwire)
         else:
             cov, mean = self.state
-            if not is_positive_definite(cov): # positive semi-definite case
+            if not is_positive_definite(cov):
                 size = cov.size()
                 if cov.dtype == torch.double:
                     epsilon = 1e-16
-                if cov.dtype == torch.float32 or torch.cfloat:
+                elif cov.dtype == torch.float:
                     epsilon = 1e-8
-                cov = cov + epsilon * torch.stack([torch.eye(size[-1], dtype=cov.dtype, device=cov.device)] * size[0]) # positive definite cov
+                else:
+                    raise ValueError('Unsupported dtype.')
+                cov += epsilon * torch.stack([torch.eye(size[-1], dtype=cov.dtype, device=cov.device)] * size[0])
             if wires is None:
                 wires = self.wires
             wires = sorted(self._convert_indices(wires))
