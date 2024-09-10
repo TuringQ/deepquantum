@@ -379,7 +379,7 @@ class QumodeCircuit(Operation):
         return self.state
 
     def _forward_gaussian_delayloop(self):
-        """Forward pass for Gaussian backend with delay loop."""
+        """Forward pass for Gaussian backend with delay loops."""
         delay_wires = [ ]
         cut_idx = [0]
         ops = self.operators
@@ -397,7 +397,20 @@ class QumodeCircuit(Operation):
         cut_idx = sorted(list(set(cut_idx)))
         lst = list(range(nmode))
         sublists = [lst[cut_idx[i]:cut_idx[i+1]] for i in range(len(cut_idx)-1)]
-        cir = self._construct_equal_circuit(nmode=nmode, init_state='vac', sublists=sublists, k=0)[0]
+
+        idx = torch.tensor([i[-1] for i in sublists])
+        idx = torch.cat([idx, idx + nmode])
+        cov_0 = self.init_state.cov
+        mean_0 = self.init_state.mean
+        size = cov_0.size()
+        cov_1 = torch.stack([torch.eye(2 * nmode, dtype=cov_0.dtype, device=cov_0.device)] * size[0])
+        mean_1 = torch.stack([torch.zeros(2 * nmode, dtype=mean_0.dtype, device=mean_0.device)] * size[0])
+        mean_1 = mean_1.reshape(-1, 2 * nmode, 1)
+        cov_1[:, idx[:, None], idx] = cov_0
+        mean_1[:, idx] = mean_0
+        init_state = [cov_1, mean_1]
+
+        cir = self._construct_equal_circuit(nmode=nmode, init_state=init_state, sublists=sublists, k=0)[0]
         self._sublists = sublists
         return cir()
 
@@ -1177,9 +1190,9 @@ class QumodeCircuit(Operation):
             return
         if self._if_delayloop:
             samples = []
-            init_state = 'vac'    # XXX initial state expand
             nmode = self.unfold_circuit.nmode
             sublists = self._sublists
+            init_state = self.unfold_circuit.init_state
             for i in range(0, shots):
                 temp = self._construct_equal_circuit(nmode, init_state, sublists, i)
                 cir = temp[0]    # XXX try encoding
@@ -1752,16 +1765,14 @@ class QumodeCircuit(Operation):
         self,
         wires: int,
         inputs: Any = None,
-        encode: bool = False,
         mu: Optional[float] = None,
         sigma: Optional[float] = None
     ) -> None:
         """Add a delay loop."""
-        requires_grad = False
         if mu is None:
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        delay = Delay(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, requires_grad=requires_grad)
+        delay = Delay(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, requires_grad=False)
         self.add(delay, encode=False)
         self._if_delayloop = True

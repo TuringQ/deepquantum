@@ -1495,7 +1495,7 @@ class Delay(SingleGate):
     r"""Delay loop.
     Args:
         inputs (Any, optional): The parameters of the delay loop, inputs = [N, [bs_theta], [r_theta]].
-        N: modes in delay loop, bs_theta: periodic parameters for BS_phi gate, r_theta: periodic parameters for rotation
+        N: modes in delay loop, bs_theta: periodic parameters for BS_theta gate, r_theta: periodic parameters for rotation
         gate, Default: ``None``.
         nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
@@ -1520,18 +1520,17 @@ class Delay(SingleGate):
     ) -> None:
         super().__init__(name='Delay', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
                          requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
-        # self.npara = 3
         self.init_para(inputs)
 
-    def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor, torch.Tensor]:
+    def inputs_to_tensor(self, inputs: Any = None) -> List[torch.Tensor]:
         """Convert inputs to torch.Tensor."""
         if inputs is None:
             bs_theta = torch.rand(1)[0] * 2 * torch.pi
             r_theta = torch.rand(1)[0] * 2 * torch.pi
             inputs = [torch.tensor(1), bs_theta, r_theta]
         else:
-            assert len(inputs)==3, 'need 3 inputs for delay loop'
-            assert len(inputs[1])==len(inputs[2]), 'the inputs parametrers must match'
+            assert len(inputs) == 3, 'need 3 inputs for delay loop'
+            assert len(inputs[1]) == len(inputs[2]), 'the inputs parametrers must match'
             if not isinstance(inputs[0], torch.Tensor):
                 inputs[0] = torch.tensor(inputs[0], dtype=torch.int64)
             if not isinstance(inputs[1], torch.Tensor):
@@ -1546,4 +1545,4 @@ class Delay(SingleGate):
         self.inputs = inputs
 
     def extra_repr(self) -> str:
-        return f'wires={self.wires}, N ={self.inputs[0]}, bs_thetas={self.inputs[1]}, r_thetas={self.inputs[2]}'
+        return f'wires={self.wires}, N={self.inputs[0]}, bs_thetas={self.inputs[1]}, r_thetas={self.inputs[2]}'
