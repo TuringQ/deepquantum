@@ -120,7 +120,6 @@ class Gate(Operation):
         nmode2 = self.nmode - nmode1 - len(self.wires)
         m1 = torch.eye(nmode1, dtype=matrix.dtype, device=matrix.device)
         m2 = torch.eye(nmode2, dtype=matrix.dtype, device=matrix.device)
-        # return torch.block_diag(m1, matrix, m2)
         u_global = torch.block_diag(m1, matrix, m2)
         if len(self.wires) == 2:
             indices_1 = [self.wires[0]+1]
@@ -165,10 +164,9 @@ class Gate(Operation):
         nmode2 = self.nmode - nmode1 - len(self.wires)
         m1 = torch.eye(2 * nmode1, dtype=matrix.dtype, device=matrix.device)
         m2 = torch.eye(2 * nmode2, dtype=matrix.dtype, device=matrix.device)
-        # return xpxp_to_xxpp(torch.block_diag(m1, matrix_xpxp, m2)) # here change order to xxpp
         sp_global = torch.block_diag(m1, matrix_xpxp, m2) # xpxp
         if len(self.wires) == 2:
-            indices_1 = [2*(self.wires[0]+1), 2*(self.wires[0]+1)+1 ]
+            indices_1 = [2*(self.wires[0]+1), 2*(self.wires[0]+1)+1]
             indices_2 = [2*self.wires[1], 2*self.wires[1]+1]
             permute_m = permute_mat(sp_global, indices_1, indices_2)
             sp_global = permute_m @ sp_global @ permute_m

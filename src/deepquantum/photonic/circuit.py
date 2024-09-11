@@ -384,20 +384,30 @@ class QumodeCircuit(Operation):
         cut_idx = [0]
         ops = self.operators
         temp_sum = 0
+        delay_dict = defaultdict(list)
         for i in range(len(ops)):
             op = ops[i]
             if isinstance(op, Delay):
-                delay_wires.append(op.wires[0])
-                cut_idx = cut_idx + [temp_sum+int(op.wires[0]), temp_sum+int(op.wires[0])+int(op.inputs[0])+1]
-                temp_sum = temp_sum + int(op.inputs[0])
+                delay_dict[op.wires[0]].append(op.inputs[0].item())
+        for i in range(self.nmode):
+            temp = delay_dict[i]
+            if temp:
+                cut_idx = cut_idx + [temp_sum+i, temp_sum+i+sum(temp)+1]
+                temp_sum = temp_sum + sum(temp)
         nmode = self.nmode + temp_sum
         delay_wires = torch.tensor(delay_wires)
-        assert torch.equal(torch.unique(delay_wires), delay_wires), 'single wire with multiple delay loops is not allowed'
         cut_idx = cut_idx + [nmode]
         cut_idx = sorted(list(set(cut_idx)))
         lst = list(range(nmode))
         sublists = [lst[cut_idx[i]:cut_idx[i+1]] for i in range(len(cut_idx)-1)]
-
+        for i in range(self.nmode):
+            temp = delay_dict[i]
+            if temp:
+                temp_rev = list(reversed(temp))
+                temp_2 = sublists[i][:-1]
+                temp_3 = [temp_2[sum(temp_rev[:k]):sum(temp_rev[:k+1])] for k in range(len(temp_rev))]
+                sublists[i][:-1] = temp_3
+        self._sublists = deepcopy(sublists)
         idx = torch.tensor([i[-1] for i in sublists])
         idx = torch.cat([idx, idx + nmode])
         cov_0 = self.init_state.cov
@@ -409,9 +419,7 @@ class QumodeCircuit(Operation):
         cov_1[:, idx[:, None], idx] = cov_0
         mean_1[:, idx] = mean_0
         init_state = [cov_1, mean_1]
-
         cir = self._construct_equal_circuit(nmode=nmode, init_state=init_state, sublists=sublists, k=0)[0]
-        self._sublists = sublists
         return cir()
 
     def _construct_equal_circuit(self, nmode, init_state, sublists, k):
@@ -423,7 +431,6 @@ class QumodeCircuit(Operation):
         cir = QumodeCircuit(nmode=nmode, init_state=init_state, cutoff=self.cutoff, backend='gaussian', basis=True)
         ops = self.operators
         meas = self.measurements
-        sublists_copy = deepcopy(sublists)
         for i in range(len(ops)):
             op = ops[i]
             if not isinstance(op, Delay):
@@ -437,18 +444,19 @@ class QumodeCircuit(Operation):
             else:
                 idx_ = op.wires[0]
                 idx_para = k % len(op.inputs[1]) # periodic parameters
-                wires = [sublists[idx_][-2], sublists[idx_][-1]]
+                wires = [sublists[idx_][-2][-1], sublists[idx_][-1]]
                 cir.bs(wires,[op.inputs[1][idx_para], 0], encode=True)
-                cir.r(sublists[idx_][-2], op.inputs[2][idx_para], encode=True)
-                sublists_copy[idx_] = shift(sublists[idx_][:-1]) +  [sublists[idx_][-1]]
+                cir.r(sublists[idx_][-2][-1], op.inputs[2][idx_para], encode=True)
+                sublists[idx_][-2] = shift(sublists[idx_][-2]) # inner shift
+                sublists[idx_] = shift(sublists[idx_][:-1]) +  [sublists[idx_][-1]] # outer shift
         for mea in meas:
             wire = mea.wires[0]
             phi = mea.phi
             wire2 = sublists[wire][-1]
             cir.homodyne(wire2, phi)
-        cir.to(next(ops.buffers()).dtype)
+        cir.to(torch.double)
         self.unfold_circuit = cir
-        return cir, sublists_copy
+        return cir, sublists
 
     def _forward_helper_gaussian(
         self,
@@ -1191,7 +1199,7 @@ class QumodeCircuit(Operation):
         if self._if_delayloop:
             samples = []
             nmode = self.unfold_circuit.nmode
-            sublists = self._sublists
+            sublists = deepcopy(self._sublists)
             init_state = self.unfold_circuit.init_state
             for i in range(0, shots):
                 temp = self._construct_equal_circuit(nmode, init_state, sublists, i)
