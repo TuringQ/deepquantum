@@ -125,7 +125,7 @@ class Gate(Operation):
             indices_1 = [self.wires[0]+1]
             indices_2 = [self.wires[1]]
             permute_m = permute_mat(u_global, indices_1, indices_2) # consider non-adjacent wires
-            u_global = permute_m @ u_global @ permute_m
+            u_global = permute_m @ u_global @ permute_m # permute_m = permute_m^{-1}
         return u_global
 
     def get_matrix_state(self, matrix: torch.Tensor) -> torch.Tensor:
@@ -169,7 +169,7 @@ class Gate(Operation):
             indices_1 = [2*(self.wires[0]+1), 2*(self.wires[0]+1)+1]
             indices_2 = [2*self.wires[1], 2*self.wires[1]+1]
             permute_m = permute_mat(sp_global, indices_1, indices_2)
-            sp_global = permute_m @ sp_global @ permute_m
+            sp_global = permute_m @ sp_global @ permute_m # permute_m = permute_m^{-1}
         return xpxp_to_xxpp(sp_global) # here change order to xxpp
 
 
