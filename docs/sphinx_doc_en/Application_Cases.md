@@ -26,7 +26,7 @@ class Hybrid(nn.Module):
 
     def forward(self, x):
         x = torch.arctan(self.fc1(x))
-        # The first parameter in the forward computation 
+        # The first parameter in the forward computation
         # corresponds to the data to be encoded
         self.cir(x)
         exp = self.cir.expectation()
@@ -81,7 +81,7 @@ print(cir3.expectation())
 
 ##  Benchmark for gradient calculation
 
-For quantum simulators, operational efficiency is a crucial performance metric. In tasks like VQE and quantum machine learning, aside from the forward evolution of quantum circuits, gradient calculation is a pivotal factor affecting efficiency. Comparisons between DeepQuantum and Qiskit are illustrated as follows.
+For quantum simulators, operational efficiency is a crucial performance metric. In tasks like VQE and quantum machine learning, aside from the forward evolution of quantum circuits, gradient calculation is a pivotal factor affecting efficiency. Comparisons between DeepQuantum, Qiskit and VQNet are illustrated as follows.
 
 ```python
 import time
@@ -137,9 +137,9 @@ def hessian_dq(n, l, trials=10):
         cir.observable(basis='x')
         cir(data=params)
         return cir.expectation()
-    
+
     def get_hs_dq(x):
-        return hessian(f, x) 
+        return hessian(f, x)
 
     return benchmark(get_hs_dq, torch.ones([3 * n * l]))
 ```
@@ -148,6 +148,7 @@ The results are shown below：
 
 ![Alt text](images/3.3_Gradient_benchmarks.png)
 ![Alt text](images/3.3_Hessian_benchmarks.png)
+![Alt text](images/grad_benchmark_vqnet_dq.png)
 
 ##  Large-Scale Simulation
 
@@ -171,7 +172,7 @@ print(cir.expectation())
 ##  Quantum Fourier Transform
 
 The quantum Fourier transform is a quantum analog of the discrete Fourier transform.
-DeepQuantum implements the quantum Fourier transform based on the Ansatz class (which validates the newly added arguments on top of QubitCircuit). Users can easily reproduce and develop various quantum algorithms based on the Ansatz class. 
+DeepQuantum implements the quantum Fourier transform based on the Ansatz class (which validates the newly added arguments on top of QubitCircuit). Users can easily reproduce and develop various quantum algorithms based on the Ansatz class.
 The specific implementation is provided below.
 
 ```python
