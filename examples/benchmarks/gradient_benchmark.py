@@ -19,7 +19,8 @@ import torch
 from torch.autograd.functional import hessian
 import deepquantum as dq
 
-from pyvqnet.qnn import grad, ProbsMeasure
+from pyvqnet.qnn import grad
+from pyvqnet.qnn.measure import expval
 import pyqpanda as pq
 
 
@@ -175,16 +176,18 @@ def grad_pyvqnet(n, l ,trials=10):
         qubits = machine.qAlloc_many(n)
         circuit = pq.QCircuit()
         for j in range(l):
-            for i in range(n-1):
-                circuit.insert(pq.CNOT(qubits[i], qubits[i+1]))
+            for i in range(n - 1):
+                circuit.insert(pq.CNOT(qubits[i], qubits[i + 1]))
             for i in range(n):
                 circuit.insert(pq.RX(qubits[i], param[3 * n * j + i]))
                 circuit.insert(pq.RZ(qubits[i], param[3 * n * j + i + n]))
                 circuit.insert(pq.RX(qubits[i], param[3 * n * j + i + 2 * n]))
         prog = pq.QProg()
         prog.insert(circuit)
-        EXP = ProbsMeasure(list(range(n)),prog,machine,qubits)
-        return EXP
+        Xn_string = ', '.join([f'X{i}' for i in range(n)])
+        pauli_dict  = {Xn_string:1.}
+        exp = expval(machine, prog,pauli_dict, qubits)
+        return exp
 
     def get_grad(values):
         return grad(pqctest, values)
