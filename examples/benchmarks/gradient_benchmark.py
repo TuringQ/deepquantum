@@ -186,7 +186,7 @@ def grad_pyvqnet(n, l ,trials=10):
         prog.insert(circuit)
         Xn_string = ', '.join([f'X{i}' for i in range(n)])
         pauli_dict  = {Xn_string:1.}
-        exp = expval(machine, prog,pauli_dict, qubits)
+        exp = expval(machine, prog, pauli_dict, qubits)
         return exp
 
     def get_grad(values):
