@@ -19,6 +19,9 @@ import torch
 from torch.autograd.functional import hessian
 import deepquantum as dq
 
+from pyvqnet.qnn import grad, ProbsMeasure
+import pyqpanda as pq
+
 
 def benchmark(f, *args, trials=10):
     time0 = time.time()
@@ -158,12 +161,35 @@ def hessian_dq(n, l, trials=10):
         cir.observable(basis='x')
         cir(data=params)
         return cir.expectation()
-    
+
     def get_hs_dq(x):
-        return hessian(f, x) 
+        return hessian(f, x)
 
     return benchmark(get_hs_dq, torch.ones([3 * n * l]))
 
+
+def grad_pyvqnet(n, l ,trials=10):
+    def pqctest(param):
+        machine = pq.CPUQVM()
+        machine.init_qvm()
+        qubits = machine.qAlloc_many(n)
+        circuit = pq.QCircuit()
+        for j in range(l):
+            for i in range(n-1):
+                circuit.insert(pq.CNOT(qubits[i], qubits[i+1]))
+            for i in range(n):
+                circuit.insert(pq.RX(qubits[i], param[3 * n * j + i]))
+                circuit.insert(pq.RZ(qubits[i], param[3 * n * j + i + n]))
+                circuit.insert(pq.RX(qubits[i], param[3 * n * j + i + 2 * n]))
+        prog = pq.QProg()
+        prog.insert(circuit)
+        EXP = ProbsMeasure(list(range(n)),prog,machine,qubits)
+        return EXP
+
+    def get_grad(values):
+        return grad(pqctest, values)
+
+    return benchmark(get_grad, np.ones([3 * n * l]), trials=trials)
 
 results = {}
 
@@ -192,6 +218,8 @@ for n in [4, 6, 8, 10, 12]:
         results[str(n) + '-' + str(l) + '-' + 'grad' + '-dq'] = ts
         _, ts = hessian_dq(n, l)
         results[str(n) + '-' + str(l) + '-' + 'hs' + '-dq'] = ts
+        _, ts = grad_pyvqnet(n, l)
+        results[str(n) + '-' + str(l) + '-' + 'grad' + '-pyvqnet'] = ts
 
 # print(results)
 
