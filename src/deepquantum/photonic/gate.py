@@ -1521,6 +1521,7 @@ class Delay(SingleGate):
         super().__init__(name='Delay', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
                          requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.init_para(inputs)
+        self.npara = 2 * len(self.inputs[1])
 
     def inputs_to_tensor(self, inputs: Any = None) -> List[torch.Tensor]:
         """Convert inputs to torch.Tensor."""

@@ -47,5 +47,5 @@ from .state import QubitState, MatrixProductState
 
 from .photonic import permanent, takagi, hafnian, torontonian
 from .photonic import FockState, GaussianState
-from .photonic import QumodeCircuit, Clements, GaussianBosonSampling
+from .photonic import QumodeCircuit, QumodeCircuitTDM, Clements, GaussianBosonSampling
 from .photonic import UnitaryMapper, UnitaryDecomposer, DrawClements

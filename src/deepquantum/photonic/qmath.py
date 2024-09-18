@@ -8,6 +8,7 @@ import warnings
 from collections import defaultdict
 from typing import Callable, Dict, List, Tuple
 
+from math import gcd
 import numpy as np
 import torch
 from torch import vmap
@@ -340,24 +341,10 @@ def sample_sc_mcmc(prob_func: Callable,
             merged_samples[key] += value
     return merged_samples
 
-def permute_mat(mat, indices_1, indices_2):
-    """
-    Reorder the matrix by exchanging the column and row i, j from indices_1, indices_2.
-    """
-    def permute_single(i, j, size):
-        """
-        Return the permute matrix for exchanging i-th row with j-th row of matrix a
-        """
-        p_row = torch.eye(size)
-        p_row[[i, j]] = p_row[[j, i]]
-        return p_row
-
-    n = mat.size()[-1]
-    exchange_mat = torch.eye(n, dtype=mat.dtype)
-    for k in range(len(indices_1)-1, -1, -1):
-        i = indices_1[k]
-        j = indices_2[k]
-        p_mat = permute_single(i, j, n)
-        p_mat = p_mat.to(mat.dtype)
-        exchange_mat = p_mat @ exchange_mat
-    return exchange_mat
+def lcm(a, b):
+    return abs(a*b) // gcd(a,b)
+def lcm_multiple(numbers):
+    result = numbers[0]
+    for num in numbers[1:]:
+        result = lcm(result, num)
+    return result

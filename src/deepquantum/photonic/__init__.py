@@ -16,7 +16,7 @@ from . import state
 from . import torontonian_
 
 from .ansatz import Clements, GaussianBosonSampling, GBS_Graph
-from .circuit import QumodeCircuit
+from .circuit import QumodeCircuit, QumodeCircuitTDM
 from .decompose import UnitaryDecomposer
 from .draw import DrawClements
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
