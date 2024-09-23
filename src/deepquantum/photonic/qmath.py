@@ -341,10 +341,9 @@ def sample_sc_mcmc(prob_func: Callable,
             merged_samples[key] += value
     return merged_samples
 
-def lcm(a, b):
-    return abs(a*b) // gcd(a,b)
-def lcm_multiple(numbers):
-    result = numbers[0]
-    for num in numbers[1:]:
-        result = lcm(result, num)
-    return result
+def shift_fun(a, step):
+    """Shift the elements of a list by given step."""
+    if len(a) <= 1:
+        return a
+    step = step % len(a)
+    return a[-step:] + a[:-step]

@@ -112,7 +112,8 @@ class DrawCircuit():
             elif isinstance(op, Delay):
                 name_ = ''
                 order = depth[op.wires[0]]
-                self.draw_sq(order, op.wires, inputs=op.inputs, name=name_, delay=True)
+                inputs = [op.n_tau, op.theta, op.phi]
+                self.draw_sq(order, op.wires, inputs=inputs, name=name_, delay=True)
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = depth[i]+1
@@ -235,9 +236,9 @@ class DrawCircuit():
                                           fill='none', stroke='black', stroke_width=2))
         if delay: # delay loop
             self.draw_.add(self.draw_.circle(center=(x+46, y_up*30+25-4), r=9, stroke='black', fill='white', stroke_width=1.2))
-            self.draw_.add(self.draw_.text('N ='+str(inputs[0].tolist()), insert=(x+40, y_up*30+18), font_size=5))
-            self.draw_.add(self.draw_.text('bs_θ ='+str(np.round(inputs[1].tolist(),2)), insert=(x+58, y_up*30+18), font_size=6))
-            self.draw_.add(self.draw_.text('r_θ ='+str(np.round(inputs[2].tolist(),2)), insert=(x+58, y_up*30+24), font_size=6))
+            self.draw_.add(self.draw_.text('N ='+str(inputs[0]), insert=(x+40, y_up*30+18), font_size=5))
+            self.draw_.add(self.draw_.text('θ ='+str(np.round(inputs[1].tolist(),2)), insert=(x+58, y_up*30+18), font_size=6))
+            self.draw_.add(self.draw_.text('ϕ ='+str(np.round(inputs[2].tolist(),2)), insert=(x+58, y_up*30+24), font_size=6))
 
         else: # squeezing gate
             fill_c = info_dic[name][0]

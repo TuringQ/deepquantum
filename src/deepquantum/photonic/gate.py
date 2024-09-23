@@ -1503,47 +1503,63 @@ class Delay(SingleGate):
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
+        type(str): Delay loop with bs gate or mzi gate. Default: ``bs``,
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
     def __init__(
         self,
+        n_tau: int = 1,
         inputs: Any = None,
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
         requires_grad: bool = False,
+        type: str = 'bs',
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
         super().__init__(name='Delay', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
                          requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
-        self.init_para(inputs)
-        self.npara = 2 * len(self.inputs[1])
+        self.n_tau = n_tau
+        self._type = type
+        self.npara = 2
 
-    def inputs_to_tensor(self, inputs: Any = None) -> List[torch.Tensor]:
+    def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """Convert inputs to torch.Tensor."""
         if inputs is None:
-            bs_theta = torch.rand(1)[0] * 2 * torch.pi
-            r_theta = torch.rand(1)[0] * 2 * torch.pi
-            inputs = [torch.tensor(1), bs_theta, r_theta]
+            theta = torch.rand(1)[0] * 2 * torch.pi
+            phi   = torch.rand(1)[0] * 2 * torch.pi
         else:
-            assert len(inputs) == 3, 'need 3 inputs for delay loop'
-            assert len(inputs[1]) == len(inputs[2]), 'the inputs parametrers must match'
-            if not isinstance(inputs[0], torch.Tensor):
-                inputs[0] = torch.tensor(inputs[0], dtype=torch.int64)
-            if not isinstance(inputs[1], torch.Tensor):
-                inputs[1] = torch.tensor(inputs[1], dtype=torch.float)
-            if not isinstance(inputs[2], torch.Tensor):
-                inputs[2] = torch.tensor(inputs[2], dtype=torch.float)
-        return inputs
+            theta = inputs[0]
+            phi   = inputs[1]
+        if not isinstance(theta, (torch.Tensor, nn.Parameter)):
+            theta = torch.tensor(theta, dtype=torch.float)
+        if not isinstance(phi, (torch.Tensor, nn.Parameter)):
+            phi = torch.tensor(phi, dtype=torch.float)
+        if self.noise:
+            theta, phi = self._add_noise(theta, phi)
+        return theta, phi
+
+    def _add_noise(self, theta: torch.Tensor, phi: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Add Gaussian noise to the parameters."""
+        theta = theta + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        phi = phi + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        return theta, phi
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        inputs = self.inputs_to_tensor(inputs)
-        self.inputs = inputs
-
+        noise = self.noise
+        self.noise = False
+        theta, phi = self.inputs_to_tensor(inputs)
+        self.noise = noise
+        if self.requires_grad:
+            self.theta = nn.Parameter(theta)
+            self.phi = nn.Parameter(phi)
+        else:
+            self.register_buffer('theta', theta)
+            self.register_buffer('phi', phi)
     def extra_repr(self) -> str:
-        return f'wires={self.wires}, N={self.inputs[0]}, bs_thetas={self.inputs[1]}, r_thetas={self.inputs[2]}'
+        return f'wires={self.wires}, n_tau = {self.n_tau}, theta={self.theta.item()}, phi={self.phi.item()}, type = {self._type}'
