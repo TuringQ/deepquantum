@@ -8,7 +8,6 @@ import warnings
 from collections import defaultdict
 from typing import Callable, Dict, List, Tuple
 
-from math import gcd
 import numpy as np
 import torch
 from torch import vmap
@@ -171,6 +170,14 @@ def fock_combinations(nmode: int, nphoton: int) -> List:
 
     backtrack([], nmode, nphoton)
     return result
+
+
+def shift_fun(a: List, step: int) -> List:
+    """Shift the elements of a list by the given step."""
+    if len(a) <= 1:
+        return a
+    step = step % len(a)
+    return a[-step:] + a[:-step]
 
 
 def xxpp_to_xpxp(matrix: torch.Tensor) -> torch.Tensor:
@@ -340,10 +347,3 @@ def sample_sc_mcmc(prob_func: Callable,
         for key, value in dict_sample.items():
             merged_samples[key] += value
     return merged_samples
-
-def shift_fun(a, step):
-    """Shift the elements of a list by given step."""
-    if len(a) <= 1:
-        return a
-    step = step % len(a)
-    return a[-step:] + a[:-step]
