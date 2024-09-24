@@ -1501,10 +1501,10 @@ class Delay(SingleGate):
         wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
-            Default: ``False`` (which means ``buffer``)
         convention (str, optional): The convention of the type of the delay loop, including ``'bs'`` and ``'mzi'``.
             Default: ``'bs'``
+        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
