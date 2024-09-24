@@ -115,7 +115,7 @@ class Gate(Operation):
         """Get the global unitary matrix acting on creation operators."""
         matrix = self.update_matrix()
         assert matrix.shape[-2] == matrix.shape[-1] == len(self.wires), 'The matrix may not act on creation operators.'
-        u = matrix.new_zeros(self.nmode, self.nmode, dtype=matrix.dtype, device=matrix.device)
+        u = matrix.new_zeros(self.nmode, self.nmode)
         u[torch.arange(self.nmode), torch.arange(self.nmode)] = 1
         u[np.ix_(self.wires, self.wires)] = matrix
         return u
@@ -151,17 +151,17 @@ class Gate(Operation):
         """Get the global symplectic matrix acting on quadrature operators in xxpp order."""
         matrix, _ = self.update_transform_xp()
         assert matrix.shape[-2] == matrix.shape[-1] == 2 * len(self.wires), 'The matrix may not act on xxpp operators.'
-        s = matrix.new_zeros(2 * self.nmode, 2 * self.nmode, dtype=matrix.dtype, device=matrix.device)
+        s = matrix.new_zeros(2 * self.nmode, 2 * self.nmode)
         s[torch.arange(2 * self.nmode), torch.arange(2 * self.nmode)] = 1
         wires = self.wires + [wire + self.nmode for wire in self.wires]
-        s[np.ix_(wires, wires)] = matrix # need support vmap
+        s[np.ix_(wires, wires)] = matrix
         return s
 
     def get_displacement(self) -> torch.Tensor:
         """Get the global displacement vector acting on quadrature operators in xxpp order."""
         _, vector = self.update_transform_xp()
         assert vector.shape[-2] == 2 * len(self.wires), 'The vector may not act on xxpp operators.'
-        d = vector.new_zeros(2 * self.nmode, 1, dtype=vector.dtype, device=vector.device)
+        d = vector.new_zeros(2 * self.nmode, 1)
         wires = self.wires + [wire + self.nmode for wire in self.wires]
         d[np.ix_(wires)] = vector
         return d
