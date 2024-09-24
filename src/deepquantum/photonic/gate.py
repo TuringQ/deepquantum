@@ -78,7 +78,6 @@ class DoubleGate(Gate):
             wires = [0, 1]
         super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, noise=noise, mu=mu, sigma=sigma)
         assert len(self.wires) == 2, f'{self.name} must act on two modes'
-        # assert self.wires[0] + 1 == self.wires[1], f'{self.name} must act on the adjacent modes'
         self.requires_grad = requires_grad
         self.init_para(inputs)
 
@@ -1491,40 +1490,42 @@ class DisplacementMomentum(Displacement):
         self.update_matrix()
         self.update_transform_xp()
 
+
 class Delay(SingleGate):
     r"""Delay loop.
+
     Args:
-        inputs (Any, optional): The parameters of the delay loop, inputs = [N, [bs_theta], [r_theta]].
-        N: modes in delay loop, bs_theta: periodic parameters for BS_theta gate, r_theta: periodic parameters for rotation
-        gate, Default: ``None``.
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
+        inputs (Any, optional): The parameters of the gate. Default: ``None``
+        ntau (int, optional): The number of modes in the delay loop. Default: 1
+        nmode (int, optional): The number of spatial modes that the quantum operation acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        type(str): Delay loop with bs gate or mzi gate. Default: ``bs``,
+        convention (str, optional): The convention of the type of the delay loop, including ``'bs'`` and ``'mzi'``.
+            Default: ``'bs'``
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
     def __init__(
         self,
-        n_tau: int = 1,
         inputs: Any = None,
+        ntau: int = 1,
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        convention: str = 'bs',
         requires_grad: bool = False,
-        type: str = 'bs',
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
         super().__init__(name='Delay', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
                          requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
-        self.n_tau = n_tau
-        self._type = type
+        self.ntau = ntau
+        self.convention = convention
         self.npara = 2
 
     def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -1561,5 +1562,6 @@ class Delay(SingleGate):
         else:
             self.register_buffer('theta', theta)
             self.register_buffer('phi', phi)
+
     def extra_repr(self) -> str:
-        return f'wires={self.wires}, n_tau = {self.n_tau}, theta={self.theta.item()}, phi={self.phi.item()}, type = {self._type}'
+        return f'wires={self.wires}, ntau={self.ntau}, theta={self.theta.item()}, phi={self.phi.item()}, convention={self.convention}'
