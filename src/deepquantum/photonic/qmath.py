@@ -172,7 +172,7 @@ def fock_combinations(nmode: int, nphoton: int) -> List:
     return result
 
 
-def shift_fun(a: List, step: int) -> List:
+def shift_func(a: List, step: int) -> List:
     """Shift the elements of a list by the given step."""
     if len(a) <= 1:
         return a
