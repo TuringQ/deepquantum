@@ -16,6 +16,7 @@ from ..qmath import is_unitary
 
 class SingleGate(Gate):
     """Single-mode photonic quantum gate.
+
     Args:
         name (str or None, optional): The name of the gate. Default: ``None``
         inputs (Any, optional): The parameters of the gate. Default: ``None``
@@ -49,6 +50,7 @@ class SingleGate(Gate):
 
 class DoubleGate(Gate):
     """Two-mode photonic quantum gate.
+
     Args:
         name (str or None, optional): The name of the gate. Default: ``None``
         inputs (Any, optional): The parameters of the gate. Default: ``None``
