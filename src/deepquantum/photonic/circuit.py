@@ -6,7 +6,7 @@ import itertools
 import random
 import warnings
 from collections import defaultdict, Counter
-from copy import copy, deepcopy
+from copy import copy
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -22,7 +22,7 @@ from .hafnian_ import hafnian
 from .measurement import Homodyne
 from .operation import Operation, Gate
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
-from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc, shift_fun
+from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc, shift_func
 from .state import FockState, GaussianState
 from .torontonian_ import torontonian
 from ..qmath import is_positive_definite
@@ -115,9 +115,14 @@ class QumodeCircuit(Operation):
         self._nphoton = None
         self._state_expand = None
         self._all_fock_basis = None
+
         self._if_delayloop = False
-        self._operators_tdm = nn.Sequential()
-        self._measurements_tdm = nn.ModuleList()
+        self._nmode_tdm = None
+        self._unroll_dict = None
+        self._operators_tdm = None
+        self._encoders_tdm = None
+        self._measurements_tdm = None
+        self.wires_homodyne = []
 
     def __add__(self, rhs: 'QumodeCircuit') -> 'QumodeCircuit':
         """Addition of the ``QumodeCircuit``.
@@ -129,9 +134,18 @@ class QumodeCircuit(Operation):
                             name=self.name, mps=self.mps, chi=self.chi, noise=self.noise, mu=self.mu, sigma=self.sigma)
         cir.operators = self.operators + rhs.operators
         cir.encoders = self.encoders + rhs.encoders
+        cir.measurements = rhs.measurements
         cir.npara = self.npara + rhs.npara
         cir.ndata = self.ndata + rhs.ndata
         cir.depth = self.depth + rhs.depth
+
+        cir._if_delayloop = self._if_delayloop and rhs._if_delayloop
+        cir._nmode_tdm = None
+        cir._unroll_dict = None
+        cir._operators_tdm = None
+        cir._encoders_tdm = None
+        cir._measurements_tdm = None
+        cir.wires_homodyne = rhs.wires_homodyne
         return cir
 
     def to(self, arg: Any) -> 'QumodeCircuit':
@@ -361,7 +375,9 @@ class QumodeCircuit(Operation):
             state = GaussianState(state=state, nmode=self.nmode, cutoff=self.cutoff)
         state = [state.cov, state.mean]
         if self._if_delayloop:
-            state = self._forward_gaussian_delayloop_helper(state)
+            self._prepare_unroll_dict()
+            state = self._unroll_init_state(state)
+            self._unroll_circuit()
         if data is None or data.ndim == 1:
             self.state = self._forward_helper_gaussian(data, state, stepwise)
             if self.state[0].ndim == 2:
@@ -377,6 +393,8 @@ class QumodeCircuit(Operation):
             self.encode(data[-1])
         if is_prob:
             self.state = self._forward_gaussian_prob(self.state[0], self.state[1], detector)
+        if self._if_delayloop:
+            self.state = self._shift_state(self.state)
         return self.state
 
     def _forward_helper_gaussian(
@@ -501,110 +519,108 @@ class QumodeCircuit(Operation):
                 dic_temp[s.item()].append(state)
             return list(dic_temp.values())
 
-    def _forward_gaussian_delayloop_helper(self, state: List):
-        """Forward pass helper function for Gaussian backend with delay loops."""
-        if len(self._operators_tdm) == 0:
-            cut_idx = [0]
-            ops = self.operators
-            temp_sum = 0
-            delay_dict = defaultdict(list)
-            for i in range(len(ops)):
-                op = ops[i]
+    def _prepare_unroll_dict(self) -> Dict[List]:
+        """Create a dictionary that maps spatial modes to concurrent modes."""
+        if self._unroll_dict is None:
+            ntau_dict = defaultdict(list)
+            self._unroll_dict = defaultdict(list)
+            nmode_delay = 0
+            for op in self.operators:
                 if isinstance(op, Delay):
-                    delay_dict[op.wires[0]].append(op.n_tau)
+                    ntau_dict[op.wires[0]].append(op.ntau)
+                    nmode_delay += op.ntau
+            self._nmode_tdm = self.nmode + nmode_delay
+            wires = list(range(self._nmode_tdm))
+            start = 0
             for i in range(self.nmode):
-                temp = delay_dict[i]
-                if temp:
-                    cut_idx = cut_idx + [temp_sum+i, temp_sum+i+sum(temp)+1]
-                    temp_sum = temp_sum + sum(temp)
-            nmode = self.nmode + temp_sum
-            cut_idx = cut_idx + [nmode]
-            cut_idx = sorted(list(set(cut_idx)))
-            lst = list(range(nmode))
-            sublists = [lst[cut_idx[i]:cut_idx[i+1]] for i in range(len(cut_idx)-1)]
-            for i in range(self.nmode):
-                temp = delay_dict[i]
-                if temp:
-                    temp_rev = list(reversed(temp))
-                    temp_2 = sublists[i][:-1]
-                    temp_3 = [temp_2[sum(temp_rev[:k]):sum(temp_rev[:k+1])] for k in range(len(temp_rev))]
-                    sublists[i][:-1] = temp_3
-            self._sublists = deepcopy(sublists)
-            self._nmode_tdm = nmode
-            self._operators_tdm, self._measurements_tdm = self._construct_equal_circuit()
+                for ntau in reversed(ntau_dict[i]):
+                    self._unroll_dict[i].append(wires[start:start+ntau])
+                    start += ntau
+                self._unroll_dict[i].append(start + 1)
+                start += 1
+        return self._unroll_dict
 
-        sublists = self._sublists
-        nmode = self._nmode_tdm
-        idx = torch.tensor([i[-1] for i in sublists])
-        idx = torch.cat([idx, idx + nmode])
-        cov_0, mean_0 = state
-        size = cov_0.size()
-        if size[-1] == self._nmode_tdm * 2:
-            init_state = state
+    def _unroll_init_state(self, state: List[torch.Tensor]) -> List[torch.Tensor]:
+        """Unroll the initial state from spatial modes to concurrent modes."""
+        idx = torch.tensor([key[-1] for key in self._unroll_dict])
+        idx = torch.cat([idx, idx + self._nmode_tdm])
+        cov, mean = state
+        size = cov.size()
+        if size[-1] == 2 * self._nmode_tdm:
+            return state
         else:
-            cov_1 = torch.stack([torch.eye(2 * nmode, dtype=cov_0.dtype, device=cov_0.device)] * size[0])
-            mean_1 = torch.stack([torch.zeros(2 * nmode, dtype=mean_0.dtype, device=mean_0.device)] * size[0])
-            mean_1 = mean_1.reshape(-1, 2 * nmode, 1)
-            cov_1[:, idx[:, None], idx] = cov_0
-            mean_1[:, idx] = mean_0
-            # cov_1 = cov_1.to(torch.double)
-            # mean_1 = mean_1.to(torch.double)
-            init_state = [cov_1, mean_1]
-        self._init_state_tdm = init_state
-        return init_state
+            cov_tdm = torch.stack([torch.eye(2 * self._nmode_tdm, dtype=cov.dtype, device=cov.device)] * size[0])
+            mean_tdm = mean.new_zeros(size[0], 2 * self._nmode_tdm, 1)
+            cov_tdm[:, idx[:, None], idx] = cov
+            mean_tdm[:, idx] = mean
+            return [cov_tdm, mean_tdm]
 
-    def _construct_equal_circuit(self, k: int=1):
-        """Construct the equivalent circuit for the circuit with delay loop with shot=k."""
-        self._encoders_tdm = []
-        operators_tdm = nn.Sequential()
-        measurements_tdm = nn.ModuleList()
+    def _unroll_circuit(self) -> None:
+        """Unroll the circuit from spatial modes to concurrent modes."""
         nmode = self._nmode_tdm
-        sublists = deepcopy(self._sublists)
-        ops = self.operators
-        meas = self.measurements
-        for i in range(len(ops)):
-            op = ops[i]
-            if not isinstance(op, Delay):
-                op_copy = deepcopy(op)
-                op_copy.nmode = nmode
-                wires = [ ]
-                for w in op.wires:
-                    wires.append(sublists[w][-1])
-                op_copy.wires = wires
-                if op in self.encoders:
-                    self._encoders_tdm.append(op_copy)
-                operators_tdm.append(op_copy)
-            else:
-                idx_ = op.wires[0]
-                sublists[idx_][-2] = shift_fun(sublists[idx_][-2], k-1) # inner shift
-                bs_wires = [sublists[idx_][-2][-1], sublists[idx_][-1]]
-                if op._type.lower() == 'bs':
-                    bs_theta = BeamSplitterTheta(inputs=op.theta, nmode=nmode, wires=bs_wires, cutoff=self.cutoff,
-                                                requires_grad=False, noise=self.noise, mu=None, sigma=None)
-                    r = PhaseShift(inputs=op.phi, nmode=nmode, wires=sublists[idx_][-2][-1], cutoff=self.cutoff,
-                                  requires_grad=False, noise=self.noise, mu=None, sigma=None, inv_mode=None)
-                    operators_tdm.append(bs_theta)
-                    operators_tdm.append(r)
+        if self._operators_tdm is None:
+            self._operators_tdm = nn.Sequential()
+            self._encoders_tdm = []
+            ndelay = np.array([0] * self.nmode) # counter of delay loops for each mode
+            for op in self.operators:
+                if isinstance(op, Delay):
+                    wire = op.wires[0]
+                    ndelay[wire] += 1
+                    idx_delay = -ndelay[wire] - 1
+                    wires = [self._unroll_dict[wire][idx_delay][-1], self._unroll_dict[wire][-1]]
+                    if op.convention == 'bs':
+                        bs = BeamSplitterTheta(inputs=op.theta, nmode=nmode, wires=wires, cutoff=self.cutoff,
+                                               requires_grad=op.requires_grad, noise=self.noise,
+                                               mu=op.mu, sigma=op.sigma)
+                        ps = PhaseShift(inputs=op.phi, nmode=nmode, wires=wires[0], cutoff=self.cutoff,
+                                        requires_grad=op.requires_grad, noise=self.noise,
+                                        mu=op.mu, sigma=op.sigma)
+                        self._operators_tdm.append(bs)
+                        self._operators_tdm.append(ps)
+                        if op in self.encoders:
+                            self._encoders_tdm.append(bs)
+                            self._encoders_tdm.append(ps)
+                    elif op.convention == 'mzi':
+                        mzi = MZI(inputs=[op.theta, op.phi], nmode=nmode, wires=wires, cutoff=self.cutoff,
+                                  requires_grad=op.requires_grad, noise=self.noise, mu=op.mu, sigma=op.sigma)
+                        self._operators_tdm.append(mzi)
+                        if op in self.encoders:
+                            self._encoders_tdm.append(mzi)
+                else:
+                    op_tdm = copy(op)
+                    op_tdm.nmode = nmode
+                    op_tdm.wires = [self._unroll_dict[wire][-1] for wire in op.wires]
+                    self._operators_tdm.append(op_tdm)
                     if op in self.encoders:
-                        self._encoders_tdm.append(bs_theta)
-                        self._encoders_tdm.append(r)
-                if op._type.lower() =='mzi':
-                    mzi = MZI(inputs=[op.theta, op.phi], nmode=nmode, wires=bs_wires, cutoff=self.cutoff,
-                             requires_grad=False, noise=self.noise, mu=None, sigma=None)
-                    operators_tdm.append(mzi)
-                    if op in self.encoders:
-                        self._encoders_tdm.append(mzi)
-                sublists[idx_] = shift_fun(sublists[idx_][:-1], 1) +  [sublists[idx_][-1]] # outer shift, only one step shift.
-        mea_wires = [ ]
-        for mea in meas:
-            wire = mea.wires[0]
-            mea_wires.append(wire)
-            wire2 = sublists[wire][-1]
-            phi = mea.phi
-            homodyne = Homodyne(phi=phi, nmode=nmode, wires=wire2)
-            measurements_tdm.append(homodyne)
-        operators_tdm.to(self.init_state.cov.dtype)
-        return [operators_tdm, measurements_tdm]
+                        self._encoders_tdm.append(op_tdm)
+        if self._measurements_tdm is None:
+            self._measurements_tdm = nn.ModuleList()
+            for op_m in self.measurements:
+                op_m_tdm = copy(op_m)
+                op_m_tdm.nmode = nmode
+                op_m_tdm.wires = [self._unroll_dict[wire][-1] for wire in op_m.wires]
+                self._measurements_tdm.append(op_m_tdm)
+                if op_m in self.encoders:
+                    self._encoders_tdm.append(op_m_tdm)
+
+    def _shift_state(self, state: List[torch.Tensor], nstep: int = 1, reverse: bool = False) -> List[torch.Tensor]:
+        """Shift the state according to ``nstep``, which is equivalent to shifting the TDM circuit."""
+        cov, mean = state
+        idx_shift = []
+        for wire in self._unroll_dict:
+            for idx in self._unroll_dict[wire]:
+                if isinstance(idx, int):
+                    idx_shift.append(idx)
+                elif isinstance(idx, list):
+                    if reverse:
+                        idx_shift.append(shift_func(idx, -nstep))
+                    else:
+                        idx_shift.append(shift_func(idx, nstep))
+        idx_shift = torch.tensor(idx_shift)
+        idx_shift = torch.cat([idx_shift, idx_shift + self._nmode_tdm])
+        cov = cov[:, idx_shift[:, None], idx_shift]
+        mean = mean[:, idx_shift]
+        return [cov, mean]
 
     def encode(self, data: Optional[torch.Tensor]) -> None:
         """Encode the input data into the photonic quantum circuit parameters.
@@ -619,16 +635,14 @@ class QumodeCircuit(Operation):
             return
         assert len(data) >= self.ndata
         count = 0
-        for op in self.encoders:
+        if self._if_delayloop:
+            encoders = self._encoders_tdm
+        else:
+            encoders = self.encoders
+        for op in encoders:
             count_up = count + op.npara
             op.init_para(data[count:count_up])
             count = count_up
-        if self._if_delayloop:
-            count = 0
-            for op in self._encoders_tdm:
-                count_up = count + op.npara
-                op.init_para(data[count:count_up])
-                count = count_up
 
     def get_unitary(self) -> torch.Tensor:
         """Get the unitary matrix of the photonic quantum circuit."""
@@ -1246,7 +1260,7 @@ class QumodeCircuit(Operation):
                 measurements = self._measurements_tdm
                 nmode = self._nmode_tdm
             else:
-                measurements = self._measurements
+                measurements = self.measurements
                 nmode = self.nmode
             samples = []
             batch = self.state[0].shape[0]
@@ -1340,9 +1354,17 @@ class QumodeCircuit(Operation):
             assert self.nmode == op.nmode
             self.operators += op.operators
             self.encoders  += op.encoders
+            self.measurements = op.measurements
             self.npara += op.npara
             self.ndata += op.ndata
             self.depth += op.depth
+            self._if_delayloop = self._if_delayloop and op._if_delayloop
+            self._nmode_tdm = None
+            self._unroll_dict = None
+            self._operators_tdm = None
+            self._encoders_tdm = None
+            self._measurements_tdm = None
+            self.wires_homodyne = op.wires_homodyne
         else:
             self.operators.append(op)
             if isinstance(op, Gate):
@@ -1756,6 +1778,28 @@ class QumodeCircuit(Operation):
                        noise=self.noise, mu=mu, sigma=sigma)
         self.add(f, encode=False)
 
+    def delay(
+        self,
+        wires: Optional[int] = None,
+        ntau: int = 1,
+        inputs: Any = None,
+        convention: str = 'bs',
+        encode: bool = False,
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
+    ) -> None:
+        """Add a delay loop."""
+        assert self.backend == 'gaussian'
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        requires_grad = not encode
+        delay = Delay(inputs=inputs, ntau=ntau, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+                      convention=convention, requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        self.add(delay, encode=encode)
+        self._if_delayloop = True
+
     def homodyne(
         self,
         wires: Optional[int] = None,
@@ -1779,6 +1823,7 @@ class QumodeCircuit(Operation):
             self.encoders.append(homodyne)
             self.ndata = self.ndata + homodyne.npara
         self.measurements.append(homodyne)
+        self.wires_homodyne.append(homodyne.wires[0])
 
     def homodyne_x(
         self,
@@ -1796,6 +1841,7 @@ class QumodeCircuit(Operation):
         homodyne = Homodyne(phi=phi, nmode=self.nmode, wires=wires, cutoff=self.cutoff, eps=eps,
                             requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
         self.measurements.append(homodyne)
+        self.wires_homodyne.append(homodyne.wires[0])
 
     def homodyne_p(
         self,
@@ -1813,141 +1859,76 @@ class QumodeCircuit(Operation):
         homodyne = Homodyne(phi=phi, nmode=self.nmode, wires=wires, cutoff=self.cutoff, eps=eps,
                             requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
         self.measurements.append(homodyne)
+        self.wires_homodyne.append(homodyne.wires[0])
 
-    def delay(
-        self,
-        wires: Optional[int] = None,
-        n_tau: int = 1,
-        inputs: Any = None,
-        encode: bool = False,
-        type: str = 'bs',
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
-    ) -> None:
-        """Add a delay loop."""
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
-        requires_grad = not encode
-        delay = Delay(n_tau=n_tau, inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
-                      requires_grad=requires_grad, type=type, noise=self.noise, mu=mu, sigma=sigma)
-        self.add(delay, encode=encode)
-        self._if_delayloop = True
 
 class QumodeCircuitTDM(QumodeCircuit):
+    r"""Time-domain-multiplexed Photonic quantum circuit.
+
+    Args:
+        nmode (int): The number of spatial modes in the circuit.
+        init_state (Any): The initial state of the circuit. It can be a vacuum state with ``'vac'``.
+            For Gaussian backend, it can be arbitrary Gaussian states with ``[cov, mean]``.
+            Use ``xxpp`` convention and :math:`\hbar=2` by default.
+        nstep (int): The number of the evolved time steps. Default: 1
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        name (str or None, optional): The name of the circuit. Default: ``None``
+        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
+        mu (float, optional): The mean of Gaussian noise. Default: 0
+        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+    """
     def __init__(
         self,
         nmode: int,
         init_state: Any,
+        nstep: int = 1,
         cutoff: Optional[int] = None,
-        backend: str = 'fock',
-        basis: bool = True,
-        detector: str = 'pnrd',
         name: Optional[str] = None,
-        mps: bool = False,
-        chi: Optional[int] = None,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(name=name, nmode=nmode, init_state=init_state,
-                        cutoff=cutoff, backend=backend, basis=basis,
-                        detector=detector, mps=mps, chi=chi, noise=noise,
-                        mu=mu, sigma=sigma)
+        super().__init__(nmode=nmode, init_state=init_state, cutoff=cutoff, backend='gaussian', basis=False,
+                         detector='pnrd', name=name, mps=False, chi=None, noise=noise, mu=mu, sigma=sigma)
+        self.nstep = nstep
+        self.samples = None
+
     def forward(
         self,
         data: Optional[torch.Tensor] = None,
         state: Any = None,
-        step: int = 1,
-        is_prob: Optional[bool] = None
-    ) -> Union[torch.Tensor, Dict, List[torch.Tensor]]:
-        """Perform a forward pass of the photonic quantum circuit and return the final-state-related result.
+    ) -> List[torch.Tensor]:
+        """Perform a forward pass of the TDM photonic quantum circuit and return the final state.
 
         Args:
-            data (torch.Tensor or None, optional): The input data for the ``encoders``. Default: ``None``
+            data (torch.Tensor or None, optional): The input data for the ``encoders``. The shape of data
+            should be (batch, nstep, nfeat). Default: ``None``
             state (Any, optional): The initial state for the photonic quantum circuit. Default: ``None``
-            step (int): The repeat step to envolve the circuits. Default: 1
-            is_prob (bool or None, optional): For Fock backend, whether to return probabilities or amplitudes.
-                For Gaussian backend, whether to return probabilities or the final Gaussian state.
-                For Fock backend with ``basis=True``, set ``None`` to return the unitary matrix. Default: ``None``
-        Returns:
-            Union[torch.Tensor, Dict, List[torch.Tensor]]: The result of the photonic quantum circuit after
-            applying the ``operators`` and ``measuremnets``.
-        """
-        if self.backend == 'fock':
-            return self._forward_fock(data, state, is_prob) # XXX need update
-        elif self.backend == 'gaussian':
-            return self._forward_gaussian(data, state, step)
-    def _forward_gaussian(
-        self,
-        data: Optional[torch.Tensor] = None,
-        state: Any = None,
-        step: int = 1
-    ) -> Union[List[torch.Tensor], Dict]:
-        """Perform a forward pass based on the Gaussian backend.
 
-        Args:
-            data (torch.Tensor or None, optional): The input data for the ``encoders``. The data shape should be
-            (batch, step, nfeat), each step with data of the shape (batch, nfeat). Default: ``None``
-            state (Any, optional): The initial state for the photonic quantum circuit. Default: ``None``
-            step (int): The repeat step to envolve the circuits. Default: 1
         Returns:
             List[torch.Tensor]: The covariance matrix and displacement vector of the final state.
         """
-        if state is None:
-            state = self.init_state
-            state = [state.cov, state.mean]
-        init_state = self._forward_gaussian_delayloop_helper(state)
-        init_state = GaussianState(state=init_state, nmode=self._nmode_tdm, cutoff=self.cutoff)
-        assert self._if_delayloop, 'No delay loop here'
-        assert len(self._measurements_tdm) > 0, 'No homodyne measurement here.'
-        assert len(self.measurements) == self.nmode, 'need all homodyne measurement here'
+        assert self._if_delayloop, 'No delay loop.'
+        for i in range(self.nmode):
+            assert i in self.wires_homodyne
         if data is not None:
             size = data.size()
-            assert data.ndim == 3, 'the input data shape should be (batch, settings of parameters, nfeat) '
+            assert data.ndim == 3
+        self.state = state
         samples = []
-        for i in range(1, step+1):
-            if data is not None:
-                k = (i-1) % size[1] # periodic data encoding
-                data_i = data[:, k, :]
-                self.state = super()._forward_gaussian(data_i, init_state) # operators forward
+        for i in range(self.nstep):
+            if data is None:
+                self.state = super().forward(state=self.state)
             else:
-                self.state = super()._forward_gaussian(state=init_state)
-            self.state = self._shift_state(self.state, i-1, back=True) # shift back to normal order
-            smaple_i = self.measure_homodyne(shots=1)
-            samples.append(smaple_i)
-            init_state = self.state_measured
-            init_state = self._shift_state(init_state, i) # state shift
-            init_state = GaussianState(state=init_state, nmode=self._nmode_tdm, cutoff=self.cutoff)
-        self.homodyne_samples = torch.stack(samples)
-        return self.state_measured
+                data_i = data[:, i % size[1], :]
+                self.state = super().forward(data_i, self.state)
+            samples.append(self.measure_homodyne(shots=1))
+            self.state = self.state_measured
+        self.samples = torch.stack(samples, dim=-1) # (batch, nwire, nstep)
+        return self.state
 
-    def _shift_state(self, state, k, back=False):
-        """Shift the state according to step k, which is equivalent to shift the corresponding wires of tdm circuits."""
-        cov, mean = state
-        cov_shift = cov.clone().detach()
-        mean_shift = mean.clone().detach()
-        sublists = self._sublists
-        if back:
-            for i in range(len(sublists)):
-                temp = sublists[i]
-                for j in range(len(temp)-1):
-                    temp2 = torch.tensor(temp[j])
-                    k = k % len(temp)
-                    temp2_shift = torch.tensor(temp[j][k:] + temp[j][:k])
-                    idx1 = torch.cat([temp2, temp2 + self._nmode_tdm]) # xxpp order
-                    idx2 = torch.cat([temp2_shift, temp2_shift + self._nmode_tdm])
-                    cov_shift[:, idx1[:, None], idx1] = cov[:, idx2[:, None], idx2]
-                    mean_shift[:, idx1] = mean[:, idx2]
-        else:
-            for i in range(len(sublists)):
-                temp = sublists[i]
-                for j in range(len(temp)-1):
-                    temp2 = torch.tensor(temp[j])
-                    temp2_shift = torch.tensor(shift_fun(temp[j], k))
-                    idx1 = torch.cat([temp2, temp2 + self._nmode_tdm]) # xxpp order
-                    idx2 = torch.cat([temp2_shift, temp2_shift + self._nmode_tdm])
-                    cov_shift[:, idx1[:, None], idx1] = cov[:, idx2[:, None], idx2]
-                    mean_shift[:, idx1] = mean[:, idx2]
-        return [cov_shift, mean_shift]
+    def get_samples(self, wires: Union[int, List[int], None] = None) -> torch.Tensor:
+        if wires is None:
+            wires = self.wires
+        wires = sorted(self._convert_indices(wires))
+        return self.samples[..., wires, :]
