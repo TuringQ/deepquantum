@@ -131,40 +131,41 @@ def test_measure_homodyne():
 
 
 def test_non_adjacent_bs_fock():
-    n=3
+    n = 3
     angles = np.random.rand(6)
-    prog0 = sf.Program(n)
-    with prog0.context as q:
+    prog = sf.Program(n)
+    with prog.context as q:
         Fock(1) | q[0]
-        Fock(1)  | q[1]
-        Fock(1)  | q[2]
+        Fock(1) | q[1]
+        Fock(1) | q[2]
         Rgate(angles[0]) | q[0]
         Rgate(angles[1]) | q[1]
         BSgate(angles[2], angles[3]) | (q[0], q[2])
         BSgate(angles[4], angles[5]) | (q[1], q[2])
-    eng0 = sf.Engine("fock", backend_options={'cutoff_dim':4})
-    result0 = eng0.run(prog0)
+    eng = sf.Engine('fock', backend_options={'cutoff_dim': 4})
+    result = eng.run(prog)
 
     nmode = n
-    circ = dq.QumodeCircuit(nmode=nmode, init_state=[1,1,1], cutoff=3, backend='fock', basis=True)
-    circ.ps([0], angles[0])
-    circ.ps([1], angles[1])
-    circ.bs([0,2], [angles[2], angles[3]])
-    circ.bs([1,2], [angles[4], angles[5]])
-    st = circ(is_prob=True)
+    cir = dq.QumodeCircuit(nmode=nmode, init_state=[1,1,1], cutoff=3, backend='fock', basis=True)
+    cir.ps(0, angles[0])
+    cir.ps(1, angles[1])
+    cir.bs([0,2], [angles[2], angles[3]])
+    cir.bs([1,2], [angles[4], angles[5]])
+    state = cir(is_prob=True)
     err = 0
-    for key in st.keys():
-        dq_prob = st[key]
+    for key in state.keys():
+        dq_prob = state[key]
         fock_st = key.state.tolist()
-        sf_prob = result0.state.fock_prob(fock_st)
-        err = err + abs(dq_prob-sf_prob)
+        sf_prob = result.state.fock_prob(fock_st)
+        err = err + abs(dq_prob - sf_prob)
     assert err < 1e-6
 
+
 def test_non_adjacent_bs_gaussian():
-    n=4
+    n = 4
     angles = np.random.rand(12)
-    prog0 = sf.Program(n)
-    with prog0.context as q:
+    prog = sf.Program(n)
+    with prog.context as q:
         Sgate(angles[0]) | q[0]
         Sgate(angles[1]) | q[1]
         Sgate(angles[2]) | q[2]
@@ -175,25 +176,25 @@ def test_non_adjacent_bs_gaussian():
         Dgate(angles[7]) | q[3]
         BSgate(angles[8], angles[9]) | (q[0], q[2])
         BSgate(angles[10], angles[11]) | (q[1], q[3])
-    eng0 = sf.Engine("gaussian")
-    result0 = eng0.run(prog0)
-    cov_sf = result0.state.cov()
-    mean_sf = result0.state.means()
+    eng = sf.Engine('gaussian')
+    result = eng.run(prog)
+    cov_sf = result.state.cov()
+    mean_sf = result.state.means()
 
     nmode = n
-    circ = dq.QumodeCircuit(nmode=nmode, init_state='vac', cutoff=3, backend='gaussian', basis=True)
-    circ.s([0], r=angles[0])
-    circ.s([1], r=angles[1])
-    circ.s([2], r=angles[2])
-    circ.s([3], r=angles[3])
-    circ.d([0], r=angles[4])
-    circ.d([1], r=angles[5])
-    circ.d([2], r=angles[6])
-    circ.d([3], r=angles[7])
+    cir = dq.QumodeCircuit(nmode=nmode, init_state='vac', cutoff=3, backend='gaussian')
+    cir.s(0, r=angles[0])
+    cir.s(1, r=angles[1])
+    cir.s(2, r=angles[2])
+    cir.s(3, r=angles[3])
+    cir.d(0, r=angles[4])
+    cir.d(1, r=angles[5])
+    cir.d(2, r=angles[6])
+    cir.d(3, r=angles[7])
 
-    circ.bs([0,2], [angles[8], angles[9]])
-    circ.bs([1,3], [angles[10], angles[11]])
+    cir.bs([0,2], [angles[8], angles[9]])
+    cir.bs([1,3], [angles[10], angles[11]])
 
-    st = circ()
-    err = abs(st[0].squeeze()-cov_sf).sum() + abs(st[1].squeeze()-mean_sf).sum()
+    state = circ()
+    err = abs(state[0].squeeze() - cov_sf).sum() + abs(state[1].squeeze() - mean_sf).sum()
     assert err < 1e-5
