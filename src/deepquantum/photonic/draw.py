@@ -112,7 +112,7 @@ class DrawCircuit():
             elif isinstance(op, Delay):
                 name_ = ''
                 order = depth[op.wires[0]]
-                inputs = [op.n_tau, op.theta, op.phi]
+                inputs = [op.ntau, op.theta, op.phi]
                 self.draw_sq(order, op.wires, inputs=inputs, name=name_, delay=True)
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:

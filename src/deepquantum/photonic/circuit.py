@@ -372,7 +372,15 @@ class QumodeCircuit(Operation):
         if state is None:
             state = self.init_state
         elif not isinstance(state, GaussianState):
-            state = GaussianState(state=state, nmode=self.nmode, cutoff=self.cutoff)
+            if self._nmode_tdm is not None:
+                if isinstance(state, list):
+                    nmode = state[0].size()[-1] // 2
+                    assert nmode == self.nmode or nmode == self._nmode_tdm
+                else:
+                    nmode = self.nmode
+            else:
+                nmode = self.nmode
+            state = GaussianState(state=state, nmode=nmode, cutoff=self.cutoff)
         state = [state.cov, state.mean]
         if self._if_delayloop:
             self._prepare_unroll_dict()
@@ -536,13 +544,13 @@ class QumodeCircuit(Operation):
                 for ntau in reversed(ntau_dict[i]):
                     self._unroll_dict[i].append(wires[start:start+ntau]) # modes in delay line
                     start += ntau
-                self._unroll_dict[i].append(wires[start + 1]) # spatial mode
+                self._unroll_dict[i].append(wires[start]) # spatial mode
                 start += 1
         return self._unroll_dict
 
     def _unroll_init_state(self, state: List[torch.Tensor]) -> List[torch.Tensor]:
         """Unroll the initial state from spatial modes to concurrent modes."""
-        idx = torch.tensor([key[-1] for key in self._unroll_dict])
+        idx = torch.tensor([value[-1] for value in self._unroll_dict.values()])
         idx = torch.cat([idx, idx + self._nmode_tdm])
         cov, mean = state
         size = cov.size()
@@ -612,9 +620,9 @@ class QumodeCircuit(Operation):
                     idx_shift.append(idx)
                 elif isinstance(idx, list):
                     if reverse:
-                        idx_shift.append(shift_func(idx, -nstep))
+                        idx_shift.extend(shift_func(idx, -nstep))
                     else:
-                        idx_shift.append(shift_func(idx, nstep))
+                        idx_shift.extend(shift_func(idx, nstep))
         idx_shift = torch.tensor(idx_shift)
         idx_shift = torch.cat([idx_shift, idx_shift + self._nmode_tdm])
         cov = cov[:, idx_shift[:, None], idx_shift]
