@@ -534,9 +534,9 @@ class QumodeCircuit(Operation):
             start = 0
             for i in range(self.nmode):
                 for ntau in reversed(ntau_dict[i]):
-                    self._unroll_dict[i].append(wires[start:start+ntau])
+                    self._unroll_dict[i].append(wires[start:start+ntau]) # modes in delay line
                     start += ntau
-                self._unroll_dict[i].append(start + 1)
+                self._unroll_dict[i].append(wires[start + 1]) # spatial mode
                 start += 1
         return self._unroll_dict
 
@@ -567,22 +567,21 @@ class QumodeCircuit(Operation):
                     wire = op.wires[0]
                     ndelay[wire] += 1
                     idx_delay = -ndelay[wire] - 1
-                    wires = [self._unroll_dict[wire][idx_delay][-1], self._unroll_dict[wire][-1]]
+                    wires = [self._unroll_dict[wire][idx_delay][0], self._unroll_dict[wire][-1]]
                     if op.convention == 'bs':
-                        bs = BeamSplitterTheta(inputs=op.theta, nmode=nmode, wires=wires, cutoff=self.cutoff,
-                                               requires_grad=op.requires_grad, noise=self.noise,
-                                               mu=op.mu, sigma=op.sigma)
-                        ps = PhaseShift(inputs=op.phi, nmode=nmode, wires=wires[0], cutoff=self.cutoff,
-                                        requires_grad=op.requires_grad, noise=self.noise,
-                                        mu=op.mu, sigma=op.sigma)
+                        bs = BeamSplitterTheta(inputs=op.theta, nmode=nmode, wires=wires, cutoff=op.cutoff,
+                                               requires_grad=op.requires_grad, noise=op.noise, mu=op.mu,
+                                               sigma=op.sigma)
+                        ps = PhaseShift(inputs=op.phi, nmode=nmode, wires=wires[0], cutoff=op.cutoff,
+                                        requires_grad=op.requires_grad, noise=op.noise, mu=op.mu, sigma=op.sigma)
                         self._operators_tdm.append(bs)
                         self._operators_tdm.append(ps)
                         if op in self.encoders:
                             self._encoders_tdm.append(bs)
                             self._encoders_tdm.append(ps)
                     elif op.convention == 'mzi':
-                        mzi = MZI(inputs=[op.theta, op.phi], nmode=nmode, wires=wires, cutoff=self.cutoff,
-                                  requires_grad=op.requires_grad, noise=self.noise, mu=op.mu, sigma=op.sigma)
+                        mzi = MZI(inputs=[op.theta, op.phi], nmode=nmode, wires=wires, cutoff=op.cutoff,
+                                  requires_grad=op.requires_grad, noise=op.noise, mu=op.mu, sigma=op.sigma)
                         self._operators_tdm.append(mzi)
                         if op in self.encoders:
                             self._encoders_tdm.append(mzi)
@@ -1296,14 +1295,15 @@ class QumodeCircuit(Operation):
         """Get the max number of gates on the wires."""
         return max(self.depth)
 
-    def draw(self, filename: Optional[str] = None, unfold: bool = False):
+    def draw(self, filename: Optional[str] = None, unroll: bool = False):
         """Visualize the photonic quantum circuit.
 
         Args:
             filename (str or None, optional): The path for saving the figure.
         """
-        if self._if_delayloop and unfold:
-            assert self.state is not None, 'Please run the circuit first.'
+        if self._if_delayloop and unroll:
+            self._prepare_unroll_dict()
+            self._unroll_circuit()
             nmode = self._nmode_tdm
             operators = self._operators_tdm
             measurements = self._measurements_tdm
@@ -1863,14 +1863,13 @@ class QumodeCircuit(Operation):
 
 
 class QumodeCircuitTDM(QumodeCircuit):
-    r"""Time-domain-multiplexed Photonic quantum circuit.
+    r"""Time-domain-multiplexed photonic quantum circuit.
 
     Args:
         nmode (int): The number of spatial modes in the circuit.
         init_state (Any): The initial state of the circuit. It can be a vacuum state with ``'vac'``.
             For Gaussian backend, it can be arbitrary Gaussian states with ``[cov, mean]``.
             Use ``xxpp`` convention and :math:`\hbar=2` by default.
-        nstep (int): The number of the evolved time steps. Default: 1
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
         name (str or None, optional): The name of the circuit. Default: ``None``
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
@@ -1881,7 +1880,6 @@ class QumodeCircuitTDM(QumodeCircuit):
         self,
         nmode: int,
         init_state: Any,
-        nstep: int = 1,
         cutoff: Optional[int] = None,
         name: Optional[str] = None,
         noise: bool = False,
@@ -1890,33 +1888,39 @@ class QumodeCircuitTDM(QumodeCircuit):
     ) -> None:
         super().__init__(nmode=nmode, init_state=init_state, cutoff=cutoff, backend='gaussian', basis=False,
                          detector='pnrd', name=name, mps=False, chi=None, noise=noise, mu=mu, sigma=sigma)
-        self.nstep = nstep
         self.samples = None
 
     def forward(
         self,
         data: Optional[torch.Tensor] = None,
         state: Any = None,
+        nstep: Optional[int] = None
     ) -> List[torch.Tensor]:
         """Perform a forward pass of the TDM photonic quantum circuit and return the final state.
 
         Args:
-            data (torch.Tensor or None, optional): The input data for the ``encoders``. The shape of data
-            should be (batch, nstep, nfeat). Default: ``None``
+            data (torch.Tensor or None, optional): The input data for the ``encoders`` with the shape of
+                :math:`(\text{batch}, \text{ntimes}, \text{nfeat})`. Default: ``None``
             state (Any, optional): The initial state for the photonic quantum circuit. Default: ``None``
+            nstep (int or None, optional): The number of the evolved time steps. Default: ``None``
 
         Returns:
-            List[torch.Tensor]: The covariance matrix and displacement vector of the final state.
+            List[torch.Tensor]: The covariance matrix and displacement vector of the measured final state.
         """
         assert self._if_delayloop, 'No delay loop.'
         for i in range(self.nmode):
             assert i in self.wires_homodyne
-        if data is not None:
+        if data is None:
+            if nstep is None:
+                nstep = 1
+        else:
             size = data.size()
             assert data.ndim == 3
+            if nstep is None:
+                nstep = size[1]
         self.state = state
         samples = []
-        for i in range(self.nstep):
+        for i in range(nstep):
             if data is None:
                 self.state = super().forward(state=self.state)
             else:
