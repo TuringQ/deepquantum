@@ -372,14 +372,11 @@ class QumodeCircuit(Operation):
         if state is None:
             state = self.init_state
         elif not isinstance(state, GaussianState):
+            nmode = self.nmode
             if self._nmode_tdm is not None:
                 if isinstance(state, list):
-                    nmode = state[0].size()[-1] // 2
-                    assert nmode == self.nmode or nmode == self._nmode_tdm
-                else:
-                    nmode = self.nmode
-            else:
-                nmode = self.nmode
+                    if state[0].size()[-1] // 2 == self._nmode_tdm:
+                        nmode = self._nmode_tdm
             state = GaussianState(state=state, nmode=nmode, cutoff=self.cutoff)
         state = [state.cov, state.mean]
         if self._if_delayloop:
