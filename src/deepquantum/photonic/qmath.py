@@ -172,12 +172,15 @@ def fock_combinations(nmode: int, nphoton: int) -> List:
     return result
 
 
-def shift_func(a: List, step: int) -> List:
-    """Shift the elements of a list by the given step."""
-    if len(a) <= 1:
-        return a
-    step = step % len(a)
-    return a[-step:] + a[:-step]
+def shift_func(l: List, nstep: int) -> List:
+    """Shift a list by a number of steps.
+
+    If ``nstep`` is positive, it shifts to the left.
+    """
+    if len(l) <= 1:
+        return l
+    nstep = nstep % len(l)
+    return l[nstep:] + l[:nstep]
 
 
 def xxpp_to_xpxp(matrix: torch.Tensor) -> torch.Tensor:
