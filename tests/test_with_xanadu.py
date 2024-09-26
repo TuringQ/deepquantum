@@ -195,6 +195,6 @@ def test_non_adjacent_bs_gaussian():
     cir.bs([0,2], [angles[8], angles[9]])
     cir.bs([1,3], [angles[10], angles[11]])
 
-    state = circ()
+    state = cir()
     err = abs(state[0].squeeze() - cov_sf).sum() + abs(state[1].squeeze() - mean_sf).sum()
     assert err < 1e-5
