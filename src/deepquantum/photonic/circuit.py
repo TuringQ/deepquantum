@@ -519,7 +519,7 @@ class QumodeCircuit(Operation):
                 dic_temp[s.item()].append(state)
             return list(dic_temp.values())
 
-    def _prepare_unroll_dict(self) -> Dict[List]:
+    def _prepare_unroll_dict(self) -> Dict[int, List]:
         """Create a dictionary that maps spatial modes to concurrent modes."""
         if self._unroll_dict is None:
             ntau_dict = defaultdict(list)
