@@ -1811,7 +1811,7 @@ class QumodeCircuit(Operation):
         self,
         wires: Optional[int] = None,
         phi: Any = None,
-        eps: float = 2e-4,
+        eps: float = 1e-6,
         encode: bool = False,
         mu: Optional[float] = None,
         sigma: Optional[float] = None
