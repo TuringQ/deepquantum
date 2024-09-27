@@ -131,7 +131,7 @@ class FockState(nn.Module):
                 temp += f'{key}: {value}\n'
             return hash(temp)
 
-    def __lt__(self, other: 'FockState')  -> bool:
+    def __lt__(self, other: 'FockState') -> bool:
         tuple_self = tuple(self.state.tolist())
         tuple_other = tuple(other.state.tolist())
         return tuple_self < tuple_other
