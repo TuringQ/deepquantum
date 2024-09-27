@@ -8,7 +8,6 @@ import numpy as np
 import torch
 from torch import nn
 
-from .qmath import xxpp_to_xpxp, xpxp_to_xxpp
 from ..qmath import inverse_permutation, state_to_tensors
 from ..state import MatrixProductState
 
@@ -116,11 +115,10 @@ class Gate(Operation):
         """Get the global unitary matrix acting on creation operators."""
         matrix = self.update_matrix()
         assert matrix.shape[-2] == matrix.shape[-1] == len(self.wires), 'The matrix may not act on creation operators.'
-        nmode1 = min(self.wires)
-        nmode2 = self.nmode - nmode1 - len(self.wires)
-        m1 = torch.eye(nmode1, dtype=matrix.dtype, device=matrix.device)
-        m2 = torch.eye(nmode2, dtype=matrix.dtype, device=matrix.device)
-        return torch.block_diag(m1, matrix, m2)
+        u = matrix.new_zeros(self.nmode, self.nmode)
+        u[torch.arange(self.nmode), torch.arange(self.nmode)] = 1
+        u[np.ix_(self.wires, self.wires)] = matrix
+        return u
 
     def get_matrix_state(self, matrix: torch.Tensor) -> torch.Tensor:
         """Get the local transformation matrix acting on Fock state tensors."""
@@ -153,23 +151,20 @@ class Gate(Operation):
         """Get the global symplectic matrix acting on quadrature operators in xxpp order."""
         matrix, _ = self.update_transform_xp()
         assert matrix.shape[-2] == matrix.shape[-1] == 2 * len(self.wires), 'The matrix may not act on xxpp operators.'
-        matrix_xpxp = xxpp_to_xpxp(matrix) # here change order to xpxp
-        nmode1 = min(self.wires)
-        nmode2 = self.nmode - nmode1 - len(self.wires)
-        m1 = torch.eye(2 * nmode1, dtype=matrix.dtype, device=matrix.device)
-        m2 = torch.eye(2 * nmode2, dtype=matrix.dtype, device=matrix.device)
-        return xpxp_to_xxpp(torch.block_diag(m1, matrix_xpxp, m2)) # here change order to xxpp
+        s = matrix.new_zeros(2 * self.nmode, 2 * self.nmode)
+        s[torch.arange(2 * self.nmode), torch.arange(2 * self.nmode)] = 1
+        wires = self.wires + [wire + self.nmode for wire in self.wires]
+        s[np.ix_(wires, wires)] = matrix
+        return s
 
     def get_displacement(self) -> torch.Tensor:
         """Get the global displacement vector acting on quadrature operators in xxpp order."""
         _, vector = self.update_transform_xp()
         assert vector.shape[-2] == 2 * len(self.wires), 'The vector may not act on xxpp operators.'
-        vector_xpxp = xxpp_to_xpxp(vector) # here change order to xpxp
-        nmode1 = min(self.wires)
-        nmode2 = self.nmode - nmode1 - len(self.wires)
-        v1 = torch.zeros(2 * nmode1, 1, dtype=vector.dtype, device=vector.device)
-        v2 = torch.zeros(2 * nmode2, 1, dtype=vector.dtype, device=vector.device)
-        return xpxp_to_xxpp(torch.cat([v1, vector_xpxp, v2], dim=-2)) # here change order to xxpp
+        d = vector.new_zeros(2 * self.nmode, 1)
+        wires = self.wires + [wire + self.nmode for wire in self.wires]
+        d[np.ix_(wires)] = vector
+        return d
 
     def op_gaussian(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
         """Perform a forward pass for Gaussian states."""
