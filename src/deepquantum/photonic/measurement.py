@@ -91,7 +91,7 @@ class Homodyne(Generaldyne):
         wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        eps (float, optional): The measurement accuracy. Default: 1e-6
+        eps (float, optional): The measurement accuracy. Default: 2e-4
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
         name (str, optional): The name of the gate. Default: ``'Homodyne'``
@@ -105,7 +105,7 @@ class Homodyne(Generaldyne):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
-        eps: float = 1e-6,
+        eps: float = 2e-4,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,

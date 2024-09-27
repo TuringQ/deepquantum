@@ -500,30 +500,6 @@ class QumodeCircuit(Operation):
             probs_i = torch.cat(probs_i)
         return probs_i
 
-    def  _get_odd_even_fock_basis(self, detector: Optional[str] = None):
-        """Split the fock basis into the odd and even photon number parts."""
-        if detector is None:
-            detector = self.detector
-        if detector == 'pnrd':
-            max_photon = self.nmode * (self.cutoff - 1)
-            odd_lst = []
-            even_lst = []
-            for i in range(0, max_photon + 1):
-                state_tmp = torch.tensor([i] + [0] * (self.nmode - 1))
-                temp_basis = self._get_all_fock_basis(state_tmp)
-                if i % 2 == 0:
-                    even_lst.append(temp_basis)
-                else:
-                    odd_lst.append(temp_basis)
-            return odd_lst, even_lst
-        elif detector == 'threshold':
-            final_states = torch.tensor(list(itertools.product(range(2), repeat=self.nmode)))
-            keys = torch.sum(final_states, dim=1)
-            dic_temp = defaultdict(list)
-            for state, s in zip(final_states, keys):
-                dic_temp[s.item()].append(state)
-            return list(dic_temp.values())
-
     def _prepare_unroll_dict(self) -> Dict[int, List]:
         """Create a dictionary that maps spatial modes to concurrent modes."""
         if self._unroll_dict is None:
@@ -653,7 +629,11 @@ class QumodeCircuit(Operation):
     def get_unitary(self) -> torch.Tensor:
         """Get the unitary matrix of the photonic quantum circuit."""
         u = None
-        for op in self.operators:
+        if self._if_delayloop:
+            operators = self._operators_tdm
+        else:
+            operators = self.operators
+        for op in operators:
             if u is None:
                 u = op.get_unitary()
             else:
@@ -699,6 +679,30 @@ class QumodeCircuit(Operation):
         max_values, _ = torch.max(states, dim=1)
         mask = max_values < self.cutoff
         return torch.masked_select(states, mask.unsqueeze(1)).view(-1, states.shape[-1])
+
+    def _get_odd_even_fock_basis(self, detector: Optional[str] = None) -> Union[Tuple[List], List]:
+        """Split the fock basis into the odd and even photon number parts."""
+        if detector is None:
+            detector = self.detector
+        if detector == 'pnrd':
+            max_photon = self.nmode * (self.cutoff - 1)
+            odd_lst = []
+            even_lst = []
+            for i in range(0, max_photon + 1):
+                state_tmp = torch.tensor([i] + [0] * (self.nmode - 1))
+                temp_basis = self._get_all_fock_basis(state_tmp)
+                if i % 2 == 0:
+                    even_lst.append(temp_basis)
+                else:
+                    odd_lst.append(temp_basis)
+            return odd_lst, even_lst
+        elif detector == 'threshold':
+            final_states = torch.tensor(list(itertools.product(range(2), repeat=self.nmode)))
+            keys = torch.sum(final_states, dim=1)
+            dic_temp = defaultdict(list)
+            for state, s in zip(final_states, keys):
+                dic_temp[s.item()].append(state)
+            return list(dic_temp.values())
 
     def _get_permanent_norms(self, init_state: torch.Tensor, final_state: torch.Tensor) -> torch.Tensor:
         """Get the normalization factors for permanent."""
@@ -1197,7 +1201,7 @@ class QumodeCircuit(Operation):
     def photon_number_mean_var(
         self,
         wires: Union[int, List[int], None] = None
-    ) -> Union[Tuple[torch.Tensor, torch.Tensor], None]:
+    ) -> Optional[Tuple[torch.Tensor, torch.Tensor]]:
         """Get the expectation value and variance of the photon number operator.
 
         Args:
@@ -1245,7 +1249,7 @@ class QumodeCircuit(Operation):
         self,
         shots: int = 1024,
         wires: Union[int, List[int], None] = None
-    ) -> Union[torch.Tensor, None]:
+    ) -> Optional[torch.Tensor]:
         """Get the homodyne measurement results.
 
         If ``self.measurements`` is specified via ``self.homodyne``, return the results of the conditional homodyne measurement.
@@ -1811,7 +1815,7 @@ class QumodeCircuit(Operation):
         self,
         wires: Optional[int] = None,
         phi: Any = None,
-        eps: float = 1e-6,
+        eps: float = 2e-4,
         encode: bool = False,
         mu: Optional[float] = None,
         sigma: Optional[float] = None
@@ -1835,7 +1839,7 @@ class QumodeCircuit(Operation):
     def homodyne_x(
         self,
         wires: Optional[int] = None,
-        eps: float = 1e-6,
+        eps: float = 2e-4,
         mu: Optional[float] = None,
         sigma: Optional[float] = None
     ) -> None:
@@ -1853,7 +1857,7 @@ class QumodeCircuit(Operation):
     def homodyne_p(
         self,
         wires: Optional[int] = None,
-        eps: float = 1e-6,
+        eps: float = 2e-4,
         mu: Optional[float] = None,
         sigma: Optional[float] = None
     ) -> None:
@@ -1867,79 +1871,3 @@ class QumodeCircuit(Operation):
                             requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
         self.measurements.append(homodyne)
         self.wires_homodyne.append(homodyne.wires[0])
-
-
-class QumodeCircuitTDM(QumodeCircuit):
-    r"""Time-domain-multiplexed photonic quantum circuit.
-
-    Args:
-        nmode (int): The number of spatial modes in the circuit.
-        init_state (Any): The initial state of the circuit. It can be a vacuum state with ``'vac'``.
-            For Gaussian backend, it can be arbitrary Gaussian states with ``[cov, mean]``.
-            Use ``xxpp`` convention and :math:`\hbar=2` by default.
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        name (str or None, optional): The name of the circuit. Default: ``None``
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
-    """
-    def __init__(
-        self,
-        nmode: int,
-        init_state: Any,
-        cutoff: Optional[int] = None,
-        name: Optional[str] = None,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1
-    ) -> None:
-        super().__init__(nmode=nmode, init_state=init_state, cutoff=cutoff, backend='gaussian', basis=False,
-                         detector='pnrd', name=name, mps=False, chi=None, noise=noise, mu=mu, sigma=sigma)
-        self.samples = None
-
-    def forward(
-        self,
-        data: Optional[torch.Tensor] = None,
-        state: Any = None,
-        nstep: Optional[int] = None
-    ) -> List[torch.Tensor]:
-        """Perform a forward pass of the TDM photonic quantum circuit and return the final state.
-
-        Args:
-            data (torch.Tensor or None, optional): The input data for the ``encoders`` with the shape of
-                :math:`(\text{batch}, \text{ntimes}, \text{nfeat})`. Default: ``None``
-            state (Any, optional): The initial state for the photonic quantum circuit. Default: ``None``
-            nstep (int or None, optional): The number of the evolved time steps. Default: ``None``
-
-        Returns:
-            List[torch.Tensor]: The covariance matrix and displacement vector of the measured final state.
-        """
-        assert self._if_delayloop, 'No delay loop.'
-        for i in range(self.nmode):
-            assert i in self.wires_homodyne
-        if data is None:
-            if nstep is None:
-                nstep = 1
-        else:
-            size = data.size()
-            assert data.ndim == 3
-            if nstep is None:
-                nstep = size[1]
-        self.state = state
-        samples = []
-        for i in range(nstep):
-            if data is None:
-                self.state = super().forward(state=self.state)
-            else:
-                data_i = data[:, i % size[1], :]
-                self.state = super().forward(data_i, self.state)
-            samples.append(self.measure_homodyne(shots=1))
-            self.state = self.state_measured
-        self.samples = torch.stack(samples, dim=-1) # (batch, nwire, nstep)
-        return self.state
-
-    def get_samples(self, wires: Union[int, List[int], None] = None) -> torch.Tensor:
-        if wires is None:
-            wires = self.wires
-        wires = sorted(self._convert_indices(wires))
-        return self.samples[..., wires, :]
