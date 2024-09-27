@@ -113,7 +113,7 @@ class DrawCircuit():
                 name_ = ''
                 order = depth[op.wires[0]]
                 inputs = [op.ntau, op.theta, op.phi]
-                self.draw_sq(order, op.wires, inputs=inputs, name=name_, delay=True)
+                self.draw_delay(order, op.wires, inputs=inputs)
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = depth[i]+1
@@ -224,7 +224,7 @@ class DrawCircuit():
         self.draw_.add(self.draw_.text('ϕ ='+str(np.round(phi,3)), insert=(x+55, y_up*30+20), font_size=7))
 
 
-    def draw_sq(self, order, wires, r=None, theta=None, inputs=None, name=None, delay=False):
+    def draw_sq(self, order, wires, r=None, theta=None, name=None):
         """
         Draw squeezing gate, displacement gate, delay loop.
         """
@@ -233,27 +233,35 @@ class DrawCircuit():
         for i in range(len(wires)):
             wire_i = wires[i]
             self.draw_.add(self.draw_.polyline(points=[(x, wire_i*30+30), (x+90, wire_i*30+30)],
-                                          fill='none', stroke='black', stroke_width=2))
-        if delay: # delay loop
-            self.draw_.add(self.draw_.circle(center=(x+46, y_up*30+25-4), r=9, stroke='black', fill='white', stroke_width=1.2))
-            self.draw_.add(self.draw_.text('N ='+str(inputs[0]), insert=(x+40, y_up*30+18), font_size=5))
-            self.draw_.add(self.draw_.text('θ ='+str(np.round(inputs[1].tolist(),2)), insert=(x+58, y_up*30+18), font_size=6))
-            self.draw_.add(self.draw_.text('ϕ ='+str(np.round(inputs[2].tolist(),2)), insert=(x+58, y_up*30+24), font_size=6))
+                                               fill='none', stroke='black', stroke_width=2))
+        fill_c = info_dic[name][0]  # squeezing gate or displacement gate
+        shift= info_dic[name][1]
 
-        else: # squeezing gate
-            fill_c = info_dic[name][0]
-            shift= info_dic[name][1]
+        if len(wires)==1:
+            height = 12
+        if len(wires)==2:
+            height = 12*3+3
 
-            if len(wires)==1:
-                height = 12
-            if len(wires)==2:
-                height = 12*3+3
+        self.draw_.add(self.draw_.rect(insert=(x+42.5, y_up*30+25), size=(10, height), rx=0, ry=0,
+                                    fill=fill_c, stroke='black', stroke_width=1.5))
+        self.draw_.add(self.draw_.text(name, insert=(x+40+shift, y_up*30+20), font_size=9))
+        self.draw_.add(self.draw_.text('r ='+str(np.round(r,3)), insert=(x+55, y_up*30+18), font_size=7))
+        self.draw_.add(self.draw_.text('θ ='+str(np.round(theta,3)), insert=(x+55, y_up*30+24), font_size=7))
 
-            self.draw_.add(self.draw_.rect(insert=(x+42.5, y_up*30+25), size=(10, height), rx=0, ry=0,
-                                        fill=fill_c, stroke='black', stroke_width=1.5))
-            self.draw_.add(self.draw_.text(name, insert=(x+40+shift, y_up*30+20), font_size=9))
-            self.draw_.add(self.draw_.text('r ='+str(np.round(r,3)), insert=(x+55, y_up*30+18), font_size=7))
-            self.draw_.add(self.draw_.text('θ ='+str(np.round(theta,3)), insert=(x+55, y_up*30+24), font_size=7))
+    def draw_delay(self, order, wires, inputs=None):
+        """
+        Draw delay loop.
+        """
+        x = 90 * order + 40
+        y_up = wires[0]
+        for i in range(len(wires)):
+            wire_i = wires[i]
+            self.draw_.add(self.draw_.polyline(points=[(x, wire_i*30+30), (x+90, wire_i*30+30)],
+                                               fill='none', stroke='black', stroke_width=2))
+        self.draw_.add(self.draw_.circle(center=(x+46, y_up*30+25-4), r=9, stroke='black', fill='white', stroke_width=1.2))
+        self.draw_.add(self.draw_.text('N ='+str(inputs[0]), insert=(x+40, y_up*30+18), font_size=5))
+        self.draw_.add(self.draw_.text('θ ='+str(np.round(inputs[1].tolist(),2)), insert=(x+58, y_up*30+18), font_size=6))
+        self.draw_.add(self.draw_.text('ϕ ='+str(np.round(inputs[2].tolist(),2)), insert=(x+58, y_up*30+24), font_size=6))
 
     def draw_any(self, order, wires, name, para_dict=None):
         """

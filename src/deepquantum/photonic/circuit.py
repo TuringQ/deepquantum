@@ -639,14 +639,16 @@ class QumodeCircuit(Operation):
             return
         assert len(data) >= self.ndata
         count = 0
-        if self._if_delayloop:
-            encoders = self._encoders_tdm
-        else:
-            encoders = self.encoders
-        for op in encoders:
+        for op in self.encoders:
             count_up = count + op.npara
             op.init_para(data[count:count_up])
             count = count_up
+        if self._if_delayloop:
+            count = 0
+            for op in self._encoders_tdm:
+                count_up = count + op.npara
+                op.init_para(data[count:count_up])
+                count = count_up
 
     def get_unitary(self) -> torch.Tensor:
         """Get the unitary matrix of the photonic quantum circuit."""
