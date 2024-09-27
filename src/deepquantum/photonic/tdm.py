@@ -12,6 +12,9 @@ from .circuit import QumodeCircuit
 class QumodeCircuitTDM(QumodeCircuit):
     r"""Time-domain-multiplexed photonic quantum circuit.
 
+    Note: When using large squeezing parameters, we recommend using a double data type and
+        a smaller ``eps`` for Homodyne to avoid issues with non-positive definiteness of the covariance matrix.
+
     Args:
         nmode (int): The number of spatial modes in the circuit.
         init_state (Any): The initial state of the circuit. It can be a vacuum state with ``'vac'``.

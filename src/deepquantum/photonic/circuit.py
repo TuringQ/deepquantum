@@ -1815,7 +1815,7 @@ class QumodeCircuit(Operation):
         self,
         wires: Optional[int] = None,
         phi: Any = None,
-        eps: float = 1e-6,
+        eps: float = 2e-4,
         encode: bool = False,
         mu: Optional[float] = None,
         sigma: Optional[float] = None
@@ -1839,7 +1839,7 @@ class QumodeCircuit(Operation):
     def homodyne_x(
         self,
         wires: Optional[int] = None,
-        eps: float = 1e-6,
+        eps: float = 2e-4,
         mu: Optional[float] = None,
         sigma: Optional[float] = None
     ) -> None:
@@ -1857,7 +1857,7 @@ class QumodeCircuit(Operation):
     def homodyne_p(
         self,
         wires: Optional[int] = None,
-        eps: float = 1e-6,
+        eps: float = 2e-4,
         mu: Optional[float] = None,
         sigma: Optional[float] = None
     ) -> None:
