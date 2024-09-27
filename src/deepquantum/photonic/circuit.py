@@ -587,7 +587,7 @@ class QumodeCircuit(Operation):
             amp = torch.zeros(state.shape[0], dtype=unitary.dtype, device=unitary.device)
             if idx_nonzero.numel() != 0:
                 sub_mats = vmap(sub_matrix, in_dims=(None, 0, None))(unitary, state[idx_nonzero], final_state)
-                per_norms = self._get_permanent_norms(state[idx_nonzero], final_state)
+                per_norms = self._get_permanent_norms(state[idx_nonzero], final_state).to(unitary.dtype)
                 rst = vmap(self._get_amplitude_fock_vmap)(sub_mats, per_norms).flatten()
                 amp[idx_nonzero] = rst
         return amp
@@ -595,7 +595,7 @@ class QumodeCircuit(Operation):
     def _get_amplitude_fock_vmap(self, sub_mat: torch.Tensor, per_norm: torch.Tensor) -> torch.Tensor:
         """Get the transfer amplitude."""
         per = permanent(sub_mat)
-        amp = per / per_norm.to(per.dtype)
+        amp = per / per_norm
         return amp.reshape(-1)
 
     def get_prob(
@@ -879,7 +879,7 @@ class QumodeCircuit(Operation):
         """
         final_states = self._all_fock_basis
         sub_mats = vmap(sub_matrix, in_dims=(None, None, 0))(unitary, init_state, final_states)
-        per_norms = self._get_permanent_norms(init_state, final_states)
+        per_norms = self._get_permanent_norms(init_state, final_states).to(unitary.dtype)
         rst = vmap(self._get_prob_fock_vmap)(sub_mats, per_norms)
         state_dict = {}
         prob_dict = defaultdict(list)
