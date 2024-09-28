@@ -490,7 +490,7 @@ class QumodeCircuit(Operation):
                 probs_i = torch.cat(probs_half)
             else:
                 probs_half = torch.cat(probs_half)
-                probs_i = torch.cat([probs_half.squeeze(), torch.zeros(len(torch.cat(odd_basis)))])
+                probs_i = torch.cat([probs_half.squeeze(), torch.zeros(len(torch.cat(odd_basis)), device=probs_half.device)])
             probs_i = probs_i.squeeze()
         if detector == 'threshold':
             probs_i = []

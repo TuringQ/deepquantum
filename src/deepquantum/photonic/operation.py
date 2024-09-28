@@ -152,7 +152,7 @@ class Gate(Operation):
         matrix, _ = self.update_transform_xp()
         assert matrix.shape[-2] == matrix.shape[-1] == 2 * len(self.wires), 'The matrix may not act on xxpp operators.'
         s = matrix.new_zeros(2 * self.nmode, 2 * self.nmode)
-        s[torch.arange(2 * self.nmode), torch.arange(2 * self.nmode)] = 1
+        s[torch.arange(2 * self.nmode), torch.arange(2 * self.nmode)] = torch.ones(1, dtype=s.dtype, device=s.device)
         wires = self.wires + [wire + self.nmode for wire in self.wires]
         s[np.ix_(wires, wires)] = matrix
         return s
