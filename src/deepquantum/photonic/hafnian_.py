@@ -54,8 +54,8 @@ def get_submat_haf(a: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
 
 def poly_lambda(submat: torch.Tensor, int_partition: List, power: int, loop: bool = False) -> torch.Tensor:
     """Get the coefficient of the polynomial."""
-    x_mat = torch.eye(submat.shape[-1], dtype=submat.dtype, device=submat.device).reshape(submat.shape[-1] // 2,
-                                                                                          2, submat.shape[-1]).flip(1).reshape(submat.shape[-1], submat.shape[-1])
+    size = submat.shape[-1]
+    x_mat = torch.eye(size, dtype=submat.dtype, device=submat.device).reshape(size // 2, 2, size).flip(1).reshape(size, size)
     xaz = x_mat @ submat
     eigen = torch.linalg.eigvals(xaz) # eigen decomposition
     trace_list = torch.stack([(eigen ** i).sum() for i in range(0, power + 1)])
