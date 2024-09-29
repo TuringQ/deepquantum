@@ -115,8 +115,8 @@ class Gate(Operation):
         """Get the global unitary matrix acting on creation operators."""
         matrix = self.update_matrix()
         assert matrix.shape[-2] == matrix.shape[-1] == len(self.wires), 'The matrix may not act on creation operators.'
-        u = matrix.new_zeros(self.nmode, self.nmode)
-        u[torch.arange(self.nmode), torch.arange(self.nmode)] = 1
+        u = matrix.new_ones(1)
+        u = torch.block_diag(*([u] * self.nmode))
         u[np.ix_(self.wires, self.wires)] = matrix
         return u
 
@@ -151,8 +151,8 @@ class Gate(Operation):
         """Get the global symplectic matrix acting on quadrature operators in xxpp order."""
         matrix, _ = self.update_transform_xp()
         assert matrix.shape[-2] == matrix.shape[-1] == 2 * len(self.wires), 'The matrix may not act on xxpp operators.'
-        s = matrix.new_zeros(2 * self.nmode, 2 * self.nmode)
-        s[torch.arange(2 * self.nmode), torch.arange(2 * self.nmode)] = torch.ones(1, dtype=s.dtype, device=s.device)
+        s = matrix.new_ones(1)
+        s = torch.block_diag(*([s] * 2 * self.nmode))
         wires = self.wires + [wire + self.nmode for wire in self.wires]
         s[np.ix_(wires, wires)] = matrix
         return s
