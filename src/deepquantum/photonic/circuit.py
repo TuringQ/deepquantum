@@ -490,7 +490,8 @@ class QumodeCircuit(Operation):
                 probs_i = torch.cat(probs_half)
             else:
                 probs_half = torch.cat(probs_half)
-                probs_i = torch.cat([probs_half.squeeze(), torch.zeros(len(torch.cat(odd_basis)))])
+                probs_i = torch.cat([probs_half.squeeze(),
+                                     torch.zeros(len(torch.cat(odd_basis)), device=probs_half.device)])
             probs_i = probs_i.squeeze()
         if detector == 'threshold':
             probs_i = []
@@ -843,14 +844,13 @@ class QumodeCircuit(Operation):
         assert final_states.ndim == 2
         nmode = final_states.shape[-1]
         final_states = final_states.to(cov.device)
-        identity = torch.eye(nmode, dtype=cov.dtype, device=cov.device)
-        identity2 = torch.eye(2 * nmode, dtype=cov.dtype, device=cov.device)
+        identity = torch.eye(2 * nmode, dtype=cov.dtype, device=cov.device)
         cov_ladder = quadrature_to_ladder(cov)
         mean_ladder = quadrature_to_ladder(mean)
-        q = cov_ladder + identity2 / 2
+        q = cov_ladder + identity / 2
         det_q = torch.det(q)
-        x_mat = torch.block_diag(identity.fliplr(), identity.fliplr()).fliplr() + 0j
-        o_mat = identity2 - torch.inverse(q)
+        x_mat = identity.reshape(2, nmode, 2 * nmode).flip(0).reshape(2 * nmode, 2 * nmode) + 0j
+        o_mat = identity - torch.inverse(q)
         a_mat = x_mat @ o_mat
         gamma = mean_ladder.conj().mT @ torch.inverse(q)
         if detector == 'pnrd':
@@ -897,7 +897,7 @@ class QumodeCircuit(Operation):
                 haf = abs(hafnian(sub_mat, loop=loop)) ** 2
             else:
                 haf = hafnian(sub_mat, loop=loop)
-            prob = p_vac * haf / product_factorial(final_state)
+            prob = p_vac * haf / product_factorial(final_state).to(device=haf.device, dtype=haf.dtype)
         elif detector == 'threshold':
             final_state_double = torch.cat([final_state, final_state])
             sub_mat = sub_matrix(matrix, final_state_double, final_state_double)
