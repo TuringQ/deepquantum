@@ -897,7 +897,7 @@ class QumodeCircuit(Operation):
                 haf = abs(hafnian(sub_mat, loop=loop)) ** 2
             else:
                 haf = hafnian(sub_mat, loop=loop)
-            prob = p_vac * haf / product_factorial(final_state)
+            prob = p_vac * haf / product_factorial(final_state).to(device=haf.device, dtype=haf.dtype)
         elif detector == 'threshold':
             final_state_double = torch.cat([final_state, final_state])
             sub_mat = sub_matrix(matrix, final_state_double, final_state_double)
