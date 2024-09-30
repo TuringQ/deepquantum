@@ -11,8 +11,9 @@ import svgwrite
 from matplotlib import patches
 from torch import nn
 
-from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate, Squeezing, Squeezing2, Displacement, Delay
+from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate, Squeezing, Squeezing2, Displacement
 from .measurement import Homodyne
+from .operation import Delay
 
 info_dic = {'PS': ['teal', 0],
             'S': ['royalblue', 3],
