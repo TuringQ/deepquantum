@@ -17,10 +17,10 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 from .decompose import UnitaryDecomposer
 from .draw import DrawCircuit
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
-from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum, Delay
+from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum, DelayBS, DelayMZI
 from .hafnian_ import hafnian
 from .measurement import Homodyne
-from .operation import Operation, Gate
+from .operation import Operation, Gate, Delay
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
 from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc, shift_func
 from .state import FockState, GaussianState
@@ -120,7 +120,6 @@ class QumodeCircuit(Operation):
         self._nmode_tdm = None
         self._unroll_dict = None
         self._operators_tdm = None
-        self._encoders_tdm = None
         self._measurements_tdm = None
         self.wires_homodyne = []
 
@@ -143,7 +142,6 @@ class QumodeCircuit(Operation):
         cir._nmode_tdm = None
         cir._unroll_dict = None
         cir._operators_tdm = None
-        cir._encoders_tdm = None
         cir._measurements_tdm = None
         cir.wires_homodyne = rhs.wires_homodyne
         return cir
@@ -542,7 +540,6 @@ class QumodeCircuit(Operation):
         nmode = self._nmode_tdm
         if self._operators_tdm is None:
             self._operators_tdm = nn.Sequential()
-            self._encoders_tdm = []
             ndelay = np.array([0] * self.nmode) # counter of delay loops for each mode
             for op in self.operators:
                 if isinstance(op, Delay):
@@ -550,30 +547,18 @@ class QumodeCircuit(Operation):
                     ndelay[wire] += 1
                     idx_delay = -ndelay[wire] - 1
                     wires = [self._unroll_dict[wire][idx_delay][0], self._unroll_dict[wire][-1]]
-                    if op.convention == 'bs':
-                        bs = BeamSplitterTheta(inputs=op.theta, nmode=nmode, wires=wires, cutoff=op.cutoff,
-                                               requires_grad=op.requires_grad, noise=op.noise, mu=op.mu,
-                                               sigma=op.sigma)
-                        ps = PhaseShift(inputs=op.phi, nmode=nmode, wires=wires[0], cutoff=op.cutoff,
-                                        requires_grad=op.requires_grad, noise=op.noise, mu=op.mu, sigma=op.sigma)
-                        self._operators_tdm.append(bs)
-                        self._operators_tdm.append(ps)
-                        if op in self.encoders:
-                            self._encoders_tdm.append(bs)
-                            self._encoders_tdm.append(ps)
-                    elif op.convention == 'mzi':
-                        mzi = MZI(inputs=[op.theta, op.phi], nmode=nmode, wires=wires, cutoff=op.cutoff,
-                                  requires_grad=op.requires_grad, noise=op.noise, mu=op.mu, sigma=op.sigma)
-                        self._operators_tdm.append(mzi)
-                        if op in self.encoders:
-                            self._encoders_tdm.append(mzi)
+                    op.gates[0].nmode = nmode
+                    op.gates[0].wires = wires
+                    self._operators_tdm.append(op.gates[0])
+                    if isinstance(op, DelayBS):
+                        op.gates[1].nmode = nmode
+                        op.gates[1].wires = wires[0:1]
+                        self._operators_tdm.append(op.gates[1])
                 else:
                     op_tdm = copy(op)
                     op_tdm.nmode = nmode
                     op_tdm.wires = [self._unroll_dict[wire][-1] for wire in op.wires]
                     self._operators_tdm.append(op_tdm)
-                    if op in self.encoders:
-                        self._encoders_tdm.append(op_tdm)
         if self._measurements_tdm is None:
             self._measurements_tdm = nn.ModuleList()
             for op_m in self.measurements:
@@ -581,8 +566,6 @@ class QumodeCircuit(Operation):
                 op_m_tdm.nmode = nmode
                 op_m_tdm.wires = [self._unroll_dict[wire][-1] for wire in op_m.wires]
                 self._measurements_tdm.append(op_m_tdm)
-                if op_m in self.encoders:
-                    self._encoders_tdm.append(op_m_tdm)
 
     def _shift_state(self, state: List[torch.Tensor], nstep: int = 1, reverse: bool = False) -> List[torch.Tensor]:
         """Shift the state according to ``nstep``, which is equivalent to shifting the TDM circuit."""
@@ -620,12 +603,6 @@ class QumodeCircuit(Operation):
             count_up = count + op.npara
             op.init_para(data[count:count_up])
             count = count_up
-        if self._if_delayloop:
-            count = 0
-            for op in self._encoders_tdm:
-                count_up = count + op.npara
-                op.init_para(data[count:count_up])
-                count = count_up
 
     def get_unitary(self) -> torch.Tensor:
         """Get the unitary matrix of the photonic quantum circuit."""
@@ -1373,7 +1350,6 @@ class QumodeCircuit(Operation):
             self._nmode_tdm = None
             self._unroll_dict = None
             self._operators_tdm = None
-            self._encoders_tdm = None
             self._measurements_tdm = None
             self.wires_homodyne = op.wires_homodyne
         else:
@@ -1800,14 +1776,17 @@ class QumodeCircuit(Operation):
         sigma: Optional[float] = None
     ) -> None:
         """Add a delay loop."""
-        assert self.backend == 'gaussian'
         if mu is None:
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
         requires_grad = not encode
-        delay = Delay(inputs=inputs, ntau=ntau, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
-                      convention=convention, requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        if convention == 'bs':
+            delay = DelayBS(inputs=inputs, ntau=ntau, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+                            requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        elif convention == 'mzi':
+            delay = DelayMZI(inputs=inputs, ntau=ntau, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+                             requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(delay, encode=encode)
         self._if_delayloop = True
 

@@ -10,7 +10,7 @@ import torch
 from torch import nn
 
 import deepquantum.photonic as dqp
-from .operation import Gate
+from .operation import Gate, Delay
 from ..qmath import is_unitary
 
 
@@ -792,7 +792,7 @@ class BeamSplitterSingle(BeamSplitter):
         self.update_transform_xp()
 
     def extra_repr(self) -> str:
-        return f'wires={self.wires}, theta={self.theta.item()}'
+        return f'wires={self.wires}, theta={self.theta.item()}, convention={self.convention}'
 
 
 class UAnyGate(Gate):
@@ -1493,8 +1493,8 @@ class DisplacementMomentum(Displacement):
         self.update_transform_xp()
 
 
-class Delay(SingleGate):
-    r"""Delay loop.
+class DelayBS(Delay):
+    r"""Delay loop with ``BeamSplitterTheta`` and ``PhaseShift``.
 
     Args:
         inputs (Any, optional): The parameters of the gate. Default: ``None``
@@ -1503,8 +1503,6 @@ class Delay(SingleGate):
         wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        convention (str, optional): The convention of the type of the delay loop, including ``'bs'`` and ``'mzi'``.
-            Default: ``'bs'``
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
@@ -1518,52 +1516,78 @@ class Delay(SingleGate):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
-        convention: str = 'bs',
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(name='Delay', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
-                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
-        self.ntau = ntau
-        self.convention = convention
+        super().__init__(name='DelayBS', ntau=ntau, nmode=nmode, wires=wires, cutoff=cutoff,
+                         noise=noise, mu=mu, sigma=sigma)
+        self.requires_grad = requires_grad
+        bs = BeamSplitterTheta(inputs=None, nmode=2, wires=None, cutoff=cutoff, requires_grad=requires_grad,
+                               noise=noise, mu=mu, sigma=sigma)
+        ps = PhaseShift(inputs=None, nmode=1, wires=None, cutoff=cutoff, requires_grad=requires_grad,
+                        noise=noise, mu=mu, sigma=sigma)
+        self.gates.append(bs)
+        self.gates.append(ps)
         self.npara = 2
+        self.init_para(inputs)
 
-    def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Convert inputs to torch.Tensor."""
-        if inputs is None:
-            theta = torch.rand(1)[0] * 2 * torch.pi
-            phi   = torch.rand(1)[0] * 2 * torch.pi
-        else:
-            theta = inputs[0]
-            phi   = inputs[1]
-        if not isinstance(theta, (torch.Tensor, nn.Parameter)):
-            theta = torch.tensor(theta, dtype=torch.float)
-        if not isinstance(phi, (torch.Tensor, nn.Parameter)):
-            phi = torch.tensor(phi, dtype=torch.float)
-        if self.noise:
-            theta, phi = self._add_noise(theta, phi)
-        return theta, phi
+    @property
+    def theta(self):
+        return self.gates[0].theta
 
-    def _add_noise(self, theta: torch.Tensor, phi: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Add Gaussian noise to the parameters."""
-        theta = theta + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
-        phi = phi + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
-        return theta, phi
-
-    def init_para(self, inputs: Any = None) -> None:
-        """Initialize the parameters."""
-        noise = self.noise
-        self.noise = False
-        theta, phi = self.inputs_to_tensor(inputs)
-        self.noise = noise
-        if self.requires_grad:
-            self.theta = nn.Parameter(theta)
-            self.phi = nn.Parameter(phi)
-        else:
-            self.register_buffer('theta', theta)
-            self.register_buffer('phi', phi)
+    @property
+    def phi(self):
+        return self.gates[1].theta
 
     def extra_repr(self) -> str:
-        return f'wires={self.wires}, ntau={self.ntau}, theta={self.theta.item()}, phi={self.phi.item()}, convention={self.convention}'
+        return f'wires={self.wires}, ntau={self.ntau}, theta={self.theta.item()}, phi={self.phi.item()}'
+
+
+class DelayMZI(Delay):
+    r"""Delay loop with MZI.
+
+    Args:
+        inputs (Any, optional): The parameters of the gate. Default: ``None``
+        ntau (int, optional): The number of modes in the delay loop. Default: 1
+        nmode (int, optional): The number of spatial modes that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
+        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
+        mu (float, optional): The mean of Gaussian noise. Default: 0
+        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        ntau: int = 1,
+        nmode: int = 1,
+        wires: Union[int, List[int], None] = None,
+        cutoff: Optional[int] = None,
+        requires_grad: bool = False,
+        noise: bool = False,
+        mu: float = 0,
+        sigma: float = 0.1
+    ) -> None:
+        super().__init__(name='DelayMZI', ntau=ntau, nmode=nmode, wires=wires, cutoff=cutoff,
+                         noise=noise, mu=mu, sigma=sigma)
+        self.requires_grad = requires_grad
+        mzi = MZI(inputs=inputs, nmode=2, wires=None, cutoff=cutoff, phi_first=False, requires_grad=requires_grad,
+                  noise=noise, mu=mu, sigma=sigma)
+        self.gates.append(mzi)
+        self.npara = 2
+
+    @property
+    def theta(self):
+        return self.gates[0].theta
+
+    @property
+    def phi(self):
+        return self.gates[0].phi
+
+    def extra_repr(self) -> str:
+        return f'wires={self.wires}, ntau={self.ntau}, theta={self.theta.item()}, phi={self.phi.item()}'
