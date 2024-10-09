@@ -135,7 +135,7 @@ def product_factorial(state: torch.Tensor) -> torch.Tensor:
     return torch.exp(torch.lgamma(state.double() + 1).sum(-1, keepdim=True)) # nature log gamma function
 
 
-def fock_combinations(nmode: int, nphoton: int) -> List:
+def fock_combinations(nmode: int, nphoton: int, cutoff: int) -> List:
     """Generate all possible combinations of Fock states for a given number of modes and photons.
 
     Args:
@@ -165,7 +165,7 @@ def fock_combinations(nmode: int, nphoton: int) -> List:
             if num_sum == 0:
                 result.append(state)
             return
-        for i in range(num_sum + 1):
+        for i in range(min((num_sum + 1), cutoff)):
             backtrack(state + [i], length - 1, num_sum - i)
 
     backtrack([], nmode, nphoton)

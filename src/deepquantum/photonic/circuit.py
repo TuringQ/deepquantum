@@ -653,10 +653,8 @@ class QumodeCircuit(Operation):
         """Get all possible fock basis states according to the initial state."""
         nphoton = torch.max(torch.sum(init_state, dim=-1))
         nmode = len(init_state)
-        states = torch.tensor(fock_combinations(nmode, nphoton), dtype=torch.long, device=init_state.device)
-        max_values, _ = torch.max(states, dim=1)
-        mask = max_values < self.cutoff
-        return torch.masked_select(states, mask.unsqueeze(1)).view(-1, states.shape[-1])
+        states = torch.tensor(fock_combinations(nmode, nphoton, self.cutoff), dtype=torch.long, device=init_state.device)
+        return states
 
     def _get_odd_even_fock_basis(self, detector: Optional[str] = None) -> Union[Tuple[List], List]:
         """Split the fock basis into the odd and even photon number parts."""
