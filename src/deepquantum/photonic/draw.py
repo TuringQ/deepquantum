@@ -47,12 +47,17 @@ class DrawCircuit():
         self.ops = circuit_operators
         self.mea = measurements
 
-    def draw(self):
+    def draw(self, depth=None, ops=None, measurements=None):
         """Draw circuit."""
         order_dic = defaultdict(list) # 当key不存在时对应的value是[]
         nmode = self.nmode
-        depth = [0] * nmode # record the depth of each mode
-        for op in self.ops:
+        if depth is None:
+            depth = [0] * nmode # record the depth of each mode
+        if ops is None:
+            ops = self.ops
+        if measurements is None:
+            measurements = self.mea
+        for op in ops:
             if isinstance(op, BeamSplitter):
                 if isinstance(op, MZI):
                     if op.phi_first:
@@ -118,8 +123,8 @@ class DrawCircuit():
                 for i in op.wires:
                     depth[i] = depth[i]+1
 
-        if len(self.mea) > 0:
-            for mea in self.mea:
+        if len(measurements) > 0:
+            for mea in measurements:
                 if isinstance(mea, Homodyne):
                     name_ = 'M'
                     phi = mea.phi.detach()
@@ -618,3 +623,42 @@ class DrawClements():
                 for j in range(len_):
                     plt.text(3.2*j+0.6+1.6, 1-0.25*i[0]+0.05, f'{temp_values[j][0]:.3f}', fontsize=fs)
                     plt.text(3.2*j+0.6+2.4, 1-0.25*i[0]+0.05, f'{temp_values[j][1]:.3f}', fontsize=fs)
+
+class DrawCircuit_TDM_global(DrawCircuit):
+    def __init__(
+        self,
+        shots: int,
+        circuit_name: str,
+        circuit_nmode: int,
+        circuit_operators: nn.Sequential,
+        measurements: nn.ModuleList
+    ) -> None:
+        super().__init__(circuit_name=circuit_name, circuit_nmode=circuit_nmode,circuit_operators=circuit_operators,
+                        measurements=measurements)
+        self.shots = shots
+
+    def draw(self):
+        shots = self.shots
+        assert len(self.ops) % shots == 0
+        assert len(self.mea) % shots == 0
+        k1 = len(self.ops) // shots
+        k2 = len(self.mea) // shots
+        depth = [0] * self.nmode
+        for i in range(shots):
+            ops = self.ops[k1 * i: k1 * (i + 1)]
+            meas = self.mea[k2 * i: k2 * (i + 1)]
+            super().draw(depth=depth, ops=ops, measurements=meas)
+            depth = [max(self.depth)] * self.nmode
+            self.barrier(order=depth[0])
+
+    def barrier(self, order):
+        x = 90 * order + 40
+        y_min = 15
+        y_max  = self.nmode * 30 + 25
+        self.draw_.add(self.draw_.polyline(points=[(x, y_min),(x, y_max)],
+                                          fill='none', stroke_dasharray='5,5', stroke='black', stroke_width=2))
+
+
+
+
+
