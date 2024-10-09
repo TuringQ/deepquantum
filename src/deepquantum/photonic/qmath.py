@@ -136,21 +136,24 @@ def product_factorial(state: torch.Tensor) -> torch.Tensor:
 
 
 def fock_combinations(nmode: int, nphoton: int, cutoff: int) -> List:
-    """Generate all possible combinations of Fock states for a given number of modes and photons.
+    """Generate all possible combinations of Fock states for a given number of modes, photons, and cutoff.
 
     Args:
         nmode (int): The number of modes in the system.
         nphoton (int): The total number of photons in the system.
+        cutoff (int): The truncation number of photons in each mode.
 
     Returns:
         List[List[int]]: A list of all possible Fock states, each represented by a list of
         occupation numbers for each mode.
 
     Examples:
-        >>> fock_combinations(2, 3)
+        >>> fock_combinations(2, 3, 4)
         [[0, 3], [1, 2], [2, 1], [3, 0]]
-        >>> fock_combinations(3, 2)
+        >>> fock_combinations(3, 2, 4)
         [[0, 0, 2], [0, 1, 1], [0, 2, 0], [1, 0, 1], [1, 1, 0], [2, 0, 0]]
+        >>> fock_combinations(4, 4, 2)
+        [[1, 1, 1, 1]]
     """
     result = []
     def backtrack(state: List[int], length: int, num_sum: int) -> None:
