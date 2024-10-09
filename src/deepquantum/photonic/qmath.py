@@ -148,9 +148,9 @@ def fock_combinations(nmode: int, nphoton: int, cutoff: Optional[int] = None) ->
         occupation numbers for each mode.
 
     Examples:
-        >>> fock_combinations(2, 3, 4)
+        >>> fock_combinations(2, 3)
         [[0, 3], [1, 2], [2, 1], [3, 0]]
-        >>> fock_combinations(3, 2, 4)
+        >>> fock_combinations(3, 2)
         [[0, 0, 2], [0, 1, 1], [0, 2, 0], [1, 0, 1], [1, 1, 0], [2, 0, 0]]
         >>> fock_combinations(4, 4, 2)
         [[1, 1, 1, 1]]
