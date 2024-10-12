@@ -106,6 +106,16 @@ class QumodeCircuitTDM(QumodeCircuit):
         circ_global.measurements =  deepcopy(self._measurements_tdm)
         sublists_ = deepcopy(list(self._unroll_dict.values()))
         no_delay_list = [i[-1] for i in sublists_]
+        for i in range(len(circ_global.operators)): # add gate.encode??
+            op  = circ_global.operators[i]
+            if self._operators_tdm[i] in self._encoders_tdm:
+                circ_global.encoders.append(op)
+            op.nmode = nmode3
+        for i in range(len(circ_global.measurements)):
+            mea = circ_global.measurements[i]
+            if self._measurements_tdm in self._encoders_tdm:
+                circ_global.encoders.append(mea)
+            mea.nmode = nmode3
 
         map_dict = defaultdict(list)
         for i in range(nmode2, nmode3, nmode1):
@@ -117,6 +127,7 @@ class QumodeCircuitTDM(QumodeCircuit):
                 mea_copy = deepcopy(mea)
                 wires = mea_copy.wires
                 mea_copy.wires = [map_dict[wires[0]][i]] # single wire
+                mea_copy.nmode = nmode3
                 circ_global.measurements.append(mea_copy)
 
         for i in range(shots-1):
@@ -129,6 +140,7 @@ class QumodeCircuitTDM(QumodeCircuit):
                     for k in wires:
                         pos.append(map_dict[k][i])
                     op_copy.wires = pos
+                    op_copy.nmode = nmode3
                     circ_global.operators.append(op_copy)
                 else:
                     if len(wires)==2:
@@ -140,17 +152,22 @@ class QumodeCircuitTDM(QumodeCircuit):
                                 temp[k] = shift_func(temp[k], 1)
                                 new_wires = [temp[k][0], map_dict[wires[-1]][i]]
                         op_copy.wires = new_wires
+                        op_copy.nmode = nmode3
                         circ_global.operators.append(op_copy)
                     if len(wires)==1:
                         op_copy.wires = [temp[k][0]]
+                        op_copy.nmode = nmode3
                         circ_global.operators.append(op_copy)
+                if op in self._encoders_tdm:
+                     circ_global.encoders.append(op_copy)
         return circ_global
 
-    def draw_global(self, shots: int, filename: Optional[str] = None):
-        # if self._cir_global is None:
-        self._cir_global = self.construct_global(shots)
-        cir_global = self._cir_global
-
+    def draw_global(self, shots: int, filename: Optional[str] = None, circuit: Optional[QumodeCircuit] = None):
+        if circuit is None:
+            self._cir_global = self.construct_global(shots)
+            cir_global = self._cir_global
+        else:
+            cir_global = circuit
         self.draw_circuit = DrawCircuit_TDM_global(shots, self.name, cir_global.nmode,
                                                   cir_global.operators, cir_global.measurements)
         self.draw_circuit.draw()
