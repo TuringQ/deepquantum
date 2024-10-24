@@ -39,7 +39,6 @@ class QumodeCircuitTDM(QumodeCircuit):
         super().__init__(nmode=nmode, init_state=init_state, cutoff=cutoff, backend='gaussian', basis=False,
                          detector='pnrd', name=name, mps=False, chi=None, noise=noise, mu=mu, sigma=sigma)
         self.samples = None
-        self._cir_global = None
 
     def forward(
         self,
