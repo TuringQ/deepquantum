@@ -5,6 +5,7 @@ Base classes
 from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
+import random
 import torch
 from torch import nn
 
@@ -102,7 +103,6 @@ class Entanglement(Operation):
         i, j = self.wires
         x = x.reshape(-1)
         nqubit = int(torch.log2(torch.tensor(len(x))))
-        print(nqubit)
         perm = [i, j] + [k for k in range(nqubit) if k not in (i, j)]
         inv_perm = [perm.index(k) for k in range(nqubit)]
         x = x.reshape([2] * nqubit)
@@ -121,22 +121,62 @@ class Measurement(Operation):
     """
     def __init__(
         self,
-        name: Optional[str] = None,
-        wire: Union[int, List[int]] = None,
+        nqubit: int=1,
+        wires: Union[int, List[int]] = None,
         plane: Optional[str] = None,
         angle: float = 0,
         t_domain: Union[int, List[int]] = None,
         s_domain: Union[int, List[int]] = None
     ) -> None:
+        if plane is None:
+            plane = 'XY'
         self.plane = plane
+        if not isinstance(angle, torch.Tensor):
+            angle = torch.tensor(angle)
         self.angle = angle
         self.t_domain = t_domain
         self.s_domain = s_domain
-        super().__init__(name=name, wires=wire)
+        wires = self._convert_indices(wires)
+        super().__init__(name='Measurement', nqubit=nqubit, wires=wires)
 
-    def forward(self, state):
-        pass
-        return
+    def func_j_alpha(self, alpha):
+        if self.plane in ['XY', 'YX']: # need check
+            matrix_j = torch.sqrt(torch.tensor(2))/2 * torch.tensor([[1, torch.exp(-1j * alpha)],
+                                                                     [1, -torch.exp(-1j * alpha)]])
+        elif self.plane in ['XZ', 'ZX']:
+            matrix_j = torch.tensor([[torch.cos(alpha/2), -1j * torch.sin(alpha/2)],
+                                     [torch.cos(alpha/2), 1j * torch.sin(alpha/2)]])
+
+        elif self.plane in ['YZ', 'ZY']:
+            matrix_j = torch.tensor([[torch.cos(alpha/2), torch.sin(alpha/2)],
+                                     [torch.sin(alpha/2), -torch.cos(alpha/2)]])
+        else:
+            raise ValueError(f"Unsupported measurement plane: {self.plane}")
+        return matrix_j
+
+    def forward(self, wires: int, x: torch.Tensor) -> torch.Tensor:
+        i = wires
+        x = x.reshape(-1)
+        nqubit = int(torch.log2(torch.tensor(len(x))))
+        perm = [i] + [k for k in range(nqubit) if k != i]
+        # inv_perm = [perm.index(k) for k in range(nqubit)]
+        x = x.reshape([2] * nqubit)
+        x = x.permute(*perm).reshape(-1)
+        j_alpha = self.func_j_alpha(self.angle)
+        if self.plane in ['YZ', 'ZY']:
+            x = torch.matmul(j_alpha.to(x.dtype), x.view(2, -1))
+        else:
+            x = torch.matmul(j_alpha.to(torch.complex64), x.view(2, -1).to(torch.complex64))
+        probs = torch.abs(x) ** 2
+        probs = probs.sum(-1)
+        sample = random.choices([0, 1], weights=probs, k=1)
+        self.sample = sample
+        x = x.reshape([2] * nqubit)
+        x_measured = x[sample[0], ...]
+        return x_measured
+
+    def extra_repr(self) -> str:
+        return f'wires={self.wires}, plane={self.plane}, angle={self.angle}, t_domain={self.t_domain}, s_domain={self.s_domain}'
 
 
 
