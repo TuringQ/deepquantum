@@ -625,27 +625,27 @@ class DrawClements():
                     plt.text(3.2*j+0.6+1.6, 1-0.25*i[0]+0.05, f'{temp_values[j][0]:.3f}', fontsize=fs)
                     plt.text(3.2*j+0.6+2.4, 1-0.25*i[0]+0.05, f'{temp_values[j][1]:.3f}', fontsize=fs)
 
-class DrawCircuit_TDM_global(DrawCircuit):
+
+class DrawGlobalCircuit(DrawCircuit):
     def __init__(
         self,
-        shots: int,
         circuit_name: str,
         circuit_nmode: int,
         circuit_operators: nn.Sequential,
-        measurements: nn.ModuleList
+        measurements: nn.ModuleList,
+        nstep: int
     ) -> None:
         super().__init__(circuit_name=circuit_name, circuit_nmode=circuit_nmode,circuit_operators=circuit_operators,
-                        measurements=measurements)
-        self.shots = shots
+                         measurements=measurements)
+        self.nstep = nstep
 
     def draw(self):
-        shots = self.shots
-        assert len(self.ops) % shots == 0
-        assert len(self.mea) % shots == 0
-        k1 = len(self.ops) // shots
-        k2 = len(self.mea) // shots
+        assert len(self.ops) % self.nstep == 0
+        assert len(self.mea) % self.nstep == 0
+        k1 = len(self.ops) // self.nstep
+        k2 = len(self.mea) // self.nstep
         depth = [0] * self.nmode
-        for i in range(shots):
+        for i in range(self.nstep):
             ops = self.ops[k1 * i: k1 * (i + 1)]
             meas = self.mea[k2 * i: k2 * (i + 1)]
             super().draw(depth=depth, ops=ops, measurements=meas)
@@ -658,8 +658,3 @@ class DrawCircuit_TDM_global(DrawCircuit):
         y_max  = self.nmode * 30 + 25
         self.draw_.add(self.draw_.polyline(points=[(x, y_min),(x, y_max)],
                                           fill='none', stroke_dasharray='5,5', stroke='black', stroke_width=2))
-
-
-
-
-
