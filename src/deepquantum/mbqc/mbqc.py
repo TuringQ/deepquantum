@@ -6,7 +6,7 @@ from copy import copy
 import torch
 from networkx import Graph, draw_networkx
 from torch import nn
-from operation import Operation, Node, Entanglement, XCorrection
+from operation import Operation, Node, Entanglement, Measurement, XCorrection
 from qmath import kron
 
 class MBQC(Operation):
@@ -30,6 +30,8 @@ class MBQC(Operation):
         self.ndata = 0
         self._node_list = list(range(self.nqubit))
         self._edge_list = [ ]
+        self.measured_dic = {}
+        self.unmeasured_dic = {i: i for i in range(self.nqubit)}
 
         if init_state is None:
             plus_state = torch.sqrt(torch.tensor(2))*torch.tensor([1,1])/2
@@ -38,6 +40,7 @@ class MBQC(Operation):
 
     def set_graph(self, graph: List[List]):
         vertices, edges = graph
+        self.unmeasured_dic = {i: i for i in range(self.nqubit)}
         assert len(vertices) > self.nqubit
         for i in vertices:
             if i not in self._node_list:
@@ -97,6 +100,7 @@ class MBQC(Operation):
         self._node_list.append(node_.wires[0])
         self.add(node_)
         self._bg_qubit += 1
+        self.unmeasured_dic[node_.wires[0]] = node_.wires[0]
 
     def entanglement(self, wires: List[int] = None):
         assert wires[0] in self._node_list and wires[1] in self._node_list, \
@@ -104,6 +108,12 @@ class MBQC(Operation):
         entang_ = Entanglement(wires=wires)
         self._edge_list.append(wires)
         self.add(entang_)
+
+    def measurement(self, wires: int = None):
+        print(self.unmeasured_dic)
+        # wires = self.unmeasured_dic[wires]
+        mea_op = Measurement(wires=wires)
+        self.add(mea_op)
 
     def X(self, wires: Union[int, List[int]] = None, signal_domain: List[int] = None):
         assert wires in self._node_list, 'no command acts on a qubit not yet prepared, unless it is an input qubit'
@@ -118,7 +128,16 @@ class MBQC(Operation):
     def forward(self):
         state = self.init_state
         for op in self.operators:
-            state = op.forward(state)
+            if isinstance(op, Measurement):
+                wires = self.unmeasured_dic[op.wires[0]]
+                state = op.forward(wires, state)
+                self.measured_dic[op.wires[0]] = op.sample
+                del self.unmeasured_dic[op.wires[0]]
+                for key in self.unmeasured_dic:
+                    if self.unmeasured_dic[key] > op.wires[0]:
+                        self.unmeasured_dic[key] -= 1
+            else:
+                state = op.forward(state)
         self._bg_state = state
         return state
 
@@ -129,7 +148,8 @@ class MBQC(Operation):
             pos_x = i % wid
             pos_y = i // wid
             pos[i] = (pos_x, -pos_y)
-        node_colors = ['green' for _ in self._node_list]
+        measured_nq = list(self.measured_dic.keys())
+        node_colors = ['gray' if i in measured_nq else 'green' for i in self._node_list]
         node_edge_colors = ['red' if i < self.nqubit else 'black' for i in self._node_list]
         draw_networkx(g, pos=pos,
                       node_color=node_colors,
