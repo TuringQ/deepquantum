@@ -9,7 +9,6 @@ from torch import nn
 from operation import Operation, Node, Entanglement
 from qmath import kron
 
-
 class MBQC(Operation):
     r"""Measurement based quantum circuit.
     nqubit: the number of input qubits
@@ -61,7 +60,7 @@ class MBQC(Operation):
         encode: bool = False,
         wires: Union[int, List[int], None] = None
     ) -> None:
-        """A method that adds an operation to the photonic quantum circuit.
+        """A method that adds an operation to the mbqc.
 
         The operation can be a gate or another photonic quantum circuit. The method also updates the
         attributes of the photonic quantum circuit. If ``wires`` is specified, the parameters of gates
@@ -119,5 +118,11 @@ class MBQC(Operation):
             pos_x = i % wid
             pos_y = i // wid
             pos[i] = (pos_x, -pos_y)
-        draw_networkx(g, pos=pos)
+        node_colors = ['green' for _ in self._node_list]
+        node_edge_colors = ['red' if i < self.nqubit else 'black' for i in self._node_list]
+        draw_networkx(g, pos=pos,
+                      node_color=node_colors,
+                      edgecolors=node_edge_colors,
+                      node_size=500,
+                      width=2)
         return
