@@ -15,7 +15,7 @@ from torch import nn, vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 from .decompose import UnitaryDecomposer
-from .draw import DrawCircuit
+from .draw import DrawCircuit, DrawCircuit_TDM_global
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
 from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum, Delay
 from .hafnian_ import hafnian
@@ -1306,23 +1306,27 @@ class QumodeCircuit(Operation):
         """Get the max number of gates on the wires."""
         return max(self.depth)
 
-    def draw(self, filename: Optional[str] = None, unroll: bool = False):
+    def draw(self, filename: Optional[str] = None, draw_global: bool = False):
         """Visualize the photonic quantum circuit.
 
         Args:
             filename (str or None, optional): The path for saving the figure.
         """
-        if self._if_delayloop and unroll:
+        if self._if_delayloop and draw_global:
             self._prepare_unroll_dict()
             self._unroll_circuit()
             nmode = self._nmode_tdm
             operators = self._operators_tdm
             measurements = self._measurements_tdm
+            self.draw_circuit = DrawCircuit(self.name, nmode, operators, measurements)
         else:
             nmode = self.nmode
             operators = self.operators
             measurements = self.measurements
-        self.draw_circuit = DrawCircuit(self.name, nmode, operators, measurements)
+            if draw_global:
+                self.draw_circuit = DrawCircuit_TDM_global(self._shots, self.name, nmode, operators, measurements)
+            else:
+                self.draw_circuit = DrawCircuit(self.name, nmode, operators, measurements)
         self.draw_circuit.draw()
         if filename is not None:
             self.draw_circuit.save(filename)

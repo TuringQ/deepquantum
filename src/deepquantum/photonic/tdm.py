@@ -99,6 +99,8 @@ class QumodeCircuitTDM(QumodeCircuit):
     def construct_global(self, shots):
         """Construct the global circuit for TDM given shots."""
         assert shots >=1, 'shots must be larger than 1'
+        self._prepare_unroll_dict()
+        self._unroll_circuit()
         nmode1 = self.nmode
         nmode2 = self._nmode_tdm
         nmode3 = nmode2 + (shots-1) * nmode1
@@ -169,22 +171,5 @@ class QumodeCircuitTDM(QumodeCircuit):
                      circ_global.encoders.append(op_copy)
                      circ_global.ndata += op_copy.npara
                 circ_global.npara += op_copy.npara
+        circ_global._shots = shots
         return circ_global
-
-    def draw_global(self, shots: int, filename: Optional[str] = None, circuit: Optional[QumodeCircuit] = None):
-        if circuit is None:
-            self._cir_global = self.construct_global(shots)
-            cir_global = self._cir_global
-        else:
-            cir_global = circuit
-        self.draw_circuit = DrawCircuit_TDM_global(shots, self.name, cir_global.nmode,
-                                                  cir_global.operators, cir_global.measurements)
-        self.draw_circuit.draw()
-        if filename is not None:
-            self.draw_circuit.save(filename)
-        else:
-            if cir_global.nmode > 50:
-                print('Too many modes in the circuit, please set filename to save the figure.')
-        return self.draw_circuit.draw_
-
-
