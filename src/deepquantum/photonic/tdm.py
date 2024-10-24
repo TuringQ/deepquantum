@@ -171,5 +171,5 @@ class QumodeCircuitTDM(QumodeCircuit):
                      circ_global.encoders.append(op_copy)
                      circ_global.ndata += op_copy.npara
                 circ_global.npara += op_copy.npara
-        circ_global._shots = shots
+        circ_global._draw_nstep = shots
         return circ_global
