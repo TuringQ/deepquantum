@@ -14,7 +14,7 @@ dependencies = [
     'scipy==1.13.1',
     'sympy',
     'svgwrite',
-    'bayesian-optimization',
+    'bayesian-optimization<2',
     'networkx',
     'tqdm'
 ]

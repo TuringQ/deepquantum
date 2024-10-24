@@ -6,7 +6,7 @@ import copy
 import itertools
 import warnings
 from collections import defaultdict
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -135,12 +135,13 @@ def product_factorial(state: torch.Tensor) -> torch.Tensor:
     return torch.exp(torch.lgamma(state.double() + 1).sum(-1, keepdim=True)) # nature log gamma function
 
 
-def fock_combinations(nmode: int, nphoton: int) -> List:
-    """Generate all possible combinations of Fock states for a given number of modes and photons.
+def fock_combinations(nmode: int, nphoton: int, cutoff: Optional[int] = None) -> List:
+    """Generate all possible combinations of Fock states for a given number of modes, photons, and cutoff.
 
     Args:
         nmode (int): The number of modes in the system.
         nphoton (int): The total number of photons in the system.
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
 
     Returns:
         List[List[int]]: A list of all possible Fock states, each represented by a list of
@@ -151,7 +152,11 @@ def fock_combinations(nmode: int, nphoton: int) -> List:
         [[0, 3], [1, 2], [2, 1], [3, 0]]
         >>> fock_combinations(3, 2)
         [[0, 0, 2], [0, 1, 1], [0, 2, 0], [1, 0, 1], [1, 1, 0], [2, 0, 0]]
+        >>> fock_combinations(4, 4, 2)
+        [[1, 1, 1, 1]]
     """
+    if cutoff is None:
+        cutoff = nphoton + 1
     result = []
     def backtrack(state: List[int], length: int, num_sum: int) -> None:
         """A helper function that uses backtracking to generate all possible Fock states.
@@ -165,7 +170,7 @@ def fock_combinations(nmode: int, nphoton: int) -> List:
             if num_sum == 0:
                 result.append(state)
             return
-        for i in range(num_sum + 1):
+        for i in range(min((num_sum + 1), cutoff)):
             backtrack(state + [i], length - 1, num_sum - i)
 
     backtrack([], nmode, nphoton)

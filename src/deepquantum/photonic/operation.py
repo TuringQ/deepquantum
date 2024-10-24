@@ -2,7 +2,7 @@
 Base classes
 """
 
-from typing import List, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -272,3 +272,59 @@ class Gate(Operation):
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}'
+
+class Delay(Operation):
+    r"""Delay loop.
+
+    Args:
+        name (str or None, optional): The name of the quantum operation. Default: ``'Delay'``
+        ntau (int, optional): The number of modes in the delay loop. Default: 1
+        nmode (int, optional): The number of spatial modes that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
+        mu (float, optional): The mean of Gaussian noise. Default: 0
+        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+    """
+    def __init__(
+        self,
+        name = 'Delay',
+        ntau: int = 1,
+        nmode: int = 1,
+        wires: Union[int, List[int], None] = None,
+        cutoff: Optional[int] = None,
+        noise: bool = False,
+        mu: float = 0,
+        sigma: float = 0.1
+    ) -> None:
+        self.nmode = nmode
+        if wires is None:
+            wires = [0]
+        wires = self._convert_indices(wires)
+        if cutoff is None:
+            cutoff = 2
+        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, noise=noise, mu=mu, sigma=sigma)
+        assert len(self.wires) == 1, f'{self.name} must act on one mode'
+        self.ntau = ntau
+        self.gates = nn.Sequential()
+
+    def init_para(self, inputs: Any = None) -> None:
+        """Initialize the parameters."""
+        count = 0
+        for gate in self.gates:
+            if inputs is None:
+                gate.init_para()
+            else:
+                gate.init_para(inputs[count:count+gate.npara])
+            count += gate.npara
+
+    def forward(
+        self,
+        x: Union[torch.Tensor, List[torch.Tensor], MatrixProductState]
+    ) -> Union[torch.Tensor, List[torch.Tensor], MatrixProductState]:
+        """Perform a forward pass."""
+        return self.gates(x)
+
+    def extra_repr(self) -> str:
+        return f'wires={self.wires}, ntau={self.ntau}'
