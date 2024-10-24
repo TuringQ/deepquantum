@@ -15,7 +15,7 @@ from torch import nn, vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 from .decompose import UnitaryDecomposer
-from .draw import DrawCircuit, DrawCircuit_TDM_global
+from .draw import DrawCircuit, DrawGlobalCircuit
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
 from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum, DelayBS, DelayMZI
 from .hafnian_ import hafnian
@@ -142,6 +142,11 @@ class QumodeCircuit(Operation):
 
         cir._if_delayloop = self._if_delayloop and rhs._if_delayloop
         cir._nmode_tdm = self._nmode_tdm + rhs._nmode_tdm - self.nmode
+        cir._ntau_dict = defaultdict(list)
+        for key, value in self._ntau_dict.items():
+            cir._ntau_dict[key].extend(value)
+        for key, value in rhs._ntau_dict.items():
+            cir._ntau_dict[key].extend(value)
         cir._unroll_dict = None
         cir._operators_tdm = None
         cir._measurements_tdm = None
@@ -1341,6 +1346,7 @@ class QumodeCircuit(Operation):
 
         Args:
             filename (str or None, optional): The path for saving the figure.
+            unroll (bool, optional): Whether to draw the unrolled circuit.
         """
         if self._if_delayloop and unroll:
             self._prepare_unroll_dict()
@@ -1354,7 +1360,7 @@ class QumodeCircuit(Operation):
             operators = self.operators
             measurements = self.measurements
             if unroll:
-                self.draw_circuit = DrawCircuit_TDM_global(self._draw_nstep, self.name, nmode, operators, measurements)
+                self.draw_circuit = DrawGlobalCircuit(self.name, nmode, operators, measurements, self._draw_nstep)
             else:
                 self.draw_circuit = DrawCircuit(self.name, nmode, operators, measurements)
         self.draw_circuit.draw()
@@ -1405,6 +1411,8 @@ class QumodeCircuit(Operation):
             self.depth += op.depth
             self._if_delayloop = self._if_delayloop and op._if_delayloop
             self._nmode_tdm += op._nmode_tdm - self.nmode
+            for key, value in op._ntau_dict.items():
+                self._ntau_dict[key].extend(value)
             self._unroll_dict = None
             self._operators_tdm = None
             self._measurements_tdm = None
@@ -1847,8 +1855,8 @@ class QumodeCircuit(Operation):
                              requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(delay, encode=encode)
         self._if_delayloop = True
-        self._ntau_dict[delay.wires[0]].append(delay.ntau)
         self._nmode_tdm += delay.ntau
+        self._ntau_dict[delay.wires[0]].append(delay.ntau)
 
     def homodyne(
         self,
