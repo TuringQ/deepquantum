@@ -6,7 +6,7 @@ import itertools
 import random
 import warnings
 from collections import defaultdict, Counter
-from copy import copy
+from copy import copy, deepcopy
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -117,11 +117,13 @@ class QumodeCircuit(Operation):
         self._all_fock_basis = None
 
         self._if_delayloop = False
-        self._nmode_tdm = None
+        self._nmode_tdm = self.nmode
+        self._ntau_dict = defaultdict(list)
         self._unroll_dict = None
         self._operators_tdm = None
         self._measurements_tdm = None
         self.wires_homodyne = []
+        self._draw_nstep = None
 
     def __add__(self, rhs: 'QumodeCircuit') -> 'QumodeCircuit':
         """Addition of the ``QumodeCircuit``.
@@ -139,11 +141,12 @@ class QumodeCircuit(Operation):
         cir.depth = self.depth + rhs.depth
 
         cir._if_delayloop = self._if_delayloop and rhs._if_delayloop
-        cir._nmode_tdm = None
+        cir._nmode_tdm = self._nmode_tdm + rhs._nmode_tdm - self.nmode
         cir._unroll_dict = None
         cir._operators_tdm = None
         cir._measurements_tdm = None
         cir.wires_homodyne = rhs.wires_homodyne
+        cir._draw_nstep = None
         return cir
 
     def to(self, arg: Any) -> 'QumodeCircuit':
@@ -502,18 +505,11 @@ class QumodeCircuit(Operation):
     def _prepare_unroll_dict(self) -> Dict[int, List]:
         """Create a dictionary that maps spatial modes to concurrent modes."""
         if self._unroll_dict is None:
-            ntau_dict = defaultdict(list)
             self._unroll_dict = defaultdict(list)
-            nmode_delay = 0
-            for op in self.operators:
-                if isinstance(op, Delay):
-                    ntau_dict[op.wires[0]].append(op.ntau)
-                    nmode_delay += op.ntau
-            self._nmode_tdm = self.nmode + nmode_delay
             wires = list(range(self._nmode_tdm))
             start = 0
             for i in range(self.nmode):
-                for ntau in reversed(ntau_dict[i]):
+                for ntau in reversed(self._ntau_dict[i]):
                     self._unroll_dict[i].append(wires[start:start+ntau]) # modes in delay line
                     start += ntau
                 self._unroll_dict[i].append(wires[start]) # spatial mode
@@ -566,6 +562,65 @@ class QumodeCircuit(Operation):
                 op_m_tdm.nmode = nmode
                 op_m_tdm.wires = [self._unroll_dict[wire][-1] for wire in op_m.wires]
                 self._measurements_tdm.append(op_m_tdm)
+
+    def global_circuit(self, nstep: int, use_deepcopy: bool = False) -> 'QumodeCircuit':
+        """Get the global circuit given the number of time steps."""
+        self._prepare_unroll_dict()
+        nmode = self._nmode_tdm + (nstep - 1) * self.nmode
+        cir = QumodeCircuit(nmode, 'vac', cutoff=self.cutoff, backend=self.backend, basis=self.basis,
+                            detector=self.detector, name=self.name, mps=self.mps, chi=self.chi,
+                            noise=self.noise, mu=self.mu, sigma=self.sigma)
+        cir._draw_nstep = nstep
+        for i in range(nstep):
+            ndelay = np.array([0] * self.nmode) # counter of delay loops for each mode
+            for op in self.operators:
+                encode = op in self.encoders
+                if isinstance(op, Delay):
+                    wire = op.wires[0]
+                    ndelay[wire] += 1
+                    idx_delay = -ndelay[wire] - 1
+                    wire1 = self._unroll_dict[wire][idx_delay][i % self._ntau_dict[wire][ndelay[wire] - 1]]
+                    if i == 0:
+                        wire2 = self._unroll_dict[wire][-1]
+                    else:
+                        wire2 = self._nmode_tdm + self.nmode * (i - 1) + wire
+                    op_tdm = deepcopy(op.gates[0])
+                    op_tdm.nmode = nmode
+                    op_tdm.wires = [wire1, wire2]
+                    cir.add(op_tdm, encode=encode)
+                    if isinstance(op, DelayBS):
+                        op_ps = deepcopy(op.gates[1])
+                        op_ps.nmode = nmode
+                        op_ps.wires = [wire1]
+                        cir.add(op_ps, encode=encode)
+                else:
+                    if use_deepcopy or encode:
+                        op_tdm = deepcopy(op)
+                    else:
+                        op_tdm = copy(op)
+                    op_tdm.nmode = nmode
+                    if i == 0:
+                        op_tdm.wires = [self._unroll_dict[wire][-1] for wire in op.wires]
+                    else:
+                        op_tdm.wires = [self._nmode_tdm + self.nmode * (i - 1) + wire for wire in op.wires]
+                    cir.add(op_tdm, encode=encode)
+            for op_m in self.measurements:
+                encode = op_m in self.encoders
+                if use_deepcopy or encode:
+                    op_m_tdm = deepcopy(op_m)
+                else:
+                    op_m_tdm = copy(op_m)
+                op_m_tdm.nmode = nmode
+                if i == 0:
+                    op_m_tdm.wires = [self._unroll_dict[wire][-1] for wire in op_m.wires]
+                else:
+                    op_m_tdm.wires = [self._nmode_tdm + self.nmode * (i - 1) + wire for wire in op_m.wires]
+                if encode:
+                    cir.encoders.append(op_m_tdm)
+                    cir.ndata = cir.ndata + op_m_tdm.npara
+                cir.measurements.append(op_m_tdm)
+                cir.wires_homodyne.append(op_m_tdm.wires[0])
+        return cir
 
     def _shift_state(self, state: List[torch.Tensor], nstep: int = 1, reverse: bool = False) -> List[torch.Tensor]:
         """Shift the state according to ``nstep``, which is equivalent to shifting the TDM circuit."""
@@ -1281,13 +1336,13 @@ class QumodeCircuit(Operation):
         """Get the max number of gates on the wires."""
         return max(self.depth)
 
-    def draw(self, filename: Optional[str] = None, draw_global: bool = False):
+    def draw(self, filename: Optional[str] = None, unroll: bool = False):
         """Visualize the photonic quantum circuit.
 
         Args:
             filename (str or None, optional): The path for saving the figure.
         """
-        if self._if_delayloop and draw_global:
+        if self._if_delayloop and unroll:
             self._prepare_unroll_dict()
             self._unroll_circuit()
             nmode = self._nmode_tdm
@@ -1298,8 +1353,8 @@ class QumodeCircuit(Operation):
             nmode = self.nmode
             operators = self.operators
             measurements = self.measurements
-            if draw_global:
-                self.draw_circuit = DrawCircuit_TDM_global(self._shots, self.name, nmode, operators, measurements)
+            if unroll:
+                self.draw_circuit = DrawCircuit_TDM_global(self._draw_nstep, self.name, nmode, operators, measurements)
             else:
                 self.draw_circuit = DrawCircuit(self.name, nmode, operators, measurements)
         self.draw_circuit.draw()
@@ -1349,11 +1404,12 @@ class QumodeCircuit(Operation):
             self.ndata += op.ndata
             self.depth += op.depth
             self._if_delayloop = self._if_delayloop and op._if_delayloop
-            self._nmode_tdm = None
+            self._nmode_tdm += op._nmode_tdm - self.nmode
             self._unroll_dict = None
             self._operators_tdm = None
             self._measurements_tdm = None
             self.wires_homodyne = op.wires_homodyne
+            self._draw_nstep = None
         else:
             self.operators.append(op)
             if isinstance(op, Gate):
@@ -1791,6 +1847,8 @@ class QumodeCircuit(Operation):
                              requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(delay, encode=encode)
         self._if_delayloop = True
+        self._ntau_dict[delay.wires[0]].append(delay.ntau)
+        self._nmode_tdm += delay.ntau
 
     def homodyne(
         self,
