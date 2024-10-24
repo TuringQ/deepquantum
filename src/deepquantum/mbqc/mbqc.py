@@ -6,7 +6,7 @@ from copy import copy
 import torch
 from networkx import Graph, draw_networkx
 from torch import nn
-from operation import Operation, Node, Entanglement
+from operation import Operation, Node, Entanglement, XCorrection
 from qmath import kron
 
 class MBQC(Operation):
@@ -99,10 +99,21 @@ class MBQC(Operation):
         self._bg_qubit += 1
 
     def entanglement(self, wires: List[int] = None):
-        assert wires[0] in self._node_list and wires[1] in self._node_list
+        assert wires[0] in self._node_list and wires[1] in self._node_list, \
+            'no command acts on a qubit not yet prepared, unless it is an input qubit'
         entang_ = Entanglement(wires=wires)
         self._edge_list.append(wires)
         self.add(entang_)
+
+    def X(self, wires: Union[int, List[int]] = None, signal_domain: List[int] = None):
+        assert wires in self._node_list, 'no command acts on a qubit not yet prepared, unless it is an input qubit'
+        x_ = XCorrection(wires=wires, signal_domain=signal_domain)
+        self.add(x_)
+
+
+
+
+
 
     def forward(self):
         state = self.init_state

@@ -26,12 +26,14 @@ class Operation(nn.Module):
         name: Optional[str] = None,
         nqubit: int = 1,
         wires: Union[int, List, None] = None,
+        signal_domain: List[int] = None
     ) -> None:
         super().__init__()
         self.name = name
         self.nqubit = nqubit
         self.wires = wires
         self.npara = 0
+        self.signal_domain = signal_domain
 
     def tensor_rep(self, x: torch.Tensor) -> torch.Tensor:
         """Get the tensor representation of the state."""
@@ -138,6 +140,27 @@ class Measurement(Operation):
         pass
         return
 
+class XCorrection(Operation):
+    """
+    X correction operator acting on single qubit
+    """
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        wires: Union[int, List[int]] = None,
+        signal_domain: List[int] = None
+    ) -> None:
+        wires = self._convert_indices(wires)
+        signal_domain = self._convert_indices(signal_domain)
+        super().__init__(name=name, wires=wires, signal_domain=signal_domain)
+        self.matrix = torch.tensor([[0, 1],
+                                    [1, 0]])
 
 
+    def forward(self, state):
+        assert self.signal_domain is not None, 'signal domain is not specified'
 
+        return torch.matmul(self.matrix, state)
+
+    def extra_repr(self) -> str:
+        return f'wires={self.wires}, signal_domain={self.signal_domain}'
