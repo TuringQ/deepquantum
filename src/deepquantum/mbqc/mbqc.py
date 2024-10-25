@@ -6,7 +6,7 @@ from copy import copy
 import torch
 from networkx import Graph, draw_networkx
 from torch import nn
-from operation import Operation, Node, Entanglement, Measurement, XCorrection
+from operation import Operation, Node, Entanglement, Measurement, XCorrection, ZCorrection
 from qmath import kron
 
 class MBQC(Operation):
@@ -110,8 +110,6 @@ class MBQC(Operation):
         self.add(entang_)
 
     def measurement(self, wires: int = None):
-        print(self.unmeasured_dic)
-        # wires = self.unmeasured_dic[wires]
         mea_op = Measurement(wires=wires)
         self.add(mea_op)
 
@@ -120,10 +118,10 @@ class MBQC(Operation):
         x_ = XCorrection(wires=wires, signal_domain=signal_domain)
         self.add(x_)
 
-
-
-
-
+    def Z(self, wires: Union[int, List[int]] = None, signal_domain: List[int] = None):
+        assert wires in self._node_list, 'no command acts on a qubit not yet prepared, unless it is an input qubit'
+        z_ = ZCorrection(wires=wires, signal_domain=signal_domain)
+        self.add(z_)
 
     def forward(self):
         state = self.init_state
@@ -131,11 +129,14 @@ class MBQC(Operation):
             if isinstance(op, Measurement):
                 wires = self.unmeasured_dic[op.wires[0]]
                 state = op.forward(wires, state)
-                self.measured_dic[op.wires[0]] = op.sample
+                self.measured_dic[op.wires[0]] = op.sample[0]
                 del self.unmeasured_dic[op.wires[0]]
                 for key in self.unmeasured_dic:
-                    if self.unmeasured_dic[key] > op.wires[0]:
+                    if key > op.wires[0]:
                         self.unmeasured_dic[key] -= 1
+            elif isinstance(op, (XCorrection, ZCorrection)):
+                wires = self.unmeasured_dic[op.wires[0]]
+                state = op.forward(wires, state, self.measured_dic)
             else:
                 state = op.forward(state)
         self._bg_state = state
