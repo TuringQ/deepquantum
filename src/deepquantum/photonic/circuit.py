@@ -444,6 +444,8 @@ class QumodeCircuit(Operation):
                 ``'threshold'`` for the threshold detector. Default: ``None``
         """
         cov, mean = self.state
+        batch_forward = vmap(self._forward_gaussian_prob_helper,
+                             in_dims=(0, 0, None, None, None, None, None))
         if detector is None:
             detector = self.detector
         else:
@@ -460,8 +462,6 @@ class QumodeCircuit(Operation):
             basis = [] # threshold case
             final_states = torch.cat([torch.cat(even_basis), torch.cat(odd_basis)])
             probs = []
-            batch_forward = vmap(self._forward_gaussian_prob_helper,
-                                 in_dims=(0, 0, None, None, None, None, None))
             if len(cov_0) > 0:
                 loop = False
                 probs_0 = batch_forward(cov_0, mean_0, even_basis, odd_basis, basis, detector, loop)
@@ -480,7 +480,7 @@ class QumodeCircuit(Operation):
             odd_basis= [] # pnrd case
             basis = self._get_odd_even_fock_basis(detector=detector)
             final_states = torch.cat(basis)
-            probs = batch_forward(cov, mean, even_basis, odd_basis, basis, detector, loop=True)
+            probs = batch_forward(cov, mean, even_basis, odd_basis, basis, detector, True)
         keys = list(map(FockState, final_states.tolist()))
         return dict(zip(keys, probs.mT))
 
@@ -737,7 +737,8 @@ class QumodeCircuit(Operation):
             dic_temp = defaultdict(list)
             for state, s in zip(final_states, keys):
                 dic_temp[s.item()].append(state)
-            return list(dic_temp.values())
+            state_lst = [torch.stack(i) for i in list(dic_temp.values())]
+            return state_lst
 
     def _get_permanent_norms(self, init_state: torch.Tensor, final_state: torch.Tensor) -> torch.Tensor:
         """Get the normalization factors for permanent."""
