@@ -175,32 +175,32 @@ class Measurement(Operation):
         self.sample = sample
         x = x.reshape([2] * nqubit)
         x_measured = x[sample[0], ...]
+        x_measured = nn.functional.normalize(x_measured.reshape(2**(nqubit-1)), dim=0)
         return x_measured
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, plane={self.plane}, angle={self.angle}, t_domain={self.t_domain}, s_domain={self.s_domain}'
 
-class XCorrection(Operation):
+class Correction(Operation):
     """
-    X correction operator acting on single qubit
+    correction operator acting on single qubit
     """
     def __init__(
         self,
         name: Optional[str] = None,
         wires: Union[int, List[int]] = None,
-        signal_domain: List[int] = None
-
+        signal_domain: List[int] = None,
+        matrix: Any = None
     ) -> None:
         wires = self._convert_indices(wires)
         signal_domain = self._convert_indices(signal_domain)
+        self.signal_domain = signal_domain
+        self.matrix = matrix
         super().__init__(name=name, wires=wires, signal_domain=signal_domain)
-        self.matrix = torch.tensor([[0, 1],
-                                    [1, 0]])
 
     def forward(self, wires, x: torch.Tensor, measured_dic: dict):
         # Calculate the parity of the sum of signal values in the signal domain
         parity = sum(measured_dic.get(wire, 0) for wire in self.signal_domain) % 2
-
         # If parity is odd (1), apply the X correction (sigma-x matrix) only on self.wires
         if parity == 1:
             i = wires
@@ -217,37 +217,29 @@ class XCorrection(Operation):
     def extra_repr(self) -> str:
         return f'wires={self.wires}, signal_domain={self.signal_domain}'
 
-class ZCorrection(Operation):
+
+class XCorrection(Correction):
     """
-    Z correction operator acting on single qubit
+    X correction operator acting on single qubit
     """
     def __init__(
         self,
-        name: Optional[str] = None,
         wires: Union[int, List[int]] = None,
         signal_domain: List[int] = None
-
     ) -> None:
-        wires = self._convert_indices(wires)
-        signal_domain = self._convert_indices(signal_domain)
-        super().__init__(name=name, wires=wires, signal_domain=signal_domain)
-        self.matrix = torch.tensor([[1, 0],
-                                    [0, -1]])
+        matrix = torch.tensor([[0, 1],
+                               [1, 0]])
+        super().__init__(name='xcorrection', wires=wires, signal_domain=signal_domain, matrix=matrix)
 
-    def forward(self, wires, x: torch.Tensor, measured_dic: dict):
-        # Calculate the parity of the sum of signal values in the signal domain
-        parity = sum(measured_dic.get(wire, 0) for wire in self.signal_domain) % 2
-        if parity == 1:
-            i = wires
-            x = x.reshape(-1)
-            nqubit = int(torch.log2(torch.tensor(len(x))))
-            perm = [i] + [k for k in range(nqubit) if k != i]
-            # inv_perm = [perm.index(k) for k in range(nqubit)]
-            x = x.reshape([2] * nqubit)
-            x = x.permute(*perm).reshape(-1)
-            x = torch.matmul(self.matrix.to(x.dtype), x.view(2, -1))
-            x = x.reshape([2] * nqubit)
-        return x
-
-    def extra_repr(self) -> str:
-        return f'wires={self.wires}, signal_domain={self.signal_domain}'
+class ZCorrection(Correction):
+    """
+    X correction operator acting on single qubit
+    """
+    def __init__(
+        self,
+        wires: Union[int, List[int]] = None,
+        signal_domain: List[int] = None
+    ) -> None:
+        matrix = torch.tensor([[1, 0],
+                               [0, -1]])
+        super().__init__(name='zcorrection', wires=wires, signal_domain=signal_domain, matrix=matrix)
