@@ -480,7 +480,8 @@ class QumodeCircuit(Operation):
             odd_basis= [] # pnrd case
             basis = self._get_odd_even_fock_basis(detector=detector)
             final_states = torch.cat(basis)
-            probs = batch_forward(cov, mean, even_basis, odd_basis, basis, detector, True)
+            loop = True
+            probs = batch_forward(cov, mean, even_basis, odd_basis, basis, detector, loop)
         keys = list(map(FockState, final_states.tolist()))
         return dict(zip(keys, probs.mT))
 
