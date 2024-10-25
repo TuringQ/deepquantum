@@ -118,8 +118,8 @@ class QumodeCircuit(Operation):
 
         self._if_delayloop = False
         self._nmode_tdm = self.nmode
-        self._ntau_dict = defaultdict(list)
-        self._unroll_dict = None
+        self._ntau_dict = defaultdict(list) # {wire: [tau1, tau2, ...]}
+        self._unroll_dict = None # {wire_space: [wires_delay_n, ..., wires_delay_1, wire_space_concurrent]}
         self._operators_tdm = None
         self._measurements_tdm = None
         self.wires_homodyne = []
@@ -131,8 +131,9 @@ class QumodeCircuit(Operation):
         The initial state is the same as the first ``QumodeCircuit``.
         """
         assert self.nmode == rhs.nmode
-        cir = QumodeCircuit(nmode=self.nmode, init_state=self.init_state, cutoff=self.cutoff, basis=self.basis,
-                            name=self.name, mps=self.mps, chi=self.chi, noise=self.noise, mu=self.mu, sigma=self.sigma)
+        cir = QumodeCircuit(nmode=self.nmode, init_state=self.init_state, cutoff=self.cutoff, backend=self.backend,
+                            basis=self.basis, detector=self.detector, name=self.name, mps=self.mps, chi=self.chi,
+                            noise=self.noise, mu=self.mu, sigma=self.sigma)
         cir.operators = self.operators + rhs.operators
         cir.encoders = self.encoders + rhs.encoders
         cir.measurements = rhs.measurements
@@ -584,17 +585,23 @@ class QumodeCircuit(Operation):
                     wire = op.wires[0]
                     ndelay[wire] += 1
                     idx_delay = -ndelay[wire] - 1
-                    wire1 = self._unroll_dict[wire][idx_delay][i % self._ntau_dict[wire][ndelay[wire] - 1]]
+                    wire1 = self._unroll_dict[wire][idx_delay][i % op.ntau]
                     if i == 0:
                         wire2 = self._unroll_dict[wire][-1]
                     else:
                         wire2 = self._nmode_tdm + self.nmode * (i - 1) + wire
-                    op_tdm = deepcopy(op.gates[0])
+                    if use_deepcopy or encode:
+                        op_tdm = deepcopy(op.gates[0])
+                    else:
+                        op_tdm = copy(op.gates[0])
                     op_tdm.nmode = nmode
                     op_tdm.wires = [wire1, wire2]
                     cir.add(op_tdm, encode=encode)
                     if isinstance(op, DelayBS):
-                        op_ps = deepcopy(op.gates[1])
+                        if use_deepcopy or encode:
+                            op_ps = deepcopy(op.gates[1])
+                        else:
+                            op_ps = copy(op.gates[1])
                         op_ps.nmode = nmode
                         op_ps.wires = [wire1]
                         cir.add(op_ps, encode=encode)
@@ -610,21 +617,13 @@ class QumodeCircuit(Operation):
                         op_tdm.wires = [self._nmode_tdm + self.nmode * (i - 1) + wire for wire in op.wires]
                     cir.add(op_tdm, encode=encode)
             for op_m in self.measurements:
-                encode = op_m in self.encoders
-                if use_deepcopy or encode:
-                    op_m_tdm = deepcopy(op_m)
-                else:
-                    op_m_tdm = copy(op_m)
+                op_m_tdm = copy(op_m)
                 op_m_tdm.nmode = nmode
                 if i == 0:
                     op_m_tdm.wires = [self._unroll_dict[wire][-1] for wire in op_m.wires]
                 else:
                     op_m_tdm.wires = [self._nmode_tdm + self.nmode * (i - 1) + wire for wire in op_m.wires]
-                if encode:
-                    cir.encoders.append(op_m_tdm)
-                    cir.ndata = cir.ndata + op_m_tdm.npara
-                cir.measurements.append(op_m_tdm)
-                cir.wires_homodyne.append(op_m_tdm.wires[0])
+                cir.add(op_m_tdm)
         return cir
 
     def _shift_state(self, state: List[torch.Tensor], nstep: int = 1, reverse: bool = False) -> List[torch.Tensor]:
@@ -1354,12 +1353,11 @@ class QumodeCircuit(Operation):
             nmode = self._nmode_tdm
             operators = self._operators_tdm
             measurements = self._measurements_tdm
-            self.draw_circuit = DrawCircuit(self.name, nmode, operators, measurements)
         else:
             nmode = self.nmode
             operators = self.operators
             measurements = self.measurements
-            self.draw_circuit = DrawCircuit(self.name, nmode, operators, measurements, self._draw_nstep)
+        self.draw_circuit = DrawCircuit(self.name, nmode, operators, measurements, self._draw_nstep)
         self.draw_circuit.draw()
         if filename is not None:
             self.draw_circuit.save(filename)
@@ -1415,17 +1413,23 @@ class QumodeCircuit(Operation):
             self._measurements_tdm = None
             self.wires_homodyne = op.wires_homodyne
             self._draw_nstep = None
-        else:
+        elif isinstance(op, (Gate, Delay)):
             self.operators.append(op)
-            if isinstance(op, Gate):
-                for i in op.wires:
-                    self.depth[i] += 1
+            for i in op.wires:
+                self.depth[i] += 1
             if encode:
                 assert not op.requires_grad, 'Please set requires_grad of the operation to be False'
                 self.encoders.append(op)
                 self.ndata += op.npara
             else:
                 self.npara += op.npara
+            if isinstance(op, Delay):
+                self._if_delayloop = True
+                self._nmode_tdm += op.ntau
+                self._ntau_dict[op.wires[0]].append(op.ntau)
+        elif isinstance(op, Homodyne):
+            self.measurements.append(op)
+            self.wires_homodyne.append(op.wires[0])
 
     def ps(
         self,
@@ -1597,7 +1601,7 @@ class QumodeCircuit(Operation):
             sigma = self.sigma
         bs = BeamSplitterSingle(inputs=theta, nmode=self.nmode, wires=wires, cutoff=self.cutoff, convention='rx',
                                 requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
-        self.add(bs, encode=False)
+        self.add(bs)
 
     def h(self, wires: List[int], mu: Optional[float] = None, sigma: Optional[float] = None) -> None:
         """Add a photonic Hadamard gate."""
@@ -1608,7 +1612,7 @@ class QumodeCircuit(Operation):
             sigma = self.sigma
         bs = BeamSplitterSingle(inputs=theta, nmode=self.nmode, wires=wires, cutoff=self.cutoff, convention='h',
                                 requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
-        self.add(bs, encode=False)
+        self.add(bs)
 
     def any(
         self,
@@ -1826,11 +1830,11 @@ class QumodeCircuit(Operation):
             sigma = self.sigma
         f = PhaseShift(inputs=theta, nmode=self.nmode, wires=wires, cutoff=self.cutoff, requires_grad=False,
                        noise=self.noise, mu=mu, sigma=sigma)
-        self.add(f, encode=False)
+        self.add(f)
 
     def delay(
         self,
-        wires: Optional[int] = None,
+        wires: int,
         ntau: int = 1,
         inputs: Any = None,
         convention: str = 'bs',
@@ -1851,38 +1855,27 @@ class QumodeCircuit(Operation):
             delay = DelayMZI(inputs=inputs, ntau=ntau, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
                              requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(delay, encode=encode)
-        self._if_delayloop = True
-        self._nmode_tdm += delay.ntau
-        self._ntau_dict[delay.wires[0]].append(delay.ntau)
 
     def homodyne(
         self,
-        wires: Optional[int] = None,
+        wires: int,
         phi: Any = None,
         eps: float = 2e-4,
-        encode: bool = False,
         mu: Optional[float] = None,
         sigma: Optional[float] = None
     ) -> None:
         """Add a homodyne measurement."""
-        requires_grad = not encode
-        if phi is not None:
-            requires_grad = False
         if mu is None:
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
         homodyne = Homodyne(phi=phi, nmode=self.nmode, wires=wires, cutoff=self.cutoff, eps=eps,
-                            requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
-        if encode:
-            self.encoders.append(homodyne)
-            self.ndata = self.ndata + homodyne.npara
-        self.measurements.append(homodyne)
-        self.wires_homodyne.append(homodyne.wires[0])
+                            requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
+        self.add(homodyne)
 
     def homodyne_x(
         self,
-        wires: Optional[int] = None,
+        wires: int,
         eps: float = 2e-4,
         mu: Optional[float] = None,
         sigma: Optional[float] = None
@@ -1895,12 +1888,11 @@ class QumodeCircuit(Operation):
             sigma = self.sigma
         homodyne = Homodyne(phi=phi, nmode=self.nmode, wires=wires, cutoff=self.cutoff, eps=eps,
                             requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
-        self.measurements.append(homodyne)
-        self.wires_homodyne.append(homodyne.wires[0])
+        self.add(homodyne)
 
     def homodyne_p(
         self,
-        wires: Optional[int] = None,
+        wires: int,
         eps: float = 2e-4,
         mu: Optional[float] = None,
         sigma: Optional[float] = None
@@ -1913,5 +1905,4 @@ class QumodeCircuit(Operation):
             sigma = self.sigma
         homodyne = Homodyne(phi=phi, nmode=self.nmode, wires=wires, cutoff=self.cutoff, eps=eps,
                             requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
-        self.measurements.append(homodyne)
-        self.wires_homodyne.append(homodyne.wires[0])
+        self.add(homodyne)
