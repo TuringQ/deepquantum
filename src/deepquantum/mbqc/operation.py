@@ -72,11 +72,10 @@ class Node(Operation):
     """
     def __init__(
         self,
-        nqubit: int = 1,
         wires: Union[int, List[int]] = None
     ) -> None:
         wires = self._convert_indices(wires)
-        super().__init__(name='node', nqubit=nqubit, wires=wires)
+        super().__init__(name='node', wires=wires)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         plus_state = torch.sqrt(torch.tensor(2)) * torch.tensor([1,1]) / 2
@@ -91,7 +90,6 @@ class Entanglement(Operation):
     """
     def __init__(
         self,
-        nqubit: int = 2,
         wires: List[int] = None
     ) -> None:
         self.matrix = torch.tensor([[1, 0, 0, 0],
@@ -99,12 +97,10 @@ class Entanglement(Operation):
                                     [0, 0, 1, 0],
                                     [0, 0, 0, -1]])
         wires = self._convert_indices(wires)
-        super().__init__(name='entanglement', nqubit=nqubit, wires=wires)
+        super().__init__(name='entanglement', wires=wires)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        i, j = self.wires
-        x = x.reshape(-1)
-        nqubit = int(torch.log2(torch.tensor(len(x))))
+    def forward(self, i, j, x: torch.Tensor) -> torch.Tensor:
+        nqubit = self.nqubit
         perm = [i, j] + [k for k in range(nqubit) if k not in (i, j)]
         inv_perm = [perm.index(k) for k in range(nqubit)]
         x = x.reshape([2] * nqubit)
@@ -123,7 +119,6 @@ class Measurement(Operation):
     """
     def __init__(
         self,
-        nqubit: int=1,
         wires: Union[int, List[int]] = None,
         plane: Optional[str] = 'XY',
         angle: float = 0,
@@ -139,7 +134,7 @@ class Measurement(Operation):
         self.t_domain = t_domain
         self.s_domain = s_domain
         wires = self._convert_indices(wires)
-        super().__init__(name='Measurement', nqubit=nqubit, wires=wires)
+        super().__init__(name='Measurement', wires=wires)
 
     def func_j_alpha(self, alpha):
         if self.plane in ['XY', 'YX']: # need check
@@ -158,8 +153,7 @@ class Measurement(Operation):
 
     def forward(self, wires: int, x: torch.Tensor) -> torch.Tensor:
         i = wires
-        x = x.reshape(-1)
-        nqubit = int(torch.log2(torch.tensor(len(x))))
+        nqubit = self.nqubit
         perm = [i] + [k for k in range(nqubit) if k != i]
         # inv_perm = [perm.index(k) for k in range(nqubit)]
         x = x.reshape([2] * nqubit)
@@ -198,20 +192,21 @@ class Correction(Operation):
         self.matrix = matrix
         super().__init__(name=name, wires=wires, signal_domain=signal_domain)
 
-    def forward(self, wires, x: torch.Tensor, measured_dic: dict):
+    def forward(self, wires: int, x: torch.Tensor, measured_dic: dict):
         # Calculate the parity of the sum of signal values in the signal domain
         parity = sum(measured_dic.get(wire, 0) for wire in self.signal_domain) % 2
         # If parity is odd (1), apply the X correction (sigma-x matrix) only on self.wires
         if parity == 1:
             i = wires
-            x = x.reshape(-1)
-            nqubit = int(torch.log2(torch.tensor(len(x))))
+            nqubit = self.nqubit
             perm = [i] + [k for k in range(nqubit) if k != i]
-            # inv_perm = [perm.index(k) for k in range(nqubit)]
             x = x.reshape([2] * nqubit)
-            x = x.permute(*perm).reshape(-1)
-            x = torch.matmul(self.matrix.to(x.dtype), x.view(2, -1))
+            x = x.permute(*perm).reshape(2, -1)
+            x = torch.matmul(self.matrix.to(x.dtype), x)
+            # Reshape and permute back
             x = x.reshape([2] * nqubit)
+            inv_perm = [perm.index(i) for i in range(nqubit)]
+            x = x.permute(inv_perm).reshape(-1)
         return x
 
     def extra_repr(self) -> str:

@@ -126,6 +126,7 @@ class MBQC(Operation):
     def forward(self):
         state = self.init_state
         for op in self.operators:
+            op.nqubit = self.nqubit
             if isinstance(op, Measurement):
                 wires = self.unmeasured_dic[op.wires[0]]
                 state = op.forward(wires, state)
@@ -134,11 +135,17 @@ class MBQC(Operation):
                 for key in self.unmeasured_dic:
                     if key > op.wires[0]:
                         self.unmeasured_dic[key] -= 1
+                self.nqubit -= 1
             elif isinstance(op, (XCorrection, ZCorrection)):
                 wires = self.unmeasured_dic[op.wires[0]]
                 state = op.forward(wires, state, self.measured_dic)
+            elif isinstance(op, Entanglement):
+                i,j = self.unmeasured_dic[op.wires[0]], self.unmeasured_dic[op.wires[1]]
+                state = op.forward(i,j,state)
             else:
                 state = op.forward(state)
+                self.nqubit += 1
+                self.unmeasured_dic[op.wires[0]] = self.nqubit-1
         self._bg_state = state
         return state
 
