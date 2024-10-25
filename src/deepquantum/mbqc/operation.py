@@ -125,7 +125,7 @@ class Measurement(Operation):
         self,
         nqubit: int=1,
         wires: Union[int, List[int]] = None,
-        plane: Optional[str] = None,
+        plane: Optional[str] = 'XY',
         angle: float = 0,
         t_domain: Union[int, List[int]] = None,
         s_domain: Union[int, List[int]] = None
@@ -212,7 +212,7 @@ class XCorrection(Operation):
             x = x.permute(*perm).reshape(-1)
             x = torch.matmul(self.matrix.to(x.dtype), x.view(2, -1))
             x = x.reshape([2] * nqubit)
-            return x
+        return x
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, signal_domain={self.signal_domain}'
@@ -247,7 +247,7 @@ class ZCorrection(Operation):
             x = x.permute(*perm).reshape(-1)
             x = torch.matmul(self.matrix.to(x.dtype), x.view(2, -1))
             x = x.reshape([2] * nqubit)
-            return x
+        return x
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, signal_domain={self.signal_domain}'
