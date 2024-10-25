@@ -3,7 +3,7 @@ Draw quantum circuit.
 """
 
 from collections import defaultdict
-from typing import Dict
+from typing import Dict, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -29,6 +29,8 @@ class DrawCircuit():
         circuit_name (str): The name of the circuit.
         circuit_nmode (int): The number of modes in the circuit.
         circuit_operators (nn.Sequential): The operators of the circuit.
+        measurements (nn.ModuleList): The measurements of the circuit.
+        nstep (int or None, optional): The number of time steps for the TDM circuit. Default: ``None``
     """
     def __init__(
         self,
@@ -36,7 +38,7 @@ class DrawCircuit():
         circuit_nmode: int,
         circuit_operators: nn.Sequential,
         measurements: nn.ModuleList,
-        nstep: int=None
+        nstep: Optional[int] = None
     ) -> None:
         if circuit_name is None:
             circuit_name = 'circuit'
@@ -252,7 +254,6 @@ class DrawCircuit():
                                       transform = f"rotate({rotation} {arc_center_x} {arc_center_y})"))
         self.draw_.add(self.draw_.text('ϕ ='+str(np.round(phi,3)), insert=(x+55, y_up*30+20), font_size=7))
 
-
     def draw_sq(self, order, wires, r=None, theta=None, name=None):
         """
         Draw squeezing gate, displacement gate.
@@ -317,7 +318,6 @@ class DrawCircuit():
                 self.draw_.add(self.draw_.text(key + '=' + str(np.round(para_dict[key],3)),
                                                insert=((x+2*(10+width)/3-2), y_up*30+15+h/2+8*(i+1)), font_size=7))
 
-
     def draw_lines(self, order, wires):
         """
         Act nothing.
@@ -329,9 +329,10 @@ class DrawCircuit():
     def barrier(self, order):
         x = 90 * order + 40
         y_min = 15
-        y_max  = self.nmode * 30 + 25
+        y_max = self.nmode * 30 + 25
         self.draw_.add(self.draw_.polyline(points=[(x, y_min),(x, y_max)],
-                                          fill='none', stroke_dasharray='5,5', stroke='black', stroke_width=2))
+                                           fill='none', stroke_dasharray='5,5', stroke='black', stroke_width=2))
+
 
 class DrawClements():
     """Draw the n-mode Clements architecture.
