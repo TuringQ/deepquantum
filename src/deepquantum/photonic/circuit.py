@@ -15,7 +15,7 @@ from torch import nn, vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 from .decompose import UnitaryDecomposer
-from .draw import DrawCircuit, DrawGlobalCircuit
+from .draw import DrawCircuit
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
 from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum, DelayBS, DelayMZI
 from .hafnian_ import hafnian
@@ -1359,10 +1359,7 @@ class QumodeCircuit(Operation):
             nmode = self.nmode
             operators = self.operators
             measurements = self.measurements
-            if unroll:
-                self.draw_circuit = DrawGlobalCircuit(self.name, nmode, operators, measurements, self._draw_nstep)
-            else:
-                self.draw_circuit = DrawCircuit(self.name, nmode, operators, measurements)
+            self.draw_circuit = DrawCircuit(self.name, nmode, operators, measurements, self._draw_nstep)
         self.draw_circuit.draw()
         if filename is not None:
             self.draw_circuit.save(filename)
