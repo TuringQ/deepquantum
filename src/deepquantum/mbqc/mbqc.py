@@ -109,16 +109,16 @@ class MBQC(Operation):
         self._edge_list.append(wires)
         self.add(entang_)
 
-    def measurement(self, wires: int = None):
+    def measurement(self, wires: Optional[int] = None):
         mea_op = Measurement(wires=wires)
         self.add(mea_op)
 
-    def X(self, wires: Union[int, List[int]] = None, signal_domain: List[int] = None):
+    def X(self, wires: Optional[int] = None, signal_domain: List[int] = None):
         assert wires in self._node_list, 'no command acts on a qubit not yet prepared, unless it is an input qubit'
         x_ = XCorrection(wires=wires, signal_domain=signal_domain)
         self.add(x_)
 
-    def Z(self, wires: Union[int, List[int]] = None, signal_domain: List[int] = None):
+    def Z(self, wires: Optional[int] = None, signal_domain: List[int] = None):
         assert wires in self._node_list, 'no command acts on a qubit not yet prepared, unless it is an input qubit'
         z_ = ZCorrection(wires=wires, signal_domain=signal_domain)
         self.add(z_)
@@ -126,6 +126,7 @@ class MBQC(Operation):
     def forward(self):
         state = self.init_state
         for op in self.operators:
+            self._check_measured(op.wires)
             if isinstance(op, Measurement):
                 wires = self.unmeasured_dic[op.wires[0]]
                 state = op.forward(wires, state)
@@ -137,10 +138,23 @@ class MBQC(Operation):
             elif isinstance(op, (XCorrection, ZCorrection)):
                 wires = self.unmeasured_dic[op.wires[0]]
                 state = op.forward(wires, state, self.measured_dic)
+            elif isinstance(op, Entanglement):
+                wires = [self.unmeasured_dic[op.wires[0]], self.unmeasured_dic[op.wires[1]]]
+                state = op.forward(wires, state)
             else:
                 state = op.forward(state)
         self._bg_state = state
         return state
+
+    def _check_measured(self, wires):
+        """
+        check if the qubit already measured.
+        """
+        measured_list = list(self.measured_dic.keys())
+        for i in wires:
+            if i in measured_list:
+                raise ValueError (f'qubit {i} already measured')
+        return
 
     def draw(self, wid: int=3):
         g = self.get_graph()

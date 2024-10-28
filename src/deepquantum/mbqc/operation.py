@@ -54,8 +54,6 @@ class Operation(nn.Module):
             indices = [indices]
         assert isinstance(indices, list), 'Invalid input type'
         assert all(isinstance(i, int) for i in indices), 'Invalid input type'
-        # if len(indices) > 0:
-        #     assert min(indices) > -1 and max(indices) < self.nqubit, 'Invalid input'
         assert len(set(indices)) == len(indices), 'Invalid input'
         return indices
 
@@ -101,8 +99,8 @@ class Entanglement(Operation):
         wires = self._convert_indices(wires)
         super().__init__(name='entanglement', nqubit=nqubit, wires=wires)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        i, j = self.wires
+    def forward(self, wires:List, x: torch.Tensor) -> torch.Tensor:
+        i, j = wires
         x = x.reshape(-1)
         nqubit = int(torch.log2(torch.tensor(len(x))))
         perm = [i, j] + [k for k in range(nqubit) if k not in (i, j)]
@@ -189,10 +187,12 @@ class Correction(Operation):
         self,
         name: Optional[str] = None,
         wires: Union[int, List[int]] = None,
-        signal_domain: List[int] = None,
+        signal_domain: Union[int, List[int]] = None,
         matrix: Any = None
     ) -> None:
         wires = self._convert_indices(wires)
+        if signal_domain is None:
+            signal_domain = [ ]
         signal_domain = self._convert_indices(signal_domain)
         self.signal_domain = signal_domain
         self.matrix = matrix
@@ -201,22 +201,22 @@ class Correction(Operation):
     def forward(self, wires, x: torch.Tensor, measured_dic: dict):
         # Calculate the parity of the sum of signal values in the signal domain
         parity = sum(measured_dic.get(wire, 0) for wire in self.signal_domain) % 2
-        # If parity is odd (1), apply the X correction (sigma-x matrix) only on self.wires
+        # If parity is odd (1), apply the X or Z correction on self.wires
         if parity == 1:
             i = wires
             x = x.reshape(-1)
             nqubit = int(torch.log2(torch.tensor(len(x))))
             perm = [i] + [k for k in range(nqubit) if k != i]
-            # inv_perm = [perm.index(k) for k in range(nqubit)]
+            inv_perm = [perm.index(k) for k in range(nqubit)]
             x = x.reshape([2] * nqubit)
             x = x.permute(*perm).reshape(-1)
             x = torch.matmul(self.matrix.to(x.dtype), x.view(2, -1))
+            x = x.view([2] * nqubit).permute(*inv_perm).reshape(-1)
             x = x.reshape([2] * nqubit)
         return x
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, signal_domain={self.signal_domain}'
-
 
 class XCorrection(Correction):
     """
