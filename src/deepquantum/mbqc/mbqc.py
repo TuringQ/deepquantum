@@ -6,8 +6,8 @@ from copy import copy
 import torch
 from networkx import Graph, draw_networkx
 from torch import nn
-from operation import Operation, Node, Entanglement, Measurement, XCorrection, ZCorrection
-from qmath import kron
+from .operation import Operation, Node, Entanglement, Measurement, Correction, XCorrection, ZCorrection
+from .qmath import kron
 
 class MBQC(Operation):
     r"""Measurement based quantum circuit.
@@ -172,3 +172,26 @@ class MBQC(Operation):
                       node_size=500,
                       width=2)
         return
+
+    def is_standard(self):
+        """Determine whether the command sequence is standard.
+
+        Returns
+        -------
+        is_standard : bool
+            True if the pattern is standard
+        """
+        it = iter(self.operators)
+        try:
+            op = next(it)
+            while isinstance(op, Node):
+                op = next(it)
+            while isinstance(op, Entanglement):
+                op = next(it)
+            while isinstance(op, Measurement):
+                op = next(it)
+            while isinstance(op, Correction):
+                op = next(it)
+            return False
+        except StopIteration:
+            return True
