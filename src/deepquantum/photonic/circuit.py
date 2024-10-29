@@ -70,44 +70,16 @@ class QumodeCircuit(Operation):
         sigma: float = 0.1
     ) -> None:
         super().__init__(name=name, nmode=nmode, wires=list(range(nmode)), noise=noise, mu=mu, sigma=sigma)
-        if isinstance(init_state, (FockState, GaussianState, MatrixProductState)):
-            if isinstance(init_state, MatrixProductState):
-                assert nmode == init_state.nsite
-                assert backend == 'fock' and not basis, 'Only support MPS for Fock backend with Fock state tensor.'
-                mps = True
-                chi = init_state.chi
-                cutoff = init_state.qudit
-            else:
-                assert nmode == init_state.nmode
-                mps = False
-                cutoff = init_state.cutoff
-                if isinstance(init_state, FockState):
-                    backend = 'fock'
-                    basis = init_state.basis
-                elif isinstance(init_state, GaussianState):
-                    backend = 'gaussian'
-            self.init_state = init_state
-        else:
-            if mps:
-                assert backend == 'fock' and not basis, 'Only support MPS for Fock backend with Fock state tensor.'
-                self.init_state = MatrixProductState(nsite=nmode, state=init_state, chi=chi, qudit=cutoff,
-                                                     normalize=False)
-            else:
-                if backend == 'fock':
-                    self.init_state = FockState(state=init_state, nmode=nmode, cutoff=cutoff, basis=basis)
-                elif backend == 'gaussian':
-                    self.init_state = GaussianState(state=init_state, nmode=nmode, cutoff=cutoff)
-                cutoff = self.init_state.cutoff
-
-        self.operators = nn.Sequential()
-        self.encoders = []
-        self.measurements = nn.ModuleList()
         self.cutoff = cutoff
         self.backend = backend
         self.basis = basis
         self.detector = detector.lower()
         self.mps = mps
         self.chi = chi
+        self.set_init_state(init_state)
+        self.operators = nn.Sequential()
+        self.encoders = []
+        self.measurements = nn.ModuleList()
         self.state = None
         self.state_measured = None
         self.ndata = 0
@@ -124,6 +96,40 @@ class QumodeCircuit(Operation):
         self._measurements_tdm = None
         self.wires_homodyne = []
         self._draw_nstep = None
+
+    def set_init_state(self, init_state: Any) -> None:
+        """Set the initial state of the circuit."""
+        if isinstance(init_state, (FockState, GaussianState, MatrixProductState)):
+            if isinstance(init_state, MatrixProductState):
+                assert self.nmode == init_state.nsite
+                assert self.backend == 'fock' and not self.basis, \
+                    'Only support MPS for Fock backend with Fock state tensor.'
+                self.mps = True
+                self.chi = init_state.chi
+                self.cutoff = init_state.qudit # if self.cutoff is changed, the operators should be reset
+            else:
+                assert self.nmode == init_state.nmode
+                self.mps = False
+                self.cutoff = init_state.cutoff # if self.cutoff is changed, the operators should be reset
+                if isinstance(init_state, FockState):
+                    self.backend = 'fock'
+                    self.basis = init_state.basis
+                elif isinstance(init_state, GaussianState):
+                    self.backend = 'gaussian'
+            self.init_state = init_state
+        else:
+            if self.mps:
+                assert self.backend == 'fock' and not self.basis, \
+                    'Only support MPS for Fock backend with Fock state tensor.'
+                self.init_state = MatrixProductState(nsite=self.nmode, state=init_state, chi=self.chi,
+                                                     qudit=self.cutoff, normalize=False)
+            else:
+                if self.backend == 'fock':
+                    self.init_state = FockState(state=init_state, nmode=self.nmode, cutoff=self.cutoff,
+                                                basis=self.basis)
+                elif self.backend == 'gaussian':
+                    self.init_state = GaussianState(state=init_state, nmode=self.nmode, cutoff=self.cutoff)
+                self.cutoff = self.init_state.cutoff
 
     def __add__(self, rhs: 'QumodeCircuit') -> 'QumodeCircuit':
         """Addition of the ``QumodeCircuit``.
@@ -571,7 +577,11 @@ class QumodeCircuit(Operation):
                 self._measurements_tdm.append(op_m_tdm)
 
     def global_circuit(self, nstep: int, use_deepcopy: bool = False) -> 'QumodeCircuit':
-        """Get the global circuit given the number of time steps."""
+        """Get the global circuit given the number of time steps.
+
+        Note:
+            The initial state of the global circuit is always the vacuum state.
+        """
         self._prepare_unroll_dict()
         nmode = self._nmode_tdm + (nstep - 1) * self.nmode
         cir = QumodeCircuit(nmode, 'vac', cutoff=self.cutoff, backend=self.backend, basis=self.basis,
@@ -797,7 +807,7 @@ class QumodeCircuit(Operation):
 
         Args:
             final_state (Any): The final Fock basis state.
-            refer_state (FockState or GaussianState or None, optional): The initial Fock basis state or
+            refer_state (FockState, GaussianState or None, optional): The initial Fock basis state or
                 the final Gaussian state. Default: ``None``
         """
         if self.backend == 'fock':
@@ -1383,8 +1393,8 @@ class QumodeCircuit(Operation):
         Args:
             op (Operation): The operation to add. It is an instance of ``Operation`` class or its subclasses,
                 such as ``Gate``, or ``QumodeCircuit``.
-            encode (bool): Whether the gate is to encode data. Default: ``False``
-            wires (Union[int, List[int], None]): The wires to apply the gate on. It can be an integer
+            encode (bool, optional): Whether the gate is to encode data. Default: ``False``
+            wires (int, List[int] or None, optional): The wires to apply the gate on. It can be an integer
                 or a list of integers specifying the indices of the wires. Default: ``None`` (which means
                 the gate has its own wires)
 

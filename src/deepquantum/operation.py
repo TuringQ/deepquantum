@@ -382,6 +382,7 @@ class Gate(Operation):
             end2 = left
         wires = list(range(left, right + 1))
         out = MatrixProductState(nsite=mps.nsite, state=mps.tensors, chi=mps.chi, normalize=mps.normalize)
+        out.center = mps.center
         out.center_orthogonalization(end1, dc=-1, normalize=out.normalize)
         out.apply_mpo(mpo_tensors, wires)
         out.center_orthogonalization(end2, dc=-1, normalize=out.normalize)
