@@ -73,9 +73,10 @@ class MatrixProductState(nn.Module):
 
     Args:
         nsite (int, optional): The number of sites of the MPS. Default: 1
-        state (str or List[torch.Tensor], optional): The representation of the MPS. If ``'zeros'``, the MPS
-            is initialized to the all-zero state. If a list of tensors, the MPS is initialized to the given
-            tensors. The tensors must have the correct shape and dtype. Default: ``'zeros'``
+        state (str, List[torch.Tensor] or List[int], optional): The representation of the MPS.
+            If ``'zeros'`` or ``'vac'``, the MPS is initialized to the all-zero state. If a list of tensors,
+            the MPS is initialized to the given tensors. The tensors must have the correct shape and dtype.
+            If a list of integers, the MPS is initialized to the corresponding basis state. Default: ``'zeros'``
         chi (int or None, optional): The maximum bond dimension of the MPS. Default: 10 * ``nsite``
         qudit (int, optional): The local Hilbert space dimension of each qudit. Default: 2
         normalize (bool, optional): Whether to normalize the MPS after each operation. Default: ``True``
@@ -83,7 +84,7 @@ class MatrixProductState(nn.Module):
     def __init__(
         self,
         nsite: int = 1,
-        state: Union[str, List[torch.Tensor]] = 'zeros',
+        state: Union[str, List[torch.Tensor], List[int]] = 'zeros',
         chi: Optional[int] = None,
         qudit: int = 2,
         normalize: bool = True
@@ -96,21 +97,7 @@ class MatrixProductState(nn.Module):
         self.qudit = qudit
         self.normalize = normalize
         self.center = -1
-        if state == 'zeros':
-            tensors = []
-            for _ in range(0, nsite):
-                tensor = torch.zeros(qudit, dtype=torch.cfloat)
-                tensor[0] = 1.
-                # the bond dimension is 1
-                tensor = tensor.reshape(1, qudit, 1)
-                tensors.append(tensor)
-        else:
-            assert isinstance(state, list), 'Invalid input type'
-            assert all(isinstance(i, torch.Tensor) for i in state), 'Invalid input type'
-            assert len(state) == nsite
-            tensors = state
-        for i in range(nsite):
-            self.register_buffer(f'tensor{i}', tensors[i])
+        self.set_tensors(state)
 
     @property
     def tensors(self) -> List[torch.Tensor]:
@@ -125,13 +112,23 @@ class MatrixProductState(nn.Module):
             tensors.append(getattr(self, f'tensor{j}'))
         return tensors
 
-    def set_tensors(self, tensors: List[torch.Tensor]) -> None:
+    def set_tensors(self, state: Union[str, List[torch.Tensor], List[int]]) -> None:
         """Set the tensors of the matrix product state."""
-        assert isinstance(tensors, list), 'Invalid input type'
-        assert all(isinstance(i, torch.Tensor) for i in tensors), 'Invalid input type'
-        assert len(tensors) == self.nsite
+        if state in ('zeros', 'vac'):
+            state = [0] * self.nsite
+        assert isinstance(state, list), 'Invalid input type'
+        if len(state) < self.nsite:
+            state += [0] * (self.nsite - len(state))
         for i in range(self.nsite):
-            self.register_buffer(f'tensor{i}', tensors[i])
+            assert isinstance(state[i], (torch.Tensor, int)), 'Invalid input type'
+            if isinstance(state[i], torch.Tensor):
+                self.register_buffer(f'tensor{i}', state[i])
+            elif isinstance(state[i], int):
+                assert 0 <= state[i] < self.qudit, 'Invalid input'
+                tensor = torch.zeros(self.qudit, dtype=torch.cfloat)
+                tensor[state[i]] = 1.
+                # the bond dimension is 1
+                self.register_buffer(f'tensor{i}', tensor.reshape(1, self.qudit, 1))
 
     def center_orthogonalization(self, c: int, dc: int = -1, normalize: bool = False) -> None:
         """Get the center-orthogonalization form of the MPS with center ``c``."""
