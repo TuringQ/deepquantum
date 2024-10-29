@@ -9,3 +9,9 @@ def kron(ts_list:List[torch.Tensor]) -> torch.Tensor:
     for ts in ts_list:
         ts_kron = torch.kron(ts_kron, ts)
     return ts_kron
+
+def list_xor(list1, list2):
+    if list1 is None:
+        return list2
+    else:
+        return list(set(list1) ^ set(list2))

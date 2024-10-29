@@ -2,12 +2,12 @@
 Measurement based quantum circuit
 """
 from typing import Any, List, Optional, Tuple, Union
-from copy import copy
+from copy import copy, deepcopy
 import torch
 from networkx import Graph, draw_networkx
 from torch import nn
 from .operation import Operation, Node, Entanglement, Measurement, Correction, XCorrection, ZCorrection
-from .qmath import kron
+from .qmath import kron, list_xor
 
 class MBQC(Operation):
     r"""Measurement based quantum circuit.
@@ -109,16 +109,21 @@ class MBQC(Operation):
         self._edge_list.append(wires)
         self.add(entang_)
 
-    def measurement(self, wires: Optional[int] = None):
+    def measurement(self,
+                    wires: int = None,
+                    plane: Optional[str] = 'XY',
+                    angle: float = 0,
+                    t_domain: Union[int, List[int]] = None,
+                    s_domain: Union[int, List[int]] = None):
         mea_op = Measurement(wires=wires)
         self.add(mea_op)
 
-    def X(self, wires: Optional[int] = None, signal_domain: List[int] = None):
+    def X(self, wires: int = None, signal_domain: List[int] = None):
         assert wires in self._node_list, 'no command acts on a qubit not yet prepared, unless it is an input qubit'
         x_ = XCorrection(wires=wires, signal_domain=signal_domain)
         self.add(x_)
 
-    def Z(self, wires: Optional[int] = None, signal_domain: List[int] = None):
+    def Z(self, wires: int = None, signal_domain: List[int] = None):
         assert wires in self._node_list, 'no command acts on a qubit not yet prepared, unless it is an input qubit'
         z_ = ZCorrection(wires=wires, signal_domain=signal_domain)
         self.add(z_)
@@ -195,3 +200,43 @@ class MBQC(Operation):
             return False
         except StopIteration:
             return True
+
+    def standardize(self):
+
+        n_list = []
+        e_list = []
+        m_list = []
+        z_dict = {}
+        x_dict = {}
+
+        def add_correction_domain(
+            domain_dict: dict, wires, domain
+        ) -> None:
+            if previous_domain := domain_dict.get(wires):
+                previous_domain = list_xor(previous_domain, domain)
+            else:
+                domain_dict[wires] = domain.copy()
+        for op in self.operators:
+            if isinstance(op, Node):
+                n_list.append(op)
+            elif isinstance(op, Entanglement):
+                for side in (0, 1):
+                    if s_domain := x_dict.get(op.wires[side], None):
+                        add_correction_domain(z_dict, op.wires[1 - side], s_domain)
+                e_list.append(op)
+            elif isinstance(op, Measurement):
+                new_op = deepcopy(op)
+                if t_domain := z_dict.pop(op.wires[0], None):
+                    new_op.t_domain = list_xor(new_op.t_domain, t_domain)
+                if s_domain := x_dict.pop(op.wires[0], None):
+                    new_op.s_domain = list_xor(new_op.s_domain, s_domain)
+                m_list.append(new_op)
+            elif isinstance(op, ZCorrection):
+                add_correction_domain(z_dict, op.wires[0], op.signal_domain)
+            elif isinstance(op, XCorrection):
+                add_correction_domain(x_dict, op.wires[0], op.signal_domain)
+        self.operators = nn.Sequential(*n_list,
+                                        *e_list,
+                                        *m_list,
+                                        *(ZCorrection(wires=wires, signal_domain=domain) for wires, domain in z_dict.items()),
+                                        *(XCorrection(wires=wires, signal_domain=domain) for wires, domain in x_dict.items()))
