@@ -70,14 +70,19 @@ class Node(Operation):
     """
     def __init__(
         self,
-        wires: Union[int, List[int]] = None
+        wires: Union[int, List[int]] = None,
+        state: Optional[torch.Tensor] = None
     ) -> None:
         wires = self._convert_indices(wires)
+        if state is None:
+            state = torch.sqrt(torch.tensor(2)) * torch.tensor([1,1]) / 2
+        if not isinstance(state, torch.Tensor):
+            state = torch.tensor(state)
+        self.node_state = state
         super().__init__(name='node', wires=wires)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        plus_state = torch.sqrt(torch.tensor(2)) * torch.tensor([1,1]) / 2
-        return torch.kron(x, plus_state)
+        return torch.kron(x, self.node_state)
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}'
@@ -122,8 +127,8 @@ class Measurement(Operation):
         wires: Union[int, List[int]] = None,
         plane: Optional[str] = 'XY',
         angle: float = 0,
-        t_domain: Union[int, List[int]] = None,
-        s_domain: Union[int, List[int]] = None
+        t_domain: Union[int, List[int]] = [],
+        s_domain: Union[int, List[int]] = []
     ) -> None:
         if plane is None:
             plane = 'XY'
@@ -151,13 +156,19 @@ class Measurement(Operation):
             raise ValueError(f"Unsupported measurement plane: {self.plane}")
         return matrix_j
 
-    def forward(self, wires: int, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, wires: int, x: torch.Tensor, measured_dic: dict) -> torch.Tensor:
         i = wires
+        s_signal = 0
+        t_signal = 0
+        if len(measured_dic) > 0:
+            s_signal = sum(measured_dic.get(wire, 0) for wire in self.s_domain) % 2
+            t_signal = sum(measured_dic.get(wire, 0) for wire in self.t_domain) % 2
         nqubit =  int(torch.log2(torch.tensor(len(x))))
         perm = [i] + [k for k in range(nqubit) if k != i]
         x = x.reshape([2] * nqubit)
         x = x.permute(*perm).reshape(-1)
-        j_alpha = self.func_j_alpha(self.angle)
+        angle = (-1) ** s_signal * self.angle + torch.pi * t_signal
+        j_alpha = self.func_j_alpha(angle)
         if self.plane in ['YZ', 'ZY']:
             x = torch.matmul(j_alpha.to(x.dtype), x.view(2, -1))
         else:

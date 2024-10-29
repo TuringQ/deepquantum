@@ -109,8 +109,15 @@ class MBQC(Operation):
         self._edge_list.append(wires)
         self.add(entang_)
 
-    def measurement(self, wires: Optional[int] = None):
-        mea_op = Measurement(wires=wires)
+    def measurement(
+        self,
+        wires: Optional[int] = None,
+        plane: Optional[str] = 'XY',
+        angle: float = 0,
+        t_domain: Union[int, List[int]] = [],
+        s_domain: Union[int, List[int]] = []
+    ):
+        mea_op = Measurement(wires=wires, plane=plane, angle=angle, t_domain=t_domain, s_domain=s_domain)
         self.add(mea_op)
 
     def X(self, wires: Optional[int] = None, signal_domain: List[int] = None):
@@ -129,7 +136,7 @@ class MBQC(Operation):
             self._check_measured(op.wires)
             if isinstance(op, Measurement):
                 wires = self.unmeasured_dic[op.wires[0]]
-                state = op.forward(wires, state)
+                state = op.forward(wires, state, self.measured_dic)
                 self.measured_dic[op.wires[0]] = op.sample[0]
                 del self.unmeasured_dic[op.wires[0]]
                 for key in self.unmeasured_dic:
