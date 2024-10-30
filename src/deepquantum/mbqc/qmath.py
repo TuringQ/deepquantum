@@ -11,7 +11,4 @@ def kron(ts_list:List[torch.Tensor]) -> torch.Tensor:
     return ts_kron
 
 def list_xor(list1, list2):
-    if list1 is None:
-        return list2
-    else:
-        return list(set(list1) ^ set(list2))
+    return list(set(list1) ^ set(list2))
