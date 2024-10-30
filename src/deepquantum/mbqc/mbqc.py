@@ -16,7 +16,7 @@ class MBQC(Operation):
     def __init__(
         self,
         nqubit: int,
-        init_state: Optional[torch.Tensor] = None
+        init_state: Any = None
     ) -> None:
         super().__init__(nqubit=nqubit, wires=list(range(nqubit)))
         self._bg_state = None
@@ -36,11 +36,14 @@ class MBQC(Operation):
         if init_state is None:
             plus_state = torch.sqrt(torch.tensor(2))*torch.tensor([1,1])/2
             init_state = kron([plus_state] * nqubit)
+        if not isinstance(init_state, torch.Tensor):
+            init_state = torch.tensor(init_state)
+        if init_state.ndim == 1:
+            init_state = init_state.unsqueeze(0)
         self.init_state = init_state
 
     def set_graph(self, graph: List[List]):
         vertices, edges = graph
-        self.unmeasured_dic = {i: i for i in range(self.nqubit)}
         assert len(vertices) > self.nqubit
         for i in vertices:
             if i not in self._node_list:
@@ -137,7 +140,7 @@ class MBQC(Operation):
             if isinstance(op, Measurement):
                 wires = self.unmeasured_dic[op.wires[0]]
                 state = op.forward(wires, state, self.measured_dic)
-                self.measured_dic[op.wires[0]] = op.sample[0]
+                self.measured_dic[op.wires[0]] = op.sample
                 del self.unmeasured_dic[op.wires[0]]
                 for key in self.unmeasured_dic:
                     if key > op.wires[0]:
@@ -151,7 +154,7 @@ class MBQC(Operation):
             else:
                 state = op.forward(state)
         self._bg_state = state
-        return state
+        return state.squeeze()
 
     def _check_measured(self, wires):
         """

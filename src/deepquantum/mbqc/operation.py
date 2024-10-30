@@ -104,15 +104,16 @@ class Entanglement(Operation):
 
     def forward(self, wires:List, x: torch.Tensor) -> torch.Tensor:
         i, j = wires
-        x = x.reshape(-1)
-        nqubit = int(torch.log2(torch.tensor(len(x))))
-        perm = [i, j] + [k for k in range(nqubit) if k not in (i, j)]
-        inv_perm = [perm.index(k) for k in range(nqubit)]
-        x = x.reshape([2] * nqubit)
-        x = x.permute(*perm).reshape(-1)
+        batch_size = x.size()[0]
+        x = x.reshape(batch_size,-1)
+        nqubit = int(torch.log2(torch.tensor(x.size(1))))
+        perm = [0] + [i+1, j+1] + [k+1 for k in range(nqubit) if k not in (i, j)]
+        inv_perm = [0] + [perm[1:].index(k) +1  for k in range(1, nqubit+1)]
+        x = x.reshape([batch_size] + [2] * nqubit)
+        x = x.permute(*perm)
         self.matrix = self.matrix.to(x.dtype)
-        x = torch.matmul(self.matrix, x.view(4, -1))
-        x = x.view([2] * nqubit).permute(*inv_perm).reshape(-1)
+        x = torch.matmul(self.matrix, x.reshape(batch_size, 4, -1))
+        x = x.view([batch_size] + [2] * nqubit).permute(*inv_perm).reshape(batch_size, -1)
         return x
 
     def extra_repr(self) -> str:
@@ -142,44 +143,62 @@ class Measurement(Operation):
         super().__init__(name='Measurement', wires=wires)
 
     def func_j_alpha(self, alpha):
-        if self.plane in ['XY', 'YX']: # need check
-            matrix_j = torch.sqrt(torch.tensor(2))/2 * torch.tensor([[1, torch.exp(-1j * alpha)],
-                                                                     [1, -torch.exp(-1j * alpha)]])
+        """
+        Transfer matrix J(alpha) from XY, XZ, YZ plane to Z measurement,
+        M(\alpha)\psi = M_z J(\alpha)\psi
+        """
+        if self.plane in ['XY', 'YX']:
+            matrix_j = torch.sqrt(torch.tensor(2))/2 * torch.stack([
+                torch.stack([torch.ones_like(alpha), torch.exp(-1j * alpha)], dim=-1),
+                torch.stack([torch.ones_like(alpha), -torch.exp(-1j * alpha)], dim=-1)
+            ], dim=-2)
         elif self.plane in ['XZ', 'ZX']:
-            matrix_j = torch.tensor([[torch.cos(alpha/2), -1j * torch.sin(alpha/2)],
-                                     [torch.cos(alpha/2), 1j * torch.sin(alpha/2)]])
-
+            matrix_j = torch.stack([
+                torch.stack([torch.cos(alpha/2), -1j * torch.sin(alpha/2)], dim=-1),
+                torch.stack([torch.cos(alpha/2), 1j * torch.sin(alpha/2)], dim=-1)
+            ], dim=-2)
         elif self.plane in ['YZ', 'ZY']:
-            matrix_j = torch.tensor([[torch.cos(alpha/2), torch.sin(alpha/2)],
-                                     [torch.sin(alpha/2), -torch.cos(alpha/2)]])
+            matrix_j = torch.stack([
+                torch.stack([torch.cos(alpha/2), torch.sin(alpha/2)], dim=-1),
+                torch.stack([torch.sin(alpha/2), -torch.cos(alpha/2)], dim=-1)
+            ], dim=-2)
         else:
             raise ValueError(f"Unsupported measurement plane: {self.plane}")
         return matrix_j
 
     def forward(self, wires: int, x: torch.Tensor, measured_dic: dict) -> torch.Tensor:
         i = wires
-        s_signal = 0
-        t_signal = 0
+        batch_size = x.size(0)
+        x = x.reshape(batch_size, -1)
+        nqubit =  int(torch.log2(torch.tensor(x.size(1))))
+        perm = [0] + [i+1] + [k+1 for k in range(nqubit) if k != i]
+        x = x.reshape([batch_size] + [2] * nqubit)
+        x = x.permute(*perm).reshape(batch_size, 2, -1)
+        s_signal = [0] * batch_size
+        t_signal = [0] * batch_size
         if len(measured_dic) > 0:
-            s_signal = sum(measured_dic.get(wire, 0) for wire in self.s_domain) % 2
-            t_signal = sum(measured_dic.get(wire, 0) for wire in self.t_domain) % 2
-        nqubit =  int(torch.log2(torch.tensor(len(x))))
-        perm = [i] + [k for k in range(nqubit) if k != i]
-        x = x.reshape([2] * nqubit)
-        x = x.permute(*perm).reshape(-1)
-        angle = (-1) ** s_signal * self.angle + torch.pi * t_signal
+            for i in range(batch_size):
+                s_signal[i] = sum(measured_dic.get(wire, [0]*batch_size)[i] for wire in self.s_domain) % 2
+                t_signal[i] = sum(measured_dic.get(wire, [0]*batch_size)[i] for wire in self.t_domain) % 2
+        angle = (-1) ** torch.tensor(s_signal) * self.angle + torch.pi * torch.tensor(t_signal)
         j_alpha = self.func_j_alpha(angle)
         if self.plane in ['YZ', 'ZY']:
-            x = torch.matmul(j_alpha.to(x.dtype), x.view(2, -1))
+            x = torch.matmul(j_alpha.to(x.dtype), x)
         else:
-            x = torch.matmul(j_alpha.to(torch.complex64), x.view(2, -1).to(torch.complex64))
-        probs = torch.abs(x) ** 2
-        probs = probs.sum(-1)
-        sample = random.choices([0, 1], weights=probs, k=1)
-        self.sample = sample
-        x = x.reshape([2] * nqubit)
-        x_measured = x[sample[0], ...]
-        x_measured = nn.functional.normalize(x_measured.reshape(2**(nqubit-1)), dim=0)
+            x = torch.matmul(j_alpha.to(torch.complex64), x.to(torch.complex64))
+        samples_tot = []
+        x_measured = []
+        for i in range(batch_size):
+            probs = torch.abs(x[i]) ** 2
+            probs = probs.sum(-1)
+            sample = random.choices([0, 1], weights=probs, k=1)
+            samples_tot.append(sample[0])
+            x_measured_i = x[i][sample[0], ...]
+            x_measured.append(x_measured_i.reshape([2] * (nqubit-1)))
+        self.sample = samples_tot
+        x_measured = torch.stack(x_measured)
+        x_measured = nn.functional.normalize(x_measured, dim=list(range(1, x_measured.ndim)))
+        x_measured = x_measured.reshape(batch_size, -1)
         return x_measured
 
     def extra_repr(self) -> str:
@@ -201,24 +220,31 @@ class Correction(Operation):
             signal_domain = [ ]
         signal_domain = self._convert_indices(signal_domain)
         self.signal_domain = signal_domain
+        if not isinstance(matrix, torch.Tensor):
+            matrix = torch.tensor(matrix)
         self.matrix = matrix
         super().__init__(name=name, wires=wires, signal_domain=signal_domain)
 
     def forward(self, wires: int, x: torch.Tensor, measured_dic: dict):
-        # Calculate the parity of the sum of signal values in the signal domain
-        parity = sum(measured_dic.get(wire, 0) for wire in self.signal_domain) % 2
-        # If parity is odd (1), apply the X or Z correction on self.wires
-        if parity == 1:
-            i = wires
-            nqubit =  int(torch.log2(torch.tensor(len(x))))
-            perm = [i] + [k for k in range(nqubit) if k != i]
-            x = x.reshape([2] * nqubit)
-            x = x.permute(*perm).reshape(2, -1)
-            x = torch.matmul(self.matrix.to(x.dtype), x)
-            # Reshape and permute back
-            x = x.reshape([2] * nqubit)
-            inv_perm = [perm.index(i) for i in range(nqubit)]
-            x = x.permute(inv_perm).reshape(-1)
+        i = wires
+        batch_size = x.size(0)
+        x = x.reshape(batch_size, -1)
+        nqubit =  int(torch.log2(torch.tensor(x.size(1))))
+        perm = [0] + [i+1] + [k+1 for k in range(nqubit) if k != i]
+        inv_perm = [0] + [perm[1:].index(k) +1  for k in range(1, nqubit+1)]
+        x = x.reshape([batch_size] + [2] * nqubit)
+        x = x.permute(*perm).reshape(batch_size, 2, -1)
+        correct_mat = []
+        for i in range(batch_size):
+            parity = sum(measured_dic.get(wire, [0] * batch_size)[i] for wire in self.signal_domain) % 2
+            if parity == 1:
+                correct_mat.append(self.matrix)
+            else:
+                correct_mat.append(torch.eye(2))
+        correct_mat = torch.stack(correct_mat)
+        x = torch.matmul(correct_mat.to(x.dtype), x)
+        x = x.reshape([batch_size] + [2] * nqubit)
+        x = x.permute(*inv_perm).reshape(batch_size, -1)
         return x
 
     def extra_repr(self) -> str:
