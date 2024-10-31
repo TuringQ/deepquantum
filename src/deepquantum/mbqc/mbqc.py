@@ -6,6 +6,7 @@ from copy import copy, deepcopy
 import torch
 from networkx import Graph, draw_networkx
 from torch import nn
+from .gate import cnot, pauli_x
 from .operation import Operation, Node, Entanglement, Measurement, Correction, XCorrection, ZCorrection
 from .qmath import kron, list_xor
 
@@ -45,6 +46,7 @@ class Pattern(Operation):
     def set_graph(self, graph: List[List]):
         vertices, edges = graph
         assert len(vertices) > self.n_input_nodes
+        self._node_list = list(range(vertices))
         for i in vertices:
             if i not in self._node_list:
                 self.n(i)
@@ -59,6 +61,22 @@ class Pattern(Operation):
         g.add_edges_from(self._edge_list)
         self._graph = g
         return g
+
+    def __add__(self, rhs: 'Pattern') -> 'Pattern':
+        """Addition of the ``Pattern``.
+
+        The initial state is the same as the first ``Pattern``.
+        """
+        pattern = Pattern(n_input_nodes=self.n_input_nodes, init_state=self.init_state, name=self.name)
+        for op in rhs.cmds:
+           new_node =  [i + self._bg_qubit for i in op.node]
+           op.node = new_node
+
+        pattern.cmds = self.cmds + rhs.cmds
+        pattern.encoders = self.encoders + rhs.encoders
+        pattern.npara = self.npara + rhs.npara
+        pattern.ndata = self.ndata + rhs.ndata
+        return pattern
 
     def add(
         self,
@@ -237,8 +255,33 @@ class Pattern(Operation):
                 add_correction_domain(z_dict, op.node[0], op.signal_domain)
             elif isinstance(op, XCorrection):
                 add_correction_domain(x_dict, op.node[0], op.signal_domain)
-        self.cmds = nn.Sequential(*n_list,
-                                        *e_list,
-                                        *m_list,
-                                        *(ZCorrection(node=node, signal_domain=domain) for node, domain in z_dict.items()),
-                                        *(XCorrection(node=node, signal_domain=domain) for node, domain in x_dict.items()))
+        self.cmds = nn.Sequential(
+                    *n_list,
+                    *e_list,
+                    *m_list,
+                    *(ZCorrection(node=node, signal_domain=domain) for node, domain in z_dict.items()),
+                    *(XCorrection(node=node, signal_domain=domain) for node, domain in x_dict.items())
+        )
+
+    def _update(self):
+        if len(self.measured_dic) == 0:
+            self._bg_qubit = len(self._node_list)
+            self.unmeasured_list = list(range(self._bg_qubit))
+        return
+
+    def cnot(self, control_node: int, target_node: int, ancilla:List[int]):
+        pattern_cnot = cnot(control_node, target_node, ancilla)
+        self.cmds += pattern_cnot[0]
+        self._node_list += pattern_cnot[1]
+        self._edge_list += pattern_cnot[2]
+        self._update()
+
+    def pauli_x(self, input_node: int, ancilla: List[int]):
+        pattern_x = pauli_x(input_node, ancilla)
+        self.cmds += pattern_x[0]
+        self._node_list += pattern_x[1]
+        self._edge_list += pattern_x[2]
+        self._update()
+
+
+

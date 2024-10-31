@@ -2,56 +2,44 @@
 Basic gate in MBQC pattern
 """
 import torch
+from torch import nn
 from typing import Any, List, Optional, Tuple, Union
 
-from .operation import Operation
-from .mbqc import Pattern
+from .operation import Operation, Node, Entanglement, Measurement, XCorrection, ZCorrection
 
-class CNOT(Pattern):
-    def __init__(
-        self,
-        control: int,
-        target: int,
-        ancilla: List[int],
-        init_state: Any=None
-    ) -> None:
-        assert len(ancilla) == 2
-        self.control = control
-        self.target = target
-        self.ancilla = ancilla
-        super().__init__(n_input_nodes=2, init_state=init_state, name='cnot')
+def cnot(control_node: int, target_node: int, ancilla:List[int]):
+    """CNOT gate in MBQC pattern"""
+    assert len(ancilla) == 2
+    cmds = nn.Sequential()
+    cmds.append(Node(ancilla[0]))
+    cmds.append(Node(ancilla[1]))
+    cmds.append(Entanglement([target_node, ancilla[0]]))
+    cmds.append(Entanglement([control_node, ancilla[0]]))
+    cmds.append(Entanglement(ancilla))
+    cmds.append(Measurement(target_node))
+    cmds.append(Measurement(ancilla[0]))
+    cmds.append(XCorrection(ancilla[1], signal_domain=[ancilla[0]]))
+    cmds.append(ZCorrection(ancilla[1], signal_domain=[target_node]))
+    cmds.append(ZCorrection(control_node, signal_domain=[target_node]))
+    node_list = ancilla
+    edge_list = [[target_node, ancilla[0]], [control_node, ancilla[0]], ancilla]
+    return cmds, node_list, edge_list
 
-        self.n(ancilla[0])
-        self.n(ancilla[1])
-        self.e([target, ancilla[0]])
-        self.e([control, ancilla[0]])
-        self.e(ancilla)
-        self.m(target)
-        self.m(ancilla[0])
-        self.x(ancilla[1], signal_domain=[ancilla[0]])
-        self.z(ancilla[1], signal_domain=[target])
-        self.z(control, signal_domain=[target])
-
-class X(Pattern):
-    def __init__(
-        self,
-        input_node: int,
-        ancilla: List[int],
-        init_state: Any=None
-    ) -> None:
-        assert len(ancilla) == 2
-        self.input_node = input_node
-        self.ancilla = ancilla
-        super().__init__(n_input_nodes=1, init_state=init_state, name='x')
-
-        self.n(ancilla[0])
-        self.n(ancilla[1])
-        self.e([input_node, ancilla[0]])
-        self.e(ancilla)
-        self.m(input_node)
-        self.m(ancilla[0], angle=-torch.pi)
-        self.x(ancilla[1], signal_domain=[ancilla[0]])
-        self.z(ancilla[1], signal_domain=[input_node])
+def pauli_x(input_node: int, ancilla: List[int]):
+    """Pauli X gate in MBQC pattern"""
+    assert len(ancilla) == 2
+    cmds = nn.Sequential()
+    cmds.append(Node(ancilla[0]))
+    cmds.append(Node(ancilla[1]))
+    cmds.append(Entanglement([input_node, ancilla[0]]))
+    cmds.append(Entanglement(ancilla))
+    cmds.append(Measurement(input_node))
+    cmds.append(Measurement(ancilla[0], angle=-torch.pi))
+    cmds.append(XCorrection(ancilla[1], signal_domain=[ancilla[0]]))
+    cmds.append(ZCorrection(ancilla[1], signal_domain=[input_node]))
+    node_list = ancilla
+    edge_list = [[input_node, ancilla[0]], ancilla]
+    return cmds, node_list, edge_list
 
 
 
