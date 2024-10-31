@@ -19,7 +19,7 @@ class Pattern(Operation):
         init_state: Any = None,
         name: Optional[str] = None
     ) -> None:
-        super().__init__(nqubit=nqubit, wires=list(range(nqubit)))
+        super().__init__(name=name, n_input_nodes=n_input_nodes, node=list(range(n_input_nodes)))
         self._bg_state = None
         self._bg_qubit = n_input_nodes
         self.n_input_nodes = n_input_nodes

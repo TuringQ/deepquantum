@@ -34,18 +34,6 @@ class Operation(nn.Module):
         self.node = node
         self.npara = 0
 
-    def tensor_rep(self, x: torch.Tensor) -> torch.Tensor:
-        """Get the tensor representation of the state."""
-        return x.reshape([-1] + [2] * self.nqubit)
-
-    def init_para(self) -> None:
-        """Initialize the parameters."""
-        pass
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Perform a forward pass."""
-        return self.tensor_rep(x)
-
     def _convert_indices(self, indices: Union[int, List[int]]) -> List[int]:
         """Convert and check the indices of the modes."""
         if isinstance(indices, int):
@@ -54,13 +42,6 @@ class Operation(nn.Module):
         assert all(isinstance(i, int) for i in indices), 'Invalid input type'
         assert len(set(indices)) == len(indices), 'Invalid input'
         return indices
-
-    def _check_minmax(self, minmax: List[int]) -> None:
-        """Check the minimum and maximum indices of the modes."""
-        assert isinstance(minmax, list)
-        assert len(minmax) == 2
-        assert all(isinstance(i, int) for i in minmax)
-        assert -1 < minmax[0] <= minmax[1] < self.nqubit
 
 class Node(Operation):
     """
@@ -77,7 +58,7 @@ class Node(Operation):
         if not isinstance(state, torch.Tensor):
             state = torch.tensor(state)
         self.node_state = state
-        super().__init__(name='node', wires=wires)
+        super().__init__(name='node', node=node)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return torch.kron(x, self.node_state)
@@ -137,11 +118,11 @@ class Measurement(Operation):
         self.angle = angle
         self.t_domain = t_domain
         self.s_domain = s_domain
-        wires = self._convert_indices(wires)
-        super().__init__(name='Measurement', wires=wires)
+        node = self._convert_indices(node)
+        super().__init__(name='Measurement', node=node)
 
     def func_j_alpha(self, alpha):
-        """
+        r"""
         Transfer matrix J(alpha) from XY, XZ, YZ plane to Z measurement,
         M(\alpha)\psi = M_z J(\alpha)\psi
         """
@@ -221,7 +202,7 @@ class Correction(Operation):
         if not isinstance(matrix, torch.Tensor):
             matrix = torch.tensor(matrix)
         self.matrix = matrix
-        super().__init__(name=name, wires=wires, signal_domain=signal_domain)
+        super().__init__(name=name, node=node)
 
     def forward(self, node: int, x: torch.Tensor, measured_dic: dict):
         i = node
