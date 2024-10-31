@@ -33,6 +33,7 @@ class Pattern(Operation):
         self._edge_list = [ ]
         self.measured_dic = {}
         self.unmeasured_list = list(range(self.n_input_nodes))
+        self.nout_wire_dic = {i:i for i in range(self.n_input_nodes)}
 
         if init_state is None:
             plus_state = torch.sqrt(torch.tensor(2))*torch.tensor([1,1])/2
@@ -282,6 +283,3 @@ class Pattern(Operation):
         self._node_list += pattern_x[1]
         self._edge_list += pattern_x[2]
         self._update()
-
-
-
