@@ -22,16 +22,16 @@ def test_random_with_graphix():
         out_state = pattern_.simulate_pattern(backend="statevector")
         results_1 = pattern_.results
 
-        circ_mbqc = dq.MBQC(nqubit=2)
+        circ_mbqc = dq.Pattern(n_input_nodes=2)
         for i in range(2, n+1):
-            circ_mbqc.node(i)
+            circ_mbqc.n(i)
         for i in range(2, n+1):
-            circ_mbqc.entanglement([0,i])
-        circ_mbqc.entanglement([n-1, n])
-        circ_mbqc.measurement(wires=0, angle=np.pi)
-        circ_mbqc.measurement(wires=1, angle=np.pi, s_domain=[0])
-        circ_mbqc.measurement(wires=n-1, angle=np.pi, s_domain=[0], t_domain=[1])
-        circ_mbqc.X(wires=n, signal_domain=[0, 1, n-1])
+            circ_mbqc.e([0,i])
+        circ_mbqc.e([n-1, n])
+        circ_mbqc.m(node=0, angle=np.pi)
+        circ_mbqc.m(node=1, angle=np.pi, s_domain=[0])
+        circ_mbqc.m(node=n-1, angle=np.pi, s_domain=[0], t_domain=[1])
+        circ_mbqc.x(node=n, signal_domain=[0, 1, n-1])
         state = circ_mbqc()
         results_2  = circ_mbqc.measured_dic
     err = abs(state.flatten() - torch.tensor(out_state.flatten())).sum()
