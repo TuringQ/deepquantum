@@ -30,7 +30,7 @@ class Pattern(Operation):
         self._node_list = list(range(self.n_input_nodes))
         self._edge_list = [ ]
         self.measured_dic = {}
-        self.unmeasured_dic = {i: i for i in range(self.n_input_nodes)}
+        self.unmeasured_list = list(range(self.n_input_nodes))
 
         if init_state is None:
             plus_state = torch.sqrt(torch.tensor(2))*torch.tensor([1,1])/2
@@ -102,7 +102,7 @@ class Pattern(Operation):
         self._node_list.append(node_.node[0])
         self.add(node_)
         self._bg_qubit += 1
-        self.unmeasured_dic[node_.node[0]] = node_.node[0]
+        self.unmeasured_list.append(node_.node[0])
 
     def e(self, node: List[int] = None):
         assert node[0] in self._node_list and node[1] in self._node_list, \
@@ -137,18 +137,18 @@ class Pattern(Operation):
         for op in self.cmds:
             self._check_measured(op.node)
             if isinstance(op, Measurement):
-                node = self.unmeasured_dic[op.node[0]]
+                node = self.unmeasured_list.index(op.node[0])
                 state = op.forward(node, state, self.measured_dic)
                 self.measured_dic[op.node[0]] = op.sample
-                del self.unmeasured_dic[op.node[0]]
-                for key in self.unmeasured_dic:
-                    if key > op.node[0]:
-                        self.unmeasured_dic[key] -= 1
+                del self.unmeasured_list[node]
+                # for key in self.unmeasured_list:
+                #     if key > op.node[0]:
+                #         self.unmeasured_list[key] -= 1
             elif isinstance(op, (XCorrection, ZCorrection)):
-                node = self.unmeasured_dic[op.node[0]]
+                node = self.unmeasured_list.index(op.node[0])
                 state = op.forward(node, state, self.measured_dic)
             elif isinstance(op, Entanglement):
-                node = [self.unmeasured_dic[op.node[0]], self.unmeasured_dic[op.node[1]]]
+                node = [self.unmeasured_list.index(op.node[0]), self.unmeasured_list.index(op.node[1])]
                 state = op.forward(node, state)
             else:
                 state = op.forward(state)
