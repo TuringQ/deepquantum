@@ -141,9 +141,6 @@ class Pattern(Operation):
                 state = op.forward(node, state, self.measured_dic)
                 self.measured_dic[op.node[0]] = op.sample
                 del self.unmeasured_list[node]
-                # for key in self.unmeasured_list:
-                #     if key > op.node[0]:
-                #         self.unmeasured_list[key] -= 1
             elif isinstance(op, (XCorrection, ZCorrection)):
                 node = self.unmeasured_list.index(op.node[0])
                 state = op.forward(node, state, self.measured_dic)
