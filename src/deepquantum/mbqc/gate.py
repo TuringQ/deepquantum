@@ -40,6 +40,3 @@ def pauli_x(input_node: int, ancilla: List[int]):
     node_list = ancilla
     edge_list = [[input_node, ancilla[0]], ancilla]
     return cmds, node_list, edge_list
-
-
-
