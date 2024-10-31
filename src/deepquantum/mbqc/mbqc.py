@@ -16,9 +16,10 @@ class MBQC(Operation):
     def __init__(
         self,
         nqubit: int,
-        init_state: Any = None
+        init_state: Any = None,
+        name: Optional[str] = None
     ) -> None:
-        super().__init__(nqubit=nqubit, wires=list(range(nqubit)))
+        super().__init__(name=name, nqubit=nqubit, wires=list(range(nqubit)))
         self._bg_state = None
         self._bg_qubit = nqubit
         self.nqubit = nqubit

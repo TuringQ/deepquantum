@@ -2,5 +2,5 @@
 MBQC Module
 """
 
-from . import mbqc
+from . import mbqc, gate
 from .mbqc import MBQC

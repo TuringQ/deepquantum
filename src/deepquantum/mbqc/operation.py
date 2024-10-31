@@ -27,18 +27,16 @@ class Operation(nn.Module):
         name: Optional[str] = None,
         nqubit: int = 1,
         wires: Union[int, List, None] = None,
-        signal_domain: List[int] = None
     ) -> None:
         super().__init__()
         self.name = name
         self.nqubit = nqubit
         self.wires = wires
         self.npara = 0
-        self.signal_domain = signal_domain
 
     def tensor_rep(self, x: torch.Tensor) -> torch.Tensor:
         """Get the tensor representation of the state."""
-        return x.reshape([-1] + [self.cutoff] * self.nmode)
+        return x.reshape([-1] + [2] * self.nqubit)
 
     def init_para(self) -> None:
         """Initialize the parameters."""
@@ -79,7 +77,7 @@ class Node(Operation):
         if not isinstance(state, torch.Tensor):
             state = torch.tensor(state)
         self.node_state = state
-        super().__init__(name='node', wires=wires)
+        super().__init__(name='node', nqubit=1, wires=wires)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return torch.kron(x, self.node_state)
@@ -140,7 +138,7 @@ class Measurement(Operation):
         self.t_domain = t_domain
         self.s_domain = s_domain
         wires = self._convert_indices(wires)
-        super().__init__(name='Measurement', wires=wires)
+        super().__init__(name='Measurement', nqubit=2, wires=wires)
 
     def func_j_alpha(self, alpha):
         """
@@ -223,7 +221,7 @@ class Correction(Operation):
         if not isinstance(matrix, torch.Tensor):
             matrix = torch.tensor(matrix)
         self.matrix = matrix
-        super().__init__(name=name, wires=wires, signal_domain=signal_domain)
+        super().__init__(name=name, nqubit=1, wires=wires)
 
     def forward(self, wires: int, x: torch.Tensor, measured_dic: dict):
         i = wires
