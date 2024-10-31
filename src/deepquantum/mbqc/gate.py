@@ -9,12 +9,13 @@ from .operation import Operation, Node, Entanglement, Measurement, XCorrection, 
 
 def h(input_node: int, ancilla: List[int]):
     """
-    Hardama gate in MBQC patter, measure node: input_node, out node: ancilla[0]
+    Hadamard gate in MBQC patter, measure node: input_node, out node: ancilla[0]
     """
     assert len(ancilla) == 1
     cmds = nn.Sequential()
     cmds.append(Node(ancilla[0]))
     cmds.append(Entanglement([input_node, ancilla[0]]))
+    cmds.append(Measurement([input_node]))
     cmds.append(XCorrection(ancilla[0], signal_domain=[input_node]))
     node_list = ancilla
     edge_list = [input_node, ancilla[0]]
@@ -31,7 +32,7 @@ def pauli_y(input_node: int, ancilla: List[int]):
         cmds.append(Node(i))
     all_nodes = [input_node] + ancilla
     edge_list = []
-    for i in range(list(all_nodes)-1):
+    for i in range(len(all_nodes)-1):
         cmds.append(Entanglement([all_nodes[i], all_nodes[i+1]]))
         edge_list.extend([all_nodes[i], all_nodes[i+1]])
     cmds.append(Measurement(input_node, angle=torch.pi/2))
@@ -41,7 +42,6 @@ def pauli_y(input_node: int, ancilla: List[int]):
     cmds.append(XCorrection(ancilla[3], signal_domain=[ancilla[0], ancilla[2]]))
     cmds.append(ZCorrection(ancilla[3], signal_domain=[ancilla[0], ancilla[1]]))
     node_list = ancilla
-    edge_list = [[input_node, ancilla[0]], ancilla]
     return cmds, node_list, edge_list
 
 def pauli_x(input_node: int, ancilla: List[int]):
@@ -57,6 +57,25 @@ def pauli_x(input_node: int, ancilla: List[int]):
     cmds.append(Entanglement(ancilla))
     cmds.append(Measurement(input_node))
     cmds.append(Measurement(ancilla[0], angle=-torch.pi))
+    cmds.append(XCorrection(ancilla[1], signal_domain=[ancilla[0]]))
+    cmds.append(ZCorrection(ancilla[1], signal_domain=[input_node]))
+    node_list = ancilla
+    edge_list = [[input_node, ancilla[0]], ancilla]
+    return cmds, node_list, edge_list
+
+def pauli_z(input_node: int, ancilla: List[int]):
+    """
+    Pauli Z gate in MBQC pattern, measure node: input_node, ancilla[0],
+    out_node: ancilla[1]
+    """
+    assert len(ancilla) == 2
+    cmds = nn.Sequential()
+    cmds.append(Node(ancilla[0]))
+    cmds.append(Node(ancilla[1]))
+    cmds.append(Entanglement([input_node, ancilla[0]]))
+    cmds.append(Entanglement(ancilla))
+    cmds.append(Measurement(input_node, angle=-torch.pi))
+    cmds.append(Measurement(ancilla[0]))
     cmds.append(XCorrection(ancilla[1], signal_domain=[ancilla[0]]))
     cmds.append(ZCorrection(ancilla[1], signal_domain=[input_node]))
     node_list = ancilla
