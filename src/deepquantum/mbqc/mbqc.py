@@ -269,14 +269,18 @@ class Pattern(Operation):
             self.unmeasured_list = list(range(self._bg_qubit))
         return
 
-    def cnot(self, control_node: int, target_node: int, ancilla:List[int]):
+    def cnot(self, control_node: int, target_node: int, ancilla: Optional[List[int]]=None):
+        if ancilla is None:
+            ancilla = [self._bg_qubit, self._bg_qubit+1]
         pattern_cnot = cnot(control_node, target_node, ancilla)
         self.cmds += pattern_cnot[0]
         self._node_list += pattern_cnot[1]
         self._edge_list += pattern_cnot[2]
         self._update()
 
-    def pauli_x(self, input_node: int, ancilla: List[int]):
+    def pauli_x(self, input_node: int, ancilla: Optional[List[int]]=None):
+        if ancilla is None:
+            ancilla = [self._bg_qubit, self._bg_qubit+1]
         pattern_x = pauli_x(input_node, ancilla)
         self.cmds += pattern_x[0]
         self._node_list += pattern_x[1]
