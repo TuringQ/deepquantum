@@ -15,7 +15,7 @@ class Operation(nn.Module):
     Args:
         name (str or None, optional): The name of the quantum operation. Default: ``None``
         nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
-        wires (int, List or None, optional): The indices of the modes that the quantum operation acts on.
+        node (int, List or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int, optional): The Fock space truncation. Default: 2
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
@@ -25,13 +25,13 @@ class Operation(nn.Module):
     def __init__(
         self,
         name: Optional[str] = None,
-        nqubit: int = 1,
-        wires: Union[int, List, None] = None,
+        n_input_nodes: int = 1,
+        node: Union[int, List, None] = None,
     ) -> None:
         super().__init__()
         self.name = name
-        self.nqubit = nqubit
-        self.wires = wires
+        self.n_input_nodes = n_input_nodes
+        self.node = node
         self.npara = 0
 
     def tensor_rep(self, x: torch.Tensor) -> torch.Tensor:
@@ -68,22 +68,22 @@ class Node(Operation):
     """
     def __init__(
         self,
-        wires: Union[int, List[int]] = None,
+        node: Union[int, List[int]] = None,
         state: Optional[torch.Tensor] = None
     ) -> None:
-        wires = self._convert_indices(wires)
+        node = self._convert_indices(node)
         if state is None:
             state = torch.sqrt(torch.tensor(2)) * torch.tensor([1,1]) / 2
         if not isinstance(state, torch.Tensor):
             state = torch.tensor(state)
         self.node_state = state
-        super().__init__(name='node', nqubit=1, wires=wires)
+        super().__init__(name='node', wires=wires)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return torch.kron(x, self.node_state)
 
     def extra_repr(self) -> str:
-        return f'wires={self.wires}'
+        return f'node={self.node}'
 
 class Entanglement(Operation):
     """
@@ -91,17 +91,17 @@ class Entanglement(Operation):
     """
     def __init__(
         self,
-        wires: List[int] = None
+        node: List[int] = None
     ) -> None:
         self.matrix = torch.tensor([[1, 0, 0, 0],
                                     [0, 1, 0, 0],
                                     [0, 0, 1, 0],
                                     [0, 0, 0, -1]])
-        wires = self._convert_indices(wires)
-        super().__init__(name='entanglement', wires=wires)
+        node = self._convert_indices(node)
+        super().__init__(name='entanglement', node=node)
 
-    def forward(self, wires:List, x: torch.Tensor) -> torch.Tensor:
-        i, j = wires
+    def forward(self, node:List, x: torch.Tensor) -> torch.Tensor:
+        i, j = node
         batch_size = x.size()[0]
         x = x.reshape(batch_size,-1)
         nqubit = int(torch.log2(torch.tensor(x.size(1))))
@@ -115,7 +115,7 @@ class Entanglement(Operation):
         return x
 
     def extra_repr(self) -> str:
-        return f'wires={self.wires}'
+        return f'node={self.node}'
 
 class Measurement(Operation):
     """
@@ -123,7 +123,7 @@ class Measurement(Operation):
     """
     def __init__(
         self,
-        wires: Union[int, List[int]] = None,
+        node: Union[int, List[int]] = None,
         plane: Optional[str] = 'XY',
         angle: float = 0,
         t_domain: Union[int, List[int]] = [],
@@ -138,7 +138,7 @@ class Measurement(Operation):
         self.t_domain = t_domain
         self.s_domain = s_domain
         wires = self._convert_indices(wires)
-        super().__init__(name='Measurement', nqubit=2, wires=wires)
+        super().__init__(name='Measurement', wires=wires)
 
     def func_j_alpha(self, alpha):
         """
@@ -164,8 +164,8 @@ class Measurement(Operation):
             raise ValueError(f"Unsupported measurement plane: {self.plane}")
         return matrix_j
 
-    def forward(self, wires: int, x: torch.Tensor, measured_dic: dict) -> torch.Tensor:
-        i = wires
+    def forward(self, node: int, x: torch.Tensor, measured_dic: dict) -> torch.Tensor:
+        i = node
         batch_size = x.size(0)
         x = x.reshape(batch_size, -1)
         nqubit =  int(torch.log2(torch.tensor(x.size(1))))
@@ -200,7 +200,7 @@ class Measurement(Operation):
         return x_measured
 
     def extra_repr(self) -> str:
-        return f'wires={self.wires}, plane={self.plane}, angle={self.angle}, t_domain={self.t_domain}, s_domain={self.s_domain}'
+        return f'node={self.node}, plane={self.plane}, angle={self.angle}, t_domain={self.t_domain}, s_domain={self.s_domain}'
 
 class Correction(Operation):
     """
@@ -209,11 +209,11 @@ class Correction(Operation):
     def __init__(
         self,
         name: Optional[str] = None,
-        wires: Union[int, List[int]] = None,
+        node: Union[int, List[int]] = None,
         signal_domain: Union[int, List[int]] = None,
         matrix: Any = None
     ) -> None:
-        wires = self._convert_indices(wires)
+        node = self._convert_indices(node)
         if signal_domain is None:
             signal_domain = [ ]
         signal_domain = self._convert_indices(signal_domain)
@@ -221,10 +221,10 @@ class Correction(Operation):
         if not isinstance(matrix, torch.Tensor):
             matrix = torch.tensor(matrix)
         self.matrix = matrix
-        super().__init__(name=name, nqubit=1, wires=wires)
+        super().__init__(name=name, wires=wires, signal_domain=signal_domain)
 
-    def forward(self, wires: int, x: torch.Tensor, measured_dic: dict):
-        i = wires
+    def forward(self, node: int, x: torch.Tensor, measured_dic: dict):
+        i = node
         batch_size = x.size(0)
         x = x.reshape(batch_size, -1)
         nqubit =  int(torch.log2(torch.tensor(x.size(1))))
@@ -246,7 +246,7 @@ class Correction(Operation):
         return x
 
     def extra_repr(self) -> str:
-        return f'wires={self.wires}, signal_domain={self.signal_domain}'
+        return f'node={self.node}, signal_domain={self.signal_domain}'
 
 class XCorrection(Correction):
     """
@@ -254,12 +254,12 @@ class XCorrection(Correction):
     """
     def __init__(
         self,
-        wires: Union[int, List[int]] = None,
+        node: Union[int, List[int]] = None,
         signal_domain: List[int] = None
     ) -> None:
         matrix = torch.tensor([[0, 1],
                                [1, 0]])
-        super().__init__(name='xcorrection', wires=wires, signal_domain=signal_domain, matrix=matrix)
+        super().__init__(name='xcorrection', node=node, signal_domain=signal_domain, matrix=matrix)
 
 class ZCorrection(Correction):
     """
@@ -267,9 +267,9 @@ class ZCorrection(Correction):
     """
     def __init__(
         self,
-        wires: Union[int, List[int]] = None,
+        node: Union[int, List[int]] = None,
         signal_domain: List[int] = None
     ) -> None:
         matrix = torch.tensor([[1, 0],
                                [0, -1]])
-        super().__init__(name='zcorrection', wires=wires, signal_domain=signal_domain, matrix=matrix)
+        super().__init__(name='zcorrection', node=node, signal_domain=signal_domain, matrix=matrix)

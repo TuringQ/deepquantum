@@ -3,4 +3,4 @@ MBQC Module
 """
 
 from . import mbqc, gate
-from .mbqc import MBQC
+from .mbqc import Pattern
