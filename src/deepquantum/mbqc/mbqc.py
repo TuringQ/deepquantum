@@ -6,7 +6,7 @@ from copy import copy, deepcopy
 import torch
 from networkx import Graph, draw_networkx
 from torch import nn
-from .gate import h, pauli_x, pauli_y, pauli_z, cnot
+from . import gate
 from .operation import Operation, Node, Entanglement, Measurement, Correction, XCorrection, ZCorrection
 from .qmath import kron, list_xor
 
@@ -33,6 +33,7 @@ class Pattern(Operation):
         self._edge_list = [ ]
         self.measured_dic = {}
         self.unmeasured_list = list(range(self.n_input_nodes))
+        self.nout_wire_dic = {i:i for i in range(self.n_input_nodes)}
 
         if init_state is None:
             plus_state = torch.sqrt(torch.tensor(2))*torch.tensor([1,1])/2
@@ -269,7 +270,14 @@ class Pattern(Operation):
             self.unmeasured_list = list(range(self._bg_qubit))
         return
 
-    def _apply_single(self, gate, input_node: int, required_ancilla: int, ancilla: Optional[List[int]]=None):
+    def _apply_single(
+        self,
+        gate,
+        input_node: int,
+        required_ancilla: int,
+        ancilla: Optional[List[int]]=None,
+        **kwargs
+    ):
         """Helper method to apply quantum gate patterns.
 
         Args:
@@ -278,30 +286,43 @@ class Pattern(Operation):
             required_ancilla: Number of required ancilla qubits
             ancilla: Optional ancilla qubits
         """
+        print(kwargs)
         if ancilla is None:
             ancilla = list(range(self._bg_qubit, self._bg_qubit + required_ancilla))
-        pattern = gate(input_node, ancilla)
+        pattern = gate(input_node, ancilla, **kwargs)
         self.cmds += pattern[0]
         self._node_list += pattern[1]
         self._edge_list += pattern[2]
         self._update()
 
     def h(self, input_node: int, ancilla: Optional[List[int]]=None):
-        self._apply_single(h, input_node, 1, ancilla)
+        self._apply_single(gate.h, input_node, 1, ancilla)
 
     def pauli_x(self, input_node: int, ancilla: Optional[List[int]]=None):
-        self._apply_single(pauli_x, input_node, 2, ancilla)
+        self._apply_single(gate.pauli_x, input_node, 2, ancilla)
 
     def pauli_y(self, input_node: int, ancilla: Optional[List[int]]=None):
-        self._apply_single(pauli_y, input_node, 4, ancilla)
+        self._apply_single(gate.pauli_y, input_node, 4, ancilla)
 
     def pauli_z(self, input_node: int, ancilla: Optional[List[int]]=None):
-        self._apply_single(pauli_z, input_node, 2, ancilla)
+        self._apply_single(gate.pauli_z, input_node, 2, ancilla)
+
+    def s(self, input_node: int, ancilla: Optional[List[int]]=None):
+        self._apply_single(gate.s, input_node, 2, ancilla)
+
+    def rx(self, input_node: int, theta: Optional[torch.Tensor]=None, ancilla: Optional[List[int]]=None):
+        self._apply_single(gate.rx, input_node, required_ancilla=2, ancilla=ancilla, theta=theta)
+
+    def ry(self, input_node: int, theta: Optional[torch.Tensor]=None, ancilla: Optional[List[int]]=None):
+        self._apply_single(gate.ry, input_node, required_ancilla=4, ancilla=ancilla, theta=theta)
+
+    def rz(self, input_node: int, theta: Optional[torch.Tensor]=None, ancilla: Optional[List[int]]=None):
+        self._apply_single(gate.rz, input_node, required_ancilla=2, ancilla=ancilla, theta=theta)
 
     def cnot(self, control_node: int, target_node: int, ancilla: Optional[List[int]]=None):
         if ancilla is None:
             ancilla = [self._bg_qubit, self._bg_qubit+1]
-        pattern_cnot = cnot(control_node, target_node, ancilla)
+        pattern_cnot = gate.cnot(control_node, target_node, ancilla)
         self.cmds += pattern_cnot[0]
         self._node_list += pattern_cnot[1]
         self._edge_list += pattern_cnot[2]
