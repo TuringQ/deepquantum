@@ -199,53 +199,70 @@ class Pattern(Operation):
                       width=2)
         return
 
-    def is_standard(self):
+    def is_standard(self) -> bool:
         """Determine whether the command sequence is standard.
 
         Returns
         -------
         is_standard : bool
-            True if the pattern is standard
+            True if the pattern follows NEMC standardization, False otherwise
         """
         it = iter(self.cmds)
         try:
+            # Check if operations follow NEMC order
             op = next(it)
-            while isinstance(op, Node):
+            while isinstance(op, Node):  # First all Node operations
                 op = next(it)
-            while isinstance(op, Entanglement):
+            while isinstance(op, Entanglement):  # Then all Entanglement operations
                 op = next(it)
-            while isinstance(op, Measurement):
+            while isinstance(op, Measurement):  # Then all Measurement operations
                 op = next(it)
-            while isinstance(op, Correction):
+            while isinstance(op, Correction):  # Finally all Correction operations
                 op = next(it)
-            return False
+            return False  # If we get here, there were operations after NEMC sequence
         except StopIteration:
-            return True
+            return True  # If we run out of operations, pattern is standard
 
     def standardize(self):
+        """Standardize the command sequence into NEMC form.
 
-        n_list = []
-        e_list = []
-        m_list = []
-        z_dict = {}
-        x_dict = {}
+        This function reorders operations into the standard form:
+        - Node preparations (N)
+        - Entanglement operations (E)
+        - Measurement operations (M)
+        - Correction operations (C)
 
-        def add_correction_domain(
-            domain_dict: dict, node, domain
-        ) -> None:
+        It handles the propagation of correction operations by:
+        1. Moving X-corrections through entanglements (generating Z-corrections)
+        2. Moving corrections through measurements (modifying measurement signal domains)
+        3. Collecting remaining corrections at the end
+        """
+        # Initialize lists for each operation type
+        n_list = []  # Node operations
+        e_list = []  # Entanglement operations
+        m_list = []  # Measurement operations
+        z_dict = {}  # Tracks Z corrections by node
+        x_dict = {}  # Tracks X corrections by node
+
+        def add_correction_domain(domain_dict: dict, node, domain) -> None:
+            """Helper function to update correction domains with XOR operation"""
             if previous_domain := domain_dict.get(node):
                 previous_domain = list_xor(previous_domain, domain)
             else:
                 domain_dict[node] = domain.copy()
+
+        # Process each operation and reorganize into standard form
         for op in self.cmds:
             if isinstance(op, Node):
                 n_list.append(op)
             elif isinstance(op, Entanglement):
                 for side in (0, 1):
+                    # Propagate X corrections through entanglement (generates Z corrections)
                     if s_domain := x_dict.get(op.node[side], None):
                         add_correction_domain(z_dict, op.node[1 - side], s_domain)
                 e_list.append(op)
             elif isinstance(op, Measurement):
+                # Apply pending corrections to measurement parameters
                 new_op = deepcopy(op)
                 if t_domain := z_dict.pop(op.node[0], None):
                     new_op.t_domain = list_xor(new_op.t_domain, t_domain)
@@ -256,6 +273,8 @@ class Pattern(Operation):
                 add_correction_domain(z_dict, op.node[0], op.signal_domain)
             elif isinstance(op, XCorrection):
                 add_correction_domain(x_dict, op.node[0], op.signal_domain)
+
+        # Reconstruct command sequence in standard order
         self.cmds = nn.Sequential(
                     *n_list,
                     *e_list,
