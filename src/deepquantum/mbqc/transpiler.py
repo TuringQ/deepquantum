@@ -24,6 +24,7 @@ def transpile(cir) -> Pattern:
             }
     # Initialize a new Pattern with the circuit's input state
     pattern = Pattern(n_input_nodes=cir.init_state.nqubit, init_state=cir.init_state.state.flatten())
+    pattern.nout_wire_dic = {i:i for i in range(pattern.n_input_nodes)}
     # Convert each operator in the circuit to its corresponding pattern
     for op in cir.operators:
         gate_to_pattern(pattern, op, gate_to_str[type(op)])

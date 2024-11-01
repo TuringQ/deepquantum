@@ -7,6 +7,7 @@ from typing import Any, List, Optional, Tuple, Union
 import random
 import torch
 from torch import nn
+from ..qmath import inverse_permutation
 
 class Operation(nn.Module):
     """A base class for quantum operations.
@@ -106,7 +107,7 @@ class Entanglement(Operation):
         x = x.reshape(batch_size,-1)
         nqubit = int(torch.log2(torch.tensor(x.size(1))))
         perm = [0] + [i+1, j+1] + [k+1 for k in range(nqubit) if k not in (i, j)]
-        inv_perm = [0] + [perm[1:].index(k) +1  for k in range(1, nqubit+1)]
+        inv_perm = inverse_permutation(perm)
         x = x.reshape([batch_size] + [2] * nqubit)
         x = x.permute(*perm)
         self.matrix = self.matrix.to(x.dtype)
@@ -267,7 +268,7 @@ class Correction(Operation):
         x = x.reshape(batch_size, -1)
         nqubit =  int(torch.log2(torch.tensor(x.size(1))))
         perm = [0] + [i+1] + [k+1 for k in range(nqubit) if k != i]
-        inv_perm = [0] + [perm[1:].index(k) +1  for k in range(1, nqubit+1)]
+        inv_perm = inverse_permutation(perm)
         x = x.reshape([batch_size] + [2] * nqubit)
         x = x.permute(*perm).reshape(batch_size, 2, -1)
         correct_mat = []
