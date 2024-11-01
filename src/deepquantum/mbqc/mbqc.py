@@ -8,11 +8,22 @@ from networkx import Graph, draw_networkx
 from torch import nn
 from . import gate
 from .operation import Operation, Node, Entanglement, Measurement, Correction, XCorrection, ZCorrection
-from .qmath import kron, list_xor
+from .qmath import list_xor
+from ..qmath import multi_kron
 
 class Pattern(Operation):
-    r"""Measurement based quantum circuit.
-    n_input_nodes: the number of input qubits
+    """
+    Measurement based quantum circuit (MBQC) pattern.
+
+    A Pattern represents a measurement-based quantum computation, which consists of a sequence of
+    operations (preparation, entanglement, measurement, and corrections) applied to qubits arranged
+    in a graph structure.
+
+    Args:
+        n_input_nodes (int): The number of input qubits in the pattern
+        init_state (Any, optional): Initial quantum state. If None, initializes to |+⟩^⊗n state
+            Default: ``None``.
+        name (str, optional): Name identifier for the pattern
     """
     def __init__(
         self,
@@ -37,17 +48,28 @@ class Pattern(Operation):
 
         if init_state is None:
             plus_state = torch.sqrt(torch.tensor(2))*torch.tensor([1,1])/2
-            init_state = kron([plus_state] * n_input_nodes)
+            init_state = multi_kron([plus_state] * n_input_nodes)
         if not isinstance(init_state, torch.Tensor):
             init_state = torch.tensor(init_state)
         if init_state.ndim == 1:
             init_state = init_state.unsqueeze(0)
+        assert init_state.numel() == 2 ** n_input_nodes
         self.init_state = init_state
 
     def set_graph(self, graph: List[List]):
+        """
+        Sets the underlying graph structure of the MBQC pattern.
+
+        Takes a graph specification in the form of [vertices, edges] and constructs
+        the corresponding graph structure by adding nodes and edges to the pattern.
+
+        Args:
+            graph (List[List]): A list containing two elements:
+                - vertices: List of vertex indices
+                - edges: List of pairs representing edges
+        """
         vertices, edges = graph
         assert len(vertices) > self.n_input_nodes
-        self._node_list = list(range(vertices))
         for i in vertices:
             if i not in self._node_list:
                 self.n(i)
@@ -55,7 +77,7 @@ class Pattern(Operation):
             self.e(edge)
         return
 
-    def get_graph(self):
+    def _get_graph(self):
         assert len(self._node_list) == self._bg_qubit
         g = Graph()
         g.add_nodes_from(self._node_list)
@@ -63,44 +85,20 @@ class Pattern(Operation):
         self._graph = g
         return g
 
-    def __add__(self, rhs: 'Pattern') -> 'Pattern':
-        """Addition of the ``Pattern``.
-
-        The initial state is the same as the first ``Pattern``.
-        """
-        pattern = Pattern(n_input_nodes=self.n_input_nodes, init_state=self.init_state, name=self.name)
-        for op in rhs.cmds:
-           new_node =  [i + self._bg_qubit for i in op.node]
-           op.node = new_node
-
-        pattern.cmds = self.cmds + rhs.cmds
-        pattern.encoders = self.encoders + rhs.encoders
-        pattern.npara = self.npara + rhs.npara
-        pattern.ndata = self.ndata + rhs.ndata
-        return pattern
-
     def add(
         self,
         op: Operation,
         encode: bool = False,
         node: Union[int, List[int], None] = None
     ) -> None:
-        """A method that adds an operation to the mbqc.
-
-        The operation can be a gate or another photonic quantum circuit. The method also updates the
-        attributes of the photonic quantum circuit. If ``node`` is specified, the parameters of gates
-        are shared.
+        """A method that adds an operation to the mbqc pattern.
 
         Args:
             op (Operation): The operation to add. It is an instance of ``Operation`` class or its subclasses,
-                such as ``Gate``, or ``QumodeCircuit``.
+                such as ``Node``, or ``Measurement``.
             encode (bool): Whether the gate is to encode data. Default: ``False``
             node (Union[int, List[int], None]): The node to apply the gate on. It can be an integer
-                or a list of integers specifying the indices of the node. Default: ``None`` (which means
-                the gate has its own node)
-
-        Raises:
-            AssertionError: If the input arguments are invalid or incompatible with the quantum circuit.
+                or a list of integers specifying the indices of the node. Default: ``None``
         """
         assert isinstance(op, Operation)
         if node is not None:
@@ -117,6 +115,13 @@ class Pattern(Operation):
             self.npara += op.npara
 
     def n(self, node: Union[int, List[int]] = None):
+        """
+        Add a new node to the pattern.
+
+        Args:
+            node (Union[int, List[int]], optional): Index or list of indices for the new node.
+                Default: ``None``
+        """
         node_ = Node(node=node)
         assert node_.node[0] not in self._node_list, 'node already exists'
         self._node_list.append(node_.node[0])
@@ -125,6 +130,13 @@ class Pattern(Operation):
         self.unmeasured_list.append(node_.node[0])
 
     def e(self, node: List[int] = None):
+        """
+        Add an entanglement edge between two nodes in the pattern.
+
+        Args:
+            node (List[int], optional): A list of two integers specifying the nodes to entangle.
+                Must reference existing nodes in the pattern.
+        """
         assert node[0] in self._node_list and node[1] in self._node_list, \
             'no command acts on a qubit not yet prepared, unless it is an input qubit'
         entang_ = Entanglement(node=node)
@@ -139,15 +151,38 @@ class Pattern(Operation):
         t_domain: Union[int, List[int]] = [],
         s_domain: Union[int, List[int]] = []
     ):
+        """
+        Add a measurement operation to the pattern.
+
+        Args:
+            node (Optional[int]): The node to measure.
+            plane (Optional[str]): Measurement plane ('XY', 'YZ', or 'XZ'). Defaults to 'XY'.
+            angle (float): Measurement angle in radians. Defaults to 0.
+            t_domain (Union[int, List[int]]): List of nodes that contribute to the Z correction. Defaults to empty list.
+            s_domain (Union[int, List[int]]): List of nodes that contribute to the X correction. Defaults to empty list.
+        """
         mea_op = Measurement(node=node, plane=plane, angle=angle, t_domain=t_domain, s_domain=s_domain)
         self.add(mea_op)
 
     def x(self, node: int = None, signal_domain: List[int] = None):
+        """
+        Add an X correction operation to the pattern.
+
+        Args:
+            node (int, optional): The node to apply the X correction to.
+            signal_domain (List[int], optional): List of measurement results that determine if the correction should be applied.
+        """
         assert node in self._node_list, 'no command acts on a qubit not yet prepared, unless it is an input qubit'
         x_ = XCorrection(node=node, signal_domain=signal_domain)
         self.add(x_)
 
     def z(self, node: int = None, signal_domain: List[int] = None):
+        """Add a Z correction operation to the pattern.
+
+        Args:
+            node (int, optional): The node to apply the Z correction to.
+            signal_domain (List[int], optional): List of measurement results that determine if the correction should be applied.
+        """
         assert node in self._node_list, 'no command acts on a qubit not yet prepared, unless it is an input qubit'
         z_ = ZCorrection(node=node, signal_domain=signal_domain)
         self.add(z_)
@@ -183,7 +218,10 @@ class Pattern(Operation):
         return
 
     def draw(self, wid: int=3):
-        g = self.get_graph()
+        """
+        Draw MBQC pattern
+        """
+        g = self._get_graph()
         pos = {}
         for i in self._node_list:
             pos_x = i % wid
