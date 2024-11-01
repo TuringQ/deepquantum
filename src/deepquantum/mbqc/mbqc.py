@@ -286,7 +286,6 @@ class Pattern(Operation):
             required_ancilla: Number of required ancilla qubits
             ancilla: Optional ancilla qubits
         """
-        print(kwargs)
         if ancilla is None:
             ancilla = list(range(self._bg_qubit, self._bg_qubit + required_ancilla))
         pattern = gate(input_node, ancilla, **kwargs)
@@ -327,6 +326,3 @@ class Pattern(Operation):
         self._node_list += pattern_cnot[1]
         self._edge_list += pattern_cnot[2]
         self._update()
-
-
-

@@ -1,5 +1,5 @@
 
-from deepquantum.gate import SingleGate, ParametricSingleGate, DoubleGate, PauliX, CNOT, Rx, Ry, Rz, Hadamard, SGate
+from deepquantum.gate import SingleGate, ParametricSingleGate, DoubleGate, PauliX, PauliY, PauliZ, CNOT, Rx, Ry, Rz, Hadamard, SGate
 
 def transpile(cir):
     from deepquantum import Pattern
