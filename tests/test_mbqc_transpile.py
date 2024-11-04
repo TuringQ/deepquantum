@@ -7,8 +7,9 @@ import random
 def test_random_circuit_transpilation():
     # Create a circuit with random number of qubits (2-5)
     n_qubits = random.randint(2, 5)
-    init_state = torch.rand(2**n_qubits)
-    init_state = init_state / torch.norm(init_state)  # normalize
+    batch_size = random.randint(1,3)
+    init_state = torch.rand(batch_size, 2**n_qubits)
+    init_state = init_state / torch.norm(init_state, dim=-1, keepdim=True)  # normalize
 
     cir = dq.QubitCircuit(n_qubits, init_state=init_state)
 
@@ -48,7 +49,7 @@ def test_random_circuit_transpilation():
 
     # Assert that both states are equal (up to global phase)
     assert torch.allclose(
-        torch.abs(state_cir.flatten()),
+        torch.abs(state_cir.reshape(state_pattern.size())),
         torch.abs(state_pattern),
         atol=1e-6
     )

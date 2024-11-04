@@ -53,7 +53,7 @@ class Pattern(Operation):
             init_state = torch.tensor(init_state)
         if init_state.ndim == 1:
             init_state = init_state.unsqueeze(0)
-        assert init_state.numel() == 2 ** n_input_nodes
+        assert init_state[0].numel() == 2 ** n_input_nodes
         self.init_state = init_state
 
     def set_graph(self, graph: List[List]):

@@ -24,7 +24,10 @@ def transpile(cir) -> Pattern:
                 CNOT: "cnot"
             }
     # Initialize a new Pattern with the circuit's input state
-    pattern = Pattern(n_input_nodes=cir.init_state.nqubit, init_state=cir.init_state.state.flatten())
+    if cir.init_state.state.ndim == 2:
+        pattern = Pattern(n_input_nodes=cir.init_state.nqubit, init_state=cir.init_state.state.flatten())
+    else:
+        pattern = Pattern(n_input_nodes=cir.init_state.nqubit, init_state=cir.init_state.state.flatten(start_dim = 1))
     pattern.nout_wire_dic = {i:i for i in range(pattern.n_input_nodes)}
     # Convert each operator in the circuit to its corresponding pattern
     for op in cir.operators:
