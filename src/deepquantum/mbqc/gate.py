@@ -1,11 +1,12 @@
 """
 Basic gate in MBQC pattern
 """
+
+from typing import List, Optional
 import torch
 from torch import nn
-from typing import Any, List, Optional, Tuple, Union
 
-from .operation import Operation, Node, Entanglement, Measurement, XCorrection, ZCorrection
+from .operation import Node, Entanglement, Measurement, XCorrection, ZCorrection
 
 def h(input_node: int, ancilla: List[int]):
     """
@@ -115,7 +116,7 @@ def rx(input_node: int, ancilla: List[int], theta: Optional[torch.Tensor]=None):
     cmds.append(Entanglement([input_node, ancilla[0]]))
     cmds.append(Entanglement(ancilla))
     cmds.append(Measurement(input_node))
-    cmds.append(Measurement(ancilla[0], angle=-theta, s_domain=[input_node]))
+    cmds.append(Measurement(ancilla[0], angle=-1 * theta, s_domain=[input_node]))
     cmds.append(XCorrection(ancilla[1], signal_domain=[ancilla[0]]))
     cmds.append(ZCorrection(ancilla[1], signal_domain=[input_node]))
     node_list = ancilla
@@ -139,7 +140,7 @@ def ry(input_node: int, ancilla: List[int], theta: Optional[torch.Tensor]=None):
         cmds.append(Entanglement([all_nodes[i], all_nodes[i+1]]))
         edge_list.extend([all_nodes[i], all_nodes[i+1]])
     cmds.append(Measurement(input_node, angle=torch.pi/2))
-    cmds.append(Measurement(ancilla[0], angle=-theta, s_domain=[input_node]))
+    cmds.append(Measurement(ancilla[0], angle=-1 * theta, s_domain=[input_node]))
     cmds.append(Measurement(ancilla[1], angle=-torch.pi/2, s_domain=[input_node]))
     cmds.append(Measurement(ancilla[2]))
     cmds.append(XCorrection(ancilla[3], signal_domain=[ancilla[0], ancilla[2]]))

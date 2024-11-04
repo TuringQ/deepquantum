@@ -2,7 +2,7 @@
 Base classes
 """
 
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, List, Optional, Union
 
 import random
 import torch

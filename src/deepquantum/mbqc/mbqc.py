@@ -158,8 +158,10 @@ class Pattern(Operation):
             node (Optional[int]): The node to measure.
             plane (Optional[str]): Measurement plane ('XY', 'YZ', or 'XZ'). Defaults to 'XY'.
             angle (float): Measurement angle in radians. Defaults to 0.
-            t_domain (Union[int, List[int]]): List of nodes that contribute to the Z correction. Defaults to empty list.
-            s_domain (Union[int, List[int]]): List of nodes that contribute to the X correction. Defaults to empty list.
+            t_domain (Union[int, List[int]]): List of nodes that contribute to the Z correction.
+                Defaults to empty list.
+            s_domain (Union[int, List[int]]): List of nodes that contribute to the X correction.
+                Defaults to empty list.
         """
         mea_op = Measurement(node=node, plane=plane, angle=angle, t_domain=t_domain, s_domain=s_domain)
         self.add(mea_op)
@@ -170,7 +172,8 @@ class Pattern(Operation):
 
         Args:
             node (int, optional): The node to apply the X correction to.
-            signal_domain (List[int], optional): List of measurement results that determine if the correction should be applied.
+            signal_domain (List[int], optional): List of measurement results that determine
+                if the correction should be applied.
         """
         assert node in self._node_list, 'no command acts on a qubit not yet prepared, unless it is an input qubit'
         x_ = XCorrection(node=node, signal_domain=signal_domain)
@@ -181,13 +184,18 @@ class Pattern(Operation):
 
         Args:
             node (int, optional): The node to apply the Z correction to.
-            signal_domain (List[int], optional): List of measurement results that determine if the correction should be applied.
+            signal_domain (List[int], optional): List of measurement results that determine
+                if the correction should be applied.
         """
         assert node in self._node_list, 'no command acts on a qubit not yet prepared, unless it is an input qubit'
         z_ = ZCorrection(node=node, signal_domain=signal_domain)
         self.add(z_)
 
     def forward(self):
+        """
+         Execute the MBQC pattern by applying commands in sequence
+         to the quantum state
+        """
         state = self.init_state
         for op in self.cmds:
             self._check_measured(op.node)
@@ -337,7 +345,7 @@ class Pattern(Operation):
 
     def _apply_single(
         self,
-        gate,
+        gate_func,
         input_node: int,
         required_ancilla: int,
         ancilla: Optional[List[int]]=None,
@@ -354,37 +362,119 @@ class Pattern(Operation):
         """
         if ancilla is None:
             ancilla = list(range(self._tot_qubit, self._tot_qubit + required_ancilla))
-        pattern = gate(input_node, ancilla, **kwargs)
+        pattern = gate_func(input_node, ancilla, **kwargs)
         self.cmds += pattern[0]
         self._node_list += pattern[1]
         self._edge_list += pattern[2]
         self._update()
 
     def h(self, input_node: int, ancilla: Optional[List[int]]=None):
+        """Apply Hadamard gate to specified input node.
+
+        Args:
+            input_node (int): Index of the node to apply the Hadamard gate to
+            ancilla (Optional[List[int]], optional): List of ancilla node indices. If None,
+                a new ancilla node will be allocated. Defaults to None.
+        """
         self._apply_single(gate.h, input_node, 1, ancilla)
 
     def pauli_x(self, input_node: int, ancilla: Optional[List[int]]=None):
+        """Apply Pauli-X gate to specified input node.
+
+        Args:
+            input_node (int): Index of the node to apply the Hadamard gate to
+            ancilla (Optional[List[int]], optional): List of ancilla node indices. If None,
+                two new ancilla nodes will be allocated. Defaults to None.
+        """
         self._apply_single(gate.pauli_x, input_node, 2, ancilla)
 
     def pauli_y(self, input_node: int, ancilla: Optional[List[int]]=None):
+        """Apply Pauli-Y gate to specified input node.
+
+        Args:
+            input_node (int): Index of the node to apply the Hadamard gate to
+            ancilla (Optional[List[int]], optional): List of ancilla node indices. If None,
+                4 new ancilla nodes will be allocated. Defaults to None.
+        """
         self._apply_single(gate.pauli_y, input_node, 4, ancilla)
 
     def pauli_z(self, input_node: int, ancilla: Optional[List[int]]=None):
+        """Apply Pauli-Z gate to specified input node.
+
+        Args:
+            input_node (int): Index of the node to apply the Hadamard gate to
+            ancilla (Optional[List[int]], optional): List of ancilla node indices. If None,
+                two new ancilla nodes will be allocated. Defaults to None.
+        """
         self._apply_single(gate.pauli_z, input_node, 2, ancilla)
 
     def s(self, input_node: int, ancilla: Optional[List[int]]=None):
+        """Apply S gate to specified input node.
+
+        Args:
+            input_node (int): Index of the node to apply the Hadamard gate to
+            ancilla (Optional[List[int]], optional): List of ancilla node indices. If None,
+                two new ancilla nodes will be allocated. Defaults to None.
+        """
         self._apply_single(gate.s, input_node, 2, ancilla)
 
-    def rx(self, input_node: int, theta: Optional[torch.Tensor]=None, ancilla: Optional[List[int]]=None):
+    def rx(
+        self,
+        input_node: int,
+        theta: Optional[torch.Tensor]=None,
+        ancilla: Optional[List[int]]=None
+    ):
+        """Apply rotation around X-axis to specified input node.
+
+        Args:
+            input_node (int): Index of the node to apply the RX gate to
+            theta (Optional[torch.Tensor], optional): Rotation angle. Defaults to None.
+            ancilla (Optional[List[int]], optional): List of ancilla node indices. If None,
+                two new ancilla nodes will be allocated. Defaults to None.
+        """
         self._apply_single(gate.rx, input_node, required_ancilla=2, ancilla=ancilla, theta=theta)
 
-    def ry(self, input_node: int, theta: Optional[torch.Tensor]=None, ancilla: Optional[List[int]]=None):
+    def ry(
+        self,
+        input_node: int,
+        theta: Optional[torch.Tensor]=None,
+        ancilla: Optional[List[int]]=None
+    ):
+        """Apply rotation around Y-axis to specified input node.
+
+        Args:
+            input_node (int): Index of the node to apply the RY gate to
+            theta (Optional[torch.Tensor], optional): Rotation angle. Defaults to None.
+            ancilla (Optional[List[int]], optional): List of ancilla node indices. If None,
+                4 new ancilla nodes will be allocated. Defaults to None.
+        """
         self._apply_single(gate.ry, input_node, required_ancilla=4, ancilla=ancilla, theta=theta)
 
-    def rz(self, input_node: int, theta: Optional[torch.Tensor]=None, ancilla: Optional[List[int]]=None):
+    def rz(
+        self,
+        input_node: int,
+        theta: Optional[torch.Tensor]=None,
+        ancilla: Optional[List[int]]=None
+    ):
+        """Apply rotation around Z-axis to specified input node.
+
+        Args:
+            input_node (int): Index of the node to apply the RZ gate to
+            theta (Optional[torch.Tensor], optional): Rotation angle. Defaults to None.
+            ancilla (Optional[List[int]], optional): List of ancilla node indices. If None,
+                two new ancilla nodes will be allocated. Defaults to None.
+        """
         self._apply_single(gate.rz, input_node, required_ancilla=2, ancilla=ancilla, theta=theta)
 
     def cnot(self, control_node: int, target_node: int, ancilla: Optional[List[int]]=None):
+        """Apply CNOT (controlled-NOT) gate between control and target nodes.
+
+        Args:
+            control_node (int): Index of the control node
+            target_node (int): Index of the target node
+            ancilla (Optional[List[int]], optional): List of ancilla node indices. If None,
+                new ancilla nodes will be allocated. Defaults to None.
+        """
         if ancilla is None:
             ancilla = [self._tot_qubit, self._tot_qubit+1]
         pattern_cnot = gate.cnot(control_node, target_node, ancilla)
