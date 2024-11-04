@@ -343,7 +343,8 @@ class Pattern(Operation):
         ancilla: Optional[List[int]]=None,
         **kwargs
     ):
-        """Helper method to apply quantum gate patterns.
+        """
+        Helper method to apply quantum gate patterns.
 
         Args:
             gate: Gate function to apply (h, pauli_x, pauli_y, etc.)

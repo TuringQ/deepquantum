@@ -9,7 +9,7 @@ from .operation import Operation, Node, Entanglement, Measurement, XCorrection, 
 
 def h(input_node: int, ancilla: List[int]):
     """
-    Hadamard gate in MBQC patter, measure node: input_node, out node: ancilla[0]
+    Hadamard gate in MBQC pattern, measure node: input_node, out node: ancilla[0]
     """
     assert len(ancilla) == 1
     cmds = nn.Sequential()

@@ -5,6 +5,7 @@ from .mbqc import Pattern
 def transpile(cir) -> Pattern:
     """
     Transpiles QubitCircuit into an MBQC pattern.
+
     Args:
         cir: QubitCircuit to be transpiled
     Returns:
@@ -33,6 +34,7 @@ def transpile(cir) -> Pattern:
 def gate_to_pattern(pattern, op, op_str):
     """
     Converts a QubitCircuit gate to its corresponding MBQC pattern representation.
+    
     Args:
         pattern: The MBQC pattern being constructed
         op: The quantum gate operator to convert
