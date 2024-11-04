@@ -113,7 +113,7 @@ class DrawCircuit():
             elif isinstance(op, Delay):
                 name_ = ''
                 order = depth[op.wires[0]]
-                inputs = [op.ntau, op.theta, op.phi]
+                inputs = [op.ntau, op.theta.item(), op.phi.item()]
                 self.draw_delay(order, op.wires, inputs=inputs)
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
@@ -261,8 +261,8 @@ class DrawCircuit():
                                                fill='none', stroke='black', stroke_width=2))
         self.draw_.add(self.draw_.circle(center=(x+46, y_up*30+25-4), r=9, stroke='black', fill='white', stroke_width=1.2))
         self.draw_.add(self.draw_.text('N ='+str(inputs[0]), insert=(x+40, y_up*30+18), font_size=5))
-        self.draw_.add(self.draw_.text('θ ='+str(np.round(inputs[1].tolist(),2)), insert=(x+58, y_up*30+18), font_size=6))
-        self.draw_.add(self.draw_.text('ϕ ='+str(np.round(inputs[2].tolist(),2)), insert=(x+58, y_up*30+24), font_size=6))
+        self.draw_.add(self.draw_.text('θ ='+str(np.round(inputs[1],2)), insert=(x+58, y_up*30+18), font_size=6))
+        self.draw_.add(self.draw_.text('ϕ ='+str(np.round(inputs[2],2)), insert=(x+58, y_up*30+24), font_size=6))
 
     def draw_any(self, order, wires, name, para_dict=None):
         """
