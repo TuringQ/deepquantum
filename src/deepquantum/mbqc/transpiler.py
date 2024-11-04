@@ -34,7 +34,7 @@ def transpile(cir) -> Pattern:
 def gate_to_pattern(pattern, op, op_str):
     """
     Converts a QubitCircuit gate to its corresponding MBQC pattern representation.
-    
+
     Args:
         pattern: The MBQC pattern being constructed
         op: The quantum gate operator to convert
@@ -49,10 +49,10 @@ def gate_to_pattern(pattern, op, op_str):
             # For non-parametric gates (X, Y, Z, H, S)
             getattr(pattern, op_str)(input_node = pattern.nout_wire_dic[op.wires[0]])
         # Update the wire dictionary to point to the newest qubit as output
-        pattern.nout_wire_dic[op.wires[0]] = pattern._bg_qubit-1
+        pattern.nout_wire_dic[op.wires[0]] = pattern._tot_qubit-1
     # Handle two-qubit gates (currently only CNOT)
     elif isinstance(op, DoubleGate):
         if isinstance(op, CNOT):
             getattr(pattern, op_str)(control_node = pattern.nout_wire_dic[op.wires[0]],
                                     target_node = pattern.nout_wire_dic[op.wires[1]])
-            pattern.nout_wire_dic[op.wires[1]] = pattern._bg_qubit-1
+            pattern.nout_wire_dic[op.wires[1]] = pattern._tot_qubit-1
