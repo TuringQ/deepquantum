@@ -33,7 +33,7 @@ class Pattern(Operation):
     ) -> None:
         super().__init__(name=name, n_input_nodes=n_input_nodes, node=list(range(n_input_nodes)))
         self._bg_state = None
-        self._bg_qubit = n_input_nodes
+        self._tot_qubit = n_input_nodes
         self.n_input_nodes = n_input_nodes
         self._graph = None
         self.cmds = nn.Sequential()
@@ -78,7 +78,7 @@ class Pattern(Operation):
         return
 
     def _get_graph(self):
-        assert len(self._node_list) == self._bg_qubit
+        assert len(self._node_list) == self._tot_qubit
         g = Graph()
         g.add_nodes_from(self._node_list)
         g.add_edges_from(self._edge_list)
@@ -126,7 +126,7 @@ class Pattern(Operation):
         assert node_.node[0] not in self._node_list, 'node already exists'
         self._node_list.append(node_.node[0])
         self.add(node_)
-        self._bg_qubit += 1
+        self._tot_qubit += 1
         self.unmeasured_list.append(node_.node[0])
 
     def e(self, node: List[int] = None):
@@ -211,9 +211,8 @@ class Pattern(Operation):
             state = state.reshape(batch_size, -1)
             n_node =  int(torch.log2(torch.tensor(state.size(1))))
             idx2 = [0] + [i+1 for i in index]
-            idx2 = inverse_permutation(idx2)
-            state = state.reshape([batch_size] + [2] * n_node).permute(*idx2)
-            state = state.reshape(batch_size, -1)
+            inv_perm = inverse_permutation(idx2)
+            state = state.reshape([batch_size] + [2] * n_node).permute(*inv_perm).reshape(batch_size, -1)
         return state.squeeze()
 
     def _check_measured(self, node):
@@ -332,8 +331,8 @@ class Pattern(Operation):
 
     def _update(self):
         if len(self.measured_dic) == 0:
-            self._bg_qubit = len(self._node_list)
-            self.unmeasured_list = list(range(self._bg_qubit))
+            self._tot_qubit = len(self._node_list)
+            self.unmeasured_list = list(range(self._tot_qubit))
         return
 
     def _apply_single(
@@ -353,7 +352,7 @@ class Pattern(Operation):
             ancilla: Optional ancilla qubits
         """
         if ancilla is None:
-            ancilla = list(range(self._bg_qubit, self._bg_qubit + required_ancilla))
+            ancilla = list(range(self._tot_qubit, self._tot_qubit + required_ancilla))
         pattern = gate(input_node, ancilla, **kwargs)
         self.cmds += pattern[0]
         self._node_list += pattern[1]
@@ -386,7 +385,7 @@ class Pattern(Operation):
 
     def cnot(self, control_node: int, target_node: int, ancilla: Optional[List[int]]=None):
         if ancilla is None:
-            ancilla = [self._bg_qubit, self._bg_qubit+1]
+            ancilla = [self._tot_qubit, self._tot_qubit+1]
         pattern_cnot = gate.cnot(control_node, target_node, ancilla)
         self.cmds += pattern_cnot[0]
         self._node_list += pattern_cnot[1]

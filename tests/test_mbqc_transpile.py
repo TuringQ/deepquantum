@@ -50,5 +50,5 @@ def test_random_circuit_transpilation():
     assert torch.allclose(
         torch.abs(state_cir.flatten()),
         torch.abs(state_pattern),
-        atol=1e-5
+        atol=1e-6
     )
