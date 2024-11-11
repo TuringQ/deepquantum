@@ -35,7 +35,7 @@ def test_gaussian_backend_auto_grad():
         loss = abs(target_prob - vac_prob)
         if loss < 1e-4:
             best_para.append([i.detach().clone() for i in para_ini])
-        loss.backward() # backpropagetion
+        loss.backward() # backpropagation
         optimizer.step() # update parameters
     best_result = get_vac_prob(best_para[0])
     assert abs(best_result - target_prob) < 1e-4
