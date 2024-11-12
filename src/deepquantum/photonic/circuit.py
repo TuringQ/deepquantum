@@ -17,7 +17,7 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 from .decompose import UnitaryDecomposer
 from .draw import DrawCircuit
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
-from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum, DelayBS, DelayMZI
+from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum, DelayBS, DelayMZI, Loss
 from .hafnian_ import hafnian
 from .measurement import Homodyne
 from .operation import Operation, Gate, Delay
@@ -1918,3 +1918,14 @@ class QumodeCircuit(Operation):
         homodyne = Homodyne(phi=phi, nmode=self.nmode, wires=wires, cutoff=self.cutoff, eps=eps,
                             requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
         self.add(homodyne)
+
+    def loss(
+        self,
+        wires: int,
+        inputs: Any,
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
+    ) -> None:
+        """Add a loss channel."""
+        loss_ = Loss(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
+        self.add(loss_)

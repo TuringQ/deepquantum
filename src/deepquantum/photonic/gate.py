@@ -1591,3 +1591,111 @@ class DelayMZI(Delay):
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, ntau={self.ntau}, theta={self.theta.item()}, phi={self.phi.item()}'
+
+class Loss(SingleGate):
+    r"""Loss channel.
+
+    **Matrix Representation:**
+
+    .. math::
+
+        U_{\text{PS}}(\theta) = e^{i\theta}
+
+    Args:
+        inputs (Any, optional): The parameter of the gate. Default: ``None``
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
+        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
+        mu (float, optional): The mean of Gaussian noise. Default: 0
+        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nmode: int = 1,
+        wires: Union[int, List[int], None] = None,
+        cutoff: Optional[int] = None,
+        requires_grad: bool = False,
+        noise: bool = False,
+        mu: float = 0,
+        sigma: float = 0.1
+    ) -> None:
+        super().__init__(name='Loss', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
+                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        self.npara = 1
+
+    def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
+        """Convert inputs to torch.Tensor."""
+        while isinstance(inputs, list):
+            inputs = inputs[0]
+        if inputs is None:
+            inputs = torch.rand(1)[0]
+        elif not isinstance(inputs, (torch.Tensor, nn.Parameter)):
+            inputs = torch.tensor(inputs, dtype=torch.float)
+        if self.noise:
+            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        return inputs
+
+    def get_matrix(self, t: Any) -> torch.Tensor:
+        """Get the local unitary matrix acting on creation operators."""
+        t = self.inputs_to_tensor(t)
+        return t.reshape(1, 1)
+
+    def update_matrix(self) -> torch.Tensor:
+        """Update the local unitary matrix acting on creation operators."""
+        matrix = self.get_matrix(self.t)
+        self.matrix = matrix.detach()
+        return matrix
+
+    def get_matrix_state(self, matrix: torch.Tensor) -> torch.Tensor:
+        """Get the local transformation matrix acting on Fock state tensors."""
+        t = matrix[0,0]
+        loss_mat = torch.eye(self.cutoff)
+        comb = torch.tensor([1])
+        for i in range(1, self.cutoff):
+            comb = comb * torch.tensor([i/(i-k) for k in range(i)])
+            comb = torch.cat([comb, torch.tensor([1])])
+            t_list1 = torch.pow(torch.sqrt(t), torch.arange(i+1))
+            t_list2 = torch.pow(torch.sqrt(1-t), torch.arange(i+1))
+            t_list2 = torch.flip(t_list2, dims=[0])
+            loss_coeff = (torch.sqrt(comb) * t_list1 * t_list2)
+            loss_mat[:, i][:i+1] = loss_coeff
+        loss_mat = loss_mat.to(torch.cfloat)
+        return loss_mat
+
+    # def get_transform_xp(self, theta: Any) -> Tuple[torch.Tensor, torch.Tensor]:
+    #     """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
+    #     theta = self.inputs_to_tensor(theta)
+    #     if self.inv_mode:
+    #         theta = -theta
+    #     cos = torch.cos(theta)
+    #     sin = torch.sin(theta)
+    #     matrix_xp = torch.stack([cos, -sin, sin, cos]).reshape(2, 2)
+    #     vector_xp = torch.zeros(2, 1, dtype=theta.dtype, device=theta.device)
+    #     return matrix_xp, vector_xp
+
+    # def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
+    #     """Update the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
+    #     matrix_xp, vector_xp = self.get_transform_xp(self.theta)
+    #     self.matrix_xp = matrix_xp.detach()
+    #     self.vector_xp = vector_xp.detach()
+    #     return matrix_xp, vector_xp
+
+    def init_para(self, inputs: Any = None) -> None:
+        """Initialize the parameters."""
+        noise = self.noise
+        self.noise = False
+        t = self.inputs_to_tensor(inputs)
+        self.noise = noise
+        if self.requires_grad:
+            self.theta = nn.Parameter(t)
+        else:
+            self.register_buffer('t', t)
+
+    def extra_repr(self) -> str:
+        return f'wires={self.wires}, transmissity={self.t.item()}'
+
