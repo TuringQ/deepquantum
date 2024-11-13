@@ -49,6 +49,10 @@ class Operation(nn.Module):
         """Get the tensor representation of the state."""
         return x.reshape([-1] + [self.cutoff] * self.nmode)
 
+    def matrix_rep(self, x: torch.Tensor) -> torch.Tensor:
+        """Get the density matrix representation of the state."""
+        return x.reshape([-1] + [self.cutoff] * 2 * self.nmode)
+
     def init_para(self) -> None:
         """Initialize the parameters."""
         pass
@@ -133,14 +137,35 @@ class Gate(Operation):
         """Perform a forward pass for state tensors."""
         nt = len(self.wires)
         matrix = self.update_matrix_state().reshape(self.cutoff ** nt, self.cutoff ** nt)
-        wires = [i + 1 for i in self.wires]
-        pm_shape = list(range(self.nmode + 1))
-        for i in wires:
-            pm_shape.remove(i)
-        pm_shape = wires + pm_shape
-        x = x.permute(pm_shape).reshape(self.cutoff ** nt, -1)
-        x = (matrix @ x).reshape([self.cutoff] * nt + [-1] + [self.cutoff] * (self.nmode - nt))
-        x = x.permute(inverse_permutation(pm_shape))
+        print(x.shape)
+        if len(x.size()) -1 == self.nmode: # fock tensor
+            wires = [i + 1 for i in self.wires]
+            pm_shape = list(range(self.nmode + 1))
+            for i in wires:
+                pm_shape.remove(i)
+            pm_shape = wires + pm_shape
+            x = x.permute(pm_shape).reshape(self.cutoff ** nt, -1)
+            x = (matrix @ x).reshape([self.cutoff] * nt + [-1] + [self.cutoff] * (self.nmode - nt))
+            x = x.permute(inverse_permutation(pm_shape))
+        else:
+            # left multiply
+            wires = [i + 1 for i in self.wires]
+            pm_shape = list(range(2 * self.nmode + 1))
+            for i in wires:
+                pm_shape.remove(i)
+            pm_shape = wires + pm_shape
+            x = x.permute(pm_shape).reshape(self.cutoff ** nt, -1)
+            x = (matrix @ x).reshape([self.cutoff] * nt + [-1] + [self.cutoff] * (2 * self.nmode - nt))
+            x = x.permute(inverse_permutation(pm_shape))
+            # right multiply
+            wires = [i + 1 + self.nmode for i in self.wires]
+            pm_shape = list(range(2 * self.nmode + 1))
+            for i in wires:
+                pm_shape.remove(i)
+            pm_shape = wires + pm_shape
+            x = x.permute(pm_shape).reshape(self.cutoff ** nt, -1)
+            x = (matrix.conj() @ x).reshape([self.cutoff] * nt + [-1] + [self.cutoff] * (2 * self.nmode - nt))
+            x = x.permute(inverse_permutation(pm_shape))
         return x
 
     def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:

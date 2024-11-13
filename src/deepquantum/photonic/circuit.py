@@ -61,6 +61,7 @@ class QumodeCircuit(Operation):
         cutoff: Optional[int] = None,
         backend: str = 'fock',
         basis: bool = True,
+        den_mat: bool = True,
         detector: str = 'pnrd',
         name: Optional[str] = None,
         mps: bool = False,
@@ -73,6 +74,8 @@ class QumodeCircuit(Operation):
         self.cutoff = cutoff
         self.backend = backend
         self.basis = basis
+        self.den_mat = den_mat
+        self.is_lossy = False
         self.detector = detector.lower()
         self.mps = mps
         self.chi = chi
@@ -128,7 +131,8 @@ class QumodeCircuit(Operation):
             else:
                 if self.backend == 'fock':
                     self.init_state = FockState(state=init_state, nmode=self.nmode, cutoff=self.cutoff,
-                                                basis=self.basis)
+                                                basis=self.basis, den_mat=self.den_mat)
+
                 elif self.backend == 'gaussian':
                     self.init_state = GaussianState(state=init_state, nmode=self.nmode, cutoff=self.cutoff)
                 self.cutoff = self.init_state.cutoff
@@ -365,9 +369,14 @@ class QumodeCircuit(Operation):
         else:
             if isinstance(state, FockState):
                 state = state.state
-            x = self.operators(self.tensor_rep(state)).squeeze(0)
-            if is_prob:
-                x = abs(x) ** 2
+            if self.den_mat:
+                x = self.operators(self.matrix_rep(state)).squeeze(0)
+                if is_prob:
+                    x = x.reshape(self.cutoff ** self.nmode, self.cutoff ** self.nmode).diagonal()
+            else:
+                x = self.operators(self.tensor_rep(state)).squeeze(0)
+                if is_prob:
+                    x = abs(x) ** 2
             return x
 
     def _forward_gaussian(
@@ -1949,5 +1958,7 @@ class QumodeCircuit(Operation):
         sigma: Optional[float] = None
     ) -> None:
         """Add a loss channel."""
+        self.is_lossy = True
+        assert self.den_mat == True, 'need the density matrix representation'
         loss_ = Loss(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
         self.add(loss_)

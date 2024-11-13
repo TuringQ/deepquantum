@@ -27,10 +27,12 @@ class FockState(nn.Module):
         state: Any,
         nmode: Optional[int] = None,
         cutoff: Optional[int] = None,
-        basis: bool = True
+        basis: bool = True,
+        den_mat: bool = False
     ) -> None:
         super().__init__()
         self.basis = basis
+        self.den_mat = den_mat
         if self.basis:
             if state in ('vac', 'zeros'):
                 state = [0] * nmode
@@ -90,6 +92,10 @@ class FockState(nn.Module):
                 state_ts = state_ts.unsqueeze(0)  # add additional batch size
             assert state_ts.ndim == self.nmode + 1
             assert all(i == self.cutoff for i in state_ts.shape[1:])
+            if self.den_mat:
+                state_ts = state_ts.reshape([self.cutoff ** self.nmode, 1])
+                state_dm = (state_ts @ state_ts.mH).reshape([-1] + [self.cutoff] * 2 * self.nmode)
+                state_ts = state_dm
         self.register_buffer('state', state_ts)
 
     def __repr__(self) -> str:
