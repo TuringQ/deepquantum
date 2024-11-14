@@ -97,6 +97,8 @@ class QumodeCircuit(Operation):
         self.wires_homodyne = []
         self._draw_nstep = None
 
+        self.nlc = 0
+
     def set_init_state(self, init_state: Any) -> None:
         """Set the initial state of the circuit."""
         if isinstance(init_state, (FockState, GaussianState, MatrixProductState)):
@@ -321,9 +323,19 @@ class QumodeCircuit(Operation):
             if state is None:
                 state = self.init_state.state
             out_dict = {}
-            final_states = self._all_fock_basis
+
+
             if self._state_expand is not None:
                 unitary = torch.block_diag(unitary, torch.eye(1, dtype=unitary.dtype, device=unitary.device))
+                if self.nlc != 0:
+                    state = torch.cat([state[:,:-1],
+                                        torch.zeros((*state.shape[:-1], self.nlc), dtype=state.dtype, device=state.device),
+                                        state[:,-1]], dim=-1)
+            elif self.nlc != 0:
+                state = torch.cat([state,
+                                    torch.zeros((*state.shape[:-1], self.nlc), dtype=state.dtype, device=state.device)], dim=-1)
+                self._all_fock_basis = self._get_all_fock_basis(state)
+            final_states = self._all_fock_basis
             sub_mats = vmap(sub_matrix, in_dims=(None, None, 0))(unitary, state, final_states)
             per_norms = self._get_permanent_norms(state, final_states).to(unitary.dtype)
             if is_prob:
@@ -681,10 +693,20 @@ class QumodeCircuit(Operation):
             operators = self._operators_tdm
         else:
             operators = self.operators
+        # n_state_expand = 0
+        # if self._state_expand is not None:
+        #     n_state_expand = 1
+
         for op in operators:
             if u is None:
                 u = op.get_unitary()
             else:
+                if isinstance(op, Loss):
+                    self.nlc += 1
+                    # op.gate.wires = [op.wires, self.nmode + n_state_expand + nlc]
+                    op.gate.wires = [op.wires, op.nmode + self.nlc]
+                    u = torch.block_diag(u, torch.eye(1, dtype=unitary.dtype, device=unitary.device))
+                op.nmode = op.nmode + self.nlc
                 u = op.get_unitary() @ u
         if u is None:
             return torch.eye(self.nmode, dtype=torch.cfloat)
