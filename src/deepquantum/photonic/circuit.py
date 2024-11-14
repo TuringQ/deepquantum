@@ -701,15 +701,18 @@ class QumodeCircuit(Operation):
         else:
             operators = self.operators
         for op in operators:
-            if u is None:
-                u = op.get_unitary()
-            else:
-                if isinstance(op, Loss):
-                    self.nlc += 1
-                    op.gate.wires = [op.wires[0], self.nmode + self.nlc -1]
-                    u = torch.block_diag(u, torch.eye(1, dtype=u.dtype, device=u.device))
-                    op.gate.nmode = self.nmode + self.nlc
+            if isinstance(op, Loss):
+                self.nlc += 1
+                op.gate.wires = [op.wires[0], self.nmode + self.nlc -1]
+                u = torch.block_diag(u, torch.eye(1, dtype=u.dtype, device=u.device))
+                op.gate.nmode = self.nmode + self.nlc
+                if u is None:
+                    u = op.gate.get_unitary()
+                else:
                     u = op.gate.get_unitary() @ u
+            else:
+                if u is None:
+                    u = op.get_unitary()
                 else:
                     op.nmode = op.nmode + self.nlc
                     u = op.get_unitary() @ u
