@@ -1627,6 +1627,12 @@ class Loss(SingleGate):
         super().__init__(name='Loss', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
                          requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.npara = 1
+        self.init_para(inputs)
+        bs = BeamSplitter(inputs=[torch.arccos(torch.sqrt(self.t)), torch.pi], nmode=2, wires=None, cutoff=cutoff, requires_grad=requires_grad,
+                               noise=noise, mu=mu, sigma=sigma)
+        self.gate = bs
+        self.gate.wires = self.wires + [self.nmode+1]
+        self.gate.nmode = self.nmode + 1
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
         """Convert inputs to torch.Tensor."""
@@ -1651,39 +1657,14 @@ class Loss(SingleGate):
         self.matrix = matrix.detach()
         return matrix
 
-    def get_matrix_state(self, matrix: torch.Tensor) -> torch.Tensor:
+    def get_matrix_state(self, t: torch.Tensor) -> torch.Tensor:
         """Get the local transformation matrix acting on Fock state tensors."""
-        t = matrix[0,0]
-        loss_mat = torch.eye(self.cutoff)
-        comb = torch.tensor([1])
-        for i in range(1, self.cutoff):
-            comb = comb * torch.tensor([i/(i-k) for k in range(i)])
-            comb = torch.cat([comb, torch.tensor([1])])
-            t_list1 = torch.pow(torch.sqrt(t), torch.arange(i+1))
-            t_list2 = torch.pow(torch.sqrt(1-t), torch.arange(i+1))
-            t_list2 = torch.flip(t_list2, dims=[0])
-            loss_coeff = (torch.sqrt(comb) * t_list1 * t_list2)
-            loss_mat[:, i][:i+1] = loss_coeff
-        loss_mat = loss_mat.to(torch.cfloat)
-        return loss_mat
-
-    # def get_transform_xp(self, theta: Any) -> Tuple[torch.Tensor, torch.Tensor]:
-    #     """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
-    #     theta = self.inputs_to_tensor(theta)
-    #     if self.inv_mode:
-    #         theta = -theta
-    #     cos = torch.cos(theta)
-    #     sin = torch.sin(theta)
-    #     matrix_xp = torch.stack([cos, -sin, sin, cos]).reshape(2, 2)
-    #     vector_xp = torch.zeros(2, 1, dtype=theta.dtype, device=theta.device)
-    #     return matrix_xp, vector_xp
-
-    # def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
-    #     """Update the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
-    #     matrix_xp, vector_xp = self.get_transform_xp(self.theta)
-    #     self.matrix_xp = matrix_xp.detach()
-    #     self.vector_xp = vector_xp.detach()
-    #     return matrix_xp, vector_xp
+        inputs=[torch.arccos(torch.sqrt(t)), torch.pi]
+        self.gate.init_para(inputs)
+        matrix = self.gate.update_matrix_state()
+        matrix_1 = matrix[...,0]
+        matrix_2 = matrix_1.permute([1,0,2])
+        return matrix_2
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""

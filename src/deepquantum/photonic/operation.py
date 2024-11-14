@@ -5,8 +5,9 @@ Base classes
 from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
+from copy import deepcopy
 import torch
-from torch import nn
+from torch import nn, vmap
 
 from ..qmath import inverse_permutation, state_to_tensors
 from ..state import MatrixProductState
@@ -136,8 +137,9 @@ class Gate(Operation):
     def op_state_tensor(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass for state tensors."""
         nt = len(self.wires)
-        matrix = self.update_matrix_state().reshape(self.cutoff ** nt, self.cutoff ** nt)
-        print(x.shape)
+        matrix = self.update_matrix_state() # kraus matrix
+        if nt > 1:
+            matrix = matrix.reshape(self.cutoff ** nt, self.cutoff ** nt)
         if len(x.size()) -1 == self.nmode: # fock tensor
             wires = [i + 1 for i in self.wires]
             pm_shape = list(range(self.nmode + 1))
@@ -148,24 +150,33 @@ class Gate(Operation):
             x = (matrix @ x).reshape([self.cutoff] * nt + [-1] + [self.cutoff] * (self.nmode - nt))
             x = x.permute(inverse_permutation(pm_shape))
         else:
-            # left multiply
-            wires = [i + 1 for i in self.wires]
-            pm_shape = list(range(2 * self.nmode + 1))
-            for i in wires:
-                pm_shape.remove(i)
-            pm_shape = wires + pm_shape
-            x = x.permute(pm_shape).reshape(self.cutoff ** nt, -1)
-            x = (matrix @ x).reshape([self.cutoff] * nt + [-1] + [self.cutoff] * (2 * self.nmode - nt))
-            x = x.permute(inverse_permutation(pm_shape))
-            # right multiply
-            wires = [i + 1 + self.nmode for i in self.wires]
-            pm_shape = list(range(2 * self.nmode + 1))
-            for i in wires:
-                pm_shape.remove(i)
-            pm_shape = wires + pm_shape
-            x = x.permute(pm_shape).reshape(self.cutoff ** nt, -1)
-            x = (matrix.conj() @ x).reshape([self.cutoff] * nt + [-1] + [self.cutoff] * (2 * self.nmode - nt))
-            x = x.permute(inverse_permutation(pm_shape))
+            if matrix.ndim == 2:
+                matrix = matrix.unsqueeze(0)
+            x = vmap(self.op_den_mat_base, in_dims=(None, 0) )(x, matrix)
+            x = x.sum(0)
+        return x
+
+    def op_den_mat_base(self, x: torch.Tensor, matrix: torch.Tensor) -> torch.Tensor:
+        """Perform a forward pass of a gate for density matrices."""
+        nt = len(self.wires)
+        # left multiply
+        wires = [i + 1 for i in self.wires]
+        pm_shape = list(range(2 * self.nmode + 1))
+        for i in wires:
+            pm_shape.remove(i)
+        pm_shape = wires + pm_shape
+        x = x.permute(pm_shape).reshape(self.cutoff ** nt, -1)
+        x = (matrix @ x).reshape([self.cutoff] * nt + [-1] + [self.cutoff] * (2 * self.nmode - nt))
+        x = x.permute(inverse_permutation(pm_shape))
+        # right multiply
+        wires = [i + 1 + self.nmode for i in self.wires]
+        pm_shape = list(range(2 * self.nmode + 1))
+        for i in wires:
+            pm_shape.remove(i)
+        pm_shape = wires + pm_shape
+        x = x.permute(pm_shape).reshape(self.cutoff ** nt, -1)
+        x = (matrix.conj() @ x).reshape([self.cutoff] * nt + [-1] + [self.cutoff] * (2 * self.nmode - nt))
+        x = x.permute(inverse_permutation(pm_shape))
         return x
 
     def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:

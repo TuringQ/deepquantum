@@ -372,7 +372,7 @@ class QumodeCircuit(Operation):
             if self.den_mat:
                 x = self.operators(self.matrix_rep(state)).squeeze(0)
                 if is_prob:
-                    x = x.reshape(self.cutoff ** self.nmode, self.cutoff ** self.nmode).diagonal()
+                    x = torch.diagonal(x.reshape(-1, self.cutoff ** self.nmode, self.cutoff ** self.nmode), dim1=-2, dim2=-1).squeeze()
             else:
                 x = self.operators(self.tensor_rep(state)).squeeze(0)
                 if is_prob:
@@ -1959,6 +1959,7 @@ class QumodeCircuit(Operation):
     ) -> None:
         """Add a loss channel."""
         self.is_lossy = True
+        # assert self.den_mat
         assert self.den_mat == True, 'need the density matrix representation'
         loss_ = Loss(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
         self.add(loss_)
