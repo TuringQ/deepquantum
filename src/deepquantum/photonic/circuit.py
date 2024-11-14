@@ -262,8 +262,13 @@ class QumodeCircuit(Operation):
         # preprocessing of batched initial states
         if self.basis:
             if state.ndim == 1:
+                if self.is_lossy:
+                    state = torch.cat([state, torch.zeros(self.nlc, dtype=state.dtype, device=state.device)], dim=-1)
                 self._all_fock_basis = self._get_all_fock_basis(state)
             elif state.ndim == 2:
+                if self.is_lossy:
+                    state = torch.cat([state,
+                                    torch.zeros((*state.shape[:-1], self.nlc), dtype=state.dtype, device=state.device)], dim=-1)
                 nphotons = torch.sum(state, dim=-1, keepdim=True)
                 max_photon = torch.max(nphotons).item()
                 self._nphoton = max_photon
@@ -326,17 +331,9 @@ class QumodeCircuit(Operation):
         else:
             if state is None:
                 state = self.init_state.state
-            out_dict = {}
+            out_dict = defaultdict(float)
             if self._state_expand is not None:
                 unitary = torch.block_diag(unitary, torch.eye(1, dtype=unitary.dtype, device=unitary.device))
-                if self.nlc != 0:
-                    state = torch.cat([state[:,:-1],
-                                        torch.zeros((*state.shape[:-1], self.nlc), dtype=state.dtype, device=state.device),
-                                        state[:,-1]], dim=-1)
-            elif self.nlc != 0:
-                state = torch.cat([state,
-                                    torch.zeros((*state.shape[:-1], self.nlc), dtype=state.dtype, device=state.device)], dim=-1)
-                self._all_fock_basis = self._get_all_fock_basis(state)
             final_states = self._all_fock_basis
             sub_mats = vmap(sub_matrix, in_dims=(None, None, 0))(unitary, state, final_states)
             per_norms = self._get_permanent_norms(state, final_states).to(unitary.dtype)
@@ -346,7 +343,7 @@ class QumodeCircuit(Operation):
                 rst = vmap(self._get_amplitude_fock_vmap)(sub_mats, per_norms)
             for i in range(len(final_states)):
                 final_state = FockState(state=final_states[i], nmode=self.nmode, cutoff=self.cutoff, basis=self.basis)
-                out_dict[final_state] = rst[i]
+                out_dict[final_state] += rst[i]
             return out_dict
 
     def _forward_helper_tensor(
@@ -700,21 +697,22 @@ class QumodeCircuit(Operation):
             operators = self._operators_tdm
         else:
             operators = self.operators
+        nlc = 0
         for op in operators:
             if isinstance(op, Loss):
-                self.nlc += 1
-                op.gate.wires = [op.wires[0], self.nmode + self.nlc -1]
-                u = torch.block_diag(u, torch.eye(1, dtype=u.dtype, device=u.device))
-                op.gate.nmode = self.nmode + self.nlc
+                nlc += 1
+                op.gate.wires = [op.wires[0], self.nmode + nlc -1]
+                op.gate.nmode = self.nmode + nlc
                 if u is None:
                     u = op.gate.get_unitary()
                 else:
+                    u = torch.block_diag(u, torch.eye(1, dtype=u.dtype, device=u.device))
                     u = op.gate.get_unitary() @ u
             else:
                 if u is None:
                     u = op.get_unitary()
                 else:
-                    op.nmode = op.nmode + self.nlc
+                    op.nmode = op.nmode + nlc
                     u = op.get_unitary() @ u
         if u is None:
             return torch.eye(self.nmode, dtype=torch.cfloat)
@@ -1958,6 +1956,7 @@ class QumodeCircuit(Operation):
     ) -> None:
         """Add a loss channel."""
         self.is_lossy = True
+        self.nlc += 1
         # assert self.den_mat
         assert self.den_mat == True, 'need the density matrix representation'
         loss_ = Loss(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
