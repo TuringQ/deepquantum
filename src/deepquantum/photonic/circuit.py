@@ -712,7 +712,7 @@ class QumodeCircuit(Operation):
                 if u is None:
                     u = op.get_unitary()
                 else:
-                    op.nmode = op.nmode + nlc
+                    op.nmode = self.nmode + nlc
                     u = op.get_unitary() @ u
         if u is None:
             return torch.eye(self.nmode, dtype=torch.cfloat)
