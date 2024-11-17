@@ -37,7 +37,7 @@ from .ansatz import (
 from .circuit import QubitCircuit
 from .gate import U3Gate, PhaseShift, Identity, PauliX, PauliY, PauliZ, Hadamard
 from .gate import SGate, SDaggerGate, TGate, TDaggerGate
-from .gate import Rx, Ry, Rz, CombinedSingleGate
+from .gate import Rx, Ry, Rz, ProjectionJ, CombinedSingleGate
 from .gate import CNOT, Swap, Rxx, Ryy, Rzz, Rxy, ReconfigurableBeamSplitter, Toffoli, Fredkin
 from .gate import UAnyGate, LatentGate, HamiltonianGate, Barrier
 from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer, RyLayer, RzLayer
@@ -47,6 +47,7 @@ from .qmath import meyer_wallach_measure
 from .state import QubitState, MatrixProductState
 
 from .mbqc import Pattern
+
 from .photonic import permanent, takagi, hafnian, torontonian
 from .photonic import FockState, GaussianState
 from .photonic import QumodeCircuit, QumodeCircuitTDM, Clements, GaussianBosonSampling

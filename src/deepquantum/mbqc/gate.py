@@ -6,7 +6,7 @@ from typing import List, Optional
 import torch
 from torch import nn
 
-from .operation import Node, Entanglement, Measurement, XCorrection, ZCorrection
+from .command import Node, Entanglement, Measurement, CorrectionX, CorrectionZ
 
 def h(input_node: int, ancilla: List[int]):
     """
@@ -17,7 +17,7 @@ def h(input_node: int, ancilla: List[int]):
     cmds.append(Node(ancilla[0]))
     cmds.append(Entanglement([input_node, ancilla[0]]))
     cmds.append(Measurement([input_node]))
-    cmds.append(XCorrection(ancilla[0], signal_domain=[input_node]))
+    cmds.append(CorrectionX(ancilla[0], signal_domain=[input_node]))
     node_list = ancilla
     edge_list = [input_node, ancilla[0]]
     return cmds, node_list, edge_list
@@ -40,8 +40,8 @@ def pauli_y(input_node: int, ancilla: List[int]):
     cmds.append(Measurement(ancilla[0], angle=-torch.pi, s_domain=[input_node]))
     cmds.append(Measurement(ancilla[1], angle=-torch.pi/2, s_domain=[input_node]))
     cmds.append(Measurement(ancilla[2]))
-    cmds.append(XCorrection(ancilla[3], signal_domain=[ancilla[0], ancilla[2]]))
-    cmds.append(ZCorrection(ancilla[3], signal_domain=[ancilla[0], ancilla[1]]))
+    cmds.append(CorrectionX(ancilla[3], signal_domain=[ancilla[0], ancilla[2]]))
+    cmds.append(CorrectionZ(ancilla[3], signal_domain=[ancilla[0], ancilla[1]]))
     node_list = ancilla
     return cmds, node_list, edge_list
 
@@ -58,8 +58,8 @@ def pauli_x(input_node: int, ancilla: List[int]):
     cmds.append(Entanglement(ancilla))
     cmds.append(Measurement(input_node))
     cmds.append(Measurement(ancilla[0], angle=-torch.pi))
-    cmds.append(XCorrection(ancilla[1], signal_domain=[ancilla[0]]))
-    cmds.append(ZCorrection(ancilla[1], signal_domain=[input_node]))
+    cmds.append(CorrectionX(ancilla[1], signal_domain=[ancilla[0]]))
+    cmds.append(CorrectionZ(ancilla[1], signal_domain=[input_node]))
     node_list = ancilla
     edge_list = [[input_node, ancilla[0]], ancilla]
     return cmds, node_list, edge_list
@@ -77,8 +77,8 @@ def pauli_z(input_node: int, ancilla: List[int]):
     cmds.append(Entanglement(ancilla))
     cmds.append(Measurement(input_node, angle=-torch.pi))
     cmds.append(Measurement(ancilla[0]))
-    cmds.append(XCorrection(ancilla[1], signal_domain=[ancilla[0]]))
-    cmds.append(ZCorrection(ancilla[1], signal_domain=[input_node]))
+    cmds.append(CorrectionX(ancilla[1], signal_domain=[ancilla[0]]))
+    cmds.append(CorrectionZ(ancilla[1], signal_domain=[input_node]))
     node_list = ancilla
     edge_list = [[input_node, ancilla[0]], ancilla]
     return cmds, node_list, edge_list
@@ -96,8 +96,8 @@ def s(input_node: int, ancilla: List[int]):
     cmds.append(Entanglement(ancilla))
     cmds.append(Measurement(input_node, angle=-torch.pi/2))
     cmds.append(Measurement(ancilla[0]))
-    cmds.append(XCorrection(ancilla[1], signal_domain=[ancilla[0]]))
-    cmds.append(ZCorrection(ancilla[1], signal_domain=[input_node]))
+    cmds.append(CorrectionX(ancilla[1], signal_domain=[ancilla[0]]))
+    cmds.append(CorrectionZ(ancilla[1], signal_domain=[input_node]))
     node_list = ancilla
     edge_list = [[input_node, ancilla[0]], ancilla]
     return cmds, node_list, edge_list
@@ -117,8 +117,8 @@ def rx(input_node: int, ancilla: List[int], theta: Optional[torch.Tensor]=None):
     cmds.append(Entanglement(ancilla))
     cmds.append(Measurement(input_node))
     cmds.append(Measurement(ancilla[0], angle=-1 * theta, s_domain=[input_node]))
-    cmds.append(XCorrection(ancilla[1], signal_domain=[ancilla[0]]))
-    cmds.append(ZCorrection(ancilla[1], signal_domain=[input_node]))
+    cmds.append(CorrectionX(ancilla[1], signal_domain=[ancilla[0]]))
+    cmds.append(CorrectionZ(ancilla[1], signal_domain=[input_node]))
     node_list = ancilla
     edge_list = [[input_node, ancilla[0]], ancilla]
     return cmds, node_list, edge_list
@@ -143,8 +143,8 @@ def ry(input_node: int, ancilla: List[int], theta: Optional[torch.Tensor]=None):
     cmds.append(Measurement(ancilla[0], angle=-1 * theta, s_domain=[input_node]))
     cmds.append(Measurement(ancilla[1], angle=-torch.pi/2, s_domain=[input_node]))
     cmds.append(Measurement(ancilla[2]))
-    cmds.append(XCorrection(ancilla[3], signal_domain=[ancilla[0], ancilla[2]]))
-    cmds.append(ZCorrection(ancilla[3], signal_domain=[ancilla[0], ancilla[1]]))
+    cmds.append(CorrectionX(ancilla[3], signal_domain=[ancilla[0], ancilla[2]]))
+    cmds.append(CorrectionZ(ancilla[3], signal_domain=[ancilla[0], ancilla[1]]))
     node_list = ancilla
     return cmds, node_list, edge_list
 
@@ -163,8 +163,8 @@ def rz(input_node: int, ancilla: List[int], theta: Optional[torch.Tensor]=None):
     cmds.append(Entanglement(ancilla))
     cmds.append(Measurement(input_node, angle=-theta))
     cmds.append(Measurement(ancilla[0]))
-    cmds.append(XCorrection(ancilla[1], signal_domain=[ancilla[0]]))
-    cmds.append(ZCorrection(ancilla[1], signal_domain=[input_node]))
+    cmds.append(CorrectionX(ancilla[1], signal_domain=[ancilla[0]]))
+    cmds.append(CorrectionZ(ancilla[1], signal_domain=[input_node]))
     node_list = ancilla
     edge_list = [[input_node, ancilla[0]], ancilla]
     return cmds, node_list, edge_list
@@ -183,9 +183,9 @@ def cnot(control_node: int, target_node: int, ancilla:List[int]):
     cmds.append(Entanglement(ancilla))
     cmds.append(Measurement(target_node))
     cmds.append(Measurement(ancilla[0]))
-    cmds.append(XCorrection(ancilla[1], signal_domain=[ancilla[0]]))
-    cmds.append(ZCorrection(ancilla[1], signal_domain=[target_node]))
-    cmds.append(ZCorrection(control_node, signal_domain=[target_node]))
+    cmds.append(CorrectionX(ancilla[1], signal_domain=[ancilla[0]]))
+    cmds.append(CorrectionZ(ancilla[1], signal_domain=[target_node]))
+    cmds.append(CorrectionZ(control_node, signal_domain=[target_node]))
     node_list = ancilla
     edge_list = [[target_node, ancilla[0]], [control_node, ancilla[0]], ancilla]
     return cmds, node_list, edge_list

@@ -1,19 +1,23 @@
 """
-Measurement based quantum circuit
+Measurement pattern
 """
-from typing import Any, List, Optional, Tuple, Union
+
 from copy import copy, deepcopy
+from typing import Any, List, Optional, Tuple, Union
+
 import torch
 from networkx import Graph, draw_networkx
 from torch import nn
+
 from . import gate
-from .operation import Operation, Node, Entanglement, Measurement, Correction, XCorrection, ZCorrection
+from .command import Node, Entanglement, Measurement, Correction, CorrectionX, CorrectionZ
+from .operation import Operation
 from .qmath import list_xor
 from ..qmath import multi_kron, inverse_permutation
 
+
 class Pattern(Operation):
-    """
-    Measurement based quantum circuit (MBQC) pattern.
+    """Measurement-based quantum computing (MBQC) pattern.
 
     A Pattern represents a measurement-based quantum computation, which consists of a sequence of
     operations (preparation, entanglement, measurement, and corrections) applied to qubits arranged
@@ -36,8 +40,8 @@ class Pattern(Operation):
         self._tot_qubit = n_input_nodes
         self.n_input_nodes = n_input_nodes
         self._graph = None
-        self.cmds = nn.Sequential()
-        self.encoders = [ ]
+        self.commands = nn.Sequential()
+        self.encoders = []
         self.npara = 0
         self.ndata = 0
         self._node_list = list(range(self.n_input_nodes))
@@ -106,7 +110,7 @@ class Pattern(Operation):
             assert len(node) == len(op.node), 'Invalid input'
             op = copy(op)
             op.node = node
-        self.cmds.append(op)
+        self.commands.append(op)
         if encode:
             assert not op.requires_grad, 'Please set requires_grad of the operation to be False'
             self.encoders.append(op)
@@ -176,7 +180,7 @@ class Pattern(Operation):
                 if the correction should be applied.
         """
         assert node in self._node_list, 'no command acts on a qubit not yet prepared, unless it is an input qubit'
-        x_ = XCorrection(node=node, signal_domain=signal_domain)
+        x_ = CorrectionX(node=node, signal_domain=signal_domain)
         self.add(x_)
 
     def z(self, node: int = None, signal_domain: List[int] = None):
@@ -188,7 +192,7 @@ class Pattern(Operation):
                 if the correction should be applied.
         """
         assert node in self._node_list, 'no command acts on a qubit not yet prepared, unless it is an input qubit'
-        z_ = ZCorrection(node=node, signal_domain=signal_domain)
+        z_ = CorrectionZ(node=node, signal_domain=signal_domain)
         self.add(z_)
 
     def forward(self):
@@ -197,14 +201,14 @@ class Pattern(Operation):
          to the quantum state
         """
         state = self.init_state
-        for op in self.cmds:
+        for op in self.commands:
             self._check_measured(op.node)
             if isinstance(op, Measurement):
                 node = self.unmeasured_list.index(op.node[0])
                 state = op.forward(node, state, self.measured_dic)
                 self.measured_dic[op.node[0]] = op.sample
                 del self.unmeasured_list[node]
-            elif isinstance(op, (XCorrection, ZCorrection)):
+            elif isinstance(op, (CorrectionX, CorrectionZ)):
                 node = self.unmeasured_list.index(op.node[0])
                 state = op.forward(node, state, self.measured_dic)
             elif isinstance(op, Entanglement):
@@ -261,7 +265,7 @@ class Pattern(Operation):
         is_standard : bool
             True if the pattern follows NEMC standardization, False otherwise
         """
-        it = iter(self.cmds)
+        it = iter(self.commands)
         try:
             # Check if operations follow NEMC order
             op = next(it)
@@ -306,7 +310,7 @@ class Pattern(Operation):
                 domain_dict[node] = domain.copy()
 
         # Process each operation and reorganize into standard form
-        for op in self.cmds:
+        for op in self.commands:
             if isinstance(op, Node):
                 n_list.append(op)
             elif isinstance(op, Entanglement):
@@ -323,18 +327,18 @@ class Pattern(Operation):
                 if s_domain := x_dict.pop(op.node[0], None):
                     new_op.s_domain = list_xor(new_op.s_domain, s_domain)
                 m_list.append(new_op)
-            elif isinstance(op, ZCorrection):
+            elif isinstance(op, CorrectionZ):
                 add_correction_domain(z_dict, op.node[0], op.signal_domain)
-            elif isinstance(op, XCorrection):
+            elif isinstance(op, CorrectionX):
                 add_correction_domain(x_dict, op.node[0], op.signal_domain)
 
         # Reconstruct command sequence in standard order
-        self.cmds = nn.Sequential(
+        self.commands = nn.Sequential(
                     *n_list,
                     *e_list,
                     *m_list,
-                    *(ZCorrection(node=node, signal_domain=domain) for node, domain in z_dict.items()),
-                    *(XCorrection(node=node, signal_domain=domain) for node, domain in x_dict.items())
+                    *(CorrectionZ(node=node, signal_domain=domain) for node, domain in z_dict.items()),
+                    *(CorrectionX(node=node, signal_domain=domain) for node, domain in x_dict.items())
         )
 
     def _update(self):
@@ -363,7 +367,7 @@ class Pattern(Operation):
         if ancilla is None:
             ancilla = list(range(self._tot_qubit, self._tot_qubit + required_ancilla))
         pattern = gate_func(input_node, ancilla, **kwargs)
-        self.cmds += pattern[0]
+        self.commands += pattern[0]
         self._node_list += pattern[1]
         self._edge_list += pattern[2]
         self._update()
@@ -478,7 +482,7 @@ class Pattern(Operation):
         if ancilla is None:
             ancilla = [self._tot_qubit, self._tot_qubit+1]
         pattern_cnot = gate.cnot(control_node, target_node, ancilla)
-        self.cmds += pattern_cnot[0]
+        self.commands += pattern_cnot[0]
         self._node_list += pattern_cnot[1]
         self._edge_list += pattern_cnot[2]
         self._update()

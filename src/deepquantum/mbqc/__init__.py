@@ -3,7 +3,8 @@ MBQC Module
 """
 
 from . import gate
-from . import mbqc
+from . import pattern
 from . import state
-from .mbqc import Pattern
+
+from .pattern import Pattern
 from .transpiler import transpile

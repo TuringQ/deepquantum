@@ -11,7 +11,7 @@ from qiskit import QuantumCircuit
 from torch import nn, vmap
 
 from .gate import U3Gate, PhaseShift, PauliX, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, TGate, TDaggerGate
-from .gate import Rx, Ry, Rz, CNOT, Swap, Rxx, Ryy, Rzz, Rxy, ReconfigurableBeamSplitter, Toffoli, Fredkin
+from .gate import Rx, Ry, Rz, ProjectionJ, CNOT, Swap, Rxx, Ryy, Rzz, Rxy, ReconfigurableBeamSplitter, Toffoli, Fredkin
 from .gate import UAnyGate, LatentGate, HamiltonianGate, Barrier
 from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer, RyLayer, RzLayer, CnotLayer, CnotRing
 from .operation import Operation, Gate, Layer
@@ -723,6 +723,23 @@ class QubitCircuit(Operation):
         crz = Rz(inputs=inputs, nqubit=self.nqubit, wires=[target], controls=[control],
                  den_mat=self.den_mat, requires_grad=requires_grad)
         self.add(crz, encode=encode)
+
+    def j(
+        self,
+        wires: int,
+        inputs: Any = None,
+        plane: str = 'xy',
+        controls: Union[int, List[int], None] = None,
+        condition: bool = False,
+        encode: bool = False
+    ) -> None:
+        """Add a projection matrix J."""
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        j = ProjectionJ(inputs=inputs, nqubit=self.nqubit, wires=wires, plane=plane, controls=controls,
+                        condition=condition, den_mat=self.den_mat, requires_grad=requires_grad)
+        self.add(j, encode=encode)
 
     def cnot(self, control: int, target: int) -> None:
         """Add a CNOT gate."""

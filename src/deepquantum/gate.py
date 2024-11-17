@@ -1331,6 +1331,115 @@ class Rz(ParametricSingleGate):
             return self._qasm_customized('rz')
 
 
+class ProjectionJ(ParametricSingleGate):
+    r"""Matrix J to project the measurement basis.
+
+    The matrix :math:`J(\theta)` transforms the measurement in the XY, YZ, or ZX plane to Z measurement.
+    The transformation means :math:`M(\theta)|\psi\rangle = M_z J(\theta)|\psi\rangle`,
+    where :math:`M_z` is the Z-basis measurement.
+
+    **Matrix Representation:**
+
+    .. math::
+
+        J_{\text{XY}}(\theta) = \frac{1}{\sqrt{2}}
+            \begin{pmatrix}
+                1 &  e^{-i\theta} \\
+                1 & -e^{-i\theta}
+            \end{pmatrix}
+
+    .. math::
+
+        \newcommand{\th}{\frac{\theta}{2}}
+
+        J_{\text{YZ}}(\theta) = \frac{1}{\sqrt{2}}
+            \begin{pmatrix}
+                \cos(\th) + \sin(\th) & -i(\cos(\th) - \sin(\th)) \\
+                \cos(\th) - \sin(\th) &  i(\cos(\th) + \sin(\th))
+            \end{pmatrix}
+
+    .. math::
+
+        \newcommand{\th}{\frac{\theta}{2}}
+
+        J_{\text{ZX}}(\theta) =
+            \begin{pmatrix}
+                \cos(\th) &  \sin(\th) \\
+                \sin(\th) & -\cos(\th)
+            \end{pmatrix}
+
+    Args:
+        inputs (Any, optional): The parameter of the gate. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        plane (str, optional): The measurement plane (``'xy'``, ``'yz'``, or ``'zx'``). Default: ``'xy'``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        condition (bool, optional): Whether to use ``controls`` as conditional measurement. Default: ``False``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
+            Default: ``False``
+        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        plane: str = 'xy',
+        controls: Union[int, List[int], None] = None,
+        condition: bool = False,
+        den_mat: bool = False,
+        tsr_mode: bool = False,
+        requires_grad: bool = False
+    ) -> None:
+        super().__init__(name='ProjectionJ', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
+                         condition=condition, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
+        self.plane = plane.lower()
+
+    def get_matrix(self, theta: Any) -> torch.Tensor:
+        """Get the local unitary matrix."""
+        theta = self.inputs_to_tensor(theta)
+        if self.plane in ['xy', 'yx']:
+            one = torch.ones_like(theta)
+            e_m_theta = torch.exp(-1j * theta)
+            return torch.stack([one, e_m_theta, one, -e_m_theta]).reshape(2, 2) / 2 ** 0.5
+        elif self.plane in ['yz', 'zy']:
+            c_p_s = torch.cos(theta / 2) + torch.sin(theta / 2)
+            c_m_s = torch.cos(theta / 2) - torch.sin(theta / 2)
+            return torch.stack([c_p_s, -1j * c_m_s, c_m_s, 1j * c_p_s]).reshape(2, 2) / 2 ** 0.5
+        elif self.plane in ['zx', 'xz']:
+            cos = torch.cos(theta / 2)
+            sin = torch.sin(theta / 2)
+            return torch.stack([cos, sin, sin, -cos]).reshape(2, 2) + 0j
+        else:
+            raise ValueError(f'Unsupported measurement plane: {self.plane}')
+
+    def extra_repr(self) -> str:
+        return super().extra_repr() + f', plane={self.plane}'
+
+    def _qasm(self) -> str:
+        if self.condition:
+            name = 'j'
+            qasm_lst1 = [f'gate {name} ']
+            qasm_lst2 = [f'{name} ']
+            for i, wire in enumerate(self.wires):
+                qasm_lst1.append(f'q{i},')
+                qasm_lst2.append(f'q[{wire}],')
+            qasm_str1 = ''.join(qasm_lst1)[:-1] + ' { }\n'
+            qasm_str2 = ''.join(qasm_lst2)[:-1] + ';\n'
+            # pylint: disable=protected-access
+            if name not in Gate._qasm_new_gate:
+                Gate._qasm_new_gate.append(name)
+                return qasm_str1 + self._qasm_cond_measure() + qasm_str2
+            else:
+                return self._qasm_cond_measure() + qasm_str2
+        return self._qasm_customized('j')
+
+
 class CombinedSingleGate(SingleGate):
     r"""Combined single-qubit gate.
 
