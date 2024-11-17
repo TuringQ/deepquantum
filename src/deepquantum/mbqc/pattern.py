@@ -10,55 +10,45 @@ from networkx import Graph, draw_networkx
 from torch import nn
 
 from . import gate
-from .command import Node, Entanglement, Measurement, Correction, CorrectionX, CorrectionZ
+from .command import Node, Entanglement, Measurement, Correction
 from .operation import Operation
-from .qmath import list_xor
-from ..qmath import multi_kron, inverse_permutation
+from .state import GraphState
+from ..qmath import inverse_permutation
 
 
 class Pattern(Operation):
     """Measurement-based quantum computing (MBQC) pattern.
 
     A Pattern represents a measurement-based quantum computation, which consists of a sequence of
-    operations (preparation, entanglement, measurement, and corrections) applied to qubits arranged
+    operations (preparation, entanglement, measurement, and correction) applied to qubits arranged
     in a graph structure.
 
     Args:
-        n_input_nodes (int): The number of input qubits in the pattern
-        init_state (Any, optional): Initial quantum state. If None, initializes to |+⟩^⊗n state
-            Default: ``None``.
-        name (str, optional): Name identifier for the pattern
+        name (str or None, optional): The name of the pattern. Default: ``None``
     """
     def __init__(
         self,
-        n_input_nodes: int,
-        init_state: Any = None,
+        nodes_state: Union[int, List[int], None] = None,
+        state: Any = 'plus',
+        edges: Optional[List] = None,
+        nodes: Union[int, List[int], None] = None,
         name: Optional[str] = None
     ) -> None:
-        super().__init__(name=name, n_input_nodes=n_input_nodes, node=list(range(n_input_nodes)))
-        self._bg_state = None
-        self._tot_qubit = n_input_nodes
-        self.n_input_nodes = n_input_nodes
-        self._graph = None
+        super().__init__(name=name, nodes=None)
+        self.state = GraphState(nodes_state, state, edges, nodes)
         self.commands = nn.Sequential()
         self.encoders = []
         self.npara = 0
         self.ndata = 0
-        self._node_list = list(range(self.n_input_nodes))
-        self._edge_list = [ ]
-        self.measured_dic = {}
-        self.unmeasured_list = list(range(self.n_input_nodes))
-        self.nout_wire_dic = {}
 
-        if init_state is None:
-            plus_state = torch.sqrt(torch.tensor(2))*torch.tensor([1,1])/2
-            init_state = multi_kron([plus_state] * n_input_nodes)
-        if not isinstance(init_state, torch.Tensor):
-            init_state = torch.tensor(init_state)
-        if init_state.ndim == 1:
-            init_state = init_state.unsqueeze(0)
-        assert init_state[0].numel() == 2 ** n_input_nodes
-        self.init_state = init_state
+    def forward(self):
+        """Perform a forward pass of the MBQC pattern and return the final state."""
+        self.state = self.commands(self.state)
+        return self.state.graph.full_state
+
+    @property
+    def nodes(self):
+        return self.state.graph.nodes
 
     def set_graph(self, graph: List[List]):
         """
@@ -92,8 +82,7 @@ class Pattern(Operation):
     def add(
         self,
         op: Operation,
-        encode: bool = False,
-        node: Union[int, List[int], None] = None
+        encode: bool = False
     ) -> None:
         """A method that adds an operation to the mbqc pattern.
 
@@ -101,15 +90,8 @@ class Pattern(Operation):
             op (Operation): The operation to add. It is an instance of ``Operation`` class or its subclasses,
                 such as ``Node``, or ``Measurement``.
             encode (bool): Whether the gate is to encode data. Default: ``False``
-            node (Union[int, List[int], None]): The node to apply the gate on. It can be an integer
-                or a list of integers specifying the indices of the node. Default: ``None``
         """
         assert isinstance(op, Operation)
-        if node is not None:
-            node = self._convert_indices(node)
-            assert len(node) == len(op.node), 'Invalid input'
-            op = copy(op)
-            op.node = node
         self.commands.append(op)
         if encode:
             assert not op.requires_grad, 'Please set requires_grad of the operation to be False'
@@ -170,72 +152,30 @@ class Pattern(Operation):
         mea_op = Measurement(node=node, plane=plane, angle=angle, t_domain=t_domain, s_domain=s_domain)
         self.add(mea_op)
 
-    def x(self, node: int = None, signal_domain: List[int] = None):
+    def c_x(self, node: int = None, domain: List[int] = None):
         """
         Add an X correction operation to the pattern.
 
         Args:
             node (int, optional): The node to apply the X correction to.
-            signal_domain (List[int], optional): List of measurement results that determine
+            domain (List[int], optional): List of measurement results that determine
                 if the correction should be applied.
         """
         assert node in self._node_list, 'no command acts on a qubit not yet prepared, unless it is an input qubit'
-        x_ = CorrectionX(node=node, signal_domain=signal_domain)
-        self.add(x_)
+        c_x = Correction(node=node, basis='x', domain=domain)
+        self.add(c_x)
 
-    def z(self, node: int = None, signal_domain: List[int] = None):
+    def c_z(self, node: int = None, domain: List[int] = None):
         """Add a Z correction operation to the pattern.
 
         Args:
             node (int, optional): The node to apply the Z correction to.
-            signal_domain (List[int], optional): List of measurement results that determine
+            domain (List[int], optional): List of measurement results that determine
                 if the correction should be applied.
         """
         assert node in self._node_list, 'no command acts on a qubit not yet prepared, unless it is an input qubit'
-        z_ = CorrectionZ(node=node, signal_domain=signal_domain)
-        self.add(z_)
-
-    def forward(self):
-        """
-         Execute the MBQC pattern by applying commands in sequence
-         to the quantum state
-        """
-        state = self.init_state
-        for op in self.commands:
-            self._check_measured(op.node)
-            if isinstance(op, Measurement):
-                node = self.unmeasured_list.index(op.node[0])
-                state = op.forward(node, state, self.measured_dic)
-                self.measured_dic[op.node[0]] = op.sample
-                del self.unmeasured_list[node]
-            elif isinstance(op, (CorrectionX, CorrectionZ)):
-                node = self.unmeasured_list.index(op.node[0])
-                state = op.forward(node, state, self.measured_dic)
-            elif isinstance(op, Entanglement):
-                node = [self.unmeasured_list.index(op.node[0]), self.unmeasured_list.index(op.node[1])]
-                state = op.forward(node, state)
-            else:
-                state = op.forward(state)
-        self._bg_state = state
-        if self.nout_wire_dic != {}:
-            index = torch.argsort(torch.tensor(list(self.nout_wire_dic.values()))).tolist()
-            batch_size = state.size(0)
-            state = state.reshape(batch_size, -1)
-            n_node =  int(torch.log2(torch.tensor(state.size(1))))
-            idx2 = [0] + [i+1 for i in index]
-            inv_perm = inverse_permutation(idx2)
-            state = state.reshape([batch_size] + [2] * n_node).permute(*inv_perm).reshape(batch_size, -1)
-        return state.squeeze()
-
-    def _check_measured(self, node):
-        """
-        check if the qubit already measured.
-        """
-        measured_list = list(self.measured_dic.keys())
-        for i in node:
-            if i in measured_list:
-                raise ValueError (f'qubit {i} already measured')
-        return
+        c_z = Correction(node=node, basis='z', domain=domain)
+        self.add(c_z)
 
     def draw(self, wid: int=3):
         """
@@ -305,7 +245,7 @@ class Pattern(Operation):
         def add_correction_domain(domain_dict: dict, node, domain) -> None:
             """Helper function to update correction domains with XOR operation"""
             if previous_domain := domain_dict.get(node):
-                previous_domain = list_xor(previous_domain, domain)
+                previous_domain = previous_domain ^ domain
             else:
                 domain_dict[node] = domain.copy()
 
@@ -316,29 +256,30 @@ class Pattern(Operation):
             elif isinstance(op, Entanglement):
                 for side in (0, 1):
                     # Propagate X corrections through entanglement (generates Z corrections)
-                    if s_domain := x_dict.get(op.node[side], None):
-                        add_correction_domain(z_dict, op.node[1 - side], s_domain)
+                    if s_domain := x_dict.get(op.nodes[side], None):
+                        add_correction_domain(z_dict, op.nodes[1 - side], s_domain)
                 e_list.append(op)
             elif isinstance(op, Measurement):
                 # Apply pending corrections to measurement parameters
                 new_op = deepcopy(op)
-                if t_domain := z_dict.pop(op.node[0], None):
-                    new_op.t_domain = list_xor(new_op.t_domain, t_domain)
-                if s_domain := x_dict.pop(op.node[0], None):
-                    new_op.s_domain = list_xor(new_op.s_domain, s_domain)
+                if t_domain := z_dict.pop(op.nodes[0], None):
+                    new_op.t_domain = new_op.t_domain ^ t_domain
+                if s_domain := x_dict.pop(op.nodes[0], None):
+                    new_op.s_domain = new_op.s_domain ^ s_domain
                 m_list.append(new_op)
-            elif isinstance(op, CorrectionZ):
-                add_correction_domain(z_dict, op.node[0], op.signal_domain)
-            elif isinstance(op, CorrectionX):
-                add_correction_domain(x_dict, op.node[0], op.signal_domain)
+            elif isinstance(op, Correction):
+                if op.basis == 'z':
+                    add_correction_domain(z_dict, op.nodes[0], op.domain)
+                elif op.basis == 'x':
+                    add_correction_domain(x_dict, op.nodes[0], op.domain)
 
         # Reconstruct command sequence in standard order
         self.commands = nn.Sequential(
                     *n_list,
                     *e_list,
                     *m_list,
-                    *(CorrectionZ(node=node, signal_domain=domain) for node, domain in z_dict.items()),
-                    *(CorrectionX(node=node, signal_domain=domain) for node, domain in x_dict.items())
+                    *(Correction(node=node, basis='z', domain=domain) for node, domain in z_dict.items()),
+                    *(Correction(node=node, basis='x', domain=domain) for node, domain in x_dict.items())
         )
 
     def _update(self):
