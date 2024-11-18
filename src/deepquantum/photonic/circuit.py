@@ -1957,6 +1957,8 @@ class QumodeCircuit(Operation):
         """Add a loss channel."""
         self.is_lossy = True
         self.nlc += 1
-        assert self.den_mat == True, 'need the density matrix representation for fock backend'
-        loss_ = Loss(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
+        # assert self.den_mat
+        assert self.den_mat == True, 'need the density matrix representation'
+        loss_ = Loss(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+                     requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
         self.add(loss_)
