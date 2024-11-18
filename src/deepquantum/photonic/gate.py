@@ -1593,13 +1593,13 @@ class DelayMZI(Delay):
         return f'wires={self.wires}, ntau={self.ntau}, theta={self.theta.item()}, phi={self.phi.item()}'
 
 class Loss(SingleGate):
-    r"""Loss channel.
+    r"""Loss channel on specified mode.
 
-    **Matrix Representation:**
-
+    This channel couples taget mode $\hat{a}$ to another vacuum mode $\hat{b}$ using
+    following transformation:
+    
     .. math::
-
-        U_{\text{PS}}(\theta) = e^{i\theta}
+       \hat{a}_{\text{out}} = \sqrt{T}\hat{a}_{\text{in}} + \sqrt{1-T}\hat{b}_{\text{vac}}
 
     Args:
         inputs (Any, optional): The parameter of the gate. Default: ``None``
@@ -1658,7 +1658,7 @@ class Loss(SingleGate):
         return matrix
 
     def get_matrix_state(self, t: torch.Tensor) -> torch.Tensor:
-        """Get the local transformation matrix acting on Fock state tensors."""
+        """Get the local Kraus matrix acting on Fock state density matrix."""
         inputs=[torch.arccos(torch.sqrt(t)), torch.pi]
         self.gate.init_para(inputs)
         matrix = self.gate.update_matrix_state()
