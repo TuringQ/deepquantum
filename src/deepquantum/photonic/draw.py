@@ -11,7 +11,7 @@ import svgwrite
 from matplotlib import patches
 from torch import nn
 
-from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate, Squeezing, Squeezing2, Displacement
+from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate, Squeezing, Squeezing2, Displacement, Loss
 from .measurement import Homodyne
 from .operation import Delay
 
@@ -148,6 +148,14 @@ class DrawCircuit():
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = depth[i]+1
+            elif isinstance(op, Loss):
+                name_ = 'loss'
+                order = depth[op.wires[0]]
+                t = op.t.item()
+                self.draw_loss(order, op.wires, name_, t)
+                order_dic[order] = order_dic[order] + op.wires
+                for i in op.wires:
+                    depth[i] = depth[i]+1
 
         if len(measurements) > 0:
             for mea in measurements:
@@ -197,11 +205,11 @@ class DrawCircuit():
                                                    (x+60+shift, y_up*30+30), (x+90, y_up*30+30)],
                                            fill='none', stroke='black', stroke_width=2))
         self.draw_.add(self.draw_.text(name, insert=(x+40-(len(name)-2)*3+shift, y_up*30+25), font_size=9))
-        self.draw_.add(self.draw_.text('θ ='+ str(np.round(theta,3)),
+        self.draw_.add(self.draw_.text('θ='+ str(np.round(theta,3)),
                                        insert=(x+55+shift, y_up*30+30+20-6),
                                        font_size=7))
         if phi is not None:
-            self.draw_.add(self.draw_.text('ϕ ='+ str(np.round(phi,3)),
+            self.draw_.add(self.draw_.text('ϕ='+ str(np.round(phi,3)),
                                            insert=(x+55+shift, y_up*30+30+26-6),
                                            font_size=7))
 
@@ -220,7 +228,7 @@ class DrawCircuit():
                                        fill=fill_c, stroke='black', stroke_width=1.5))
 
         self.draw_.add(self.draw_.text(name, insert=(x+40+shift, y_up*30+20), font_size=9))
-        self.draw_.add(self.draw_.text('θ ='+str(np.round(theta,3)), insert=(x+55, y_up*30+20), font_size=7))
+        self.draw_.add(self.draw_.text('θ='+str(np.round(theta,3)), insert=(x+55, y_up*30+20), font_size=7))
 
     def draw_homodyne(self, order, wire, phi, name=None):
         """
@@ -252,7 +260,7 @@ class DrawCircuit():
         rotation = 45
         self.draw_.add(self.draw_.path(d=line_path, stroke='white', fill='none', stroke_width=1.5,
                                       transform = f"rotate({rotation} {arc_center_x} {arc_center_y})"))
-        self.draw_.add(self.draw_.text('ϕ ='+str(np.round(phi,3)), insert=(x+55, y_up*30+20), font_size=7))
+        self.draw_.add(self.draw_.text('ϕ='+str(np.round(phi,3)), insert=(x+55, y_up*30+20), font_size=7))
 
     def draw_sq(self, order, wires, r=None, theta=None, name=None):
         """
@@ -275,8 +283,8 @@ class DrawCircuit():
         self.draw_.add(self.draw_.rect(insert=(x+42.5, y_up*30+25), size=(10, height), rx=0, ry=0,
                                     fill=fill_c, stroke='black', stroke_width=1.5))
         self.draw_.add(self.draw_.text(name, insert=(x+40+shift, y_up*30+20), font_size=9))
-        self.draw_.add(self.draw_.text('r ='+str(np.round(r,3)), insert=(x+55, y_up*30+18), font_size=7))
-        self.draw_.add(self.draw_.text('θ ='+str(np.round(theta,3)), insert=(x+55, y_up*30+24), font_size=7))
+        self.draw_.add(self.draw_.text('r='+str(np.round(r,3)), insert=(x+55, y_up*30+18), font_size=7))
+        self.draw_.add(self.draw_.text('θ='+str(np.round(theta,3)), insert=(x+55, y_up*30+24), font_size=7))
 
     def draw_delay(self, order, wires, inputs=None):
         """
@@ -289,9 +297,39 @@ class DrawCircuit():
             self.draw_.add(self.draw_.polyline(points=[(x, wire_i*30+30), (x+90, wire_i*30+30)],
                                                fill='none', stroke='black', stroke_width=2))
         self.draw_.add(self.draw_.circle(center=(x+46, y_up*30+25-4), r=9, stroke='black', fill='white', stroke_width=1.2))
-        self.draw_.add(self.draw_.text('N ='+str(inputs[0]), insert=(x+40, y_up*30+18), font_size=5))
-        self.draw_.add(self.draw_.text('θ ='+str(np.round(inputs[1],2)), insert=(x+58, y_up*30+18), font_size=6))
-        self.draw_.add(self.draw_.text('ϕ ='+str(np.round(inputs[2],2)), insert=(x+58, y_up*30+24), font_size=6))
+        self.draw_.add(self.draw_.text('N='+str(inputs[0]), insert=(x+40, y_up*30+18), font_size=5))
+        self.draw_.add(self.draw_.text('θ='+str(np.round(inputs[1],2)), insert=(x+58, y_up*30+18), font_size=6))
+        self.draw_.add(self.draw_.text('ϕ='+str(np.round(inputs[2],2)), insert=(x+58, y_up*30+24), font_size=6))
+
+    def draw_loss(self, order, wires, name, t):
+        """
+        Draw loss gate.
+        """
+        x = 90 * order + 40
+        y_up = wires[0]
+        self.draw_.add(self.draw_.polyline(points=[(x, y_up*30+30), (x+90, y_up*30+30)],
+                                           fill='none', stroke='black', stroke_width=2))
+
+        start = (x+18, y_up*30+23)
+        end = (x+38, y_up*30+23)
+        num_waves = 4
+        wave_amplitude = [1.5]*3 + [3]*2 + [1.5]*3
+        wave_length = (end[0] - start[0]) / num_waves
+        path_d = f"M {start[0]},{start[1]} "
+        for i in range(num_waves * 2):
+            x = start[0] + i * wave_length / 2
+            y = start[1] + (-1)**i * wave_amplitude[i]
+            path_d += f"L {x},{y} "
+        path_d += f"L {end[0]},{end[1]}"
+        path_d += f"L {end[0]+12},{end[1]}"
+        path = self.draw_.path(d=path_d, fill="none", stroke="gray", stroke_width=2)
+        arrow_marker = self.draw_.marker(insert=(3.5, 1.8), size=(10, 5), orient="auto")
+        arrow_marker.add(self.draw_.path(d="M 0 0 L 5 1.5 L 0 4 Z", fill="gray"))
+        self.draw_.defs.add(arrow_marker)
+        path.set_markers((None, None, arrow_marker))
+        path.rotate(angle=-45, center=(x+10, y_up*30+18))
+        self.draw_.add(path)
+        self.draw_.add(self.draw_.text('T='+ str(np.round(t, 3)), insert=(x-14, y_up*30+25), font_size=7))
 
     def draw_any(self, order, wires, name, para_dict=None):
         """
