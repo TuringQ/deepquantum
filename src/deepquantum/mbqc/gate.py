@@ -6,7 +6,7 @@ from typing import List, Optional
 import torch
 from torch import nn
 
-from .command import Node, Entanglement, Measurement, CorrectionX, CorrectionZ
+from .command import Node, Entanglement, Measurement, Correction
 
 def h(input_node: int, ancilla: List[int]):
     """

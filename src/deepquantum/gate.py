@@ -1396,9 +1396,9 @@ class ProjectionJ(ParametricSingleGate):
         tsr_mode: bool = False,
         requires_grad: bool = False
     ) -> None:
+        self.plane = plane.lower()
         super().__init__(name='ProjectionJ', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          condition=condition, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
-        self.plane = plane.lower()
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix."""

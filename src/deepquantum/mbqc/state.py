@@ -124,7 +124,9 @@ class SubGraphState(nn.Module):
         nodes_state = self.nodes_state + other.nodes_state
         state = torch.kron(self.state, other.state)
         sgs = SubGraphState(nodes_state, state, graph.edges(data=True), graph.nodes)
-        sgs.measure_dict = {**self.measure_dict, **other.measure_dict}
+        sgs.measure_dict = defaultdict(list)
+        sgs.measure_dict.update(self.measure_dict)
+        sgs.measure_dict.update(other.measure_dict)
         return sgs
 
     def update_node2wire_dict(self) -> Dict:

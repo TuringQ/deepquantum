@@ -41,16 +41,30 @@ class Pattern(Operation):
         self.npara = 0
         self.ndata = 0
 
+        # self._tot_qubit = 0
+        # self._edge_list = []
+
     def forward(self):
         """Perform a forward pass of the MBQC pattern and return the final state."""
         self.state = self.commands(self.state)
         return self.state.graph.full_state
 
-    @property
-    def nodes(self):
-        return self.state.graph.nodes
+    # @property
+    # def nodes(self):
+    #     return self.state.graph.nodes
 
-    def set_graph(self, graph: List[List]):
+    # @nodes.setter
+    # def nodes(self, n):
+    #     self.state.graph.nodes = n
+
+    def add_graph(self,
+        graph: List[List],
+        nodes_state: Union[int, List[int], None] = None,
+        state: Any = 'plus',
+        edges: Optional[List] = None,
+        nodes: Union[int, List[int], None] = None,
+        index: Optional[int] = None
+    ) -> None:
         """
         Sets the underlying graph structure of the MBQC pattern.
 
@@ -63,21 +77,10 @@ class Pattern(Operation):
                 - edges: List of pairs representing edges
         """
         vertices, edges = graph
-        assert len(vertices) > self.n_input_nodes
-        for i in vertices:
-            if i not in self._node_list:
-                self.n(i)
-        for edge in edges:
-            self.e(edge)
-        return
+        self.state.add_subgraph(nodes_state=nodes_state, state=state, edges=edges, nodes=nodes, index=index)
 
-    def _get_graph(self):
-        assert len(self._node_list) == self._tot_qubit
-        g = Graph()
-        g.add_nodes_from(self._node_list)
-        g.add_edges_from(self._edge_list)
-        self._graph = g
-        return g
+    def get_graph(self):
+        return self.state.graph
 
     def add(
         self,
@@ -108,12 +111,12 @@ class Pattern(Operation):
             node (Union[int, List[int]], optional): Index or list of indices for the new node.
                 Default: ``None``
         """
-        node_ = Node(node=node)
-        assert node_.node[0] not in self._node_list, 'node already exists'
-        self._node_list.append(node_.node[0])
+        node_ = Node(nodes=node)
+        # assert node_.nodes[0] not in self._node_list, 'node already exists'
+        # self._node_list.append(node_.nodes[0])
         self.add(node_)
-        self._tot_qubit += 1
-        self.unmeasured_list.append(node_.node[0])
+        # self._tot_qubit += 1
+        # self.unmeasured_list.append(node_.nodes[0])
 
     def e(self, node: List[int] = None):
         """
@@ -123,15 +126,15 @@ class Pattern(Operation):
             node (List[int], optional): A list of two integers specifying the nodes to entangle.
                 Must reference existing nodes in the pattern.
         """
-        assert node[0] in self._node_list and node[1] in self._node_list, \
-            'no command acts on a qubit not yet prepared, unless it is an input qubit'
-        entang_ = Entanglement(node=node)
-        self._edge_list.append(node)
+        # assert node[0] in self._node_list and node[1] in self._node_list, \
+        #     'no command acts on a qubit not yet prepared, unless it is an input qubit'
+        entang_ = Entanglement(node1=node[0], node2=node[1])
+        # self._edge_list.append(node)
         self.add(entang_)
 
     def m(
         self,
-        node: Optional[int] = None,
+        node: int = None,
         plane: Optional[str] = 'XY',
         angle: float = 0,
         t_domain: Union[int, List[int]] = [],
@@ -149,7 +152,7 @@ class Pattern(Operation):
             s_domain (Union[int, List[int]]): List of nodes that contribute to the X correction.
                 Defaults to empty list.
         """
-        mea_op = Measurement(node=node, plane=plane, angle=angle, t_domain=t_domain, s_domain=s_domain)
+        mea_op = Measurement(nodes=node, plane=plane, angle=angle, t_domain=t_domain, s_domain=s_domain)
         self.add(mea_op)
 
     def c_x(self, node: int = None, domain: List[int] = None):
@@ -161,8 +164,8 @@ class Pattern(Operation):
             domain (List[int], optional): List of measurement results that determine
                 if the correction should be applied.
         """
-        assert node in self._node_list, 'no command acts on a qubit not yet prepared, unless it is an input qubit'
-        c_x = Correction(node=node, basis='x', domain=domain)
+        # assert node in self._node_list, 'no command acts on a qubit not yet prepared, unless it is an input qubit'
+        c_x = Correction(nodes=node, basis='x', domain=domain)
         self.add(c_x)
 
     def c_z(self, node: int = None, domain: List[int] = None):
@@ -173,29 +176,29 @@ class Pattern(Operation):
             domain (List[int], optional): List of measurement results that determine
                 if the correction should be applied.
         """
-        assert node in self._node_list, 'no command acts on a qubit not yet prepared, unless it is an input qubit'
-        c_z = Correction(node=node, basis='z', domain=domain)
+        # assert node in self._node_list, 'no command acts on a qubit not yet prepared, unless it is an input qubit'
+        c_z = Correction(nodes=node, basis='z', domain=domain)
         self.add(c_z)
 
     def draw(self, wid: int=3):
         """
         Draw MBQC pattern
         """
-        g = self._get_graph()
-        pos = {}
-        for i in self._node_list:
-            pos_x = i % wid
-            pos_y = i // wid
-            pos[i] = (pos_x, -pos_y)
-        measured_nq = list(self.measured_dic.keys())
-        node_colors = ['gray' if i in measured_nq else 'green' for i in self._node_list]
-        node_edge_colors = ['red' if i < self.n_input_nodes else 'black' for i in self._node_list]
-        draw_networkx(g, pos=pos,
-                      node_color=node_colors,
-                      edgecolors=node_edge_colors,
-                      node_size=500,
-                      width=2)
-        return
+        g = self.get_graph()
+        # pos = {}
+        # for i in self._node_list:
+        #     pos_x = i % wid
+        #     pos_y = i // wid
+        #     pos[i] = (pos_x, -pos_y)
+        # measured_nq = list(self.measured_dic.keys())
+        # node_colors = ['gray' if i in measured_nq else 'green' for i in self._node_list]
+        # node_edge_colors = ['red' if i < self.n_input_nodes else 'black' for i in self._node_list]
+        # draw_networkx(g, pos=pos,
+        #               node_color=node_colors,
+        #               edgecolors=node_edge_colors,
+        #               node_size=500,
+        #               width=2)
+        g.draw()
 
     def is_standard(self) -> bool:
         """Determine whether the command sequence is standard.
@@ -278,8 +281,8 @@ class Pattern(Operation):
                     *n_list,
                     *e_list,
                     *m_list,
-                    *(Correction(node=node, basis='z', domain=domain) for node, domain in z_dict.items()),
-                    *(Correction(node=node, basis='x', domain=domain) for node, domain in x_dict.items())
+                    *(Correction(nodes=node, basis='z', domain=domain) for node, domain in z_dict.items()),
+                    *(Correction(nodes=node, basis='x', domain=domain) for node, domain in x_dict.items())
         )
 
     def _update(self):

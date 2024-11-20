@@ -78,7 +78,7 @@ class Measurement(Command):
     """
     def __init__(
         self,
-        nodes: Union[int, List[int]],
+        nodes: int,
         plane: str = 'xy',
         angle: Any = 0.,
         s_domain: Union[int, Iterable[int]] = None,
@@ -124,19 +124,32 @@ class Measurement(Command):
         sgs = x.subgraphs[idx]
         nqubit = len(sgs.nodes)
         init_state = sgs.full_state
+        if init_state.ndim == 2:
+            init_state = init_state.unsqueeze(0)
         wire = sgs.node2wire_dict[self.nodes[0]]
-        qs = sum(map(lambda s: torch.tensor(sgs.measure_dict[s], device=self.angle.device), self.s_domain))
-        qt = sum(map(lambda t: torch.tensor(sgs.measure_dict[t], device=self.angle.device), self.t_domain))
+        if len(self.s_domain) != 0:
+            qs = sum(map(lambda s: torch.tensor(sgs.measure_dict[s], device=self.angle.device), self.s_domain))
+        else:
+            qs = torch.zeros(1, init_state.shape[0], device=self.angle.device)
+        if len(self.t_domain) != 0:
+            qt = sum(map(lambda t: torch.tensor(sgs.measure_dict[t], device=self.angle.device), self.t_domain))
+        else:
+            qt = torch.zeros(1, init_state.shape[0], device=self.angle.device)
         alpha = (-1)**qs * self.angle + torch.pi * qt
         cir = QubitCircuit(nqubit=nqubit)
         cir.j(wires=wire, plane=self.plane, encode=True)
-        final_state = cir(data=alpha.reshape(-1, 1), state=init_state)
+        final_state = cir(data=alpha.reshape(-1,1), state=init_state)
         rst = cir.measure(shots=1, wires=wire)
         state = []
-        for i, d in enumerate(rst):
-            (k, _), = d.items()
-            state.append(cir._slice_state_vector(state=final_state[i], wires=wire, bits=k))
-            sgs.measure_dict[self.nodes[0]].append(int(k))
+        if type(rst) == list:
+            for i, d in enumerate(rst):
+                (k, _), = d.items()
+                state.append(cir._slice_state_vector(state=final_state[i], wires=wire, bits=k))
+                sgs.measure_dict[self.nodes[0]].append(int(k))
+        else:
+            for i, (k, _) in enumerate(rst.items()):
+                state.append(cir._slice_state_vector(state=final_state[i], wires=wire, bits=k))
+                sgs.measure_dict[self.nodes[0]].append(int(k))
         state = torch.stack(state)
         nodes_state = sorted(list(sgs.nodes))
         nodes_state.remove(self.nodes[0])
@@ -160,7 +173,7 @@ class Correction(Command):
     """
     def __init__(
         self,
-        nodes: Union[int, List[int]],
+        nodes: int,
         basis: str = 'x',
         domain: Union[int, Iterable[int]] = None
     ) -> None:
@@ -185,8 +198,13 @@ class Correction(Command):
         sgs = x.subgraphs[idx]
         nqubit = len(sgs.nodes)
         init_state = sgs.full_state
+        if init_state.ndim == 2:
+            init_state = init_state.unsqueeze(0)
         wire = sgs.node2wire_dict[self.nodes[0]]
-        qs = sum(map(lambda s: torch.tensor(sgs.measure_dict[s], device=init_state.device), self.domain)) % 2
+        if len(self.domain) != 0:
+            qs = sum(map(lambda s: torch.tensor(sgs.measure_dict[s], device=init_state.device), self.domain))
+        else:
+            qs = torch.zeros(1, init_state.shape[0], device=init_state.device)
         theta = torch.pi * qs.to(init_state.real.dtype)
         cir = QubitCircuit(nqubit=nqubit)
         if self.basis == 'x':

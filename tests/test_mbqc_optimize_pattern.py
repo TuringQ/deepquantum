@@ -29,7 +29,7 @@ def test_standardize():
         state = pattern.simulate_pattern(backend="statevector")
         results_1 = pattern.results
 
-        circ_mbqc = dq.Pattern(n_input_nodes=1)
+        circ_mbqc = dq.Pattern(nodes_state=[0])
         for l in range(5):
             circ_mbqc.n(1+2*l)
             circ_mbqc.n(2+2*l)
@@ -41,14 +41,12 @@ def test_standardize():
             else:
                 circ_mbqc.m(node=0+2*l, angle = alpha[2*l]*torch.pi, s_domain = [2*l-1])
                 circ_mbqc.m(node=1+2*l, angle = alpha[2*l+1]*torch.pi, s_domain = [(2*l-1),2*l])
-            circ_mbqc.x(node=2 +2*l, signal_domain=[0+2*l, 1+2*l])
-            circ_mbqc.z(node=2 +2*l, signal_domain=[1+2*l] )
-
+            circ_mbqc.c_x(node=2 +2*l, domain=[0+2*l, 1+2*l])
+            circ_mbqc.c_z(node=2 +2*l, domain=[1+2*l] )
         circ_mbqc.standardize()
         state2 = circ_mbqc()
-        results_2 = circ_mbqc.measured_dic
-
-    assert torch.allclose(torch.abs(torch.tensor(state.flatten(), dtype=torch.complex64)), torch.abs(state2))
+        results_2 = circ_mbqc.state.measure_dict
+    assert torch.allclose(torch.abs(torch.tensor(state.flatten(), dtype=torch.complex64)), torch.abs(state2.flatten()))
 
 def compare_with_graphix():
     alpha = np.random.rand(100)
