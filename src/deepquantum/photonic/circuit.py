@@ -438,6 +438,8 @@ class QumodeCircuit(Operation):
         stepwise: bool = False
     ) -> List[torch.Tensor]:
         """Perform a forward pass for one sample if the input is a Gaussian state."""
+        if self.is_lossy:
+            stepwise = True
         self.encode(data)
         if self._if_delayloop:
             operators = self._operators_tdm
