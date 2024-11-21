@@ -1682,26 +1682,27 @@ class Loss(SingleGate):
         self,
         x: List[torch.Tensor]
     ) -> List[torch.Tensor]:
-        """Perform a forward pass for gaussian state.
+        """Perform a forward pass for propagation loss channel.
 
            see https://arxiv.org/pdf/quant-ph/0503237 eq.4.19 eq.4.20
         """
-        assert isinstance(x, list)
-        cov, mean = x
-        kappa = dqp.kappa
-        h_bar = dqp.hbar
-        wires = self.wires + [wire + self.nmode for wire in self.wires]
-        idx = torch.tensor(wires)
-        g_t = torch.stack([torch.eye(2 * self.nmode)]*cov.size(0))
-        g_t[:, idx[:, None], idx] = (self.t) * torch.eye(2)
-        g_t_sqrt = torch.sqrt(g_t)
-        mean = g_t_sqrt @ mean
-
-        sigma_infty = torch.zeros_like(cov)
-        sigma_h = h_bar/(kappa**2*4)*torch.eye(2) # here xpxp order
-        sigma_infty[:, idx[:, None], idx] = sigma_h
-        cov = g_t_sqrt @ cov @ g_t_sqrt + (torch.stack([torch.eye(2 * self.nmode)]*cov.size(0)) - g_t) @ sigma_infty
-        return [cov, mean]
+        if isinstance(x, torch.Tensor):
+            return self.op_state_tensor(x)
+        elif isinstance(x, list):
+            cov, mean = x
+            kappa = dqp.kappa
+            h_bar = dqp.hbar
+            wires = self.wires + [wire + self.nmode for wire in self.wires]
+            idx = torch.tensor(wires)
+            g_t = torch.stack([torch.eye(2 * self.nmode)] * cov.size(0))
+            g_t[:, idx[:, None], idx] = (self.t) * torch.eye(2)
+            g_t_sqrt = torch.sqrt(g_t)
+            mean = g_t_sqrt @ mean
+            sigma_infty = torch.zeros_like(cov)
+            sigma_h = h_bar / (kappa ** 2 * 4) * torch.eye(2) # here xpxp order
+            sigma_infty[:, idx[:, None], idx] = sigma_h
+            cov = g_t_sqrt @ cov @ g_t_sqrt + (torch.stack([torch.eye(2 * self.nmode)] * cov.size(0)) - g_t) @ sigma_infty
+            return [cov, mean]
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, transmissity={self.t.item()}'
