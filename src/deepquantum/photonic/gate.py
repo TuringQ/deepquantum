@@ -38,12 +38,14 @@ class SingleGate(Gate):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff,
+                         den_mat=den_mat, noise=noise, mu=mu, sigma=sigma)
         assert len(self.wires) == 1, f'{self.name} must act on one mode'
         self.requires_grad = requires_grad
         self.init_para(inputs)
@@ -72,6 +74,7 @@ class DoubleGate(Gate):
         nmode: int = 2,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
@@ -79,7 +82,8 @@ class DoubleGate(Gate):
     ) -> None:
         if wires is None:
             wires = [0, 1]
-        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff,
+                         den_mat=den_mat, noise=noise, mu=mu, sigma=sigma)
         assert len(self.wires) == 2, f'{self.name} must act on two modes'
         self.requires_grad = requires_grad
         self.init_para(inputs)
@@ -132,6 +136,7 @@ class PhaseShift(SingleGate):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
@@ -140,7 +145,7 @@ class PhaseShift(SingleGate):
     ) -> None:
         self.inv_mode = inv_mode
         super().__init__(name='PhaseShift', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
-                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+                         den_mat=den_mat, requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.npara = 1
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
@@ -267,13 +272,14 @@ class BeamSplitter(DoubleGate):
         nmode: int = 2,
         wires: Optional[List[int]] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
         super().__init__(name='BeamSplitter', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
-                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+                         den_mat=den_mat, requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.npara = 2
 
     def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -448,6 +454,7 @@ class MZI(BeamSplitter):
         nmode: int = 2,
         wires: Optional[List[int]] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         phi_first: bool = True,
         requires_grad: bool = False,
         noise: bool = False,
@@ -455,8 +462,8 @@ class MZI(BeamSplitter):
         sigma: float = 0.1
     ) -> None:
         self.phi_first = phi_first
-        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, requires_grad=requires_grad,
-                         noise=noise, mu=mu, sigma=sigma)
+        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
+                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.name = 'MZI'
 
     def get_matrix(self, theta: Any, phi: Any) -> torch.Tensor:
@@ -526,13 +533,14 @@ class BeamSplitterTheta(BeamSplitter):
         nmode: int = 2,
         wires: Optional[List[int]] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, requires_grad=requires_grad,
-                         noise=noise, mu=mu, sigma=sigma)
+        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
+                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.npara = 1
 
     def _add_noise(self, theta: torch.Tensor, phi: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -611,13 +619,14 @@ class BeamSplitterPhi(BeamSplitter):
         nmode: int = 2,
         wires: Optional[List[int]] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, requires_grad=requires_grad,
-                         noise=noise, mu=mu, sigma=sigma)
+        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
+                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.npara = 1
 
     def _add_noise(self, theta: torch.Tensor, phi: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -720,6 +729,7 @@ class BeamSplitterSingle(BeamSplitter):
         nmode: int = 2,
         wires: Optional[List[int]] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         convention: str = 'rx',
         requires_grad: bool = False,
         noise: bool = False,
@@ -727,8 +737,8 @@ class BeamSplitterSingle(BeamSplitter):
         sigma: float = 0.1
     ) -> None:
         self.convention = convention
-        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, requires_grad=requires_grad,
-                         noise=noise, mu=mu, sigma=sigma)
+        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
+                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.npara = 1
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
@@ -816,6 +826,7 @@ class UAnyGate(Gate):
         wires: Optional[List[int]] = None,
         minmax: Optional[List[int]] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         name: str = 'UAnyGate'
     ) -> None:
         self.nmode = nmode
@@ -824,7 +835,7 @@ class UAnyGate(Gate):
                 minmax = [0, nmode - 1]
             self._check_minmax(minmax)
             wires = list(range(minmax[0], minmax[1] + 1))
-        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, noise=False)
+        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat, noise=False)
         self.minmax = [min(self.wires), max(self.wires)]
         for i in range(len(self.wires) - 1):
             assert self.wires[i] + 1 == self.wires[i + 1], 'The wires should be consecutive integers'
@@ -934,12 +945,13 @@ class Squeezing(SingleGate):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(name='Squeezing', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
+        super().__init__(name='Squeezing', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
                          requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.npara = 2
 
@@ -1087,12 +1099,13 @@ class Squeezing2(DoubleGate):
         nmode: int = 2,
         wires: Optional[List[int]] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(name='Squeezing2', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
+        super().__init__(name='Squeezing2', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
                          requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.npara = 2
 
@@ -1246,12 +1259,13 @@ class Displacement(SingleGate):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(name='Displacement', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
+        super().__init__(name='Displacement', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
                          requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.npara = 2
 
@@ -1389,13 +1403,14 @@ class DisplacementPosition(Displacement):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, requires_grad=requires_grad,
-                         noise=noise, mu=mu, sigma=sigma)
+        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
+                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.name = 'DisplacementPosition'
         self.npara = 1
 
@@ -1461,13 +1476,14 @@ class DisplacementMomentum(Displacement):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, requires_grad=requires_grad,
-                         noise=noise, mu=mu, sigma=sigma)
+        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
+                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.name = 'DisplacementMomentum'
         self.npara = 1
 
@@ -1517,18 +1533,19 @@ class DelayBS(Delay):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
         super().__init__(name='DelayBS', ntau=ntau, nmode=nmode, wires=wires, cutoff=cutoff,
-                         noise=noise, mu=mu, sigma=sigma)
+                         den_mat=den_mat, noise=noise, mu=mu, sigma=sigma)
         self.requires_grad = requires_grad
-        bs = BeamSplitterTheta(inputs=None, nmode=2, wires=None, cutoff=cutoff, requires_grad=requires_grad,
-                               noise=noise, mu=mu, sigma=sigma)
-        ps = PhaseShift(inputs=None, nmode=1, wires=None, cutoff=cutoff, requires_grad=requires_grad,
-                        noise=noise, mu=mu, sigma=sigma)
+        bs = BeamSplitterTheta(inputs=None, nmode=2, wires=None, cutoff=cutoff, den_mat=den_mat,
+                               requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        ps = PhaseShift(inputs=None, nmode=1, wires=None, cutoff=cutoff, den_mat=den_mat,
+                        requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.gates.append(bs)
         self.gates.append(ps)
         self.npara = 2
@@ -1569,16 +1586,17 @@ class DelayMZI(Delay):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
         super().__init__(name='DelayMZI', ntau=ntau, nmode=nmode, wires=wires, cutoff=cutoff,
-                         noise=noise, mu=mu, sigma=sigma)
+                         den_mat=den_mat, noise=noise, mu=mu, sigma=sigma)
         self.requires_grad = requires_grad
-        mzi = MZI(inputs=inputs, nmode=2, wires=None, cutoff=cutoff, phi_first=False, requires_grad=requires_grad,
-                  noise=noise, mu=mu, sigma=sigma)
+        mzi = MZI(inputs=inputs, nmode=2, wires=None, cutoff=cutoff, den_mat=den_mat, phi_first=False,
+                  requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.gates.append(mzi)
         self.npara = 2
 
@@ -1620,17 +1638,18 @@ class Loss(SingleGate):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(name='Loss', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
+        super().__init__(name='Loss', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
                          requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.npara = 1
         self.init_para(inputs)
-        bs = BeamSplitter(inputs=[torch.arccos(torch.sqrt(self.t)), torch.pi], nmode=2, wires=None, cutoff=cutoff, requires_grad=requires_grad,
-                               noise=noise, mu=mu, sigma=sigma)
+        bs = BeamSplitter(inputs=[torch.arccos(torch.sqrt(self.t)), torch.tensor(torch.pi, device=self.t.device)], nmode=2, wires=None,
+                          cutoff=cutoff, den_mat=den_mat, requires_grad=False, noise=noise, mu=mu, sigma=sigma)
         self.gate = bs
         self.gate.wires = self.wires + [self.nmode+1]
         self.gate.nmode = self.nmode + 1
@@ -1649,18 +1668,23 @@ class Loss(SingleGate):
 
     def get_matrix(self, t: Any) -> torch.Tensor:
         """Get the local unitary matrix acting on creation operators."""
-        t = self.inputs_to_tensor(t)
-        return t.reshape(1, 1)
+        raise NotImplementedError
 
     def update_matrix(self) -> torch.Tensor:
         """Update the local unitary matrix acting on creation operators."""
-        matrix = self.get_matrix(self.t)
-        self.matrix = matrix.detach()
-        return matrix
+        raise NotImplementedError
+
+    def update_matrix_state(self) -> torch.Tensor:
+        """Update the local transformation matrix acting on Fock state tensors."""
+        return self.get_matrix_state(self.t)
 
     def get_matrix_state(self, t: torch.Tensor) -> torch.Tensor:
-        """Get the local Kraus matrix acting on Fock state density matrix."""
-        inputs=[torch.arccos(torch.sqrt(t)), torch.pi]
+        """
+        Get the local Kraus matrix acting on Fock state density matrix.
+
+        see https://arxiv.org/pdf/1012.4266 eq2.4
+        """
+        inputs=[torch.arccos(torch.sqrt(t)), torch.tensor(torch.pi, device=self.t.device)]
         self.gate.init_para(inputs)
         matrix = self.gate.update_matrix_state()
         matrix_1 = matrix[...,0]
@@ -1674,35 +1698,33 @@ class Loss(SingleGate):
         t = self.inputs_to_tensor(inputs)
         self.noise = noise
         if self.requires_grad:
-            self.theta = nn.Parameter(t)
+            self.t = nn.Parameter(t)
         else:
             self.register_buffer('t', t)
 
-    def forward(
+    def op_gaussian(
         self,
         x: List[torch.Tensor]
     ) -> List[torch.Tensor]:
-        """Perform a forward pass for propagation loss channel.
+        """Perform a forward pass for gaussian backend.
 
-           see https://arxiv.org/pdf/quant-ph/0503237 eq.4.19 eq.4.20
+           see https://arxiv.org/pdf/quant-ph/0503237 eq.4.19, eq.4.20
         """
-        if isinstance(x, torch.Tensor):
-            return self.op_state_tensor(x)
-        elif isinstance(x, list):
-            cov, mean = x
-            kappa = dqp.kappa
-            h_bar = dqp.hbar
-            wires = self.wires + [wire + self.nmode for wire in self.wires]
-            idx = torch.tensor(wires)
-            g_t = torch.stack([torch.eye(2 * self.nmode)] * cov.size(0))
-            g_t[:, idx[:, None], idx] = (self.t) * torch.eye(2)
-            g_t_sqrt = torch.sqrt(g_t)
-            mean = g_t_sqrt @ mean
-            sigma_infty = torch.zeros_like(cov)
-            sigma_h = h_bar / (kappa ** 2 * 4) * torch.eye(2) # here xpxp order
-            sigma_infty[:, idx[:, None], idx] = sigma_h
-            cov = g_t_sqrt @ cov @ g_t_sqrt + (torch.stack([torch.eye(2 * self.nmode)] * cov.size(0)) - g_t) @ sigma_infty
-            return [cov, mean]
+        assert isinstance(x, list)
+        cov, mean = x
+        kappa = dqp.kappa
+        h_bar = dqp.hbar
+        wires = self.wires + [wire + self.nmode for wire in self.wires]
+        idx = torch.tensor(wires)
+        g_t = torch.stack([torch.eye(2 * self.nmode)] * cov.size(0))
+        g_t[:, idx[:, None], idx] = (self.t) * torch.eye(2)
+        g_t_sqrt = torch.sqrt(g_t)
+        mean = g_t_sqrt @ mean
+        sigma_infty = torch.zeros_like(cov)
+        sigma_h = h_bar / (kappa ** 2 * 4) * torch.eye(2) # here xpxp order
+        sigma_infty[:, idx[:, None], idx] = sigma_h
+        cov = g_t_sqrt @ cov @ g_t_sqrt + (torch.stack([torch.eye(2 * self.nmode)] * cov.size(0)) - g_t) @ sigma_infty
+        return [cov, mean]
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, transmissity={self.t.item()}'

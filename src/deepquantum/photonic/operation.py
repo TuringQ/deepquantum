@@ -32,6 +32,7 @@ class Operation(nn.Module):
         nmode: int = 1,
         wires: Union[int, List, None] = None,
         cutoff: int = 2,
+        den_mat: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
@@ -41,6 +42,7 @@ class Operation(nn.Module):
         self.nmode = nmode
         self.wires = wires
         self.cutoff = cutoff
+        self.den_mat = den_mat
         self.noise = noise
         self.mu = mu
         self.sigma = sigma
@@ -48,11 +50,14 @@ class Operation(nn.Module):
 
     def tensor_rep(self, x: torch.Tensor) -> torch.Tensor:
         """Get the tensor representation of the state."""
-        return x.reshape([-1] + [self.cutoff] * self.nmode)
+        if self.den_mat:
+            return x.reshape([-1] + [self.cutoff] * 2 * self.nmode)
+        else:
+            return x.reshape([-1] + [self.cutoff] * self.nmode)
 
-    def matrix_rep(self, x: torch.Tensor) -> torch.Tensor:
-        """Get the density matrix representation of the state."""
-        return x.reshape([-1] + [self.cutoff] * 2 * self.nmode)
+    # def matrix_rep(self, x: torch.Tensor) -> torch.Tensor:
+    #     """Get the density matrix representation of the state."""
+    #     return x.reshape([-1] + [self.cutoff] * 2 * self.nmode)
 
     def init_para(self) -> None:
         """Initialize the parameters."""
@@ -100,6 +105,7 @@ class Gate(Operation):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
@@ -110,7 +116,8 @@ class Gate(Operation):
         wires = self._convert_indices(wires)
         if cutoff is None:
             cutoff = 2
-        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff,
+                         den_mat=den_mat, noise=noise, mu=mu, sigma=sigma)
 
     def update_matrix(self) -> torch.Tensor:
         """Update the local unitary matrix acting on creation operators."""
@@ -140,7 +147,8 @@ class Gate(Operation):
         matrix = self.update_matrix_state() # kraus matrix
         if nt > 1:
             matrix = matrix.reshape(self.cutoff ** nt, self.cutoff ** nt)
-        if len(x.size()) -1 == self.nmode: # fock tensor
+        print(self.den_mat)
+        if not self.den_mat: # fock tensor
             wires = [i + 1 for i in self.wires]
             pm_shape = list(range(self.nmode + 1))
             for i in wires:
