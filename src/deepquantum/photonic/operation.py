@@ -147,7 +147,6 @@ class Gate(Operation):
         matrix = self.update_matrix_state() # kraus matrix
         if nt > 1:
             matrix = matrix.reshape(self.cutoff ** nt, self.cutoff ** nt)
-        print(self.den_mat)
         if not self.den_mat: # fock tensor
             wires = [i + 1 for i in self.wires]
             pm_shape = list(range(self.nmode + 1))
