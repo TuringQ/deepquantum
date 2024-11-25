@@ -343,6 +343,9 @@ class QumodeCircuit(Operation):
                 rst = vmap(self._get_amplitude_fock_vmap)(sub_mats, per_norms)
             for i in range(len(final_states)):
                 final_state = FockState(state=final_states[i], nmode=self.nmode, cutoff=self.cutoff, basis=self.basis)
+                if not is_prob:
+                    assert final_state not in out_dict, \
+                        'Amplitudes of reduced states can not be added, please set "is_prob" to be True.'
                 out_dict[final_state] += rst[i]
             return out_dict
 
