@@ -53,7 +53,7 @@ class Generaldyne(Operation):
     def forward(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
         """Perform a forward pass for Gaussian states.
 
-        See Quantum Continuous Variables: A Primer of Theoretical Methods
+        See Quantum Continuous Variables: A Primer of Theoretical Methods (2024)
         by Alessio Serafini Eq.(5.143) and Eq.(5.144) in page 121
         """
         cov, mean = x

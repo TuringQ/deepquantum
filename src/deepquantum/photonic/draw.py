@@ -11,7 +11,8 @@ import svgwrite
 from matplotlib import patches
 from torch import nn
 
-from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate, Squeezing, Squeezing2, Displacement, Loss
+from .channel import PhotonLoss
+from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate, Squeezing, Squeezing2, Displacement
 from .measurement import Homodyne
 from .operation import Delay
 
@@ -148,7 +149,7 @@ class DrawCircuit():
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = depth[i]+1
-            elif isinstance(op, Loss):
+            elif isinstance(op, PhotonLoss):
                 name_ = 'loss'
                 order = depth[op.wires[0]]
                 t = op.t.item()
