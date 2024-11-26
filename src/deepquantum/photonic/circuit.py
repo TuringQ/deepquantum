@@ -1990,7 +1990,7 @@ class QumodeCircuit(Operation):
     ) -> None:
         """Add a photon loss channel.
 
-        The `inputs` corresponds to the transmissity of the loss channel.
+        The `inputs` corresponds to the transmittance of the loss channel.
         """
         if self.backend == 'fock' and not self.basis:
             assert self.den_mat, 'Please use the density matrix representation'

@@ -51,7 +51,7 @@ class PhotonLoss(Channel):
 
     @property
     def t(self):
-        """Transmissity."""
+        """Transmittance."""
         return torch.cos(self.theta / 2) ** 2
 
     def update_matrix_state(self) -> torch.Tensor:
@@ -92,4 +92,4 @@ class PhotonLoss(Channel):
         return [cov, mean]
 
     def extra_repr(self) -> str:
-        return f'wires={self.wires}, transmissity={self.t.item()}'
+        return f'wires={self.wires}, transmittance={self.t.item()}'
