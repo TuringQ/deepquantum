@@ -4,6 +4,7 @@ import perceval as pcvl
 import perceval.components as comp
 import pytest
 from perceval.components import BS
+import torch
 
 
 def test_random_circuit():
@@ -98,11 +99,12 @@ def test_loss_fock_basis_True():
     cir.ps(1, angles[1])
     cir.bs_rx([0,1], [angles[2]])
     cir.loss_t(0, transmittance[1])
-    cir.loss(2, transmittance[2])
+    cir.loss_t(2, transmittance[2])
     cir.bs_rx([1,2], [angles[3]])
     cir.loss_t(0, transmittance[3])
     cir.loss_t(1, transmittance[4])
     cir.loss_t(2, transmittance[5])
+    cir.to(torch.float64)
     state = cir(is_prob=True)
     for key in state.keys():
         dq_prob = state[key]

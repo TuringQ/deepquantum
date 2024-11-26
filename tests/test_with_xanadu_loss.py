@@ -3,6 +3,7 @@ from strawberryfields.ops import *
 import deepquantum as dq
 import numpy as np
 import itertools
+import torch
 
 def test_loss_fock_basis_True():
     n = 3
@@ -38,6 +39,7 @@ def test_loss_fock_basis_True():
     cir.loss_t(0, transmittance[3])
     cir.loss_t(1, transmittance[4])
     cir.loss_t(2, transmittance[5])
+    # cir.to(torch.float64)
     state = cir(is_prob=True)
     err = 0
     for key in state.keys():
@@ -81,6 +83,7 @@ def test_loss_fock_basis_False():
     cir.loss_t(0, transmittance[3])
     cir.loss_t(1, transmittance[4])
     cir.loss_t(2, transmittance[5])
+    cir.to(torch.float64)
     state = cir(is_prob=True)
     err = 0
     for key in itertools.product(range(4), repeat=3):
@@ -123,6 +126,7 @@ def test_loss_gaussian():
     cir.loss_t(0, transmittance[3])
     cir.loss_t(1, transmittance[4])
     cir.loss_t(2, transmittance[5])
+    cir.to(torch.float64)
     state = cir()
     cov, mean = state
     err = (abs(cov[0] - sf_cov).flatten()).sum() + (abs(mean[0].flatten() - sf_mean).flatten()).sum()
