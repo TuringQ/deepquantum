@@ -56,14 +56,57 @@ def test_random_circuit():
     input_state = pcvl.BasicState(ini_state)
     backend.set_input_state(input_state)
     re1 = backend.evolve()
-    re2 = dq_gate()
+    re2 = dq_gate(is_prob=False)
     # calculating the difference for two simu approach
     max_error = -1.0
     for key in re1.keys():
         key2 = list(key)
         key3 = dq.FockState(key2)
-        tmp_error = abs(re2[(key3)] - re1[(key)])
+        tmp_error = abs(re2[key3] - re1[key])
         # tmp_error = abs(re2[tuple(key2)] - re1[(key)])
         if tmp_error > max_error:
             max_error = tmp_error
     assert max_error < 1e-4
+
+def test_loss_fock_basis_True():
+    n = 3
+    angles = np.random.rand(6) * np.pi
+    transmittance = np.random.rand(6)
+
+    cir = pcvl.Processor("SLOS",n)
+    cir.add(0, pcvl.LC(loss=1 - transmittance[0]))
+    cir.add(0, pcvl.PS(phi=angles[0]))
+    cir.add(1, pcvl.PS(phi=angles[1]))
+    cir.add((0,1), pcvl.BS(theta=angles[2]))
+    cir.add(0, pcvl.LC(loss=1 - transmittance[1]))
+    cir.add(2, pcvl.LC(loss=1 - transmittance[2]))
+    cir.add((1,2), pcvl.BS(theta=angles[3]))
+    cir.add(0, pcvl.LC(loss=1 - transmittance[3]))
+    cir.add(1, pcvl.LC(loss=1 - transmittance[4]))
+    cir.add(2, pcvl.LC(loss=1 - transmittance[5]))
+
+    cir.with_input(pcvl.BasicState([1, 1, 1]))
+    cir.min_detected_photons_filter(0)
+
+    imperfect_sampler = pcvl.algorithm.Sampler(cir)
+    output = imperfect_sampler.probs()["results"]
+
+    nmode = n
+    cir = dq.QumodeCircuit(nmode=nmode, init_state=[1,1,1], backend='fock', basis=True)
+    cir.loss(0, transmittance[0])
+    cir.ps(0, angles[0])
+    cir.ps(1, angles[1])
+    cir.bs_rx([0,1], [angles[2]])
+    cir.loss(0, transmittance[1])
+    cir.loss(2, transmittance[2])
+    cir.bs_rx([1,2], [angles[3]])
+    cir.loss(0, transmittance[3])
+    cir.loss(1, transmittance[4])
+    cir.loss(2, transmittance[5])
+    state = cir(is_prob=True)
+    for key in state.keys():
+        dq_prob = state[key]
+        fock_lst = key.state.tolist()
+        pcvl_prob = output[pcvl.BasicState(fock_lst)]
+        err = abs(dq_prob - pcvl_prob)
+        assert err < 1e-4,f'key={key},dq_prob={dq_prob},pcvl_prob={pcvl_prob}'
