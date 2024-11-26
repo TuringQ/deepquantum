@@ -646,6 +646,9 @@ class QumodeCircuit(Operation):
                         op_tdm.wires = [self._unroll_dict[wire][-1] for wire in op.wires]
                     else:
                         op_tdm.wires = [self._nmode_tdm + self.nmode * (i - 1) + wire for wire in op.wires]
+                    if isinstance(op, PhotonLoss):
+                        cir._lossy = True
+                        cir._nloss += 1
                     cir.add(op_tdm, encode=encode)
             for op_m in self.measurements:
                 op_m_tdm = copy(op_m)
