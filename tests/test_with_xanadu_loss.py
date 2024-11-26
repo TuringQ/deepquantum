@@ -28,16 +28,16 @@ def test_loss_fock_basis_True():
 
     nmode = n
     cir = dq.QumodeCircuit(nmode=nmode, init_state=[1,1,1], cutoff=4, backend='fock', basis=True)
-    cir.loss(0, transmittance[0])
+    cir.loss_t(0, transmittance[0])
     cir.ps(0, angles[0])
     cir.ps(1, angles[1])
     cir.bs([0,2], [angles[2], angles[3]])
-    cir.loss(0, transmittance[1])
-    cir.loss(2, transmittance[2])
+    cir.loss_t(0, transmittance[1])
+    cir.loss_t(2, transmittance[2])
     cir.bs([1,2], [angles[4], angles[5]])
-    cir.loss(0, transmittance[3])
-    cir.loss(1, transmittance[4])
-    cir.loss(2, transmittance[5])
+    cir.loss_t(0, transmittance[3])
+    cir.loss_t(1, transmittance[4])
+    cir.loss_t(2, transmittance[5])
     state = cir(is_prob=True)
     err = 0
     for key in state.keys():
@@ -71,16 +71,16 @@ def test_loss_fock_basis_False():
 
     nmode = n
     cir = dq.QumodeCircuit(nmode=nmode, init_state=[(1, [1,1,1])], cutoff=4, backend='fock', basis=False, den_mat=True)
-    cir.loss(0, transmittance[0])
+    cir.loss_t(0, transmittance[0])
     cir.ps(0, angles[0])
     cir.ps(1, angles[1])
     cir.bs([0,2], [angles[2], angles[3]])
-    cir.loss(0, transmittance[1])
-    cir.loss(2, transmittance[2])
+    cir.loss_t(0, transmittance[1])
+    cir.loss_t(2, transmittance[2])
     cir.bs([1,2], [angles[4], angles[5]])
-    cir.loss(0, transmittance[3])
-    cir.loss(1, transmittance[4])
-    cir.loss(2, transmittance[5])
+    cir.loss_t(0, transmittance[3])
+    cir.loss_t(1, transmittance[4])
+    cir.loss_t(2, transmittance[5])
     state = cir(is_prob=True)
     err = 0
     for key in itertools.product(range(4), repeat=3):
@@ -113,16 +113,16 @@ def test_loss_gaussian():
 
     nmode = n
     cir = dq.QumodeCircuit(nmode=nmode, init_state='vac', cutoff=4, backend='gaussian')
-    cir.loss(0, transmittance[0])
+    cir.loss_t(0, transmittance[0])
     cir.ps(0, angles[0])
     cir.ps(1, angles[1])
     cir.bs([0,1], [angles[2], angles[3]]) # only support adjacent wires for gaussian loss channel
-    cir.loss(0, transmittance[1])
-    cir.loss(2, transmittance[2])
+    cir.loss_t(0, transmittance[1])
+    cir.loss_t(2, transmittance[2])
     cir.bs([1,2], [angles[4], angles[5]])
-    cir.loss(0, transmittance[3])
-    cir.loss(1, transmittance[4])
-    cir.loss(2, transmittance[5])
+    cir.loss_t(0, transmittance[3])
+    cir.loss_t(1, transmittance[4])
+    cir.loss_t(2, transmittance[5])
     state = cir()
     cov, mean = state
     err = (abs(cov[0] - sf_cov).flatten()).sum() + (abs(mean[0].flatten() - sf_mean).flatten()).sum()

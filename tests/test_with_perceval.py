@@ -93,16 +93,16 @@ def test_loss_fock_basis_True():
 
     nmode = n
     cir = dq.QumodeCircuit(nmode=nmode, init_state=[1,1,1], backend='fock', basis=True)
-    cir.loss(0, transmittance[0])
+    cir.loss_t(0, transmittance[0])
     cir.ps(0, angles[0])
     cir.ps(1, angles[1])
     cir.bs_rx([0,1], [angles[2]])
-    cir.loss(0, transmittance[1])
+    cir.loss_t(0, transmittance[1])
     cir.loss(2, transmittance[2])
     cir.bs_rx([1,2], [angles[3]])
-    cir.loss(0, transmittance[3])
-    cir.loss(1, transmittance[4])
-    cir.loss(2, transmittance[5])
+    cir.loss_t(0, transmittance[3])
+    cir.loss_t(1, transmittance[4])
+    cir.loss_t(2, transmittance[5])
     state = cir(is_prob=True)
     for key in state.keys():
         dq_prob = state[key]
