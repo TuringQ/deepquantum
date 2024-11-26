@@ -1967,7 +1967,10 @@ class QumodeCircuit(Operation):
         inputs: Any,
         encode: bool = False
     ) -> None:
-        """Add a photon loss channel."""
+        """Add a photon loss channel.
+
+        The `inputs` corresponds to `theta` of the loss channel.
+        """
         if self.backend == 'fock' and not self.basis:
             assert self.den_mat, 'Please use the density matrix representation'
         self._lossy = True
@@ -1975,10 +1978,55 @@ class QumodeCircuit(Operation):
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-            if isinstance(inputs, torch.Tensor):
-                inputs = torch.arccos(inputs ** 0.5) * 2
-            else:
-                inputs = np.arccos(inputs ** 0.5) * 2
         loss = PhotonLoss(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+                          requires_grad=requires_grad)
+        self.add(loss, encode=encode)
+
+    def loss_t(
+        self,
+        wires: int,
+        inputs: Any,
+        encode: bool = False
+    ) -> None:
+        """Add a photon loss channel.
+
+        The `inputs` corresponds to the transmissity of the loss channel.
+        """
+        if self.backend == 'fock' and not self.basis:
+            assert self.den_mat, 'Please use the density matrix representation'
+        self._lossy = True
+        self._nloss += 1
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+            if not isinstance(inputs, torch.Tensor):
+                inputs = torch.tensor(inputs)
+            theta = torch.arccos(inputs ** 0.5) * 2
+        loss = PhotonLoss(inputs=theta, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+                          requires_grad=requires_grad)
+        self.add(loss, encode=encode)
+
+    def loss_db(
+        self,
+        wires: int,
+        inputs: Any,
+        encode: bool = False
+    ) -> None:
+        """Add a photon loss channel.
+
+        The `inputs` corresponds to the probability of loss with the unit of dB and is positive.
+        """
+        if self.backend == 'fock' and not self.basis:
+            assert self.den_mat, 'Please use the density matrix representation'
+        self._lossy = True
+        self._nloss += 1
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+            if not isinstance(inputs, torch.Tensor):
+                inputs = torch.tensor(inputs)
+            t = 10 ** (-inputs / 10)
+            theta = torch.arccos(t ** 0.5) * 2
+        loss = PhotonLoss(inputs=theta, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
                           requires_grad=requires_grad)
         self.add(loss, encode=encode)
