@@ -324,6 +324,13 @@ class Channel(Operation):
         mean = mat_x @ mean
         return [cov, mean]
 
+    def forward(self, x: Union[torch.Tensor, List[torch.Tensor]]) -> Union[torch.Tensor, List[torch.Tensor]]:
+        """Perform a forward pass."""
+        if isinstance(x, torch.Tensor):
+            return self.op_den_mat(x)
+        elif isinstance(x, list):
+            return self.op_gaussian(x)
+
 
 class Delay(Operation):
     r"""Delay loop.
