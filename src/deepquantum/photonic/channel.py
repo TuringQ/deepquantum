@@ -56,15 +56,14 @@ class PhotonLoss(Channel):
 
     def update_matrix_state(self) -> torch.Tensor:
         """Update the local transformation matrix acting on Fock state tensors."""
-        return self.gate.update_matrix_state()
+        return self.get_matrix_state(self.theta)
 
     def get_matrix_state(self, theta: Any) -> torch.Tensor:
         """Get the local Kraus matrix acting on Fock state density matrix.
 
         See https://arxiv.org/pdf/1012.4266 Eq.(2.4)
         """
-        self.init_para(theta)
-        matrix = self.update_matrix_state()
+        matrix = self.gate.get_matrix_state(self.gate.get_matrix(theta))
         return matrix[..., 0].permute([1, 0, 2])
 
     def init_para(self, inputs: Any = None) -> None:
