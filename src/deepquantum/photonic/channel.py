@@ -81,7 +81,7 @@ class PhotonLoss(Channel):
         identity = self.theta.new_ones(2 * self.nmode).diag()
         g_t_sqrt = self.theta.new_ones(2 * self.nmode).diag()
         g_t = self.theta.new_ones(2 * self.nmode).diag()
-        sigma_inf = torch.zeros_like(cov)
+        sigma_inf = self.theta.new_zeros(2 * self.nmode).diag()
         t_sqrt = self.theta.new_ones(2).diag() * torch.cos(self.theta / 2)
         t = self.theta.new_ones(2).diag() * torch.cos(self.theta / 2) ** 2
         sigma_h = self.theta.new_ones(2).diag() * dqp.hbar / (4 * dqp.kappa ** 2)
