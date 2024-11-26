@@ -104,8 +104,7 @@ def test_loss_batched_fock_basis_states():
     cir.loss(2, transmittance[5])
 
     re1 = cir(data=data, state=init_state, is_prob=None)
-    re2 = cir(data=data, state=init_state, is_prob=False)
-    re3 = cir(data=data, state=init_state, is_prob=True)
+    re2 = cir(data=data, state=init_state, is_prob=True)
 
     for i in range(init_state.shape[0]):
         res1 = cir(data=data, state=init_state[i], is_prob=None)
