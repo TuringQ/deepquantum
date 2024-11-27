@@ -355,6 +355,7 @@ class Delay(Operation):
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
         den_mat: bool = False,
+        loss_db: Optional[int] = None,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
@@ -370,6 +371,7 @@ class Delay(Operation):
         assert len(self.wires) == 1, f'{self.name} must act on one mode'
         self.ntau = ntau
         self.gates = nn.Sequential()
+        self.loss_db = loss_db
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""

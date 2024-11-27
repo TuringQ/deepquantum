@@ -1551,12 +1551,13 @@ class DelayBS(Delay):
         cutoff: Optional[int] = None,
         den_mat: bool = False,
         requires_grad: bool = False,
+        loss_db: Optional[float] = None,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
         super().__init__(name='DelayBS', ntau=ntau, nmode=nmode, wires=wires, cutoff=cutoff,
-                         den_mat=den_mat, noise=noise, mu=mu, sigma=sigma)
+                         den_mat=den_mat, loss_db=loss_db, noise=noise, mu=mu, sigma=sigma)
         self.requires_grad = requires_grad
         bs = BeamSplitterTheta(inputs=None, nmode=2, wires=None, cutoff=cutoff, den_mat=den_mat,
                                requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
@@ -1566,6 +1567,14 @@ class DelayBS(Delay):
         self.gates.append(ps)
         self.npara = 2
         self.init_para(inputs)
+        if loss_db is not None:
+            if not isinstance(loss_db, torch.Tensor):
+                loss_db = torch.tensor(loss_db)
+            t = 10 ** (-loss_db / 10)
+            theta = torch.arccos(t ** 0.5) * 2
+            loss = dqp.channel.PhotonLoss(inputs=theta, nmode=1, wires=None, cutoff=cutoff,
+                          requires_grad=requires_grad)
+            self.gates.append(loss)
 
     @property
     def theta(self):

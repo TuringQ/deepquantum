@@ -636,6 +636,13 @@ class QumodeCircuit(Operation):
                         op_ps.nmode = nmode
                         op_ps.wires = [wire1]
                         cir.add(op_ps, encode=encode)
+                        if op.loss_db is not None:
+                            cir._lossy = True
+                            cir._nloss += 1
+                            op_loss_db = copy(op.gates[2])
+                            op_loss_db.nmode = nmode
+                            op_loss_db.wires = [wire1]
+                            cir.add(op_loss_db)
                 else:
                     if use_deepcopy or encode:
                         op_tdm = deepcopy(op)
@@ -896,8 +903,8 @@ class QumodeCircuit(Operation):
             cov = self._cov
             mean = self._mean
         else:
-            cov = state.cov
-            mean = state.mean
+            cov = state[0]
+            mean = state[1]
         if cov.ndim == 2:
             cov = cov.unsqueeze(0)
         if mean.ndim == 2:
@@ -1893,6 +1900,7 @@ class QumodeCircuit(Operation):
         inputs: Any = None,
         convention: str = 'bs',
         encode: bool = False,
+        loss_db: Optional[float] = None,
         mu: Optional[float] = None,
         sigma: Optional[float] = None
     ) -> None:
@@ -1902,9 +1910,11 @@ class QumodeCircuit(Operation):
         if sigma is None:
             sigma = self.sigma
         requires_grad = not encode
+        if loss_db is not None:
+            self._lossy = True
         if convention == 'bs':
             delay = DelayBS(inputs=inputs, ntau=ntau, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
-                            requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+                            requires_grad=requires_grad, loss_db=loss_db, noise=self.noise, mu=mu, sigma=sigma)
         elif convention == 'mzi':
             delay = DelayMZI(inputs=inputs, ntau=ntau, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
                              requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
