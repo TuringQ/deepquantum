@@ -393,6 +393,70 @@ def amplitude_encoding(data: Any, nqubit: int) -> torch.Tensor:
     return state.unsqueeze(-1)
 
 
+def evolve_state(
+    state: torch.Tensor,
+    matrix: torch.Tensor,
+    nqudit: int,
+    wires: List[int],
+    qudit: int = 2) -> torch.Tensor:
+    """Perform the evolution of quantum states.
+
+    Args:
+        state (torch.Tensor): The batched state tensor.
+        matrix (torch.Tensor): The evolution matrix.
+        nqudit (int): The number of the qudits.
+        wires (List[int]): The indices of the qudits that the quantum operation acts on.
+        qudit (int, optional): The dimension of the qudits. Default: 2
+    """
+    nt = len(wires)
+    wires = [i + 1 for i in wires]
+    pm_shape = list(range(nqudit + 1))
+    for i in wires:
+        pm_shape.remove(i)
+    pm_shape = wires + pm_shape
+    state = state.permute(pm_shape).reshape(qudit ** nt, -1)
+    state = (matrix @ state).reshape([qudit] * nt + [-1] + [qudit] * (nqudit - nt))
+    state = state.permute(inverse_permutation(pm_shape))
+    return state
+
+
+def evolve_den_mat(
+    state: torch.Tensor,
+    matrix: torch.Tensor,
+    nqudit: int,
+    wires: List[int],
+    qudit: int = 2) -> torch.Tensor:
+    """Perform the evolution of density matrices.
+
+    Args:
+        state (torch.Tensor): The batched state tensor.
+        matrix (torch.Tensor): The evolution matrix.
+        nqudit (int): The number of the qudits.
+        wires (List[int]): The indices of the qudits that the quantum operation acts on.
+        qudit (int, optional): The dimension of the qudits. Default: 2
+    """
+    nt = len(wires)
+    # left multiply
+    wires1 = [i + 1 for i in wires]
+    pm_shape = list(range(2 * nqudit + 1))
+    for i in wires1:
+        pm_shape.remove(i)
+    pm_shape = wires1 + pm_shape
+    state = state.permute(pm_shape).reshape(qudit ** nt, -1)
+    state = (matrix @ state).reshape([qudit] * nt + [-1] + [qudit] * (2 * nqudit - nt))
+    state = state.permute(inverse_permutation(pm_shape))
+    # right multiply
+    wires2 = [i + 1 + nqudit for i in wires]
+    pm_shape = list(range(2 * nqudit + 1))
+    for i in wires2:
+        pm_shape.remove(i)
+    pm_shape = wires2 + pm_shape
+    state = state.permute(pm_shape).reshape(qudit ** nt, -1)
+    state = (matrix.conj() @ state).reshape([qudit] * nt + [-1] + [qudit] * (2 * nqudit - nt))
+    state = state.permute(inverse_permutation(pm_shape))
+    return state
+
+
 def measure(
     state: torch.Tensor,
     shots: int = 1024,

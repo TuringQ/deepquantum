@@ -6,9 +6,9 @@ from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-from torch import nn
+from torch import nn, vmap
 
-from ..qmath import inverse_permutation, state_to_tensors
+from ..qmath import state_to_tensors, evolve_state, evolve_den_mat
 from ..state import MatrixProductState
 
 
@@ -21,6 +21,7 @@ class Operation(nn.Module):
         wires (int, List or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int, optional): The Fock space truncation. Default: 2
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
@@ -31,6 +32,7 @@ class Operation(nn.Module):
         nmode: int = 1,
         wires: Union[int, List, None] = None,
         cutoff: int = 2,
+        den_mat: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
@@ -40,6 +42,7 @@ class Operation(nn.Module):
         self.nmode = nmode
         self.wires = wires
         self.cutoff = cutoff
+        self.den_mat = den_mat
         self.noise = noise
         self.mu = mu
         self.sigma = sigma
@@ -47,7 +50,10 @@ class Operation(nn.Module):
 
     def tensor_rep(self, x: torch.Tensor) -> torch.Tensor:
         """Get the tensor representation of the state."""
-        return x.reshape([-1] + [self.cutoff] * self.nmode)
+        if self.den_mat:
+            return x.reshape([-1] + [self.cutoff] * 2 * self.nmode)
+        else:
+            return x.reshape([-1] + [self.cutoff] * self.nmode)
 
     def init_para(self) -> None:
         """Initialize the parameters."""
@@ -85,6 +91,7 @@ class Gate(Operation):
         wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
@@ -95,6 +102,7 @@ class Gate(Operation):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
@@ -105,7 +113,8 @@ class Gate(Operation):
         wires = self._convert_indices(wires)
         if cutoff is None:
             cutoff = 2
-        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff,
+                         den_mat=den_mat, noise=noise, mu=mu, sigma=sigma)
 
     def update_matrix(self) -> torch.Tensor:
         """Update the local unitary matrix acting on creation operators."""
@@ -133,15 +142,13 @@ class Gate(Operation):
         """Perform a forward pass for state tensors."""
         nt = len(self.wires)
         matrix = self.update_matrix_state().reshape(self.cutoff ** nt, self.cutoff ** nt)
-        wires = [i + 1 for i in self.wires]
-        pm_shape = list(range(self.nmode + 1))
-        for i in wires:
-            pm_shape.remove(i)
-        pm_shape = wires + pm_shape
-        x = x.permute(pm_shape).reshape(self.cutoff ** nt, -1)
-        x = (matrix @ x).reshape([self.cutoff] * nt + [-1] + [self.cutoff] * (self.nmode - nt))
-        x = x.permute(inverse_permutation(pm_shape))
-        return x
+        return evolve_state(x, matrix, self.nmode, self.wires, self.cutoff)
+
+    def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
+        """Perform a forward pass for density matrices."""
+        nt = len(self.wires)
+        matrix = self.update_matrix_state().reshape(self.cutoff ** nt, self.cutoff ** nt)
+        return evolve_den_mat(x, matrix, self.nmode, self.wires, self.cutoff)
 
     def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
         """Update the local affine symplectic transformation acting on quadrature operators in xxpp order."""
@@ -169,28 +176,9 @@ class Gate(Operation):
     def op_gaussian(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
         """Perform a forward pass for Gaussian states."""
         cov, mean = x
-        mat_xp, vec_xp = self.update_transform_xp()
-        wires_x1 = list(range(self.wires[0]))
-        wires_x  = self.wires
-        wires_x2 = list(range(self.wires[-1] + 1, self.nmode))
-        wires_p1 = [wire + self.nmode for wire in wires_x1]
-        wires_p  = [wire + self.nmode for wire in self.wires]
-        wires_p2 = [wire + self.nmode for wire in wires_x2]
-        cov_row = mat_xp @ cov[..., wires_x + wires_p, :]
-        cov_row_x = cov_row[..., :len(self.wires), :]
-        cov_row_p = cov_row[..., len(self.wires):, :]
-        cov = torch.cat([cov[..., wires_x1, :], cov_row_x, cov[..., wires_x2, :],
-                         cov[..., wires_p1, :], cov_row_p, cov[..., wires_p2, :]], dim=-2)
-        cov_col = cov[..., wires_x + wires_p] @ mat_xp.mT
-        cov_col_x = cov_col[..., :len(self.wires)]
-        cov_col_p = cov_col[..., len(self.wires):]
-        cov = torch.cat([cov[..., wires_x1], cov_col_x, cov[..., wires_x2],
-                         cov[..., wires_p1], cov_col_p, cov[..., wires_p2]], dim=-1)
-        mean_local = mat_xp @ mean[..., wires_x + wires_p, :] + vec_xp
-        mean_x = mean_local[..., :len(self.wires), :]
-        mean_p = mean_local[..., len(self.wires):, :]
-        mean = torch.cat([mean[..., wires_x1, :], mean_x, mean[..., wires_x2, :],
-                          mean[..., wires_p1, :], mean_p, mean[..., wires_p2, :]], dim=-2)
+        sp_mat = self.get_symplectic()
+        cov = sp_mat @ cov @ sp_mat.mT
+        mean = sp_mat @ mean + self.get_displacement()
         return [cov, mean]
 
     def get_mpo(self) -> Tuple[List[torch.Tensor], int]:
@@ -230,7 +218,7 @@ class Gate(Operation):
             if previous_i is not None:
                 for _ in range(previous_i + 1, i):
                     chi = tensors[-1].shape[-1]
-                    identity = torch.eye(chi * self.cutoff, dtype=self.matrix.dtype, device=self.matrix.device)
+                    identity = torch.eye(chi * self.cutoff, dtype=mat.dtype, device=mat.device)
                     tensors.append(identity.reshape(chi, self.cutoff, chi, self.cutoff).permute(0, 1, 3, 2))
             nleft, _, nright = main_tensor.shape
             tensors.append(main_tensor.reshape(nleft, self.cutoff, self.cutoff, nright))
@@ -266,12 +254,83 @@ class Gate(Operation):
         if isinstance(x, MatrixProductState):
             return self.op_mps(x)
         if isinstance(x, torch.Tensor):
-            return self.op_state_tensor(x)
+            if self.den_mat:
+                return self.op_den_mat(x)
+            else:
+                return self.op_state_tensor(x)
         elif isinstance(x, list):
             return self.op_gaussian(x)
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}'
+
+
+class Channel(Operation):
+    r"""A base class for photonic quantum channels.
+
+    Args:
+        name (str or None, optional): The name of the channel. Default: ``None``
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+    """
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        nmode: int = 1,
+        wires: Union[int, List[int], None] = None,
+        cutoff: Optional[int] = None,
+    ) -> None:
+        self.nmode = nmode
+        if wires is None:
+            wires = [0]
+        wires = self._convert_indices(wires)
+        if cutoff is None:
+            cutoff = 2
+        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=True, noise=False)
+
+    def update_matrix_state(self) -> torch.Tensor:
+        """Update the local transformation matrix acting on Fock state tensors."""
+        raise NotImplementedError
+
+    def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
+        """Perform a forward pass for density matrices."""
+        nt = len(self.wires)
+        matrix = self.update_matrix_state().reshape(-1, self.cutoff ** nt, self.cutoff ** nt)
+        x = vmap(evolve_den_mat, in_dims=(None, 0, None, None, None))(x, matrix, self.nmode, self.wires, self.cutoff)
+        return x.sum(0)
+
+    def update_transform_xy(self):
+        return self.matrix_x, self.matrix_y
+
+    def op_gaussian(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
+        """Perform a forward pass for Gaussian states.
+
+        See Quantum Continuous Variables: A Primer of Theoretical Methods (2024)
+        by Alessio Serafini Eq.(5.35-5.37) in page 90
+        """
+        cov, mean = x
+        local_x, local_y = self.update_transform_xy()
+        assert local_x.shape[-2] == local_x.shape[-1] == 2 * len(self.wires), 'Invalid matrix shape.'
+        assert local_y.shape[-2] == local_y.shape[-1] == 2 * len(self.wires), 'Invalid matrix shape.'
+        wires = self.wires + [wire + self.nmode for wire in self.wires]
+        mat_x = local_x.new_ones(2 * self.nmode)
+        mat_x = torch.diag(mat_x)
+        mat_x[np.ix_(wires, wires)] = local_x
+        mat_y = local_y.new_zeros(2 * self.nmode, 2 * self.nmode)
+        mat_y[np.ix_(wires, wires)] = local_y
+        cov = mat_x @ cov @ mat_x.mT + mat_y
+        mean = mat_x @ mean
+        return [cov, mean]
+
+    def forward(self, x: Union[torch.Tensor, List[torch.Tensor]]) -> Union[torch.Tensor, List[torch.Tensor]]:
+        """Perform a forward pass."""
+        if isinstance(x, torch.Tensor):
+            return self.op_den_mat(x)
+        elif isinstance(x, list):
+            return self.op_gaussian(x)
+
 
 class Delay(Operation):
     r"""Delay loop.
@@ -283,6 +342,7 @@ class Delay(Operation):
         wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
@@ -294,6 +354,7 @@ class Delay(Operation):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
@@ -304,7 +365,8 @@ class Delay(Operation):
         wires = self._convert_indices(wires)
         if cutoff is None:
             cutoff = 2
-        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
+                         noise=noise, mu=mu, sigma=sigma)
         assert len(self.wires) == 1, f'{self.name} must act on one mode'
         self.ntau = ntau
         self.gates = nn.Sequential()

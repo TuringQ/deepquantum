@@ -14,13 +14,14 @@ import torch
 from torch import nn, vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
 
+from .channel import PhotonLoss
 from .decompose import UnitaryDecomposer
 from .draw import DrawCircuit
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
 from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum, DelayBS, DelayMZI
 from .hafnian_ import hafnian
 from .measurement import Homodyne
-from .operation import Operation, Gate, Delay
+from .operation import Operation, Gate, Channel, Delay
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
 from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc, shift_func
 from .state import FockState, GaussianState
@@ -44,6 +45,8 @@ class QumodeCircuit(Operation):
             Default: ``'fock'``
         basis (bool, optional): Whether to use the representation of Fock basis state for the initial state.
             Default: ``True``
+        den_mat (bool, optional): Whether to use density matrix representation. Only valid for Fock state tensor.
+            Default: ``False``
         detector (str, optional): For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector
             or ``'threshold'`` for the threshold detector. Default: ``'pnrd'``
         name (str or None, optional): The name of the circuit. Default: ``None``
@@ -61,6 +64,7 @@ class QumodeCircuit(Operation):
         cutoff: Optional[int] = None,
         backend: str = 'fock',
         basis: bool = True,
+        den_mat: bool = False,
         detector: str = 'pnrd',
         name: Optional[str] = None,
         mps: bool = False,
@@ -73,6 +77,7 @@ class QumodeCircuit(Operation):
         self.cutoff = cutoff
         self.backend = backend
         self.basis = basis
+        self.den_mat = den_mat
         self.detector = detector.lower()
         self.mps = mps
         self.chi = chi
@@ -84,7 +89,8 @@ class QumodeCircuit(Operation):
         self.state_measured = None
         self.ndata = 0
         self.depth = np.array([0] * nmode)
-        self._nphoton = None
+        self._lossy = False
+        self._nloss = 0
         self._state_expand = None
         self._all_fock_basis = None
 
@@ -126,7 +132,7 @@ class QumodeCircuit(Operation):
             else:
                 if self.backend == 'fock':
                     self.init_state = FockState(state=init_state, nmode=self.nmode, cutoff=self.cutoff,
-                                                basis=self.basis)
+                                                basis=self.basis, den_mat=self.den_mat)
                 elif self.backend == 'gaussian':
                     self.init_state = GaussianState(state=init_state, nmode=self.nmode, cutoff=self.cutoff)
                 self.cutoff = self.init_state.cutoff
@@ -138,8 +144,8 @@ class QumodeCircuit(Operation):
         """
         assert self.nmode == rhs.nmode
         cir = QumodeCircuit(nmode=self.nmode, init_state=self.init_state, cutoff=self.cutoff, backend=self.backend,
-                            basis=self.basis, detector=self.detector, name=self.name, mps=self.mps, chi=self.chi,
-                            noise=self.noise, mu=self.mu, sigma=self.sigma)
+                            basis=self.basis, den_mat=self.den_mat, detector=self.detector, name=self.name,
+                            mps=self.mps, chi=self.chi, noise=self.noise, mu=self.mu, sigma=self.sigma)
         cir.operators = self.operators + rhs.operators
         cir.encoders = self.encoders + rhs.encoders
         cir.measurements = rhs.measurements
@@ -147,7 +153,10 @@ class QumodeCircuit(Operation):
         cir.ndata = self.ndata + rhs.ndata
         cir.depth = self.depth + rhs.depth
 
-        cir._if_delayloop = self._if_delayloop and rhs._if_delayloop
+        cir._lossy = self._lossy or rhs._lossy
+        cir._nloss = self._nloss + rhs._nloss
+
+        cir._if_delayloop = self._if_delayloop or rhs._if_delayloop
         cir._nmode_tdm = self._nmode_tdm + rhs._nmode_tdm - self.nmode
         cir._ntau_dict = defaultdict(list)
         for key, value in self._ntau_dict.items():
@@ -244,7 +253,6 @@ class QumodeCircuit(Operation):
         else:
             if self.basis:
                 self.init_state = FockState(state, nmode=self.nmode, cutoff=self.cutoff, basis=self.basis)
-                self._nphoton = None
                 self._state_expand = None
         if isinstance(state, MatrixProductState):
             assert not self.basis
@@ -256,11 +264,14 @@ class QumodeCircuit(Operation):
         # preprocessing of batched initial states
         if self.basis:
             if state.ndim == 1:
+                if self._lossy:
+                    state = torch.cat([state, state.new_zeros(self._nloss)], dim=-1)
                 self._all_fock_basis = self._get_all_fock_basis(state)
             elif state.ndim == 2:
+                if self._lossy:
+                    state = torch.cat([state, state.new_zeros(state.shape[0], self._nloss)], dim=-1)
                 nphotons = torch.sum(state, dim=-1, keepdim=True)
                 max_photon = torch.max(nphotons).item()
-                self._nphoton = max_photon
                 # expand the Fock state if the photon number is not conserved
                 if any(nphoton < max_photon for nphoton in nphotons):
                     state = torch.cat([state, max_photon - nphotons], dim=-1)
@@ -320,7 +331,7 @@ class QumodeCircuit(Operation):
         else:
             if state is None:
                 state = self.init_state.state
-            out_dict = {}
+            out_dict = defaultdict(float)
             final_states = self._all_fock_basis
             if self._state_expand is not None:
                 unitary = torch.block_diag(unitary, torch.eye(1, dtype=unitary.dtype, device=unitary.device))
@@ -332,7 +343,10 @@ class QumodeCircuit(Operation):
                 rst = vmap(self._get_amplitude_fock_vmap)(sub_mats, per_norms)
             for i in range(len(final_states)):
                 final_state = FockState(state=final_states[i], nmode=self.nmode, cutoff=self.cutoff, basis=self.basis)
-                out_dict[final_state] = rst[i]
+                if not is_prob:
+                    assert final_state not in out_dict, \
+                        'Amplitudes of reduced states can not be added, please set "is_prob" to be True.'
+                out_dict[final_state] += rst[i]
             return out_dict
 
     def _forward_helper_tensor(
@@ -355,7 +369,11 @@ class QumodeCircuit(Operation):
                 state = state.state
             x = self.operators(self.tensor_rep(state)).squeeze(0)
             if is_prob:
-                x = abs(x) ** 2
+                if self.den_mat:
+                    x = x.reshape(-1, self.cutoff ** self.nmode, self.cutoff ** self.nmode).diagonal(dim1=-2, dim2=-1)
+                    x = abs(x).reshape([-1] + [self.cutoff] * self.nmode).squeeze(0)
+                else:
+                    x = abs(x) ** 2
             return x
 
     def _forward_gaussian(
@@ -422,6 +440,8 @@ class QumodeCircuit(Operation):
         stepwise: bool = False
     ) -> List[torch.Tensor]:
         """Perform a forward pass for one sample if the input is a Gaussian state."""
+        if self._lossy:
+            stepwise = True
         self.encode(data)
         if self._if_delayloop:
             operators = self._operators_tdm
@@ -497,7 +517,7 @@ class QumodeCircuit(Operation):
             for state in even_basis:
                 prob_even = self._get_probs_gaussian_helper(state, cov, mean, detector, loop)
                 probs_half.append(prob_even)
-            if loop:
+            if loop or self._lossy:
                 for state in odd_basis:
                     prob_odd = self._get_probs_gaussian_helper(state, cov, mean, detector, loop)
                     probs_half.append(prob_odd)
@@ -626,6 +646,9 @@ class QumodeCircuit(Operation):
                         op_tdm.wires = [self._unroll_dict[wire][-1] for wire in op.wires]
                     else:
                         op_tdm.wires = [self._nmode_tdm + self.nmode * (i - 1) + wire for wire in op.wires]
+                    if isinstance(op, PhotonLoss):
+                        cir._lossy = True
+                        cir._nloss += 1
                     cir.add(op_tdm, encode=encode)
             for op_m in self.measurements:
                 op_m_tdm = copy(op_m)
@@ -681,11 +704,23 @@ class QumodeCircuit(Operation):
             operators = self._operators_tdm
         else:
             operators = self.operators
+        nloss = 0
         for op in operators:
-            if u is None:
-                u = op.get_unitary()
+            if isinstance(op, PhotonLoss):
+                nloss += 1
+                op.gate.wires = [op.wires[0], op.nmode + nloss - 1]
+                op.gate.nmode = op.nmode + nloss
+                if u is None:
+                    u = op.gate.get_unitary()
+                else:
+                    u = torch.block_diag(u, torch.eye(1, dtype=u.dtype, device=u.device))
+                    u = op.gate.get_unitary() @ u
             else:
-                u = op.get_unitary() @ u
+                if u is None:
+                    u = op.get_unitary()
+                else:
+                    u = torch.block_diag(op.get_unitary(),
+                                         torch.eye(nloss, dtype=u.dtype, device=u.device)) @ u
         if u is None:
             return torch.eye(self.nmode, dtype=torch.cfloat)
         else:
@@ -723,7 +758,8 @@ class QumodeCircuit(Operation):
         """Get all possible fock basis states according to the initial state."""
         nphoton = torch.max(torch.sum(init_state, dim=-1))
         nmode = len(init_state)
-        states = torch.tensor(fock_combinations(nmode, nphoton, self.cutoff), dtype=torch.long, device=init_state.device)
+        states = torch.tensor(fock_combinations(nmode, nphoton, self.cutoff, nancilla=nmode - self.nmode),
+                              dtype=torch.long, device=init_state.device)
         return states
 
     def _get_odd_even_fock_basis(self, detector: Optional[str] = None) -> Union[Tuple[List], List]:
@@ -1134,7 +1170,11 @@ class QumodeCircuit(Operation):
         wires = sorted(self._convert_indices(wires))
         all_results = []
         if self.state.is_complex():
-            state_tensor = self.tensor_rep(abs(self.state) ** 2)
+            if self.den_mat:
+                state_tensor = self.state.reshape(-1, self.cutoff ** self.nmode, self.cutoff ** self.nmode)
+                state_tensor = self.tensor_rep(abs(state_tensor.diagonal(dim1=-2, dim2=-1)))
+            else:
+                state_tensor = self.tensor_rep(abs(self.state) ** 2)
         else:
             state_tensor = self.tensor_rep(self.state)
         batch = state_tensor.shape[0]
@@ -1416,7 +1456,9 @@ class QumodeCircuit(Operation):
             self.npara += op.npara
             self.ndata += op.ndata
             self.depth += op.depth
-            self._if_delayloop = self._if_delayloop and op._if_delayloop
+            self._lossy = self._lossy or op._lossy
+            self._nloss += op._nloss
+            self._if_delayloop = self._if_delayloop or op._if_delayloop
             self._nmode_tdm += op._nmode_tdm - self.nmode
             for key, value in op._ntau_dict.items():
                 self._ntau_dict[key].extend(value)
@@ -1425,7 +1467,7 @@ class QumodeCircuit(Operation):
             self._measurements_tdm = None
             self.wires_homodyne = op.wires_homodyne
             self._draw_nstep = None
-        elif isinstance(op, (Gate, Delay)):
+        elif isinstance(op, (Gate, Channel, Delay)):
             self.operators.append(op)
             for i in op.wires:
                 self.depth[i] += 1
@@ -1459,7 +1501,7 @@ class QumodeCircuit(Operation):
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        ps = PhaseShift(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+        ps = PhaseShift(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
                         requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(ps, encode=encode)
 
@@ -1479,7 +1521,7 @@ class QumodeCircuit(Operation):
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        bs = BeamSplitter(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+        bs = BeamSplitter(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
                           requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(bs, encode=encode)
 
@@ -1500,8 +1542,8 @@ class QumodeCircuit(Operation):
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        mzi = MZI(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, phi_first=phi_first,
-                  requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        mzi = MZI(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
+                  phi_first=phi_first, requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(mzi, encode=encode)
 
     def bs_theta(
@@ -1520,7 +1562,7 @@ class QumodeCircuit(Operation):
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        bs = BeamSplitterTheta(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+        bs = BeamSplitterTheta(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
                                requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(bs, encode=encode)
 
@@ -1540,7 +1582,7 @@ class QumodeCircuit(Operation):
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        bs = BeamSplitterPhi(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+        bs = BeamSplitterPhi(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
                              requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(bs, encode=encode)
 
@@ -1560,8 +1602,8 @@ class QumodeCircuit(Operation):
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        bs = BeamSplitterSingle(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, convention='rx',
-                                requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        bs = BeamSplitterSingle(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
+                                convention='rx', requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(bs, encode=encode)
 
     def bs_ry(
@@ -1580,8 +1622,8 @@ class QumodeCircuit(Operation):
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        bs = BeamSplitterSingle(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, convention='ry',
-                                requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        bs = BeamSplitterSingle(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
+                                convention='ry', requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(bs, encode=encode)
 
     def bs_h(
@@ -1600,8 +1642,8 @@ class QumodeCircuit(Operation):
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        bs = BeamSplitterSingle(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, convention='h',
-                                requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        bs = BeamSplitterSingle(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
+                                convention='h', requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(bs, encode=encode)
 
     def dc(self, wires: List[int], mu: Optional[float] = None, sigma: Optional[float] = None) -> None:
@@ -1611,8 +1653,8 @@ class QumodeCircuit(Operation):
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        bs = BeamSplitterSingle(inputs=theta, nmode=self.nmode, wires=wires, cutoff=self.cutoff, convention='rx',
-                                requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
+        bs = BeamSplitterSingle(inputs=theta, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
+                                convention='rx', requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
         self.add(bs)
 
     def h(self, wires: List[int], mu: Optional[float] = None, sigma: Optional[float] = None) -> None:
@@ -1622,8 +1664,8 @@ class QumodeCircuit(Operation):
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        bs = BeamSplitterSingle(inputs=theta, nmode=self.nmode, wires=wires, cutoff=self.cutoff, convention='h',
-                                requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
+        bs = BeamSplitterSingle(inputs=theta, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
+                                convention='h', requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
         self.add(bs)
 
     def any(
@@ -1635,7 +1677,7 @@ class QumodeCircuit(Operation):
     ) -> None:
         """Add an arbitrary unitary gate."""
         uany = UAnyGate(unitary=unitary, nmode=self.nmode, wires=wires, minmax=minmax, cutoff=self.cutoff,
-                        name=name)
+                        den_mat=self.den_mat, name=name)
         self.add(uany)
 
     def clements(
@@ -1710,7 +1752,7 @@ class QumodeCircuit(Operation):
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        s = Squeezing(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+        s = Squeezing(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
                       requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(s, encode=encode)
 
@@ -1739,7 +1781,7 @@ class QumodeCircuit(Operation):
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        s2 = Squeezing2(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+        s2 = Squeezing2(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
                         requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(s2, encode=encode)
 
@@ -1768,7 +1810,7 @@ class QumodeCircuit(Operation):
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        d = Displacement(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+        d = Displacement(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
                          requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(d, encode=encode)
 
@@ -1788,7 +1830,7 @@ class QumodeCircuit(Operation):
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        dx = DisplacementPosition(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+        dx = DisplacementPosition(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
                                   requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(dx, encode=encode)
 
@@ -1808,7 +1850,7 @@ class QumodeCircuit(Operation):
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        dp = DisplacementMomentum(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+        dp = DisplacementMomentum(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
                                   requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(dp, encode=encode)
 
@@ -1829,7 +1871,7 @@ class QumodeCircuit(Operation):
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        r = PhaseShift(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+        r = PhaseShift(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
                        requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma, inv_mode=inv_mode)
         self.add(r, encode=encode)
 
@@ -1840,8 +1882,8 @@ class QumodeCircuit(Operation):
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        f = PhaseShift(inputs=theta, nmode=self.nmode, wires=wires, cutoff=self.cutoff, requires_grad=False,
-                       noise=self.noise, mu=mu, sigma=sigma)
+        f = PhaseShift(inputs=theta, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
+                       requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
         self.add(f)
 
     def delay(
@@ -1861,10 +1903,10 @@ class QumodeCircuit(Operation):
             sigma = self.sigma
         requires_grad = not encode
         if convention == 'bs':
-            delay = DelayBS(inputs=inputs, ntau=ntau, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+            delay = DelayBS(inputs=inputs, ntau=ntau, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
                             requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         elif convention == 'mzi':
-            delay = DelayMZI(inputs=inputs, ntau=ntau, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+            delay = DelayMZI(inputs=inputs, ntau=ntau, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
                              requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(delay, encode=encode)
 
@@ -1918,3 +1960,73 @@ class QumodeCircuit(Operation):
         homodyne = Homodyne(phi=phi, nmode=self.nmode, wires=wires, cutoff=self.cutoff, eps=eps,
                             requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
         self.add(homodyne)
+
+    def loss(
+        self,
+        wires: int,
+        inputs: Any,
+        encode: bool = False
+    ) -> None:
+        """Add a photon loss channel.
+
+        The `inputs` corresponds to `theta` of the loss channel.
+        """
+        if self.backend == 'fock' and not self.basis:
+            assert self.den_mat, 'Please use the density matrix representation'
+        self._lossy = True
+        self._nloss += 1
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        loss = PhotonLoss(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+                          requires_grad=requires_grad)
+        self.add(loss, encode=encode)
+
+    def loss_t(
+        self,
+        wires: int,
+        inputs: Any,
+        encode: bool = False
+    ) -> None:
+        """Add a photon loss channel.
+
+        The `inputs` corresponds to the transmittance of the loss channel.
+        """
+        if self.backend == 'fock' and not self.basis:
+            assert self.den_mat, 'Please use the density matrix representation'
+        self._lossy = True
+        self._nloss += 1
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+            if not isinstance(inputs, torch.Tensor):
+                inputs = torch.tensor(inputs)
+            theta = torch.arccos(inputs ** 0.5) * 2
+        loss = PhotonLoss(inputs=theta, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+                          requires_grad=requires_grad)
+        self.add(loss, encode=encode)
+
+    def loss_db(
+        self,
+        wires: int,
+        inputs: Any,
+        encode: bool = False
+    ) -> None:
+        """Add a photon loss channel.
+
+        The `inputs` corresponds to the probability of loss with the unit of dB and is positive.
+        """
+        if self.backend == 'fock' and not self.basis:
+            assert self.den_mat, 'Please use the density matrix representation'
+        self._lossy = True
+        self._nloss += 1
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+            if not isinstance(inputs, torch.Tensor):
+                inputs = torch.tensor(inputs)
+            t = 10 ** (-inputs / 10)
+            theta = torch.arccos(t ** 0.5) * 2
+        loss = PhotonLoss(inputs=theta, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+                          requires_grad=requires_grad)
+        self.add(loss, encode=encode)

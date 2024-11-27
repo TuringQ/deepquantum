@@ -3,6 +3,7 @@ Photonic Module
 """
 
 from . import ansatz
+from . import channel
 from . import circuit
 from . import decompose
 from . import draw
@@ -18,6 +19,7 @@ from . import torontonian_
 from . import utils
 
 from .ansatz import Clements, GaussianBosonSampling, GBS_Graph
+from .channel import PhotonLoss
 from .circuit import QumodeCircuit
 from .decompose import UnitaryDecomposer
 from .draw import DrawClements

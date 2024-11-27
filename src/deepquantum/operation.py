@@ -11,7 +11,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from .qmath import inverse_permutation, state_to_tensors
+from .qmath import inverse_permutation, state_to_tensors, evolve_state, evolve_den_mat
 from .state import MatrixProductState
 
 
@@ -161,16 +161,7 @@ class Gate(Operation):
 
     def op_state_base(self, x: torch.Tensor, matrix: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass of a gate for state vectors."""
-        nt = len(self.wires)
-        wires = [i + 1 for i in self.wires]
-        pm_shape = list(range(self.nqubit + 1))
-        for i in wires:
-            pm_shape.remove(i)
-        pm_shape = wires + pm_shape
-        x = x.permute(pm_shape).reshape(2 ** nt, -1)
-        x = (matrix @ x).reshape([2] * nt + [-1] + [2] * (self.nqubit - nt))
-        x = x.permute(inverse_permutation(pm_shape))
-        return x
+        return evolve_state(x, matrix, self.nqubit, self.wires)
 
     def op_state_control(self, x: torch.Tensor, matrix: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass of a controlled gate for state vectors."""
@@ -184,11 +175,10 @@ class Gate(Operation):
         for i in controls:
             pm_shape.remove(i)
         pm_shape = wires + pm_shape + controls
-        state1 = x.permute(pm_shape).reshape(2 ** nt, -1, 2 ** nc)
-        state2 = (matrix @ state1[:, :, -1]).unsqueeze(-1)
-        state1 = torch.cat([state1[:, :, :-1], state2], dim=-1)
-        state1 = state1.reshape([2] * nt + [-1] + [2] * (self.nqubit - nt - nc) + [2] * nc)
-        x = state1.permute(inverse_permutation(pm_shape))
+        x = x.permute(pm_shape).reshape(2 ** nt, -1, 2 ** nc)
+        x = torch.cat([x[:, :, :-1], (matrix @ x[:, :, -1]).unsqueeze(-1)], dim=-1)
+        x = x.reshape([2] * nt + [-1] + [2] * (self.nqubit - nt - nc) + [2] * nc)
+        x = x.permute(inverse_permutation(pm_shape))
         return x
 
     def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
@@ -204,26 +194,7 @@ class Gate(Operation):
 
     def op_den_mat_base(self, x: torch.Tensor, matrix: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass of a gate for density matrices."""
-        nt = len(self.wires)
-        # left multiply
-        wires = [i + 1 for i in self.wires]
-        pm_shape = list(range(2 * self.nqubit + 1))
-        for i in wires:
-            pm_shape.remove(i)
-        pm_shape = wires + pm_shape
-        x = x.permute(pm_shape).reshape(2 ** nt, -1)
-        x = (matrix @ x).reshape([2] * nt + [-1] + [2] * (2 * self.nqubit - nt))
-        x = x.permute(inverse_permutation(pm_shape))
-        # right multiply
-        wires = [i + 1 + self.nqubit for i in self.wires]
-        pm_shape = list(range(2 * self.nqubit + 1))
-        for i in wires:
-            pm_shape.remove(i)
-        pm_shape = wires + pm_shape
-        x = x.permute(pm_shape).reshape(2 ** nt, -1)
-        x = (matrix.conj() @ x).reshape([2] * nt + [-1] + [2] * (2 * self.nqubit - nt))
-        x = x.permute(inverse_permutation(pm_shape))
-        return x
+        return evolve_den_mat(x, matrix, self.nqubit, self.wires)
 
     def op_den_mat_control(self, x: torch.Tensor, matrix: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass of a controlled gate for density matrices."""
@@ -238,11 +209,10 @@ class Gate(Operation):
         for i in controls:
             pm_shape.remove(i)
         pm_shape = wires + pm_shape + controls
-        state1 = x.permute(pm_shape).reshape(2 ** nt, -1, 2 ** nc)
-        state2 = (matrix @ state1[:, :, -1]).unsqueeze(-1)
-        state1 = torch.cat([state1[:, :, :-1], state2], dim=-1)
-        state1 = state1.reshape([2] * nt + [-1] + [2] * (2 * self.nqubit - nt - nc) + [2] * nc)
-        x = state1.permute(inverse_permutation(pm_shape))
+        x = x.permute(pm_shape).reshape(2 ** nt, -1, 2 ** nc)
+        x = torch.cat([x[:, :, :-1], (matrix @ x[:, :, -1]).unsqueeze(-1)], dim=-1)
+        x = x.reshape([2] * nt + [-1] + [2] * (2 * self.nqubit - nt - nc) + [2] * nc)
+        x = x.permute(inverse_permutation(pm_shape))
         # right multiply
         wires = [i + 1 + self.nqubit for i in self.wires]
         controls = [i + 1 + self.nqubit for i in self.controls]
@@ -252,11 +222,10 @@ class Gate(Operation):
         for i in controls:
             pm_shape.remove(i)
         pm_shape = wires + pm_shape + controls
-        state1 = x.permute(pm_shape).reshape(2 ** nt, -1, 2 ** nc)
-        state2 = (matrix.conj() @ state1[:, :, -1]).unsqueeze(-1)
-        state1 = torch.cat([state1[:, :, :-1], state2], dim=-1)
-        state1 = state1.reshape([2] * nt + [-1] + [2] * (2 * self.nqubit - nt - nc) + [2] * nc)
-        x = state1.permute(inverse_permutation(pm_shape))
+        x = x.permute(pm_shape).reshape(2 ** nt, -1, 2 ** nc)
+        x = torch.cat([x[:, :, :-1], (matrix.conj() @ x[:, :, -1]).unsqueeze(-1)], dim=-1)
+        x = x.reshape([2] * nt + [-1] + [2] * (2 * self.nqubit - nt - nc) + [2] * nc)
+        x = x.permute(inverse_permutation(pm_shape))
         return x
 
     def forward(self, x: Union[torch.Tensor, MatrixProductState]) -> Union[torch.Tensor, MatrixProductState]:
@@ -360,7 +329,7 @@ class Gate(Operation):
             if previous_i is not None:
                 for _ in range(previous_i + 1, i):
                     chi = tensors[-1].shape[-1]
-                    identity = torch.eye(chi * 2, dtype=self.matrix.dtype, device=self.matrix.device)
+                    identity = torch.eye(chi * 2, dtype=u.dtype, device=u.device)
                     tensors.append(identity.reshape(chi, 2, chi, 2).permute(0, 1, 3, 2))
             nleft, _, nright = main_tensor.shape
             tensors.append(main_tensor.reshape(nleft, 2, 2, nright))

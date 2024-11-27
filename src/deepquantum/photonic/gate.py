@@ -24,6 +24,7 @@ class SingleGate(Gate):
         wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
@@ -37,12 +38,14 @@ class SingleGate(Gate):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff,
+                         den_mat=den_mat, noise=noise, mu=mu, sigma=sigma)
         assert len(self.wires) == 1, f'{self.name} must act on one mode'
         self.requires_grad = requires_grad
         self.init_para(inputs)
@@ -58,6 +61,7 @@ class DoubleGate(Gate):
         wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
@@ -71,6 +75,7 @@ class DoubleGate(Gate):
         nmode: int = 2,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
@@ -78,7 +83,8 @@ class DoubleGate(Gate):
     ) -> None:
         if wires is None:
             wires = [0, 1]
-        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff,
+                         den_mat=den_mat, noise=noise, mu=mu, sigma=sigma)
         assert len(self.wires) == 2, f'{self.name} must act on two modes'
         self.requires_grad = requires_grad
         self.init_para(inputs)
@@ -118,6 +124,7 @@ class PhaseShift(SingleGate):
         wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
@@ -131,6 +138,7 @@ class PhaseShift(SingleGate):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
@@ -139,7 +147,7 @@ class PhaseShift(SingleGate):
     ) -> None:
         self.inv_mode = inv_mode
         super().__init__(name='PhaseShift', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
-                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+                         den_mat=den_mat, requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.npara = 1
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
@@ -254,6 +262,7 @@ class BeamSplitter(DoubleGate):
         wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
@@ -266,13 +275,14 @@ class BeamSplitter(DoubleGate):
         nmode: int = 2,
         wires: Optional[List[int]] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
         super().__init__(name='BeamSplitter', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
-                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+                         den_mat=den_mat, requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.npara = 2
 
     def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -434,6 +444,7 @@ class MZI(BeamSplitter):
         wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         phi_first (bool, optional): Whether :math:`\phi` is the first phase shifter. Default: ``True``
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
@@ -447,6 +458,7 @@ class MZI(BeamSplitter):
         nmode: int = 2,
         wires: Optional[List[int]] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         phi_first: bool = True,
         requires_grad: bool = False,
         noise: bool = False,
@@ -454,8 +466,8 @@ class MZI(BeamSplitter):
         sigma: float = 0.1
     ) -> None:
         self.phi_first = phi_first
-        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, requires_grad=requires_grad,
-                         noise=noise, mu=mu, sigma=sigma)
+        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
+                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.name = 'MZI'
 
     def get_matrix(self, theta: Any, phi: Any) -> torch.Tensor:
@@ -513,6 +525,7 @@ class BeamSplitterTheta(BeamSplitter):
         wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
@@ -525,13 +538,14 @@ class BeamSplitterTheta(BeamSplitter):
         nmode: int = 2,
         wires: Optional[List[int]] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, requires_grad=requires_grad,
-                         noise=noise, mu=mu, sigma=sigma)
+        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
+                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.npara = 1
 
     def _add_noise(self, theta: torch.Tensor, phi: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -546,6 +560,7 @@ class BeamSplitterTheta(BeamSplitter):
         noise = self.noise
         self.noise = False
         theta, phi = self.inputs_to_tensor([inputs, torch.pi / 2])
+        phi = phi.to(theta.dtype).to(theta.device)
         self.noise = noise
         if self.requires_grad:
             self.theta = nn.Parameter(theta)
@@ -598,6 +613,7 @@ class BeamSplitterPhi(BeamSplitter):
         wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
@@ -610,13 +626,14 @@ class BeamSplitterPhi(BeamSplitter):
         nmode: int = 2,
         wires: Optional[List[int]] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, requires_grad=requires_grad,
-                         noise=noise, mu=mu, sigma=sigma)
+        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
+                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.npara = 1
 
     def _add_noise(self, theta: torch.Tensor, phi: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -631,6 +648,7 @@ class BeamSplitterPhi(BeamSplitter):
         noise = self.noise
         self.noise = False
         theta, phi = self.inputs_to_tensor([torch.pi / 4, inputs])
+        theta = theta.to(phi.dtype).to(phi.device)
         self.noise = noise
         if self.requires_grad:
             self.phi = nn.Parameter(phi)
@@ -705,6 +723,7 @@ class BeamSplitterSingle(BeamSplitter):
         wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         convention (str, optional): The convention of the type of the beam splitter, including ``'rx'``,
             ``'ry'`` and ``'h'``. Default: ``'rx'``
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
@@ -719,6 +738,7 @@ class BeamSplitterSingle(BeamSplitter):
         nmode: int = 2,
         wires: Optional[List[int]] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         convention: str = 'rx',
         requires_grad: bool = False,
         noise: bool = False,
@@ -726,8 +746,8 @@ class BeamSplitterSingle(BeamSplitter):
         sigma: float = 0.1
     ) -> None:
         self.convention = convention
-        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, requires_grad=requires_grad,
-                         noise=noise, mu=mu, sigma=sigma)
+        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
+                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.npara = 1
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
@@ -806,6 +826,7 @@ class UAnyGate(Gate):
         minmax (List[int] or None, optional): The minimum and maximum indices of the modes that the quantum
             operation acts on. Only valid when ``wires`` is ``None``. Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         name (str, optional): The name of the gate. Default: ``'UAnyGate'``
     """
     def __init__(
@@ -815,6 +836,7 @@ class UAnyGate(Gate):
         wires: Optional[List[int]] = None,
         minmax: Optional[List[int]] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         name: str = 'UAnyGate'
     ) -> None:
         self.nmode = nmode
@@ -823,7 +845,7 @@ class UAnyGate(Gate):
                 minmax = [0, nmode - 1]
             self._check_minmax(minmax)
             wires = list(range(minmax[0], minmax[1] + 1))
-        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, noise=False)
+        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat, noise=False)
         self.minmax = [min(self.wires), max(self.wires)]
         for i in range(len(self.wires) - 1):
             assert self.wires[i] + 1 == self.wires[i + 1], 'The wires should be consecutive integers'
@@ -921,6 +943,7 @@ class Squeezing(SingleGate):
         wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
@@ -933,12 +956,13 @@ class Squeezing(SingleGate):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(name='Squeezing', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
+        super().__init__(name='Squeezing', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
                          requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.npara = 2
 
@@ -1074,6 +1098,7 @@ class Squeezing2(DoubleGate):
         wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
@@ -1086,12 +1111,13 @@ class Squeezing2(DoubleGate):
         nmode: int = 2,
         wires: Optional[List[int]] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(name='Squeezing2', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
+        super().__init__(name='Squeezing2', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
                          requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.npara = 2
 
@@ -1233,6 +1259,7 @@ class Displacement(SingleGate):
         wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
@@ -1245,12 +1272,13 @@ class Displacement(SingleGate):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(name='Displacement', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
+        super().__init__(name='Displacement', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
                          requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.npara = 2
 
@@ -1376,6 +1404,7 @@ class DisplacementPosition(Displacement):
         wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
@@ -1388,13 +1417,14 @@ class DisplacementPosition(Displacement):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, requires_grad=requires_grad,
-                         noise=noise, mu=mu, sigma=sigma)
+        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
+                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.name = 'DisplacementPosition'
         self.npara = 1
 
@@ -1448,6 +1478,7 @@ class DisplacementMomentum(Displacement):
         wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
@@ -1460,13 +1491,14 @@ class DisplacementMomentum(Displacement):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, requires_grad=requires_grad,
-                         noise=noise, mu=mu, sigma=sigma)
+        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
+                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.name = 'DisplacementMomentum'
         self.npara = 1
 
@@ -1503,6 +1535,7 @@ class DelayBS(Delay):
         wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
@@ -1516,18 +1549,19 @@ class DelayBS(Delay):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
         super().__init__(name='DelayBS', ntau=ntau, nmode=nmode, wires=wires, cutoff=cutoff,
-                         noise=noise, mu=mu, sigma=sigma)
+                         den_mat=den_mat, noise=noise, mu=mu, sigma=sigma)
         self.requires_grad = requires_grad
-        bs = BeamSplitterTheta(inputs=None, nmode=2, wires=None, cutoff=cutoff, requires_grad=requires_grad,
-                               noise=noise, mu=mu, sigma=sigma)
-        ps = PhaseShift(inputs=None, nmode=1, wires=None, cutoff=cutoff, requires_grad=requires_grad,
-                        noise=noise, mu=mu, sigma=sigma)
+        bs = BeamSplitterTheta(inputs=None, nmode=2, wires=None, cutoff=cutoff, den_mat=den_mat,
+                               requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        ps = PhaseShift(inputs=None, nmode=1, wires=None, cutoff=cutoff, den_mat=den_mat,
+                        requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.gates.append(bs)
         self.gates.append(ps)
         self.npara = 2
@@ -1555,6 +1589,7 @@ class DelayMZI(Delay):
         wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
@@ -1568,16 +1603,17 @@ class DelayMZI(Delay):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
         super().__init__(name='DelayMZI', ntau=ntau, nmode=nmode, wires=wires, cutoff=cutoff,
-                         noise=noise, mu=mu, sigma=sigma)
+                         den_mat=den_mat, noise=noise, mu=mu, sigma=sigma)
         self.requires_grad = requires_grad
-        mzi = MZI(inputs=inputs, nmode=2, wires=None, cutoff=cutoff, phi_first=False, requires_grad=requires_grad,
-                  noise=noise, mu=mu, sigma=sigma)
+        mzi = MZI(inputs=inputs, nmode=2, wires=None, cutoff=cutoff, den_mat=den_mat, phi_first=False,
+                  requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.gates.append(mzi)
         self.npara = 2
 
