@@ -1323,10 +1323,8 @@ class QumodeCircuit(Operation):
         if wires is None:
             wires = self.wires
         wires = sorted(self._convert_indices(wires))
-        print(wires)
         if self._if_delayloop:
             wires = [self._unroll_dict[wire][-1] for wire in wires]
-        print(wires)
         batch = cov.shape[0]
         cov_lst = [] # batch * nwire
         mean_lst = []
