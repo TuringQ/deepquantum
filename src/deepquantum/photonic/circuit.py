@@ -919,8 +919,8 @@ class QumodeCircuit(Operation):
             cov = self._cov
             mean = self._mean
         else:
-            cov = state[0]
-            mean = state[1]
+            cov = state.cov
+            mean = state.mean
         if cov.ndim == 2:
             cov = cov.unsqueeze(0)
         if mean.ndim == 2:
