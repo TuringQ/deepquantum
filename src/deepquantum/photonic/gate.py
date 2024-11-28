@@ -1551,6 +1551,7 @@ class DelayBS(Delay):
         cutoff: Optional[int] = None,
         den_mat: bool = False,
         requires_grad: bool = False,
+        loop_gates: Optional[List] = None,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
@@ -1566,6 +1567,10 @@ class DelayBS(Delay):
         self.gates.append(ps)
         self.npara = 2
         self.init_para(inputs)
+        if loop_gates is not None:
+            for gate in loop_gates:
+                self.gates.append(gate)
+                self.npara += 1
 
     @property
     def theta(self):
@@ -1605,6 +1610,7 @@ class DelayMZI(Delay):
         cutoff: Optional[int] = None,
         den_mat: bool = False,
         requires_grad: bool = False,
+        loop_gates: Optional[List] = None,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
@@ -1616,6 +1622,10 @@ class DelayMZI(Delay):
                   requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
         self.gates.append(mzi)
         self.npara = 2
+        if loop_gates is not None:
+            for gate in loop_gates:
+                self.gates.append(gate)
+                self.npara += 1
 
     @property
     def theta(self):
