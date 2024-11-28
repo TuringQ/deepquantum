@@ -453,7 +453,8 @@ class QumodeCircuit(Operation):
         else:
             cov, mean = state
         if stepwise:
-            return operators([cov, mean])
+            cov, mean = operators([cov, mean])
+            return [cov.squeeze(0), mean.squeeze(0)]
         else:
             sp_mat = self.get_symplectic()
             cov = sp_mat @ cov @ sp_mat.mT
@@ -579,10 +580,14 @@ class QumodeCircuit(Operation):
                     op.gates[0].nmode = nmode
                     op.gates[0].wires = wires
                     self._operators_tdm.append(op.gates[0])
-                    if isinstance(op, DelayBS):
-                        op.gates[1].nmode = nmode
-                        op.gates[1].wires = wires[0:1]
-                        self._operators_tdm.append(op.gates[1])
+                    if len(op.gates) > 1:
+                        for gate in op.gates[1:]:
+                            gate.nmode = nmode
+                            gate.wires = wires[0:1]
+                            if isinstance(gate, PhotonLoss):
+                                self._lossy = True
+                                self._nloss += 1
+                            self._operators_tdm.append(gate)
                 else:
                     op_tdm = copy(op)
                     op_tdm.nmode = nmode
@@ -628,7 +633,7 @@ class QumodeCircuit(Operation):
                     op_tdm.nmode = nmode
                     op_tdm.wires = [wire1, wire2]
                     cir.add(op_tdm, encode=encode)
-                    if len(op.gates) != 1:
+                    if len(op.gates) > 1:
                         for gate in op.gates[1:]:
                             if use_deepcopy or encode:
                                 op_gate = deepcopy(gate)
@@ -1899,7 +1904,7 @@ class QumodeCircuit(Operation):
         inputs: Any = None,
         convention: str = 'bs',
         encode: bool = False,
-        loop_gates: Optional[list] = None,
+        loop_gates: Optional[List] = None,
         mu: Optional[float] = None,
         sigma: Optional[float] = None
     ) -> None:
