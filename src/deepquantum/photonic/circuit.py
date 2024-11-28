@@ -429,7 +429,7 @@ class QumodeCircuit(Operation):
             self.encode(data[-1])
         if is_prob:
             self.state = self._forward_gaussian_prob(self.state[0], self.state[1], detector)
-        if self._if_delayloop:
+        elif self._if_delayloop:
             self.state = self._shift_state(self.state)
         return self.state
 
@@ -769,7 +769,11 @@ class QumodeCircuit(Operation):
         """Get all possible fock basis states according to the initial state."""
         nphoton = torch.max(torch.sum(init_state, dim=-1))
         nmode = len(init_state)
-        states = torch.tensor(fock_combinations(nmode, nphoton, self.cutoff, nancilla=nmode - self.nmode),
+        if self._if_delayloop:
+            nancilla = nmode - self._nmode_tdm
+        else:
+            nancilla = nmode - self.nmode
+        states = torch.tensor(fock_combinations(nmode, nphoton, self.cutoff, nancilla=nancilla),
                               dtype=torch.long, device=init_state.device)
         return states
 
@@ -777,12 +781,16 @@ class QumodeCircuit(Operation):
         """Split the fock basis into the odd and even photon number parts."""
         if detector is None:
             detector = self.detector
+        if self._if_delayloop:
+            nmode = self._nmode_tdm
+        else:
+            nmode = self.nmode
         if detector == 'pnrd':
-            max_photon = self.nmode * (self.cutoff - 1)
+            max_photon = nmode * (self.cutoff - 1)
             odd_lst = []
             even_lst = []
             for i in range(0, max_photon + 1):
-                state_tmp = torch.tensor([i] + [0] * (self.nmode - 1))
+                state_tmp = torch.tensor([i] + [0] * (nmode - 1))
                 temp_basis = self._get_all_fock_basis(state_tmp)
                 if i % 2 == 0:
                     even_lst.append(temp_basis)
@@ -790,7 +798,7 @@ class QumodeCircuit(Operation):
                     odd_lst.append(temp_basis)
             return odd_lst, even_lst
         elif detector == 'threshold':
-            final_states = torch.tensor(list(itertools.product(range(2), repeat=self.nmode)))
+            final_states = torch.tensor(list(itertools.product(range(2), repeat=nmode)))
             keys = torch.sum(final_states, dim=1)
             dic_temp = defaultdict(list)
             for state, s in zip(final_states, keys):
@@ -864,8 +872,12 @@ class QumodeCircuit(Operation):
                 unitary = self.get_unitary()
             return self._get_prob_fock(final_state, refer_state, unitary)
         elif self.backend == 'gaussian':
+            if self._if_delayloop:
+                nmode = self._nmode_tdm
+            else:
+                nmode = self.nmode
             if refer_state is None:
-                refer_state = self.state
+                refer_state = GaussianState(self.state, nmode=nmode, cutoff=self.cutoff)
             return self._get_prob_gaussian(final_state, refer_state)
 
     def _get_prob_fock(
@@ -1283,16 +1295,14 @@ class QumodeCircuit(Operation):
 
     def _generate_rand_sample(self, detector: str = 'pnrd'):
         """Generate random sample according to uniform proposal distribution."""
+        if self._if_delayloop:
+            nmode = self._nmode_tdm
+        else:
+            nmode = self.nmode
         if detector == 'threshold':
-            sample = torch.randint(0, 2, [self.nmode])
+            sample = torch.randint(0, 2, [nmode])
         elif detector == 'pnrd':
-            if torch.allclose(self._mean, torch.zeros_like(self._mean)):
-                while True:
-                    sample = torch.randint(0, self.cutoff, [self.nmode])
-                    if sample.sum() % 2 == 0:
-                        break
-            else:
-                sample = torch.randint(0, self.cutoff, [self.nmode])
+            sample = torch.randint(0, self.cutoff, [nmode])
         return sample
 
     def photon_number_mean_var(
@@ -1313,6 +1323,10 @@ class QumodeCircuit(Operation):
         if wires is None:
             wires = self.wires
         wires = sorted(self._convert_indices(wires))
+        print(wires)
+        if self._if_delayloop:
+            wires = [self._unroll_dict[wire][-1] for wire in wires]
+        print(wires)
         batch = cov.shape[0]
         cov_lst = [] # batch * nwire
         mean_lst = []
@@ -1336,8 +1350,12 @@ class QumodeCircuit(Operation):
         """Get the local covariance matrices and mean vectors of a Gaussian state according to the wires to measure."""
         cov_lst = []
         mean_lst = []
+        if self._if_delayloop:
+            nmode = self._nmode_tdm
+        else:
+            nmode = self.nmode
         for wire in wires:
-            indices = [wire] + [wire + self.nmode]
+            indices = [wire] + [wire + nmode]
             cov_lst.append(cov[indices][:, indices])
             mean_lst.append(mean[indices])
         return cov_lst, mean_lst
