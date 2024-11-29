@@ -1570,7 +1570,7 @@ class DelayBS(Delay):
         if loop_gates is not None:
             for gate in loop_gates:
                 self.gates.append(gate)
-                self.npara += 1
+                self.npara += gate.npara
 
     @property
     def theta(self):
@@ -1625,7 +1625,7 @@ class DelayMZI(Delay):
         if loop_gates is not None:
             for gate in loop_gates:
                 self.gates.append(gate)
-                self.npara += 1
+                self.npara += gate.npara
 
     @property
     def theta(self):

@@ -1161,6 +1161,8 @@ class QumodeCircuit(Operation):
         if wires is None:
             wires = self.wires
         wires = sorted(self._convert_indices(wires))
+        if self._if_delayloop:
+            wires = [self._unroll_dict[wire][-1] for wire in wires]
         all_results = []
         batch = len(self.state[list(self.state.keys())[0]])
         if self.backend == 'fock' and any(value.dtype.is_complex for value in self.state.values()):
@@ -1944,11 +1946,13 @@ class QumodeCircuit(Operation):
         sigma: Optional[float] = None
     ) -> None:
         """Add a delay loop."""
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
         if mu is None:
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        requires_grad = not encode
         if convention == 'bs':
             delay = DelayBS(inputs=inputs, ntau=ntau, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
                             requires_grad=requires_grad, loop_gates=loop_gates, noise=self.noise, mu=mu, sigma=sigma)
