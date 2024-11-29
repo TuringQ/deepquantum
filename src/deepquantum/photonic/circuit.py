@@ -525,8 +525,8 @@ class QumodeCircuit(Operation):
                 probs_i = torch.cat(probs_half)
             else:
                 probs_half = torch.cat(probs_half)
-                probs_i = torch.cat([probs_half.squeeze(),
-                                     torch.zeros(len(torch.cat(odd_basis)), device=probs_half.device)])
+                probs_i = torch.cat((probs_half.squeeze(),
+                                     torch.zeros(len(torch.cat(odd_basis)), device=probs_half.device)), -1)
             probs_i = probs_i.squeeze()
         if detector == 'threshold':
             probs_i = []
@@ -1038,7 +1038,10 @@ class QumodeCircuit(Operation):
         if self.backend == 'fock':
             results = self._measure_fock(shots, with_prob, wires, mcmc)
         elif self.backend == 'gaussian':
-            results = self._measure_gaussian(shots, with_prob, detector)
+            if isinstance(self.state, List):
+                results = self._measure_gaussian_state(shots, with_prob, detector)
+            elif isinstance(self.state, Dict):
+                results = self._measure_dict(shots, with_prob, wires)
         if len(results) == 1:
             results = results[0]
         return results
@@ -1067,7 +1070,7 @@ class QumodeCircuit(Operation):
                 return self._measure_fock_tensor(shots, with_prob, wires)
         elif isinstance(self.state, dict):
             assert not mcmc, "Final states have been calculated, we don't need mcmc!"
-            return self._measure_fock_dict(shots, with_prob, wires)
+            return self._measure_dict(shots, with_prob, wires)
         else:
             assert False, 'Check your forward function or input!'
 
@@ -1151,7 +1154,7 @@ class QumodeCircuit(Operation):
         prob_dict = {key: sum(value) for key, value in prob_dict.items()}
         return prob_dict
 
-    def _measure_fock_dict(
+    def _measure_dict(
         self,
         shots: int = 1024,
         with_prob: bool = False,
@@ -1163,7 +1166,7 @@ class QumodeCircuit(Operation):
         wires = sorted(self._convert_indices(wires))
         all_results = []
         batch = len(self.state[list(self.state.keys())[0]])
-        if any(value.dtype.is_complex for value in self.state.values()):
+        if self.backend == 'fock' and any(value.dtype.is_complex for value in self.state.values()):
             is_prob = False
         else:
             is_prob = True
@@ -1230,7 +1233,7 @@ class QumodeCircuit(Operation):
                                         num_chain=num_chain)
         return merged_samples
 
-    def _measure_gaussian(
+    def _measure_gaussian_state(
         self,
         shots: int = 1024,
         with_prob: bool = False,
