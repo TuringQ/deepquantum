@@ -848,7 +848,8 @@ class QumodeCircuit(Operation):
     def get_prob(
         self,
         final_state: Any,
-        refer_state: Union[FockState, GaussianState, None] = None
+        refer_state: Union[FockState, GaussianState, None] = None,
+        unitary: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         """Get the probability of the final state related to the reference state.
 
