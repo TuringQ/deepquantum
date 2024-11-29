@@ -1024,7 +1024,7 @@ class QumodeCircuit(Operation):
             with_prob (bool, optional): A flag that indicates whether to return the probabilities along with
                 the number of occurrences. Default: ``False``
             wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
-                integers specifying the indices of the wires. Only valid for Fock backend.
+                integers specifying the indices of the wires. NOT valid for MCMC.
                 Default: ``None`` (which means all wires are measured)
             detector (str or None, optional): For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving
                 detector or ``'threshold'`` for the threshold detector. Default: ``None``
@@ -1038,10 +1038,7 @@ class QumodeCircuit(Operation):
         if self.backend == 'fock':
             results = self._measure_fock(shots, with_prob, wires, mcmc)
         elif self.backend == 'gaussian':
-            if isinstance(self.state, List):
-                results = self._measure_gaussian_state(shots, with_prob, detector)
-            elif isinstance(self.state, Dict):
-                results = self._measure_dict(shots, with_prob, wires)
+            results = self._measure_gaussian(shots, with_prob, wires, detector, mcmc)
         if len(results) == 1:
             results = results[0]
         return results
@@ -1068,7 +1065,7 @@ class QumodeCircuit(Operation):
             else:
                 assert not mcmc, "Final states have been calculated, we don't need mcmc!"
                 return self._measure_fock_tensor(shots, with_prob, wires)
-        elif isinstance(self.state, dict):
+        elif isinstance(self.state, Dict):
             assert not mcmc, "Final states have been calculated, we don't need mcmc!"
             return self._measure_dict(shots, with_prob, wires)
         else:
@@ -1160,7 +1157,7 @@ class QumodeCircuit(Operation):
         with_prob: bool = False,
         wires: Union[int, List[int], None] = None
     ) -> List[Dict]:
-        """Measure the final state according to the dictionary of amplitudes or probabilities for Fock backend."""
+        """Measure the final state according to the dictionary of amplitudes or probabilities."""
         if wires is None:
             wires = self.wires
         wires = sorted(self._convert_indices(wires))
@@ -1233,13 +1230,32 @@ class QumodeCircuit(Operation):
                                         num_chain=num_chain)
         return merged_samples
 
+    def _measure_gaussian(
+        self,
+        shots: int = 1024,
+        with_prob: bool = False,
+        wires: Union[int, List[int], None] = None,
+        detector: Optional[str] = None,
+        mcmc: bool = False
+    ) -> List[Dict]:
+        """Measure the final state for Gaussian backend."""
+        if isinstance(self.state, List):
+            print('Automatically use MCMC to sample the final states!')
+            return self._measure_gaussian_state(shots, with_prob, detector)
+        elif isinstance(self.state, Dict):
+            assert not mcmc, "Final states have been calculated, we don't need mcmc!"
+            print('Automatically use default detector')
+            return self._measure_dict(shots, with_prob, wires)
+        else:
+            assert False, 'Check your forward function or input!'
+
     def _measure_gaussian_state(
         self,
         shots: int = 1024,
         with_prob: bool = False,
         detector: Optional[str] = None
     ) -> List[Dict]:
-        """Measure the final state for Gaussian backend.
+        """Measure the final state according to Gaussian state for Gaussian backend.
 
         See https://arxiv.org/pdf/2108.01622
         """
