@@ -312,7 +312,13 @@ def sample_sc_mcmc(prob_func: Callable,
             len_cache = 4000
         samples = []
         # random start
+        # while True:
+        #     sample_0 = proposal_sampler()
+        #     if prob_func(sample_0) > 1e-16:
+        #         break
         sample_0 = proposal_sampler()
+        if prob_func(sample_0) < 1e-12: # avoid the samples with almost-zero probability
+            sample_0 = torch.zeros_like(sample_0)
         cache.append(sample_0)
         sample_max = sample_0
         if tuple(sample_max.tolist()) in cache_prob:

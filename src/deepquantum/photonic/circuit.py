@@ -429,7 +429,7 @@ class QumodeCircuit(Operation):
             self.encode(data[-1])
         if is_prob:
             self.state = self._forward_gaussian_prob(self.state[0], self.state[1], detector)
-        if self._if_delayloop:
+        elif self._if_delayloop:
             self.state = self._shift_state(self.state)
         return self.state
 
@@ -471,8 +471,7 @@ class QumodeCircuit(Operation):
                 ``'threshold'`` for the threshold detector. Default: ``None``
         """
         cov, mean = self.state
-        batch_forward = vmap(self._forward_gaussian_prob_helper,
-                             in_dims=(0, 0, None, None, None, None, None))
+        batch_forward = vmap(self._forward_gaussian_prob_helper, in_dims=(0, 0, None, None, None, None, None))
         if detector is None:
             detector = self.detector
         else:
@@ -513,28 +512,25 @@ class QumodeCircuit(Operation):
         return dict(zip(keys, probs.mT))
 
     def _forward_gaussian_prob_helper(self, cov, mean, even_basis, odd_basis, basis, detector, loop):
-        probs_half = []
+        prob_lst = []
         if detector == 'pnrd':
             for state in even_basis:
                 prob_even = self._get_probs_gaussian_helper(state, cov, mean, detector, loop)
-                probs_half.append(prob_even)
+                prob_lst.append(prob_even)
             if loop or self._lossy:
                 for state in odd_basis:
                     prob_odd = self._get_probs_gaussian_helper(state, cov, mean, detector, loop)
-                    probs_half.append(prob_odd)
-                probs_i = torch.cat(probs_half)
+                    prob_lst.append(prob_odd)
+                probs = torch.cat(prob_lst)
             else:
-                probs_half = torch.cat(probs_half)
-                probs_i = torch.cat([probs_half.squeeze(),
-                                     torch.zeros(len(torch.cat(odd_basis)), device=probs_half.device)])
-            probs_i = probs_i.squeeze()
-        if detector == 'threshold':
-            probs_i = []
+                probs = torch.cat(prob_lst)
+                probs = torch.cat([probs, torch.zeros(len(torch.cat(odd_basis)), device=probs.device)])
+        elif detector == 'threshold':
             for state in basis:
                 prob = self._get_probs_gaussian_helper(state, cov, mean, detector, loop)
-                probs_i.append(prob)
-            probs_i = torch.cat(probs_i)
-        return probs_i
+                prob_lst.append(prob)
+            probs = torch.cat(prob_lst)
+        return probs
 
     def _prepare_unroll_dict(self) -> Dict[int, List]:
         """Create a dictionary that maps spatial modes to concurrent modes."""
@@ -609,8 +605,8 @@ class QumodeCircuit(Operation):
         """
         self._prepare_unroll_dict()
         nmode = self._nmode_tdm + (nstep - 1) * self.nmode
-        cir = QumodeCircuit(nmode, 'vac', cutoff=self.cutoff, backend=self.backend, basis=self.basis,
-                            detector=self.detector, name=self.name, mps=self.mps, chi=self.chi,
+        cir = QumodeCircuit(nmode, init_state='vac', cutoff=self.cutoff, backend=self.backend, basis=self.basis,
+                            den_mat=self.den_mat, detector=self.detector, name=self.name, mps=self.mps, chi=self.chi,
                             noise=self.noise, mu=self.mu, sigma=self.sigma)
         cir._draw_nstep = nstep
         for i in range(nstep):
@@ -730,8 +726,7 @@ class QumodeCircuit(Operation):
                 if u is None:
                     u = op.get_unitary()
                 else:
-                    u = torch.block_diag(op.get_unitary(),
-                                         torch.eye(nloss, dtype=u.dtype, device=u.device)) @ u
+                    u = torch.block_diag(op.get_unitary(), torch.eye(nloss, dtype=u.dtype, device=u.device)) @ u
         if u is None:
             return torch.eye(self.nmode, dtype=torch.cfloat)
         else:
@@ -769,7 +764,11 @@ class QumodeCircuit(Operation):
         """Get all possible fock basis states according to the initial state."""
         nphoton = torch.max(torch.sum(init_state, dim=-1))
         nmode = len(init_state)
-        states = torch.tensor(fock_combinations(nmode, nphoton, self.cutoff, nancilla=nmode - self.nmode),
+        if self._if_delayloop:
+            nancilla = nmode - self._nmode_tdm
+        else:
+            nancilla = nmode - self.nmode
+        states = torch.tensor(fock_combinations(nmode, nphoton, self.cutoff, nancilla=nancilla),
                               dtype=torch.long, device=init_state.device)
         return states
 
@@ -777,12 +776,16 @@ class QumodeCircuit(Operation):
         """Split the fock basis into the odd and even photon number parts."""
         if detector is None:
             detector = self.detector
+        if self._if_delayloop:
+            nmode = self._nmode_tdm
+        else:
+            nmode = self.nmode
         if detector == 'pnrd':
-            max_photon = self.nmode * (self.cutoff - 1)
+            max_photon = nmode * (self.cutoff - 1)
             odd_lst = []
             even_lst = []
             for i in range(0, max_photon + 1):
-                state_tmp = torch.tensor([i] + [0] * (self.nmode - 1))
+                state_tmp = torch.tensor([i] + [0] * (nmode - 1))
                 temp_basis = self._get_all_fock_basis(state_tmp)
                 if i % 2 == 0:
                     even_lst.append(temp_basis)
@@ -790,7 +793,7 @@ class QumodeCircuit(Operation):
                     odd_lst.append(temp_basis)
             return odd_lst, even_lst
         elif detector == 'threshold':
-            final_states = torch.tensor(list(itertools.product(range(2), repeat=self.nmode)))
+            final_states = torch.tensor(list(itertools.product(range(2), repeat=nmode)))
             keys = torch.sum(final_states, dim=1)
             dic_temp = defaultdict(list)
             for state, s in zip(final_states, keys):
@@ -865,8 +868,12 @@ class QumodeCircuit(Operation):
                 unitary = self.get_unitary()
             return self._get_prob_fock(final_state, refer_state, unitary)
         elif self.backend == 'gaussian':
+            if self._if_delayloop:
+                nmode = self._nmode_tdm
+            else:
+                nmode = self.nmode
             if refer_state is None:
-                refer_state = self.state
+                refer_state = GaussianState(self.state, nmode=nmode, cutoff=self.cutoff)
             return self._get_prob_gaussian(final_state, refer_state)
 
     def _get_prob_fock(
@@ -908,8 +915,8 @@ class QumodeCircuit(Operation):
             cov = self._cov
             mean = self._mean
         else:
-            cov = state[0]
-            mean = state[1]
+            cov = state.cov
+            mean = state.mean
         if cov.ndim == 2:
             cov = cov.unsqueeze(0)
         if mean.ndim == 2:
@@ -995,8 +1002,8 @@ class QumodeCircuit(Operation):
         elif detector == 'threshold':
             final_state_double = torch.cat([final_state, final_state])
             sub_mat = sub_matrix(matrix, final_state_double, final_state_double)
-            prob = p_vac.squeeze() * torontonian(sub_mat, sub_gamma)
-        return abs(prob.real)
+            prob = p_vac * torontonian(sub_mat, sub_gamma)
+        return abs(prob.real).squeeze()
 
     def measure(
         self,
@@ -1013,7 +1020,7 @@ class QumodeCircuit(Operation):
             with_prob (bool, optional): A flag that indicates whether to return the probabilities along with
                 the number of occurrences. Default: ``False``
             wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
-                integers specifying the indices of the wires. Only valid for Fock backend.
+                integers specifying the indices of the wires. NOT valid for MCMC.
                 Default: ``None`` (which means all wires are measured)
             detector (str or None, optional): For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving
                 detector or ``'threshold'`` for the threshold detector. Default: ``None``
@@ -1027,7 +1034,7 @@ class QumodeCircuit(Operation):
         if self.backend == 'fock':
             results = self._measure_fock(shots, with_prob, wires, mcmc)
         elif self.backend == 'gaussian':
-            results = self._measure_gaussian(shots, with_prob, detector)
+            results = self._measure_gaussian(shots, with_prob, wires, detector, mcmc)
         if len(results) == 1:
             results = results[0]
         return results
@@ -1054,9 +1061,9 @@ class QumodeCircuit(Operation):
             else:
                 assert not mcmc, "Final states have been calculated, we don't need mcmc!"
                 return self._measure_fock_tensor(shots, with_prob, wires)
-        elif isinstance(self.state, dict):
+        elif isinstance(self.state, Dict):
             assert not mcmc, "Final states have been calculated, we don't need mcmc!"
-            return self._measure_fock_dict(shots, with_prob, wires)
+            return self._measure_dict(shots, with_prob, wires)
         else:
             assert False, 'Check your forward function or input!'
 
@@ -1140,19 +1147,21 @@ class QumodeCircuit(Operation):
         prob_dict = {key: sum(value) for key, value in prob_dict.items()}
         return prob_dict
 
-    def _measure_fock_dict(
+    def _measure_dict(
         self,
         shots: int = 1024,
         with_prob: bool = False,
         wires: Union[int, List[int], None] = None
     ) -> List[Dict]:
-        """Measure the final state according to the dictionary of amplitudes or probabilities for Fock backend."""
+        """Measure the final state according to the dictionary of amplitudes or probabilities."""
         if wires is None:
             wires = self.wires
         wires = sorted(self._convert_indices(wires))
+        if self._if_delayloop:
+            wires = [self._unroll_dict[wire][-1] for wire in wires]
         all_results = []
         batch = len(self.state[list(self.state.keys())[0]])
-        if any(value.dtype.is_complex for value in self.state.values()):
+        if self.backend == 'fock' and any(value.dtype.is_complex for value in self.state.values()):
             is_prob = False
         else:
             is_prob = True
@@ -1223,9 +1232,28 @@ class QumodeCircuit(Operation):
         self,
         shots: int = 1024,
         with_prob: bool = False,
+        wires: Union[int, List[int], None] = None,
+        detector: Optional[str] = None,
+        mcmc: bool = False
+    ) -> List[Dict]:
+        """Measure the final state for Gaussian backend."""
+        if isinstance(self.state, List):
+            print('Automatically using MCMC to sample the final states!')
+            return self._measure_gaussian_state(shots, with_prob, detector)
+        elif isinstance(self.state, Dict):
+            assert not mcmc, "Final states have been calculated, we don't need mcmc!"
+            print('Automatically using the default detector!')
+            return self._measure_dict(shots, with_prob, wires)
+        else:
+            assert False, 'Check your forward function or input!'
+
+    def _measure_gaussian_state(
+        self,
+        shots: int = 1024,
+        with_prob: bool = False,
         detector: Optional[str] = None
     ) -> List[Dict]:
-        """Measure the final state for Gaussian backend.
+        """Measure the final state according to Gaussian state for Gaussian backend.
 
         See https://arxiv.org/pdf/2108.01622
         """
@@ -1284,16 +1312,14 @@ class QumodeCircuit(Operation):
 
     def _generate_rand_sample(self, detector: str = 'pnrd'):
         """Generate random sample according to uniform proposal distribution."""
+        if self._if_delayloop:
+            nmode = self._nmode_tdm
+        else:
+            nmode = self.nmode
         if detector == 'threshold':
-            sample = torch.randint(0, 2, [self.nmode])
+            sample = torch.randint(0, 2, [nmode])
         elif detector == 'pnrd':
-            if torch.allclose(self._mean, torch.zeros_like(self._mean)):
-                while True:
-                    sample = torch.randint(0, self.cutoff, [self.nmode])
-                    if sample.sum() % 2 == 0:
-                        break
-            else:
-                sample = torch.randint(0, self.cutoff, [self.nmode])
+            sample = torch.randint(0, self.cutoff, [nmode])
         return sample
 
     def photon_number_mean_var(
@@ -1314,6 +1340,8 @@ class QumodeCircuit(Operation):
         if wires is None:
             wires = self.wires
         wires = sorted(self._convert_indices(wires))
+        if self._if_delayloop:
+            wires = [self._unroll_dict[wire][-1] for wire in wires]
         batch = cov.shape[0]
         cov_lst = [] # batch * nwire
         mean_lst = []
@@ -1337,8 +1365,12 @@ class QumodeCircuit(Operation):
         """Get the local covariance matrices and mean vectors of a Gaussian state according to the wires to measure."""
         cov_lst = []
         mean_lst = []
+        if self._if_delayloop:
+            nmode = self._nmode_tdm
+        else:
+            nmode = self.nmode
         for wire in wires:
-            indices = [wire] + [wire + self.nmode]
+            indices = [wire] + [wire + nmode]
             cov_lst.append(cov[indices][:, indices])
             mean_lst.append(mean[indices])
         return cov_lst, mean_lst
@@ -1350,15 +1382,15 @@ class QumodeCircuit(Operation):
     ) -> Optional[torch.Tensor]:
         """Get the homodyne measurement results.
 
-        If ``self.measurements`` is specified via ``self.homodyne``, return the results of the conditional homodyne measurement.
-        Otherwise, return the results of the ideal homodyne measurement.
+        If ``self.measurements`` is specified via ``self.homodyne``, return the results of
+        the conditional homodyne measurement. Otherwise, return the results of the ideal homodyne measurement.
         The Gaussian states after measurements are stored in ``self.state_measured``.
 
         Args:
             shots (int, optional): The number of times to sample from the quantum state. Default: 1024
-            wires (int, List[int] or None, optional): The wires to measure for the ideal homodyne. It can be an integer or
-                a list of integers specifying the indices of the wires. Default: ``None`` (which means all wires are
-                measured)
+            wires (int, List[int] or None, optional): The wires to measure for the ideal homodyne. It can be
+                an integer or a list of integers specifying the indices of the wires. Default: ``None`` (which means
+                all wires are measured)
         """
         assert self.backend == 'gaussian'
         if self.state is None:
@@ -1842,8 +1874,9 @@ class QumodeCircuit(Operation):
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        dx = DisplacementPosition(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
-                                  requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        dx = DisplacementPosition(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+                                  den_mat=self.den_mat, requires_grad=requires_grad, noise=self.noise,
+                                  mu=mu, sigma=sigma)
         self.add(dx, encode=encode)
 
     def z(
@@ -1862,8 +1895,9 @@ class QumodeCircuit(Operation):
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        dp = DisplacementMomentum(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
-                                  requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        dp = DisplacementMomentum(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+                                  den_mat=self.den_mat, requires_grad=requires_grad, noise=self.noise,
+                                  mu=mu, sigma=sigma)
         self.add(dp, encode=encode)
 
     def r(
@@ -1910,17 +1944,21 @@ class QumodeCircuit(Operation):
         sigma: Optional[float] = None
     ) -> None:
         """Add a delay loop."""
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
         if mu is None:
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        requires_grad = not encode
         if convention == 'bs':
-            delay = DelayBS(inputs=inputs, ntau=ntau, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
-                            requires_grad=requires_grad, loop_gates=loop_gates, noise=self.noise, mu=mu, sigma=sigma)
+            delay = DelayBS(inputs=inputs, ntau=ntau, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+                            den_mat=self.den_mat, requires_grad=requires_grad, loop_gates=loop_gates,
+                            noise=self.noise, mu=mu, sigma=sigma)
         elif convention == 'mzi':
-            delay = DelayMZI(inputs=inputs, ntau=ntau, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
-                             requires_grad=requires_grad, loop_gates=loop_gates, noise=self.noise, mu=mu, sigma=sigma)
+            delay = DelayMZI(inputs=inputs, ntau=ntau, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
+                             den_mat=self.den_mat, requires_grad=requires_grad, loop_gates=loop_gates,
+                             noise=self.noise, mu=mu, sigma=sigma)
         self.add(delay, encode=encode)
 
     def homodyne(
