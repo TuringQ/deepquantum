@@ -291,7 +291,7 @@ class Channel(Operation):
         super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=True, noise=False)
 
     def update_matrix_state(self) -> torch.Tensor:
-        """Update the local transformation matrix acting on Fock state tensors."""
+        """Update the local Kraus matrices acting on Fock state density matrices."""
         raise NotImplementedError
 
     def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
@@ -301,7 +301,8 @@ class Channel(Operation):
         x = vmap(evolve_den_mat, in_dims=(None, 0, None, None, None))(x, matrix, self.nmode, self.wires, self.cutoff)
         return x.sum(0)
 
-    def update_transform_xy(self):
+    def update_transform_xy(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Update the local transformation matrices X and Y acting on Gaussian states."""
         return self.matrix_x, self.matrix_y
 
     def op_gaussian(self, x: List[torch.Tensor]) -> List[torch.Tensor]:

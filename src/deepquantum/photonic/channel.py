@@ -2,9 +2,8 @@
 Photonic quantum channels
 """
 
-from typing import Any, List, Optional, Union
+from typing import Any, List, Optional, Tuple, Union
 
-import numpy as np
 import torch
 
 import deepquantum.photonic as dqp
@@ -55,11 +54,11 @@ class PhotonLoss(Channel):
         return torch.cos(self.theta / 2) ** 2
 
     def update_matrix_state(self) -> torch.Tensor:
-        """Update the local transformation matrix acting on Fock state tensors."""
+        """Update the local Kraus matrices acting on Fock state density matrices."""
         return self.get_matrix_state(self.theta)
 
     def get_matrix_state(self, theta: Any) -> torch.Tensor:
-        """Get the local Kraus matrix acting on Fock state density matrix.
+        """Get the local Kraus matrices acting on Fock state density matrices.
 
         See https://arxiv.org/pdf/1012.4266 Eq.(2.4)
         """
@@ -70,26 +69,20 @@ class PhotonLoss(Channel):
         """Initialize the parameters."""
         self.gate.init_para(inputs)
 
-    def op_gaussian(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
-        """Perform a forward pass for Gaussian states.
+    def update_transform_xy(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Update the local transformation matrices X and Y acting on Gaussian states.
 
         See https://arxiv.org/pdf/quant-ph/0503237 Eq.(4.19), Eq.(4.20)
         """
-        cov, mean = x
-        wires = self.wires + [wire + self.nmode for wire in self.wires]
-        identity = self.theta.new_ones(2 * self.nmode).diag()
-        g_t_sqrt = self.theta.new_ones(2 * self.nmode).diag()
-        g_t = self.theta.new_ones(2 * self.nmode).diag()
-        sigma_inf = self.theta.new_zeros(2 * self.nmode).diag()
-        t_sqrt = self.theta.new_ones(2).diag() * torch.cos(self.theta / 2)
-        t = self.theta.new_ones(2).diag() * torch.cos(self.theta / 2) ** 2
+        g_t_sqrt = self.theta.new_ones(2).diag() * torch.cos(self.theta / 2)
+        g_t = self.theta.new_ones(2).diag() * torch.cos(self.theta / 2) ** 2
+        identity = self.theta.new_ones(2).diag()
         sigma_h = self.theta.new_ones(2).diag() * dqp.hbar / (4 * dqp.kappa ** 2)
-        g_t_sqrt[np.ix_(wires, wires)] = t_sqrt
-        g_t[np.ix_(wires, wires)] = t
-        sigma_inf[np.ix_(wires, wires)] = sigma_h
-        cov = g_t_sqrt @ cov @ g_t_sqrt + (identity - g_t) @ sigma_inf
-        mean = g_t_sqrt @ mean
-        return [cov, mean]
+        matrix_x = g_t_sqrt
+        matrix_y = (identity - g_t) @ sigma_h
+        self.matrix_x = matrix_x.detach()
+        self.matrix_y = matrix_y.detach()
+        return matrix_x, matrix_y
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, transmittance={self.t.item()}'
