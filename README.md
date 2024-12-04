@@ -57,7 +57,7 @@ pip install -e . -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # Getting Started
 
-To begin, please start with the tutorial on [basics](./docs/basics.ipynb).
+To begin, please start with the tutorials (CN) on [basics](./docs/basics.ipynb) and [photonic basics](./docs/photonic_basics.ipynb).
 
 Below are some minimal demos to help you get started.
 

@@ -81,7 +81,7 @@ class UnitaryMapper():
         try:
             # load the idx tensor dataf
             fn = path_2+cur_sep+'cache'+cur_sep+f'Idx_{nqubit}qb_{nmode}mode_aux_{aux[0]}{aux[1]}.pt'
-            idx_ts = torch.load(fn)
+            idx_ts = torch.load(fn, weights_only=True)
         except:
             idx_ts = None
 
