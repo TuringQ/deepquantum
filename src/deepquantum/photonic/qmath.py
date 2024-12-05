@@ -172,6 +172,9 @@ def fock_combinations(nmode: int, nphoton: int, cutoff: Optional[int] = None, na
             return
         # Determine the effective length for cutoff
         effective_length = length - nancilla
+        # skip iterations if remaining photons exceed the remaining cutoff
+        if nancilla == 0 and num_sum > (cutoff - 1) * effective_length:
+            return
         for i in range(min((num_sum + 1), cutoff) if effective_length > 0 else (num_sum + 1)):
             backtrack(state + [i], length - 1, num_sum - i)
 
