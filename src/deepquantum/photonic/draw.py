@@ -117,7 +117,7 @@ class DrawCircuit():
                 for i in op.wires:
                     depth[i] = depth[i]+1
             elif isinstance(op, (UAnyGate, Squeezing2)):
-                order = max(depth[op.wires[0] : op.wires[-1]+1])
+                order = max(depth[min(op.wires) : max(op.wires)+1])
                 if isinstance(op, UAnyGate):
                     name_ = 'U'
                     self.draw_any(order, op.wires, name_)
@@ -195,6 +195,7 @@ class DrawCircuit():
         Draw beamsplitter.
         """
         x = 90 * order + 40
+        wires = sorted(wires)
         y_up = wires[0]
         y_down = wires[1]
         y_delta = abs(y_down - y_up)
@@ -268,6 +269,7 @@ class DrawCircuit():
         Draw squeezing gate, displacement gate.
         """
         x = 90 * order + 40
+        wires = sorted(wires)
         y_up = wires[0]
         for i in range(len(wires)):
             wire_i = wires[i]
@@ -339,6 +341,7 @@ class DrawCircuit():
         fill_c = info_dic[name][0]
         # shift= info_dic[name][1]
         x = 90 * order + 40
+        wires = sorted(wires)
         y_up = wires[0]
         h = (int(len(wires)) - 1) * 30 + 20
         width = 50
