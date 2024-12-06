@@ -847,8 +847,8 @@ class UAnyGate(Gate):
             wires = list(range(minmax[0], minmax[1] + 1))
         super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat, noise=False)
         self.minmax = [min(self.wires), max(self.wires)]
-        for i in range(len(self.wires) - 1):
-            assert self.wires[i] + 1 == self.wires[i + 1], 'The wires should be consecutive integers'
+        # for i in range(len(self.wires) - 1):
+        #     assert self.wires[i] + 1 == self.wires[i + 1], 'The wires should be consecutive integers'
         if not isinstance(unitary, torch.Tensor):
             unitary = torch.tensor(unitary, dtype=torch.cfloat).reshape(-1, len(self.wires))
         assert unitary.dtype in (torch.cfloat, torch.cdouble)
