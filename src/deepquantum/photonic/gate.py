@@ -1201,7 +1201,7 @@ class Squeezing2(DoubleGate):
         sin_sh = torch.sin(theta) * sh
         m1 = torch.stack([ch, ch, ch, ch]).reshape(-1).diag_embed().reshape(4, 4)
         m2 = torch.stack([sin_sh, sin_sh, sin_sh, sin_sh]).reshape(-1).diag_embed().fliplr().reshape(4, 4)
-        m3 = (torch.eye(2) * cos_sh).fliplr().reshape(2, 2)
+        m3 = (torch.eye(2, dtype=r.dtype, device=r.device) * cos_sh).fliplr().reshape(2, 2)
         matrix_xp = m1 + m2 + torch.block_diag(m3, -m3)
         vector_xp = torch.zeros(4, 1, dtype=r.dtype, device=r.device)
         return matrix_xp, vector_xp
