@@ -70,9 +70,12 @@ def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.T
 
 def permanent(mat: torch.Tensor) -> torch.Tensor:
     """Calculate the permanent."""
-    if mat.numel() == 0:
-        return torch.tensor(0, dtype=mat.dtype, device=mat.device)
     shape = mat.shape
+    if mat.numel() == 0:
+        if shape[0] == shape[1] == 0:
+            return torch.tensor(1, dtype=mat.dtype, device=mat.device)
+        else:
+            return torch.tensor(0, dtype=mat.dtype, device=mat.device)
     if len(mat.size()) == 0:
         return mat
     if shape[0] == 1:
