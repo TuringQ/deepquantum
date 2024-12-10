@@ -70,9 +70,12 @@ def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.T
 
 def permanent(mat: torch.Tensor) -> torch.Tensor:
     """Calculate the permanent."""
-    if mat.numel() == 0:
-        return torch.tensor(1, dtype=mat.dtype, device=mat.device)
     shape = mat.shape
+    if mat.numel() == 0:
+        if shape[0] == shape[1] == 0:
+            return torch.tensor(1, dtype=mat.dtype, device=mat.device)
+        else:
+            return torch.tensor(0, dtype=mat.dtype, device=mat.device)
     if len(mat.size()) == 0:
         return mat
     if shape[0] == 1:
@@ -102,7 +105,7 @@ def create_subset(num_coincidence: int) -> List:
 
 
 def get_powerset(n: int) -> List:
-    """Get the powerset of ``{0, 1, ... , n-1}``"""
+    """Get the powerset of :math:`\{0,1,...,n-1\}`."""
     powerset = []
     for k in range(n + 1):
         subset = []
@@ -142,6 +145,7 @@ def fock_combinations(nmode: int, nphoton: int, cutoff: Optional[int] = None, na
         nmode (int): The number of modes in the system.
         nphoton (int): The total number of photons in the system.
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        nancilla (int, optional): The number of ancilla modes (NOT limited by ``cutoff``). Default: ``0``
 
     Returns:
         List[List[int]]: A list of all possible Fock states, each represented by a list of
@@ -315,13 +319,11 @@ def sample_sc_mcmc(prob_func: Callable,
             len_cache = 4000
         samples = []
         # random start
-        # while True:
-        #     sample_0 = proposal_sampler()
-        #     if prob_func(sample_0) > 1e-16:
-        #         break
         sample_0 = proposal_sampler()
         if prob_func(sample_0) < 1e-12: # avoid the samples with almost-zero probability
             sample_0 = torch.zeros_like(sample_0)
+        while prob_func(sample_0) < 1e-9:
+            sample_0 = proposal_sampler()
         cache.append(sample_0)
         sample_max = sample_0
         if tuple(sample_max.tolist()) in cache_prob:
