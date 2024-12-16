@@ -7,6 +7,8 @@ import pickle
 
 import deepquantum.photonic as dqp
 import numpy as np
+import torch
+import psutil
 
 
 def set_hbar(hbar: float) -> None:
@@ -38,3 +40,35 @@ def save_adj(filename, data):
     """"save the adjacent matrix with the given filename"""
     np.save('./data/' + filename + '.npy', data)
     return
+
+def mem_to_batchsize(device, dtype):
+    if device == torch.device('cpu'):
+        mem_free_gb = psutil.virtual_memory().free/1024**3
+    else:
+        mem_free_gb = torch.cuda.mem_get_info(device=device)[0]/1024**3
+    if dtype == torch.complex64:
+        if mem_free_gb > 80:
+            # requires checking when we have such GPUs:)
+            batch_size = int(1e7)
+        elif mem_free_gb > 50:
+            batch_size = int(8e6)
+        elif mem_free_gb > 8:
+            batch_size = int(5e6)
+        elif mem_free_gb > 5:
+            # set for PC gpu whose free memory shows only dedicated GPU memory,
+            # while the total memory(including shared mem) is around 20 GB
+            batch_size = int(5e6)
+        else:
+            batch_size = int(2e5)
+    else:
+        if mem_free_gb > 80:
+            batch_size = int(1e7)
+        elif mem_free_gb > 50:
+            batch_size = int(5e6)
+        elif mem_free_gb > 8:
+            batch_size = int(1e6)
+        elif mem_free_gb > 5:
+            batch_size = int(5e5)
+        else:
+            batch_size = int(1e5)
+    return batch_size
