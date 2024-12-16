@@ -52,6 +52,8 @@ def mem_to_batchsize(device, dtype):
             batch_size = int(1e7)
         elif mem_free_gb > 50:
             batch_size = int(8e6)
+        elif mem_free_gb > 20:
+            batch_size = int(6e6)
         elif mem_free_gb > 8:
             batch_size = int(5e6)
         elif mem_free_gb > 5:
