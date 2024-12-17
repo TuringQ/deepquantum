@@ -39,6 +39,4 @@ from .utils import set_hbar, set_kappa, set_perm_chunksize
 hbar = 2
 kappa = 2 ** (-0.5)
 
-def defaultNone():
-    return None
-perm_chunksize_dict = defaultdict(defaultNone)
+perm_chunksize_dict = defaultdict(lambda: None)
