@@ -2,8 +2,6 @@
 Photonic Module
 """
 
-from collections import defaultdict
-
 from . import ansatz
 from . import channel
 from . import circuit
@@ -39,4 +37,4 @@ from .utils import set_hbar, set_kappa, set_perm_chunksize
 hbar = 2
 kappa = 2 ** (-0.5)
 
-perm_chunksize_dict = defaultdict(lambda: None)
+perm_chunksize_dict = {}
