@@ -4,11 +4,13 @@ Utilities
 
 import gzip
 import pickle
+from typing import Optional
 
-import deepquantum.photonic as dqp
 import numpy as np
 import psutil
 import torch
+
+import deepquantum.photonic as dqp
 
 
 def set_hbar(hbar: float) -> None:
@@ -41,16 +43,17 @@ def save_adj(filename, data):
     np.save('./data/' + filename + '.npy', data)
     return
 
-def mem_to_chunksize(device, dtype):
-    """"return batchsize upperbound according to device free memory and dtype,
-    currently only optimized for permanent and complex dtype.
+def mem_to_chunksize(device: torch.device, dtype: torch.dtype) -> Optional[int]:
+    """Return the chunk size of vmap according to device free memory and dtype.
+    
+    Note: Currently only optimized for permanent and complex dtype.
     """
-    if dqp.perm_chunksize_dict[device, dtype] is not None:
+    if (device, dtype) in dqp.perm_chunksize_dict:
         return dqp.perm_chunksize_dict[device, dtype]
     if device == torch.device('cpu'):
-        mem_free_gb = psutil.virtual_memory().free/1024**3
+        mem_free_gb = psutil.virtual_memory().free / 1024**3
     else:
-        mem_free_gb = torch.cuda.mem_get_info(device=device)[0]/1024**3
+        mem_free_gb = torch.cuda.mem_get_info(device=device)[0] / 1024**3
     if dtype == torch.cfloat:
         if mem_free_gb > 80:
             # requires checking when we have such GPUs:)
@@ -79,10 +82,10 @@ def mem_to_chunksize(device, dtype):
         else:
             chunksize = int(1e4)
     else:
-        return None
+        chunksize = None
     dqp.perm_chunksize_dict[device, dtype] = chunksize
     return chunksize
 
-def set_perm_chunksize(device: torch.device, dtype: torch.dtype, batchsize: float) -> None:
-    """Set the global chunksize for permanent calculations."""
-    dqp.perm_chunksize_dict[device, dtype] = int(batchsize)
+def set_perm_chunksize(device: torch.device, dtype: torch.dtype, chunksize: Optional[int]) -> None:
+    """Set the global chunk size for permanent calculations."""
+    dqp.perm_chunksize_dict[device, dtype] = chunksize
