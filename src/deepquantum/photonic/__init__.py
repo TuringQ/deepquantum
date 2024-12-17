@@ -2,6 +2,8 @@
 Photonic Module
 """
 
+from collections import defaultdict
+
 from . import ansatz
 from . import channel
 from . import circuit
@@ -32,7 +34,11 @@ from .qmath import permanent, takagi, xxpp_to_xpxp, xpxp_to_xxpp, quadrature_to_
 from .state import FockState, GaussianState
 from .tdm import QumodeCircuitTDM
 from .torontonian_ import torontonian
-from .utils import set_hbar, set_kappa
+from .utils import set_hbar, set_kappa, set_perm_chunksize
 
 hbar = 2
 kappa = 2 ** (-0.5)
+
+def defaultNone():
+    return None
+perm_chunksize_dict = defaultdict(defaultNone)

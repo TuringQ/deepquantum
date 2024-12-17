@@ -12,10 +12,9 @@ import numpy as np
 import torch
 from torch import vmap
 from tqdm import tqdm
-from torch.utils.data import DataLoader
 
 import deepquantum.photonic as dqp
-from .utils import mem_to_batchsize
+from .utils import mem_to_chunksize
 from ..qmath import is_unitary
 
 
@@ -120,16 +119,10 @@ def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
 
     num_coincidence = mat.size()[0]
     value_perm = 0
-    batch_size = mem_to_batchsize(mat.device, mat.dtype)
+    chunk_size = mem_to_chunksize(mat.device, mat.dtype)
     for subset in create_subset(num_coincidence):
-        if subset.shape[0] > batch_size:
-            subset_reshaped = DataLoader(subset, batch_size=batch_size)
-            for subset_batch in subset_reshaped:
-                temp_value_p = vmap(helper, in_dims=(0, None))(subset_batch, mat)
-                value_perm += temp_value_p.sum()
-        else:
-            temp_value = vmap(helper, in_dims=(0, None))(subset, mat)
-            value_perm += temp_value.sum()
+        temp_value = vmap(helper, in_dims=(0, None), chunk_size=chunk_size)(subset, mat)
+        value_perm += temp_value.sum()
     value_perm *= (-1) ** num_coincidence
     return value_perm
 

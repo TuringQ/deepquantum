@@ -7,8 +7,8 @@ import pickle
 
 import deepquantum.photonic as dqp
 import numpy as np
-import torch
 import psutil
+import torch
 
 
 def set_hbar(hbar: float) -> None:
@@ -41,38 +41,48 @@ def save_adj(filename, data):
     np.save('./data/' + filename + '.npy', data)
     return
 
-def mem_to_batchsize(device, dtype):
+def mem_to_chunksize(device, dtype):
+    """"return batchsize upperbound according to device free memory and dtype,
+    currently only optimized for permanent and complex dtype.
+    """
+    if dqp.perm_chunksize_dict[device, dtype] is not None:
+        return dqp.perm_chunksize_dict[device, dtype]
     if device == torch.device('cpu'):
         mem_free_gb = psutil.virtual_memory().free/1024**3
     else:
         mem_free_gb = torch.cuda.mem_get_info(device=device)[0]/1024**3
-    if dtype == torch.complex64:
+    if dtype == torch.cfloat:
         if mem_free_gb > 80:
             # requires checking when we have such GPUs:)
-            batch_size = int(1e7)
-        elif mem_free_gb > 50:
-            batch_size = int(8e6)
+            chunksize = int(5e6)
+        elif mem_free_gb > 60:
+            chunksize = int(2e6)
         elif mem_free_gb > 20:
-            batch_size = int(6e6)
+            chunksize = int(6e5)
         elif mem_free_gb > 8:
-            batch_size = int(5e6)
+            chunksize = int(2e5)
         elif mem_free_gb > 5:
-            # set for PC gpu whose free memory shows only dedicated GPU memory,
-            # while the total memory(including shared mem) is around 20 GB
-            batch_size = int(5e6)
+            chunksize = int(1.25e5)
         else:
-            batch_size = int(2e5)
-    else:
+            chunksize = int(2e4)
+    elif dtype == torch.cdouble:
         if mem_free_gb > 80:
-            batch_size = int(1e7)
-        elif mem_free_gb > 50:
-            batch_size = int(5e6)
+            chunksize = int(2e6)
+        elif mem_free_gb > 60:
+            chunksize = int(1e6)
         elif mem_free_gb > 20:
-            batch_size = int(4e6)
+            chunksize = int(3e5)
         elif mem_free_gb > 8:
-            batch_size = int(1e6)
+            chunksize = int(1e5)
         elif mem_free_gb > 5:
-            batch_size = int(5e5)
+            chunksize = int(6e4)
         else:
-            batch_size = int(1e5)
-    return batch_size
+            chunksize = int(1e4)
+    else:
+        return None
+    dqp.perm_chunksize_dict[device, dtype] = chunksize
+    return chunksize
+
+def set_perm_chunksize(device: torch.device, dtype: torch.dtype, batchsize: float) -> None:
+    """Set the global chunksize for permanent calculations."""
+    dqp.perm_chunksize_dict[device, dtype] = int(batchsize)
