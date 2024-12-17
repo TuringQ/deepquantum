@@ -32,7 +32,9 @@ from .qmath import permanent, takagi, xxpp_to_xpxp, xpxp_to_xxpp, quadrature_to_
 from .state import FockState, GaussianState
 from .tdm import QumodeCircuitTDM
 from .torontonian_ import torontonian
-from .utils import set_hbar, set_kappa
+from .utils import set_hbar, set_kappa, set_perm_chunksize
 
 hbar = 2
 kappa = 2 ** (-0.5)
+
+perm_chunksize_dict = {}

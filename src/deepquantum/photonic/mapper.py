@@ -61,8 +61,9 @@ class UnitaryMapper():
         if self.nmode == 2*self.nqubit: # no auxiliary mode case
             self.all_basis = self.create_basis([])
         else:
-            self.all_basis = self.create_basis([nmode-2, nmode-1]) #with auxiliary mode case,
+            # self.all_basis = self.create_basis([nmode-2, nmode-1]) #with auxiliary mode case,
             #these basis is fixed  for computation
+            self.all_basis = self.create_basis(aux_pos)
 
         # num_photons = int(sum(self.all_basis[0]))
         # dual_rail coding, permanent matrix dim: num_photons x num_photons

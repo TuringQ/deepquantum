@@ -14,6 +14,7 @@ from torch import vmap
 from tqdm import tqdm
 
 import deepquantum.photonic as dqp
+from .utils import mem_to_chunksize
 from ..qmath import is_unitary
 
 
@@ -94,15 +95,11 @@ def permanent(mat: torch.Tensor) -> torch.Tensor:
 
 def create_subset(num_coincidence: int) -> List:
     r"""Create all subsets from :math:`\{1,2,...,n\}`."""
-    subsets = []
     for k in range(1, num_coincidence + 1):
         comb_lst = []
         for comb in itertools.combinations(range(num_coincidence), k):
             comb_lst.append(list(comb))
-        temp = torch.tensor(comb_lst).reshape(len(comb_lst), k)
-        subsets.append(temp)
-    return subsets
-
+        yield torch.tensor(comb_lst).reshape(len(comb_lst), k)
 
 def get_powerset(n: int) -> List:
     """Get the powerset of :math:`\{0,1,...,n-1\}`."""
@@ -124,10 +121,10 @@ def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
         return value_times
 
     num_coincidence = mat.size()[0]
-    sets = create_subset(num_coincidence)
     value_perm = 0
-    for subset in sets:
-        temp_value = vmap(helper, in_dims=(0, None))(subset, mat)
+    chunk_size = mem_to_chunksize(mat.device, mat.dtype)
+    for subset in create_subset(num_coincidence):
+        temp_value = vmap(helper, in_dims=(0, None), chunk_size=chunk_size)(subset, mat)
         value_perm += temp_value.sum()
     value_perm *= (-1) ** num_coincidence
     return value_perm
