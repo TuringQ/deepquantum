@@ -58,7 +58,6 @@ class Pattern(Operation):
     #     self.state.graph.nodes = n
 
     def add_graph(self,
-        graph: List[List],
         nodes_state: Union[int, List[int], None] = None,
         state: Any = 'plus',
         edges: Optional[List] = None,
@@ -76,7 +75,6 @@ class Pattern(Operation):
                 - vertices: List of vertex indices
                 - edges: List of pairs representing edges
         """
-        vertices, edges = graph
         self.state.add_subgraph(nodes_state=nodes_state, state=state, edges=edges, nodes=nodes, index=index)
 
     def get_graph(self):

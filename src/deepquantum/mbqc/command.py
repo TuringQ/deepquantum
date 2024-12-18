@@ -78,7 +78,7 @@ class Measurement(Command):
     """
     def __init__(
         self,
-        nodes: int,
+        nodes: Union[int, List[int]],
         plane: str = 'xy',
         angle: Any = 0.,
         s_domain: Union[int, Iterable[int]] = None,
@@ -173,7 +173,7 @@ class Correction(Command):
     """
     def __init__(
         self,
-        nodes: int,
+        nodes: Union[int, List[int]],
         basis: str = 'x',
         domain: Union[int, Iterable[int]] = None
     ) -> None:
