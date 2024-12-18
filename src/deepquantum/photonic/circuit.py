@@ -182,6 +182,8 @@ class QumodeCircuit(Operation):
                     op.to(torch.cfloat)
                 elif op.npara > 0:
                     op.to(torch.float)
+            for op_m in self.measurements:
+                op_m.to(torch.float)
         elif arg == torch.double:
             if self.backend == 'fock' and not self.basis:
                 self.init_state.to(torch.cdouble)
@@ -192,9 +194,12 @@ class QumodeCircuit(Operation):
                     op.to(torch.cdouble)
                 elif op.npara > 0:
                     op.to(torch.double)
+            for op_m in self.measurements:
+                op_m.to(torch.double)
         else:
             self.init_state.to(arg)
             self.operators.to(arg)
+            self.measurements.to(arg)
         return self
 
     # pylint: disable=arguments-renamed

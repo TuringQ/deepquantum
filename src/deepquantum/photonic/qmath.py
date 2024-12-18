@@ -6,7 +6,7 @@ import copy
 import itertools
 import warnings
 from collections import defaultdict
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, Generator, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -93,7 +93,7 @@ def permanent(mat: torch.Tensor) -> torch.Tensor:
     return permanent_ryser(mat)
 
 
-def create_subset(num_coincidence: int) -> List:
+def create_subset(num_coincidence: int) -> Generator[torch.Tensor]:
     r"""Create all subsets from :math:`\{1,2,...,n\}`."""
     for k in range(1, num_coincidence + 1):
         comb_lst = []
