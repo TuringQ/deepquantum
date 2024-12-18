@@ -16,7 +16,8 @@ dependencies = [
     'svgwrite',
     'bayesian-optimization<2',
     'networkx',
-    'tqdm'
+    'tqdm',
+    'psutil'
 ]
 requires-python = '>=3.8'
 authors = [
