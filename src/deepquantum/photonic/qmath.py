@@ -93,7 +93,7 @@ def permanent(mat: torch.Tensor) -> torch.Tensor:
     return permanent_ryser(mat)
 
 
-def create_subset(num_coincidence: int) -> Generator[torch.Tensor]:
+def create_subset(num_coincidence: int) -> Generator[torch.Tensor, None, None]:
     r"""Create all subsets from :math:`\{1,2,...,n\}`."""
     for k in range(1, num_coincidence + 1):
         comb_lst = []
@@ -102,7 +102,7 @@ def create_subset(num_coincidence: int) -> Generator[torch.Tensor]:
         yield torch.tensor(comb_lst).reshape(len(comb_lst), k)
 
 def get_powerset(n: int) -> List:
-    """Get the powerset of :math:`\{0,1,...,n-1\}`."""
+    r"""Get the powerset of :math:`\{0,1,...,n-1\}`."""
     powerset = []
     for k in range(n + 1):
         subset = []
@@ -131,7 +131,7 @@ def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
 
 
 def product_factorial(state: torch.Tensor) -> torch.Tensor:
-    """Get the product of the factorial from the Fock state, i.e., :math:`|s_1,s_2,...s_n> --> s_1!*s_2!*...s_n!`."""
+    """Get the product of the factorial from the Fock state, i.e., :math:`|s_1,s_2,...s_n> -> s_1!s_2!...s_n!`."""
     return torch.exp(torch.lgamma(state.double() + 1).sum(-1, keepdim=True)) # nature log gamma function
 
 
