@@ -3,7 +3,7 @@ This is the top level module from which all basic functions and classes of
 DeepQuantum can be directly imported.
 """
 
-__version__ = '3.4.0'
+__version__ = '3.4.1'
 
 
 from . import ansatz
