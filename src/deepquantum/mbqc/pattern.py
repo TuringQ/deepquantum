@@ -6,7 +6,8 @@ from copy import copy, deepcopy
 from typing import Any, List, Optional, Tuple, Union
 
 import torch
-from networkx import Graph, draw_networkx
+import matplotlib.pyplot as plt
+from networkx import Graph, MultiDiGraph, draw_networkx_nodes, draw_networkx_edges, draw_networkx_labels, bipartite_layout,multipartite_layout
 from torch import nn
 
 from . import gate
@@ -36,6 +37,7 @@ class Pattern(Operation):
     ) -> None:
         super().__init__(name=name, nodes=None)
         self.state = GraphState(nodes_state, state, edges, nodes)
+        self.init_state = deepcopy(self.state)
         self.commands = nn.Sequential()
         self.encoders = []
         self.npara = 0
@@ -178,25 +180,47 @@ class Pattern(Operation):
         c_z = Correction(nodes=node, basis='z', domain=domain)
         self.add(c_z)
 
-    def draw(self, wid: int=3):
+    def draw(self, width: int=4):
         """
         Draw MBQC pattern
         """
-        g = self.get_graph()
-        # pos = {}
-        # for i in self._node_list:
-        #     pos_x = i % wid
-        #     pos_y = i // wid
-        #     pos[i] = (pos_x, -pos_y)
-        # measured_nq = list(self.measured_dic.keys())
-        # node_colors = ['gray' if i in measured_nq else 'green' for i in self._node_list]
-        # node_edge_colors = ['red' if i < self.n_input_nodes else 'black' for i in self._node_list]
-        # draw_networkx(g, pos=pos,
-        #               node_color=node_colors,
-        #               edgecolors=node_edge_colors,
-        #               node_size=500,
-        #               width=2)
-        g.draw()
+        g = MultiDiGraph(self.init_state.graph.graph)
+        nodes_init = deepcopy(g.nodes())
+        for i in nodes_init:
+            g.nodes[i]['layer'] = 0
+        nodes_measured = []
+        edges_t_domain = []
+        edges_s_domain = []
+        for op in self.commands:
+            if isinstance(op, Node):
+                g.add_node(*op.nodes,layer=2)
+            elif isinstance(op, Entanglement):
+                g.add_edge(*op.nodes)
+            elif isinstance(op, Measurement):
+                nodes_measured.append(op.nodes[0])
+                if op.nodes[0] not in nodes_init:
+                    g.nodes[op.nodes[0]]['layer'] = 1
+                for i in op.t_domain:
+                    edges_t_domain.append(tuple([i, op.nodes[0]]))
+                for i in op.s_domain:
+                    edges_s_domain.append(tuple([i, op.nodes[0]]))
+        pos = multipartite_layout(g, subset_key='layer')
+        draw_networkx_nodes(g,pos,nodelist=nodes_init, node_color='#1f78b4', node_shape='s')
+        draw_networkx_nodes(g,pos,nodelist=nodes_measured, node_color='#1f78b4')
+        draw_networkx_nodes(g,pos,nodelist=list(set(g.nodes()) - set(nodes_measured)), node_color='#d7dde0', node_shape='o')
+        draw_networkx_edges(g, pos, g.edges(), arrows=False)
+        draw_networkx_edges(g, pos, edges_t_domain, arrows=True, style=':', edge_color='#4cd925', connectionstyle='arc3,rad=-0.2')
+        draw_networkx_edges(g, pos, edges_s_domain, arrows=True, style=':', edge_color='#db1d2c', connectionstyle='arc3,rad=0.2')
+        draw_networkx_labels(g, pos)
+        plt.plot([], [], color="k",label="graph edge")
+        plt.plot([], [], ':', color="#4cd925", label="xflow")
+        plt.plot([], [], ':', color="#db1d2c", label="zflow")
+        plt.plot([], [], 's', color="#1f78b4", label="input nodes")
+        plt.plot([], [], 'o', color="#d7dde0", label="output nodes")
+        plt.xlim(-width/2,width/2)
+        plt.legend(loc="upper right", fontsize=10)
+        plt.tight_layout()
+        plt.show()
 
     def is_standard(self) -> bool:
         """Determine whether the command sequence is standard.

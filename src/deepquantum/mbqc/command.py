@@ -130,11 +130,11 @@ class Measurement(Command):
         if len(self.s_domain) != 0:
             qs = sum(map(lambda s: torch.tensor(sgs.measure_dict[s], device=self.angle.device), self.s_domain))
         else:
-            qs = torch.zeros(1, init_state.shape[0], device=self.angle.device)
+            qs = torch.zeros(init_state.shape[0], device=self.angle.device)
         if len(self.t_domain) != 0:
             qt = sum(map(lambda t: torch.tensor(sgs.measure_dict[t], device=self.angle.device), self.t_domain))
         else:
-            qt = torch.zeros(1, init_state.shape[0], device=self.angle.device)
+            qt = torch.zeros(init_state.shape[0], device=self.angle.device)
         alpha = (-1)**qs * self.angle + torch.pi * qt
         cir = QubitCircuit(nqubit=nqubit)
         cir.j(wires=wire, plane=self.plane, encode=True)
