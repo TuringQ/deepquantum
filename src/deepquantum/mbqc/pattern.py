@@ -2,12 +2,12 @@
 Measurement pattern
 """
 
-from copy import copy, deepcopy
-from typing import Any, List, Optional, Tuple, Union
+from copy import deepcopy
+from typing import Any, List, Optional, Union
 
 import torch
 import matplotlib.pyplot as plt
-from networkx import Graph, MultiDiGraph, draw_networkx_nodes, draw_networkx_edges, draw_networkx_labels, bipartite_layout,multipartite_layout
+from networkx import MultiDiGraph, draw_networkx_nodes, draw_networkx_edges, draw_networkx_labels, multipartite_layout
 from torch import nn
 
 from . import gate

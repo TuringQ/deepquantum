@@ -147,9 +147,9 @@ class Measurement(Command):
                 state.append(cir._slice_state_vector(state=final_state[i], wires=wire, bits=k))
                 sgs.measure_dict[self.nodes[0]].append(int(k))
         else:
-            for i, (k, _) in enumerate(rst.items()):
-                state.append(cir._slice_state_vector(state=final_state[i], wires=wire, bits=k))
-                sgs.measure_dict[self.nodes[0]].append(int(k))
+            (k, _), = rst.items()
+            state.append(cir._slice_state_vector(state=final_state[0], wires=wire, bits=k))
+            sgs.measure_dict[self.nodes[0]].append(int(k))
         state = torch.stack(state)
         nodes_state = sorted(list(sgs.nodes))
         nodes_state.remove(self.nodes[0])
@@ -204,7 +204,7 @@ class Correction(Command):
         if len(self.domain) != 0:
             qs = sum(map(lambda s: torch.tensor(sgs.measure_dict[s], device=init_state.device), self.domain))
         else:
-            qs = torch.zeros(1, init_state.shape[0], device=init_state.device)
+            qs = torch.zeros(init_state.shape[0], device=init_state.device)
         theta = torch.pi * qs.to(init_state.real.dtype)
         cir = QubitCircuit(nqubit=nqubit)
         if self.basis == 'x':
