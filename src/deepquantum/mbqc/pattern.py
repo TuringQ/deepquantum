@@ -5,16 +5,14 @@ Measurement pattern
 from copy import deepcopy
 from typing import Any, List, Optional, Union
 
-import torch
 import matplotlib.pyplot as plt
 from networkx import MultiDiGraph, draw_networkx_nodes, draw_networkx_edges, draw_networkx_labels, multipartite_layout
+import torch
 from torch import nn
 
-from . import gate
 from .command import Node, Entanglement, Measurement, Correction
 from .operation import Operation
 from .state import GraphState
-from ..qmath import inverse_permutation
 
 
 class Pattern(Operation):
@@ -43,21 +41,10 @@ class Pattern(Operation):
         self.npara = 0
         self.ndata = 0
 
-        # self._tot_qubit = 0
-        # self._edge_list = []
-
     def forward(self):
         """Perform a forward pass of the MBQC pattern and return the final state."""
         self.state = self.commands(self.state)
         return self.state.graph.full_state
-
-    # @property
-    # def nodes(self):
-    #     return self.state.graph.nodes
-
-    # @nodes.setter
-    # def nodes(self, n):
-    #     self.state.graph.nodes = n
 
     def add_graph(self,
         nodes_state: Union[int, List[int], None] = None,
@@ -112,11 +99,7 @@ class Pattern(Operation):
                 Default: ``None``
         """
         node_ = Node(nodes=node)
-        # assert node_.nodes[0] not in self._node_list, 'node already exists'
-        # self._node_list.append(node_.nodes[0])
         self.add(node_)
-        # self._tot_qubit += 1
-        # self.unmeasured_list.append(node_.nodes[0])
 
     def e(self, node: List[int] = None):
         """
@@ -126,10 +109,7 @@ class Pattern(Operation):
             node (List[int], optional): A list of two integers specifying the nodes to entangle.
                 Must reference existing nodes in the pattern.
         """
-        # assert node[0] in self._node_list and node[1] in self._node_list, \
-        #     'no command acts on a qubit not yet prepared, unless it is an input qubit'
         entang_ = Entanglement(node1=node[0], node2=node[1])
-        # self._edge_list.append(node)
         self.add(entang_)
 
     def m(
@@ -164,7 +144,6 @@ class Pattern(Operation):
             domain (List[int], optional): List of measurement results that determine
                 if the correction should be applied.
         """
-        # assert node in self._node_list, 'no command acts on a qubit not yet prepared, unless it is an input qubit'
         c_x = Correction(nodes=node, basis='x', domain=domain)
         self.add(c_x)
 
@@ -176,7 +155,6 @@ class Pattern(Operation):
             domain (List[int], optional): List of measurement results that determine
                 if the correction should be applied.
         """
-        # assert node in self._node_list, 'no command acts on a qubit not yet prepared, unless it is an input qubit'
         c_z = Correction(nodes=node, basis='z', domain=domain)
         self.add(c_z)
 
