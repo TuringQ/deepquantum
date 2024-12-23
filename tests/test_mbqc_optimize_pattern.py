@@ -2,7 +2,6 @@ import deepquantum as dq
 import numpy as np
 import torch
 from graphix import Pattern, command
-from graphix.pauli import Pauli, Plane
 
 
 def test_standardize():
@@ -68,7 +67,7 @@ def compare_with_graphix():
     pattern.standardize()
     pattern.print_pattern()
 
-    circ_mbqc = dq.Pattern(n_input_nodes=1)
+    circ_mbqc = dq.Pattern(nodes_state=[0])
     for l in range(2):
         circ_mbqc.n(1+2*l)
         circ_mbqc.n(2+2*l)
@@ -80,7 +79,7 @@ def compare_with_graphix():
         else:
             circ_mbqc.m(node=0+2*l, angle = alpha[2*l], s_domain = [2*l-1])
             circ_mbqc.m(node=1+2*l, angle = alpha[2*l+1], s_domain = [(2*l-1),2*l])
-        circ_mbqc.x(node=2 +2*l, signal_domain=[0+2*l, 1+2*l])
-        circ_mbqc.z(node=2 +2*l, signal_domain=[1+2*l] )
+        circ_mbqc.c_x(node=2 +2*l, domain=[0+2*l, 1+2*l])
+        circ_mbqc.c_z(node=2 +2*l, domain=[1+2*l] )
     circ_mbqc.standardize()
     print(circ_mbqc)

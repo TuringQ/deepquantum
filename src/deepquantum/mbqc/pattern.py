@@ -2,7 +2,7 @@
 Measurement pattern
 """
 
-from copy import deepcopy
+from copy import copy, deepcopy
 from typing import Any, List, Optional, Union
 
 import matplotlib.pyplot as plt
@@ -35,7 +35,7 @@ class Pattern(Operation):
     ) -> None:
         super().__init__(name=name, nodes=None)
         self.state = GraphState(nodes_state, state, edges, nodes)
-        self.init_state = deepcopy(self.state)
+        self.init_graph = deepcopy(self.state.graph.graph)
         self.commands = nn.Sequential()
         self.encoders = []
         self.npara = 0
@@ -162,7 +162,7 @@ class Pattern(Operation):
         """
         Draw MBQC pattern
         """
-        g = MultiDiGraph(self.init_state.graph.graph)
+        g = MultiDiGraph(self.init_graph)
         nodes_init = deepcopy(g.nodes())
         for i in nodes_init:
             g.nodes[i]['layer'] = 0
@@ -237,6 +237,8 @@ class Pattern(Operation):
         1. Moving X-corrections through entanglements (generating Z-corrections)
         2. Moving corrections through measurements (modifying measurement signal domains)
         3. Collecting remaining corrections at the end
+
+        See https://arxiv.org/pdf/0704.1263 ch.(5.4)
         """
         # Initialize lists for each operation type
         n_list = []  # Node operations
@@ -264,7 +266,70 @@ class Pattern(Operation):
                 e_list.append(op)
             elif isinstance(op, Measurement):
                 # Apply pending corrections to measurement parameters
-                new_op = deepcopy(op)
+                new_op = copy(op)
+                if t_domain := z_dict.pop(op.nodes[0], None):
+                    new_op.t_domain = new_op.t_domain ^ t_domain
+                if s_domain := x_dict.pop(op.nodes[0], None):
+                    new_op.s_domain = new_op.s_domain ^ s_domain
+                m_list.append(new_op)
+            elif isinstance(op, Correction):
+                if op.basis == 'z':
+                    add_correction_domain(z_dict, op.nodes[0], op.domain)
+                elif op.basis == 'x':
+                    add_correction_domain(x_dict, op.nodes[0], op.domain)
+
+        # Reconstruct command sequence in standard order
+        self.commands = nn.Sequential(
+                    *n_list,
+                    *e_list,
+                    *m_list,
+                    *(Correction(nodes=node, basis='z', domain=domain) for node, domain in z_dict.items()),
+                    *(Correction(nodes=node, basis='x', domain=domain) for node, domain in x_dict.items())
+        )
+
+    def signal_shifting(self):
+        """Standardize the command sequence into NEMC form.
+
+        This function reorders operations into the standard form:
+        - Node preparations (N)
+        - Entanglement operations (E)
+        - Measurement operations (M)
+        - Correction operations (C)
+
+        It handles the propagation of correction operations by:
+        1. Moving X-corrections through entanglements (generating Z-corrections)
+        2. Moving corrections through measurements (modifying measurement signal domains)
+        3. Collecting remaining corrections at the end
+
+        See https://arxiv.org/pdf/0704.1263 ch.(5.5)
+        """
+        # Initialize lists for each operation type
+        n_list = []  # Node operations
+        e_list = []  # Entanglement operations
+        m_list = []  # Measurement operations
+        z_dict = {}  # Tracks Z corrections by node
+        x_dict = {}  # Tracks X corrections by node
+
+        def add_correction_domain(domain_dict: dict, node, domain) -> None:
+            """Helper function to update correction domains with XOR operation"""
+            if previous_domain := domain_dict.get(node):
+                previous_domain = previous_domain ^ domain
+            else:
+                domain_dict[node] = domain.copy()
+
+        # Process each operation and reorganize into standard form
+        for op in self.commands:
+            if isinstance(op, Node):
+                n_list.append(op)
+            elif isinstance(op, Entanglement):
+                for side in (0, 1):
+                    # Propagate X corrections through entanglement (generates Z corrections)
+                    if s_domain := x_dict.get(op.nodes[side], None):
+                        add_correction_domain(z_dict, op.nodes[1 - side], s_domain)
+                e_list.append(op)
+            elif isinstance(op, Measurement):
+                # Apply pending corrections to measurement parameters
+                new_op = copy(op)
                 if t_domain := z_dict.pop(op.nodes[0], None):
                     new_op.t_domain = new_op.t_domain ^ t_domain
                 if s_domain := x_dict.pop(op.nodes[0], None):
