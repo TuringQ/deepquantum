@@ -645,9 +645,7 @@ class QumodeCircuit(Operation):
                             if isinstance(gate, PhotonLoss):
                                 cir._lossy = True
                                 cir._nloss += 1
-                                cir.add(op_gate)
-                            else:
-                                cir.add(op_gate, encode=encode)
+                            cir.add(op_gate, encode=encode)
                 else:
                     if use_deepcopy or encode:
                         op_tdm = deepcopy(op)
