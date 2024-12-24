@@ -149,7 +149,7 @@ class GBS_Graph(GaussianBosonSampling):
         unitary, lambd = takagi(adj_mat)
         c = self.norm_factor_c(mean_photon_num, lambd)[0]
         lambda_c = lambd * c
-        squeezing = -np.arctanh(lambda_c)
+        squeezing = np.arctanh(lambda_c)
         super().__init__(nmode=nmode, squeezing=squeezing, unitary=unitary, cutoff=cutoff, backend='gaussian',
                          basis=False, detector=detector, noise=noise, mu=mu, sigma=sigma)
         self.name = 'GBS_Graph'
