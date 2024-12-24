@@ -7,6 +7,7 @@ __version__ = '3.4.1'
 
 
 from . import ansatz
+from . import channel
 from . import circuit
 from . import gate
 from . import layer
@@ -33,6 +34,8 @@ from .ansatz import (
     ShorCircuit,
     ShorCircuitFor15
 )
+from .channel import BitFlip, PhaseFlip, Depolarizing, Pauli, AmplitudeDamping, PhaseDamping
+from .channel import GeneralizedAmplitudeDamping
 from .circuit import QubitCircuit
 from .gate import U3Gate, PhaseShift, Identity, PauliX, PauliY, PauliZ, Hadamard
 from .gate import SGate, SDaggerGate, TGate, TDaggerGate

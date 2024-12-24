@@ -10,11 +10,13 @@ import torch
 from qiskit import QuantumCircuit
 from torch import nn, vmap
 
+from .channel import BitFlip, PhaseFlip, Depolarizing, Pauli, AmplitudeDamping, PhaseDamping
+from .channel import GeneralizedAmplitudeDamping
 from .gate import U3Gate, PhaseShift, PauliX, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, TGate, TDaggerGate
 from .gate import Rx, Ry, Rz, CNOT, Swap, Rxx, Ryy, Rzz, Rxy, ReconfigurableBeamSplitter, Toffoli, Fredkin
 from .gate import UAnyGate, LatentGate, HamiltonianGate, Barrier
 from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer, RyLayer, RzLayer, CnotLayer, CnotRing
-from .operation import Operation, Gate, Layer
+from .operation import Operation, Gate, Layer, Channel
 from .qmath import amplitude_encoding, measure, expectation
 from .state import QubitState, MatrixProductState
 
@@ -49,6 +51,7 @@ class QubitCircuit(Operation):
         chi: Optional[int] = None
     ) -> None:
         super().__init__(name=name, nqubit=nqubit, wires=None, den_mat=den_mat)
+        self.reupload = reupload
         self.mps = mps
         self.chi = chi
         self.set_init_state(init_state)
@@ -58,7 +61,6 @@ class QubitCircuit(Operation):
         self.state = None
         self.ndata = 0
         self.depth = np.array([0] * nqubit)
-        self.reupload = reupload
         self.wires_measure = None
         self.wires_condition = []
 
@@ -383,7 +385,10 @@ class QubitCircuit(Operation):
         cir = QubitCircuit(nqubit=self.nqubit, name=name, den_mat=self.den_mat, reupload=self.reupload,
                            mps=self.mps, chi=self.chi)
         for op in reversed(self.operators):
-            op_inv = op.inverse()
+            if isinstance(op, Channel):
+                op_inv = op
+            else:
+                op_inv = op.inverse()
             cir.operators.append(op_inv)
             if encode and op in self.encoders:
                 cir.encoders.append(op_inv)
@@ -443,6 +448,7 @@ class QubitCircuit(Operation):
             for wire in self.wires_measure:
                 qasm_lst.append(f'measure q[{wire}] -> c[{wire}];\n')
         Gate._reset_qasm_new_gate()
+        Channel._reset_qasm_new_gate()
         return ''.join(qasm_lst)
 
     def draw(self, output: str = 'mpl', **kwargs):
@@ -464,7 +470,7 @@ class QubitCircuit(Operation):
 
         Args:
             op (Operation): The operation to add. It is an instance of ``Operation`` class or its subclasses,
-                such as ``Gate``, ``Layer``, or ``QubitCircuit``.
+                such as ``Gate``, ``Layer``, ``Channel``, or ``QubitCircuit``.
             encode (bool, optional): Whether the gate or layer is to encode data. Default: ``False``
             wires (int, List[int] or None, optional): The wires to apply the gate on. It can be an integer
                 or a list of integers specifying the indices of the wires. Default: ``None`` (which means
@@ -513,6 +519,9 @@ class QubitCircuit(Operation):
                 for wire in op.wires:
                     for i in wire:
                         self.depth[i] += 1
+            # elif isinstance(op, Channel):
+            #     for i in op.wires:
+            #         self.depth[i] += 1
             if encode:
                 assert not op.requires_grad, 'Please set requires_grad of the operation to be False'
                 self.encoders.append(op)
@@ -987,7 +996,105 @@ class QubitCircuit(Operation):
         cxr = CnotRing(nqubit=self.nqubit, minmax=minmax, step=step, reverse=reverse, den_mat=self.den_mat)
         self.add(cxr)
 
+    def bit_flip(
+        self,
+        wires: int,
+        inputs: Any = None,
+        encode: bool = False
+    ) -> None:
+        """Add a bit-flip channel."""
+        assert self.den_mat
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        bf = BitFlip(inputs=inputs, nqubit=self.nqubit, wires=wires, requires_grad=requires_grad)
+        self.add(bf, encode=encode)
+
+    def phase_flip(
+        self,
+        wires: int,
+        inputs: Any = None,
+        encode: bool = False
+    ) -> None:
+        """Add a phase-flip channel."""
+        assert self.den_mat
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        pf = PhaseFlip(inputs=inputs, nqubit=self.nqubit, wires=wires, requires_grad=requires_grad)
+        self.add(pf, encode=encode)
+
+    def depolarizing(
+        self,
+        wires: int,
+        inputs: Any = None,
+        encode: bool = False
+    ) -> None:
+        """Add a depolarizing channel."""
+        assert self.den_mat
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        dp = Depolarizing(inputs=inputs, nqubit=self.nqubit, wires=wires, requires_grad=requires_grad)
+        self.add(dp, encode=encode)
+
+    def pauli(
+        self,
+        wires: int,
+        inputs: Any = None,
+        encode: bool = False
+    ) -> None:
+        """Add a Pauli channel."""
+        assert self.den_mat
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        p = Pauli(inputs=inputs, nqubit=self.nqubit, wires=wires, requires_grad=requires_grad)
+        self.add(p, encode=encode)
+
+    def amp_damp(
+        self,
+        wires: int,
+        inputs: Any = None,
+        encode: bool = False
+    ) -> None:
+        """Add an amplitude-damping channel."""
+        assert self.den_mat
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        ad = AmplitudeDamping(inputs=inputs, nqubit=self.nqubit, wires=wires, requires_grad=requires_grad)
+        self.add(ad, encode=encode)
+
+    def phase_damp(
+        self,
+        wires: int,
+        inputs: Any = None,
+        encode: bool = False
+    ) -> None:
+        """Add a phase-damping channel."""
+        assert self.den_mat
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        pd = PhaseDamping(inputs=inputs, nqubit=self.nqubit, wires=wires, requires_grad=requires_grad)
+        self.add(pd, encode=encode)
+
+    def gen_amp_damp(
+        self,
+        wires: int,
+        inputs: Any = None,
+        encode: bool = False
+    ) -> None:
+        """Add a generalized amplitude-damping channel."""
+        assert self.den_mat
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        gad = GeneralizedAmplitudeDamping(inputs=inputs, nqubit=self.nqubit, wires=wires, requires_grad=requires_grad)
+        self.add(gad, encode=encode)
+
     def barrier(self, wires: Union[int, List[int], None] = None) -> None:
-        """Add barrier."""
+        """Add a barrier."""
         br = Barrier(nqubit=self.nqubit, wires=wires)
         self.add(br)

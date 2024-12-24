@@ -645,9 +645,7 @@ class QumodeCircuit(Operation):
                             if isinstance(gate, PhotonLoss):
                                 cir._lossy = True
                                 cir._nloss += 1
-                                cir.add(op_gate)
-                            else:
-                                cir.add(op_gate, encode=encode)
+                            cir.add(op_gate, encode=encode)
                 else:
                     if use_deepcopy or encode:
                         op_tdm = deepcopy(op)
@@ -2020,7 +2018,7 @@ class QumodeCircuit(Operation):
     def loss(
         self,
         wires: int,
-        inputs: Any,
+        inputs: Any = None,
         encode: bool = False
     ) -> None:
         """Add a photon loss channel.
@@ -2041,7 +2039,7 @@ class QumodeCircuit(Operation):
     def loss_t(
         self,
         wires: int,
-        inputs: Any,
+        inputs: Any = None,
         encode: bool = False
     ) -> None:
         """Add a photon loss channel.
@@ -2065,7 +2063,7 @@ class QumodeCircuit(Operation):
     def loss_db(
         self,
         wires: int,
-        inputs: Any,
+        inputs: Any = None,
         encode: bool = False
     ) -> None:
         """Add a photon loss channel.

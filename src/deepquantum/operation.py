@@ -9,7 +9,7 @@ from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-from torch import nn
+from torch import nn, vmap
 
 from .qmath import inverse_permutation, state_to_tensors, evolve_state, evolve_den_mat
 from .state import MatrixProductState
@@ -143,6 +143,10 @@ class Gate(Operation):
         super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         self.controls = controls
         self.condition = condition
+
+    def get_matrix(self, inputs: Any) -> torch.Tensor:
+        """Get the local unitary matrix."""
+        return self.matrix
 
     def update_matrix(self) -> torch.Tensor:
         """Update the local unitary matrix."""
@@ -449,3 +453,111 @@ class Layer(Operation):
             # pylint: disable=protected-access
             lst.append(gate._qasm())
         return ''.join(lst)
+
+
+class Channel(Operation):
+    r"""A base class for quantum channels.
+
+    Args:
+        inputs (Any, optional): The parameter of the channel. Default: ``None``
+        name (str or None, optional): The name of the channel. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
+    """
+    # include default names in QASM
+    _qasm_new_gate = []
+
+    def __init__(
+        self,
+        inputs: Any = None,
+        name: Optional[str] = None,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        tsr_mode: bool = False,
+        requires_grad: bool = False
+    ) -> None:
+        self.nqubit = nqubit
+        if wires is None:
+            wires = [0]
+        wires = self._convert_indices(wires)
+        super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=True, tsr_mode=tsr_mode)
+        self.npara = 1
+        self.requires_grad = requires_grad
+        self.init_para(inputs)
+
+    @property
+    def prob(self):
+        """The error probability."""
+        return torch.cos(self.theta) ** 2
+
+    def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
+        """Convert inputs to torch.Tensor."""
+        while isinstance(inputs, list):
+            inputs = inputs[0]
+        if inputs is None:
+            inputs = torch.rand(1)[0] * torch.pi
+        elif not isinstance(inputs, torch.Tensor):
+            inputs = torch.tensor(inputs, dtype=torch.float)
+        return inputs
+
+    def get_matrix(self, theta: Any) -> torch.Tensor:
+        """Update the local Kraus matrices acting on density matrices."""
+        raise self.matrix
+
+    def update_matrix(self) -> torch.Tensor:
+        """Update the local Kraus matrices acting on density matrices."""
+        matrix = self.get_matrix(self.theta)
+        self.matrix = matrix.detach()
+        return matrix
+
+    def init_para(self, inputs: Any = None) -> None:
+        """Initialize the parameters."""
+        theta = self.inputs_to_tensor(inputs)
+        if self.requires_grad:
+            self.theta = nn.Parameter(theta)
+        else:
+            self.register_buffer('theta', theta)
+        self.update_matrix()
+
+    def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
+        """Perform a forward pass for density matrices."""
+        nt = len(self.wires)
+        matrix = self.update_matrix().reshape(-1, 2 ** nt, 2 ** nt)
+        x = vmap(evolve_den_mat, in_dims=(None, 0, None, None))(x, matrix, self.nqubit, self.wires)
+        return x.sum(0)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Perform a forward pass."""
+        return self.op_den_mat(x)
+
+    def extra_repr(self) -> str:
+        return f'wires={self.wires}, probability={self.prob.item()}'
+
+    @staticmethod
+    def _reset_qasm_new_gate() -> None:
+        Channel._qasm_new_gate = []
+
+    def _qasm_customized(self, name: str) -> str:
+        """Get QASM for channels."""
+        name = name.lower()
+        # warnings.warn(f'{name} is an empty gate and should be only used to draw circuit.')
+        qasm_lst1 = [f'gate {name} ']
+        qasm_lst2 = [f'{name} ']
+        for i, wire in enumerate(self.wires):
+            qasm_lst1.append(f'q{i},')
+            qasm_lst2.append(f'q[{wire}],')
+        qasm_str1 = ''.join(qasm_lst1)[:-1] + ' { }\n'
+        qasm_str2 = ''.join(qasm_lst2)[:-1] + ';\n'
+        if name not in Channel._qasm_new_gate:
+            Channel._qasm_new_gate.append(name)
+            return qasm_str1 + qasm_str2
+        else:
+            return qasm_str2
+
+    def _qasm(self) -> str:
+        return self._qasm_customized(self.name)
