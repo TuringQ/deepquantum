@@ -2020,7 +2020,7 @@ class QumodeCircuit(Operation):
     def loss(
         self,
         wires: int,
-        inputs: Any,
+        inputs: Any = None,
         encode: bool = False
     ) -> None:
         """Add a photon loss channel.
@@ -2041,7 +2041,7 @@ class QumodeCircuit(Operation):
     def loss_t(
         self,
         wires: int,
-        inputs: Any,
+        inputs: Any = None,
         encode: bool = False
     ) -> None:
         """Add a photon loss channel.
@@ -2065,7 +2065,7 @@ class QumodeCircuit(Operation):
     def loss_db(
         self,
         wires: int,
-        inputs: Any,
+        inputs: Any = None,
         encode: bool = False
     ) -> None:
         """Add a photon loss channel.
