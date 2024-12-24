@@ -135,7 +135,18 @@ class Measurement(Command):
             qt = sum(map(lambda t: torch.tensor(sgs.measure_dict[t], device=self.angle.device), self.t_domain))
         else:
             qt = torch.zeros(init_state.shape[0], device=self.angle.device)
-        alpha = (-1)**qs * self.angle + torch.pi * qt
+        if self.plane in ['xy', 'yx']:
+            alpha = (-1)**qs * self.angle + torch.pi * qt
+            # M^{XY,α} X^s Z^t = M^{XY,(-1)^s·α+tπ}
+        elif self.plane in ['zx', 'xz']:
+            alpha = (-1)**(qs + qt) * self.angle + torch.pi * qs
+            # M^{XZ,α} X^s Z^t = M^{XZ,(-1)^t((-1)^s·α+sπ)}
+            #                  = M^{XZ,(-1)^{s+t}·α+(-1)^t·sπ}
+            #                  = M^{XZ,(-1)^{s+t}·α+sπ  (since (-1)^t·π ≡ π (mod 2π))
+        elif self.plane in ['yz', 'zy']:
+            alpha = (-1)**qt * self.angle + torch.pi * (qs + qt)
+            # positive Y axis as 0 angle
+            # M^{YZ,α} X^s Z^t = M^{YZ,(-1)^t·α+(s+t)π)}
         cir = QubitCircuit(nqubit=nqubit)
         cir.j(wires=wire, plane=self.plane, encode=True)
         final_state = cir(data=alpha.reshape(-1,1), state=init_state)

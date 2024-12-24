@@ -3,11 +3,10 @@ Measurement pattern
 """
 
 from copy import copy, deepcopy
-from typing import Any, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import matplotlib.pyplot as plt
 from networkx import MultiDiGraph, draw_networkx_nodes, draw_networkx_edges, draw_networkx_labels, multipartite_layout
-import torch
 from torch import nn
 
 from .command import Node, Entanglement, Measurement, Correction
@@ -287,65 +286,54 @@ class Pattern(Operation):
                     *(Correction(nodes=node, basis='x', domain=domain) for node, domain in x_dict.items())
         )
 
-    def signal_shifting(self):
-        """Standardize the command sequence into NEMC form.
+    def signal_shifting(self) -> Dict:
+        """Perform signal shifting procedure.
+        This allows one to dispose of dependencies induced by the Z-action,
+        and obtain sometimes standard patterns with smaller computational depth complexity.
 
-        This function reorders operations into the standard form:
-        - Node preparations (N)
-        - Entanglement operations (E)
-        - Measurement operations (M)
-        - Correction operations (C)
+        It handles the propagation of signal shifting commands by:
+        1. Extracting signals via t_domain(in XY plane cases) of measurements.
+        2. Moving signals to the left, through modifying other measurements and corrections.
 
-        It handles the propagation of correction operations by:
-        1. Moving X-corrections through entanglements (generating Z-corrections)
-        2. Moving corrections through measurements (modifying measurement signal domains)
-        3. Collecting remaining corrections at the end
+        Returns
+        -------
+        Signal dictionary including all the signal shifting commands
 
         See https://arxiv.org/pdf/0704.1263 ch.(5.5)
         """
-        # Initialize lists for each operation type
-        n_list = []  # Node operations
-        e_list = []  # Entanglement operations
-        m_list = []  # Measurement operations
-        z_dict = {}  # Tracks Z corrections by node
-        x_dict = {}  # Tracks X corrections by node
 
-        def add_correction_domain(domain_dict: dict, node, domain) -> None:
-            """Helper function to update correction domains with XOR operation"""
-            if previous_domain := domain_dict.get(node):
-                previous_domain = previous_domain ^ domain
-            else:
-                domain_dict[node] = domain.copy()
+        signal_dict = {}
 
-        # Process each operation and reorganize into standard form
+        def expand_domain(domain: set[int]) -> None:
+            for node in domain & signal_dict.keys():
+                domain ^= signal_dict[node]
+
         for op in self.commands:
-            if isinstance(op, Node):
-                n_list.append(op)
-            elif isinstance(op, Entanglement):
-                for side in (0, 1):
-                    # Propagate X corrections through entanglement (generates Z corrections)
-                    if s_domain := x_dict.get(op.nodes[side], None):
-                        add_correction_domain(z_dict, op.nodes[1 - side], s_domain)
-                e_list.append(op)
-            elif isinstance(op, Measurement):
-                # Apply pending corrections to measurement parameters
-                new_op = copy(op)
-                if t_domain := z_dict.pop(op.nodes[0], None):
-                    new_op.t_domain = new_op.t_domain ^ t_domain
-                if s_domain := x_dict.pop(op.nodes[0], None):
-                    new_op.s_domain = new_op.s_domain ^ s_domain
-                m_list.append(new_op)
+            if isinstance(op, Measurement):
+                s_domain = set(op.s_domain)
+                t_domain = set(op.t_domain)
+                expand_domain(s_domain)
+                expand_domain(t_domain)
+                if op.plane in ['xy', 'yx']:
+                    if t_domain:
+                        signal_dict[op.nodes[0]] = t_domain
+                        t_domain = set()
+                elif op.plane in ['zx', 'xz']:
+                    if s_domain:
+                        signal_dict[op.nodes[0]] = s_domain
+                        t_domain ^= s_domain
+                        s_domain = set()
+                elif op.plane in ['yz', 'zy']:
+                    # positive Y axis as 0 angle
+                    # still remains M^{YZ,(-1)^t·α+tπ)} after signal shifting,
+                    # but dependency on s_domain has been reduced
+                    if s_domain:
+                        signal_dict[op.nodes[0]] = s_domain
+                        s_domain = set()
+                op.s_domain = s_domain
+                op.t_domain = t_domain
             elif isinstance(op, Correction):
-                if op.basis == 'z':
-                    add_correction_domain(z_dict, op.nodes[0], op.domain)
-                elif op.basis == 'x':
-                    add_correction_domain(x_dict, op.nodes[0], op.domain)
-
-        # Reconstruct command sequence in standard order
-        self.commands = nn.Sequential(
-                    *n_list,
-                    *e_list,
-                    *m_list,
-                    *(Correction(nodes=node, basis='z', domain=domain) for node, domain in z_dict.items()),
-                    *(Correction(nodes=node, basis='x', domain=domain) for node, domain in x_dict.items())
-        )
+                domain = set(op.domain)
+                expand_domain(domain)
+                op.domain = domain
+        return signal_dict
