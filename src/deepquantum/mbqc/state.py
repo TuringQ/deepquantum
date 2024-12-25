@@ -19,6 +19,14 @@ class SubGraphState(nn.Module):
     """A subgraph state of a quantum state.
 
     Args:
+        nodes_state (Union[int, List[int], None], optional): The nodes of the input state in the subgraph.
+            It can be an integer representing the number of nodes or a list of node indices.
+            Default: ``None``.
+        state (Any, optional): The initial state of the subgraph. Default: ``'plus'``.
+        edges (Optional[List], optional): Additional edges connecting the nodes in the subgraph.
+            Default: ``None``.
+        nodes (Union[int, List[int], None], optional): Additional nodes to include in the subgraph.
+            Default: ``None``.
     """
     def __init__(
         self,
@@ -34,14 +42,17 @@ class SubGraphState(nn.Module):
 
     @property
     def nodes(self, **kwargs):
+        """Return the nodes of the graph."""
         return self.graph.nodes(**kwargs)
 
     @property
     def edges(self, **kwargs):
+        """Return the edges of the graph."""
         return self.graph.edges(**kwargs)
 
     @property
     def full_state(self) -> torch.Tensor:
+        """Compute and return the full quantum state of the subgraph."""
         nqubit = len(self.nodes)
         nodes_bg = list(self.nodes)
         for i in self.nodes_state:
@@ -64,6 +75,7 @@ class SubGraphState(nn.Module):
         edges: Optional[List] = None,
         nodes: Union[int, List[int], None] = None
     ) -> None:
+        """Set the graph structure for the subgraph state."""
         if nodes_state is None:
             nodes_state = []
         elif isinstance(nodes_state, int):
@@ -86,6 +98,7 @@ class SubGraphState(nn.Module):
         self.update_node2wire_dict()
 
     def set_state(self, state: Any = 'plus') -> None:
+        """Set the quantum state of the subgraph."""
         nqubit = len(self.nodes_state)
         if state == 'plus':
             state = torch.tensor([1, 1]) / 2 ** 0.5 + 0j
@@ -99,22 +112,34 @@ class SubGraphState(nn.Module):
             self.register_buffer('state', torch.tensor(1))
 
     def add_nodes(self, nodes: Union[int, List[int]]) -> None:
+        """Add nodes to the subgraph."""
         if isinstance(nodes, int):
             nodes = [nodes]
         self.graph.add_nodes_from(nodes)
         self.update_node2wire_dict()
 
     def add_edges(self, edges: List) -> None:
+        """Add edges to the subgraph."""
         self.graph.add_edges_from(edges, cz=True)
         self.update_node2wire_dict()
 
     def shift_labels(self, n: int) -> None:
+        """Shift the labels of the nodes in the graph by a given integer."""
         self.graph = nx.relabel_nodes(self.graph, lambda x: x + n)
         self.nodes_state = (np.array(self.nodes_state) + n).tolist()
         self.measure_dict = {k + n: v for k, v in self.measure_dict.items()}
         self.update_node2wire_dict()
 
     def compose(self, other: 'SubGraphState', relabel: bool = True) -> 'SubGraphState':
+        """Compose this subgraph state with another subgraph state.
+
+        Args:
+            other (SubGraphState): The other subgraph state to compose with.
+            relabel (bool, optional): Whether to relabel nodes to avoid conflicts. Default: ``True``.
+
+        Returns:
+            SubGraphState: A new subgraph state that is the composition of the two.
+        """
         if relabel and (set(self.nodes) & set(other.nodes)):
             shift = max(self.nodes) - min(other.nodes) + 1
             other.shift_labels(shift)
@@ -130,21 +155,36 @@ class SubGraphState(nn.Module):
         return sgs
 
     def update_node2wire_dict(self) -> Dict:
+        """Update the mapping from nodes to wire indices.
+
+        Returns:
+            Dict: A dictionary mapping nodes to their corresponding wire indices.
+        """
         wires = inverse_permutation(np.argsort(self.nodes).tolist())
         self.node2wire_dict = {node: wire for node, wire in zip(self.nodes, wires)}
         return self.node2wire_dict
 
     def draw(self, **kwargs):
+        """Draw the graph using NetworkX."""
         nx.draw(self.graph, with_labels=True, **kwargs)
 
     def extra_repr(self) -> str:
+        """Return a string representation of the subgraph state."""
         return f'nodes_state={self.nodes_state}, nodes={self.nodes}'
 
 
 class GraphState(nn.Module):
-    """A graph state of a quantum state.
+    """A graph state composed by several SubGraphStates.
 
     Args:
+        nodes_state (Union[int, List[int], None], optional): The nodes of the input state in the subgraph.
+            It can be an integer representing the number of nodes or a list of node indices.
+            Default: ``None``.
+        state (Any, optional): The initial state of the subgraph. Default: ``'plus'``.
+        edges (Optional[List], optional): Additional edges connecting the nodes in the subgraph.
+            Default: ``None``.
+        nodes (Union[int, List[int], None], optional): Additional nodes to include in the subgraph.
+            Default: ``None``.
     """
     def __init__(
         self,
@@ -169,6 +209,20 @@ class GraphState(nn.Module):
         measure_dict: Dict = None,
         index: Optional[int] = None
     ) -> None:
+        """Add a subgraph to the graph state.
+
+        Args:
+            nodes_state (Union[int, List[int], None], optional): The nodes of the input state in the subgraph.
+                It can be an integer representing the number of nodes or a list of node indices.
+                Default: ``None``.
+            state (Any, optional): The initial state of the subgraph. Default: ``'plus'``.
+            edges (Optional[List], optional): Additional edges connecting the nodes in the subgraph.
+                Default: ``None``.
+            nodes (Union[int, List[int], None], optional): Additional nodes to include in the subgraph.
+                Default: ``None``.
+            measure_dict (Dict, optional): A dictionary to record measurement results. Default: ``None``.
+            index (Optional[int], optional): The index where to insert the subgraph. Default: ``None``.
+        """
         sgs = SubGraphState(nodes_state, state, edges, nodes)
         if measure_dict is not None:
             sgs.measure_dict = measure_dict
@@ -179,6 +233,7 @@ class GraphState(nn.Module):
 
     @property
     def graph(self) -> SubGraphState:
+        """Return the combined graph of all subgraphs."""
         graph = None
         for subgraph in self.subgraphs:
             if graph is None:
@@ -192,4 +247,5 @@ class GraphState(nn.Module):
 
     @property
     def measure_dict(self) -> Dict:
+        """Return a dictionary containing all measurement results for the graph state."""
         return self.graph.measure_dict
