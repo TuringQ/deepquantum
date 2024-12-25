@@ -18,11 +18,21 @@ class Pattern(Operation):
     """Measurement-based quantum computing (MBQC) pattern.
 
     A Pattern represents a measurement-based quantum computation, which consists of a sequence of
-    operations (preparation, entanglement, measurement, and correction) applied to qubits arranged
+    commands (node preparation, entanglement, measurement, and correction) applied to qubits arranged
     in a graph structure.
 
     Args:
+        nodes_state (Union[int, List[int], None], optional): The nodes of the input state in the subgraph.
+            It can be an integer representing the number of nodes or a list of node indices.
+            Default: ``None``.
+        state (Any, optional): The initial state of the subgraph. Default: ``'plus'``.
+        edges (Optional[List], optional): Additional edges connecting the nodes in the subgraph.
+            Default: ``None``.
+        nodes (Union[int, List[int], None], optional): Additional nodes to include in the subgraph.
+            Default: ``None``.
         name (str or None, optional): The name of the pattern. Default: ``None``
+
+    Ref: V. Danos, E. Kashefi and P. Panangaden. J. ACM 54.2 8 (2007)
     """
     def __init__(
         self,
@@ -52,16 +62,19 @@ class Pattern(Operation):
         nodes: Union[int, List[int], None] = None,
         index: Optional[int] = None
     ) -> None:
-        """
-        Sets the underlying graph structure of the MBQC pattern.
-
-        Takes a graph specification in the form of [vertices, edges] and constructs
-        the corresponding graph structure by adding nodes and edges to the pattern.
+        """Add a subgraph to the graph state.
 
         Args:
-            graph (List[List]): A list containing two elements:
-                - vertices: List of vertex indices
-                - edges: List of pairs representing edges
+            nodes_state (Union[int, List[int], None], optional): The nodes of the input state in the subgraph.
+                It can be an integer representing the number of nodes or a list of node indices.
+                Default: ``None``.
+            state (Any, optional): The initial state of the subgraph. Default: ``'plus'``.
+            edges (Optional[List], optional): Additional edges connecting the nodes in the subgraph.
+                Default: ``None``.
+            nodes (Union[int, List[int], None], optional): Additional nodes to include in the subgraph.
+                Default: ``None``.
+            measure_dict (Dict, optional): A dictionary to record measurement results. Default: ``None``.
+            index (Optional[int], optional): The index where to insert the subgraph. Default: ``None``.
         """
         self.state.add_subgraph(nodes_state=nodes_state, state=state, edges=edges, nodes=nodes, index=index)
 
@@ -73,12 +86,12 @@ class Pattern(Operation):
         op: Operation,
         encode: bool = False
     ) -> None:
-        """A method that adds an operation to the mbqc pattern.
+        """A method that adds an operation to the MBQC pattern.
 
         Args:
             op (Operation): The operation to add. It is an instance of ``Operation`` class or its subclasses,
                 such as ``Node``, or ``Measurement``.
-            encode (bool): Whether the gate is to encode data. Default: ``False``
+            encode (bool): Whether the command encodes data. Default: ``False``
         """
         assert isinstance(op, Operation)
         self.commands.append(op)
@@ -90,8 +103,7 @@ class Pattern(Operation):
             self.npara += op.npara
 
     def n(self, node: Union[int, List[int]] = None):
-        """
-        Add a new node to the pattern.
+        """Add a new node to the pattern.
 
         Args:
             node (Union[int, List[int]], optional): Index or list of indices for the new node.
@@ -101,8 +113,7 @@ class Pattern(Operation):
         self.add(node_)
 
     def e(self, node: List[int] = None):
-        """
-        Add an entanglement edge between two nodes in the pattern.
+        """Add an entanglement operators on two nodes in the pattern.
 
         Args:
             node (List[int], optional): A list of two integers specifying the nodes to entangle.
@@ -117,31 +128,30 @@ class Pattern(Operation):
         plane: Optional[str] = 'XY',
         angle: float = 0,
         t_domain: Union[int, List[int]] = [],
-        s_domain: Union[int, List[int]] = []
+        s_domain: Union[int, List[int]] = [],
+        encode: bool = False
     ):
-        """
-        Add a measurement operation to the pattern.
+        """Add a measurement operation to the pattern.
 
         Args:
             node (Optional[int]): The node to measure.
             plane (Optional[str]): Measurement plane ('XY', 'YZ', or 'XZ'). Defaults to 'XY'.
             angle (float): Measurement angle in radians. Defaults to 0.
             t_domain (Union[int, List[int]]): List of nodes that contribute to the Z correction.
-                Defaults to empty list.
+                Default: []
             s_domain (Union[int, List[int]]): List of nodes that contribute to the X correction.
-                Defaults to empty list.
+                Default: []
+            encode (bool): Whether to encode angle. Default: ``False``.
         """
         mea_op = Measurement(nodes=node, plane=plane, angle=angle, t_domain=t_domain, s_domain=s_domain)
-        self.add(mea_op)
+        self.add(mea_op, encode=encode)
 
     def c_x(self, node: int = None, domain: List[int] = None):
-        """
-        Add an X correction operation to the pattern.
+        """Add an X correction operation to the pattern.
 
         Args:
-            node (int, optional): The node to apply the X correction to.
-            domain (List[int], optional): List of measurement results that determine
-                if the correction should be applied.
+            node (int, optional): The node to apply the X correction.
+            domain (List[int], optional): List of nodes on which the signal depends.
         """
         c_x = Correction(nodes=node, basis='x', domain=domain)
         self.add(c_x)
@@ -150,17 +160,14 @@ class Pattern(Operation):
         """Add a Z correction operation to the pattern.
 
         Args:
-            node (int, optional): The node to apply the Z correction to.
-            domain (List[int], optional): List of measurement results that determine
-                if the correction should be applied.
+            node (int, optional): The node to apply the Z correction.
+            domain (List[int], optional): List of nodes on which the signal depends.
         """
         c_z = Correction(nodes=node, basis='z', domain=domain)
         self.add(c_z)
 
     def draw(self, width: int=4):
-        """
-        Draw MBQC pattern
-        """
+        """Draw the MBQC pattern."""
         g = MultiDiGraph(self.init_graph)
         nodes_init = deepcopy(g.nodes())
         for i in nodes_init:
