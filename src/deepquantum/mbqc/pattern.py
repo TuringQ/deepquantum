@@ -6,6 +6,7 @@ from copy import copy, deepcopy
 from typing import Any, Dict, List, Optional, Union
 
 import matplotlib.pyplot as plt
+import torch
 from networkx import MultiDiGraph, draw_networkx_nodes, draw_networkx_edges, draw_networkx_labels, multipartite_layout
 from torch import nn
 
@@ -50,8 +51,9 @@ class Pattern(Operation):
         self.npara = 0
         self.ndata = 0
 
-    def forward(self):
+    def forward(self, angle: Optional[torch.Tensor] = None):
         """Perform a forward pass of the MBQC pattern and return the final state."""
+        self.encode(angle)
         self.state = self.commands(self.state)
         return self.state.graph.full_state
 
@@ -102,6 +104,28 @@ class Pattern(Operation):
         else:
             self.npara += op.npara
 
+    def encode(self, data: Optional[torch.Tensor]) -> None:
+        """Encode the input data into measurement angle as parameters.
+
+        This method iterates over the ``encoders`` of the pattern(``encode=True`` measurements) and
+        initializes their parameters with the input data. The input data must be at least as long
+        as the number of parameters in the ``encoders``.
+
+        Args:
+            data (torch.Tensor or None): The input data for the ``encoders``, must be a 1D tensor.
+
+        Raises:
+            AssertionError: If input data is shorter than the number of parameters in the ``encoders``.
+        """
+        if data is None:
+            return
+        assert len(data) >= self.ndata
+        count = 0
+        for op in self.encoders:
+            count_up = count + op.npara
+            op.init_para(data[count:count_up])
+            count = count_up % len(data)
+
     def n(self, node: Union[int, List[int]] = None):
         """Add a new node to the pattern.
 
@@ -143,7 +167,11 @@ class Pattern(Operation):
                 Default: []
             encode (bool): Whether to encode angle. Default: ``False``.
         """
-        mea_op = Measurement(nodes=node, plane=plane, angle=angle, t_domain=t_domain, s_domain=s_domain)
+        requires_grad = not encode
+        if angle is not None:
+            requires_grad = False
+        mea_op = Measurement(nodes=node, plane=plane, angle=angle, t_domain=t_domain,
+                             s_domain=s_domain, requires_grad=requires_grad)
         self.add(mea_op, encode=encode)
 
     def c_x(self, node: int = None, domain: List[int] = None):

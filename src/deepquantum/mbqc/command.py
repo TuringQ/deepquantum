@@ -5,6 +5,7 @@ MBQC commands
 from typing import Any, Iterable, List, Union
 
 import torch
+from torch import nn
 
 from .operation import Command
 from .state import GraphState
@@ -75,6 +76,8 @@ class Measurement(Command):
             Default: ``None``
         t_domain (int, Iterable[int] or None, optional): The indices of the nodes that contribute to signal domain t.
             Default: ``None``
+        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
     """
     def __init__(
         self,
@@ -82,13 +85,13 @@ class Measurement(Command):
         plane: str = 'xy',
         angle: Any = 0.,
         s_domain: Union[int, Iterable[int]] = None,
-        t_domain: Union[int, Iterable[int]] = None
+        t_domain: Union[int, Iterable[int]] = None,
+        requires_grad: bool = False
     ) -> None:
         super().__init__(name='Measurement', nodes=nodes)
         if plane is None:
             plane = 'xy'
         self.plane = plane.lower()
-        self.register_buffer('angle', self.inputs_to_tensor(angle))
         if s_domain is None:
             s_domain = []
         elif isinstance(s_domain, int):
@@ -99,6 +102,8 @@ class Measurement(Command):
             t_domain = [t_domain]
         self.s_domain = set(s_domain)
         self.t_domain = set(t_domain)
+        self.requires_grad = requires_grad
+        self.init_para(angle)
         self.npara = 1
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
@@ -167,6 +172,14 @@ class Measurement(Command):
         x.subgraphs.pop(idx)
         x.add_subgraph(nodes_state=nodes_state, state=state, measure_dict=sgs.measure_dict, index=0)
         return x
+
+    def init_para(self, angle: Any = None) -> None:
+        """Initialize the parameters."""
+        angle = self.inputs_to_tensor(angle)
+        if self.requires_grad:
+            self.angle = nn.Parameter(angle)
+        else:
+            self.register_buffer('angle', angle)
 
     def extra_repr(self) -> str:
         s = super().extra_repr() + f', plane={self.plane.upper()}, angle={self.angle.item()}'
