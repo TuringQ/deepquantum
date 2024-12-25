@@ -44,15 +44,30 @@ class Pattern(Operation):
         name: Optional[str] = None
     ) -> None:
         super().__init__(name=name, nodes=None)
-        self.state = GraphState(nodes_state, state, edges, nodes)
-        self.init_graph = deepcopy(self.state.graph.graph)
+        self.init_state = GraphState(nodes_state, state, edges, nodes)
         self.commands = nn.Sequential()
         self.encoders = []
         self.npara = 0
         self.ndata = 0
 
-    def forward(self, angle: Optional[torch.Tensor] = None):
-        """Perform a forward pass of the MBQC pattern and return the final state."""
+    def forward(
+        self,
+        angle: Optional[torch.Tensor] = None,
+        state: Optional[GraphState] = None,
+    ) -> torch.Tensor:
+        """Perform a forward pass of the MBQC pattern and return the final state.
+
+        Args:
+            angle (torch.Tensor or None, optional): The input data for the ``encoders``. Default: ``None``
+            state (GraphState, optional): The initial state for the pattern. Default: ``None``
+
+        Returns:
+            torch.Tensor: The final state of the pattern after applying the ``commands``.
+        """
+        if state is None:
+            self.state = deepcopy(self.init_state)
+        else:
+            self.state = state
         self.encode(angle)
         self.state = self.commands(self.state)
         return self.state.graph.full_state
@@ -78,10 +93,13 @@ class Pattern(Operation):
             measure_dict (Dict, optional): A dictionary to record measurement results. Default: ``None``.
             index (Optional[int], optional): The index where to insert the subgraph. Default: ``None``.
         """
-        self.state.add_subgraph(nodes_state=nodes_state, state=state, edges=edges, nodes=nodes, index=index)
+        self.init_state.add_subgraph(nodes_state=nodes_state, state=state, edges=edges, nodes=nodes, index=index)
 
     def get_graph(self):
-        return self.state.graph
+        if hasattr(self, 'state'):
+            return self.state.graph
+        else:
+            return self.init_state.graph
 
     def add(
         self,
@@ -196,7 +214,7 @@ class Pattern(Operation):
 
     def draw(self, width: int=4):
         """Draw the MBQC pattern."""
-        g = MultiDiGraph(self.init_graph)
+        g = MultiDiGraph(self.init_state.graph.graph)
         nodes_init = deepcopy(g.nodes())
         for i in nodes_init:
             g.nodes[i]['layer'] = 0
@@ -230,6 +248,7 @@ class Pattern(Operation):
         plt.plot([], [], 's', color="#1f78b4", label="input nodes")
         plt.plot([], [], 'o', color="#d7dde0", label="output nodes")
         plt.xlim(-width/2,width/2)
+        plt.ylim(-width/2,width/2)
         plt.legend(loc="upper right", fontsize=10)
         plt.tight_layout()
         plt.show()
