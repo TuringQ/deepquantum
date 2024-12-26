@@ -32,7 +32,7 @@ def test_random_with_graphix():
         pat_dq.m(node=1, angle=np.pi, s_domain=[0])
         pat_dq.m(node=n-1, angle=np.pi, s_domain=[0], t_domain=[1])
         pat_dq.c_x(node=n, domain=[0, 1, n-1])
-        state = pat_dq()
+        state = pat_dq().graph.full_state
         results_2  = pat_dq.state.measure_dict
     assert torch.allclose(torch.abs(torch.tensor(out_state.flatten(), dtype=torch.complex64)), torch.abs(state.flatten()), atol=1e-6)
 
@@ -51,7 +51,7 @@ def test_batch_init_state():
     pat_dq.m(node=1, angle=np.pi, s_domain=[0])
     pat_dq.m(node=n-1, angle=np.pi, s_domain=[0], t_domain=[1])
     pat_dq.c_x(node=n, domain=[0, 1, n-1])
-    state = pat_dq()
+    state = pat_dq().graph.full_state
     results  = pat_dq.state.measure_dict
     for i in range(3):
         rst = {}
@@ -115,7 +115,7 @@ def test_standardize():
             pat_dq.c_x(node=2 +2*l, domain=[0+2*l, 1+2*l])
             pat_dq.c_z(node=2 +2*l, domain=[1+2*l] )
         pat_dq.standardize()
-        state2 = pat_dq()
+        state2 = pat_dq().graph.full_state
         results_2 = pat_dq.state.measure_dict
     assert torch.allclose(torch.abs(torch.tensor(state.flatten(), dtype=torch.complex64)), torch.abs(state2.flatten()))
 
@@ -160,7 +160,7 @@ def test_signal_shifting():
             pat_dq.c_z(node=2 +2*l, domain=[1+2*l] )
         pat_dq.standardize()
         pat_dq.shift_signals()
-        state2 = pat_dq()
+        state2 = pat_dq().graph.full_state
         results_2 = pat_dq.state.measure_dict
     assert torch.allclose(torch.abs(torch.tensor(state.flatten(), dtype=torch.complex64)), torch.abs(state2.flatten()))
 
@@ -205,7 +205,7 @@ def test_signal_shifting_plane_yz():
             pat_dq.c_z(node=2 +2*l, domain=[1+2*l] )
         pat_dq.standardize()
         pat_dq.shift_signals()
-        state2 = pat_dq()
+        state2 = pat_dq().graph.full_state
         results_2 = pat_dq.state.measure_dict
     assert torch.allclose(torch.abs(torch.tensor(state.flatten(), dtype=torch.complex64)), torch.abs(state2.flatten()))
 
@@ -250,45 +250,6 @@ def test_signal_shifting_plane_xz():
             pat_dq.c_z(node=2 +2*l, domain=[1+2*l] )
         pat_dq.standardize()
         pat_dq.shift_signals()
-        state2 = pat_dq()
+        state2 = pat_dq().graph.full_state
         results_2 = pat_dq.state.measure_dict
     assert torch.allclose(torch.abs(torch.tensor(state.flatten(), dtype=torch.complex64)), torch.abs(state2.flatten()))
-
-def compare_with_graphix():
-    alpha = np.random.rand(100)
-
-    pat_gx = Pattern([0])
-    for l in range(2):
-        pat_gx.add(command.N(1+2*l))
-        pat_gx.add(command.N(2+2*l))
-        pat_gx.add(command.E(nodes=(0+2*l, 1+2*l)))
-        pat_gx.add(command.E(nodes=(1+2*l, 2+2*l)))
-        if l == 0:
-            pat_gx.add(command.M(node=0+2*l, angle=alpha[50]))
-            pat_gx.add(command.M(node=1+2*l, angle=alpha[51], s_domain={0}))
-        else:
-            pat_gx.add(command.M(node=0+2*l, angle=alpha[2*l], s_domain={2*l-1}))
-            pat_gx.add(command.M(node=1+2*l, angle=alpha[2*l+1], s_domain={(2*l-1),2*l}))
-        pat_gx.add(command.X(node=2 +2*l, domain={0+2*l, 1+2*l}))
-        pat_gx.add(command.Z(node=2 +2*l, domain={1+2*l}))
-    pat_gx.standardize()
-    pat_gx.shift_signals()
-    pat_gx.print_pattern()
-
-    pat_dq = dq.Pattern(nodes_state=[0])
-    for l in range(2):
-        pat_dq.n(1+2*l)
-        pat_dq.n(2+2*l)
-        pat_dq.e([0+2*l, 1+2*l])
-        pat_dq.e([1+2*l, 2+2*l])
-        if l == 0:
-            pat_dq.m(node=0+2*l, angle=alpha[50])
-            pat_dq.m(node=1+2*l, angle=alpha[51], s_domain=[0])
-        else:
-            pat_dq.m(node=0+2*l, angle=alpha[2*l], s_domain=[2*l-1])
-            pat_dq.m(node=1+2*l, angle=alpha[2*l+1], s_domain=[(2*l-1),2*l])
-        pat_dq.c_x(node=2 +2*l, domain=[0+2*l, 1+2*l])
-        pat_dq.c_z(node=2 +2*l, domain=[1+2*l] )
-    pat_dq.standardize()
-    pat_dq.shift_signals()
-    print(pat_dq)

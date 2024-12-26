@@ -19,13 +19,13 @@ class SubGraphState(nn.Module):
     """A subgraph state of a quantum state.
 
     Args:
-        nodes_state (Union[int, List[int], None], optional): The nodes of the input state in the subgraph.
+        nodes_state (int, List[int] or None, optional): The nodes of the input state in the subgraph.
             It can be an integer representing the number of nodes or a list of node indices.
             Default: ``None``.
         state (Any, optional): The initial state of the subgraph. Default: ``'plus'``.
-        edges (Optional[List], optional): Additional edges connecting the nodes in the subgraph.
+        edges (List or None, optional): Additional edges connecting the nodes in the subgraph.
             Default: ``None``.
-        nodes (Union[int, List[int], None], optional): Additional nodes to include in the subgraph.
+        nodes (int, List[int] or None, optional): Additional nodes to include in the subgraph.
             Default: ``None``.
     """
     def __init__(
@@ -177,13 +177,13 @@ class GraphState(nn.Module):
     """A graph state composed by several SubGraphStates.
 
     Args:
-        nodes_state (Union[int, List[int], None], optional): The nodes of the input state in the subgraph.
+        nodes_state (int, List[int] or None, optional): The nodes of the input state in the subgraph.
             It can be an integer representing the number of nodes or a list of node indices.
             Default: ``None``.
         state (Any, optional): The initial state of the subgraph. Default: ``'plus'``.
-        edges (Optional[List], optional): Additional edges connecting the nodes in the subgraph.
+        edges (List or None, optional): Additional edges connecting the nodes in the subgraph.
             Default: ``None``.
-        nodes (Union[int, List[int], None], optional): Additional nodes to include in the subgraph.
+        nodes (int, List[int] or None, optional): Additional nodes to include in the subgraph.
             Default: ``None``.
     """
     def __init__(
@@ -212,16 +212,16 @@ class GraphState(nn.Module):
         """Add a subgraph to the graph state.
 
         Args:
-            nodes_state (Union[int, List[int], None], optional): The nodes of the input state in the subgraph.
+            nodes_state (int, List[int] or None, optional): The nodes of the input state in the subgraph.
                 It can be an integer representing the number of nodes or a list of node indices.
                 Default: ``None``.
             state (Any, optional): The initial state of the subgraph. Default: ``'plus'``.
-            edges (Optional[List], optional): Additional edges connecting the nodes in the subgraph.
+            edges (List or None, optional): Additional edges connecting the nodes in the subgraph.
                 Default: ``None``.
-            nodes (Union[int, List[int], None], optional): Additional nodes to include in the subgraph.
+            nodes (int, List[int] or None, optional): Additional nodes to include in the subgraph.
                 Default: ``None``.
-            measure_dict (Dict, optional): A dictionary to record measurement results. Default: ``None``.
-            index (Optional[int], optional): The index where to insert the subgraph. Default: ``None``.
+            measure_dict (Dict or None, optional): A dictionary to record measurement results. Default: ``None``.
+            index (int or None, optional): The index where to insert the subgraph. Default: ``None``.
         """
         sgs = SubGraphState(nodes_state, state, edges, nodes)
         if measure_dict is not None:
@@ -233,7 +233,7 @@ class GraphState(nn.Module):
 
     @property
     def graph(self) -> SubGraphState:
-        """Return the combined graph of all subgraphs."""
+        """The combined graph of all subgraphs."""
         graph = None
         for subgraph in self.subgraphs:
             if graph is None:
@@ -247,5 +247,5 @@ class GraphState(nn.Module):
 
     @property
     def measure_dict(self) -> Dict:
-        """Return a dictionary containing all measurement results for the graph state."""
+        """A dictionary containing all measurement results for the graph state."""
         return self.graph.measure_dict

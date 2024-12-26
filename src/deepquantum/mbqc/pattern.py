@@ -23,13 +23,13 @@ class Pattern(Operation):
     in a graph structure.
 
     Args:
-        nodes_state (Union[int, List[int], None], optional): The nodes of the input state in the subgraph.
+        nodes_state (int, List[int] or None): The nodes of the input state in the subgraph.
             It can be an integer representing the number of nodes or a list of node indices.
             Default: ``None``.
         state (Any, optional): The initial state of the subgraph. Default: ``'plus'``.
-        edges (Optional[List], optional): Additional edges connecting the nodes in the subgraph.
+        edges (List or None, optional): Additional edges connecting the nodes in the subgraph.
             Default: ``None``.
-        nodes (Union[int, List[int], None], optional): Additional nodes to include in the subgraph.
+        nodes (int, List[int] or None, optional): Additional nodes to include in the subgraph.
             Default: ``None``.
         name (str or None, optional): The name of the pattern. Default: ``None``
 
@@ -52,25 +52,25 @@ class Pattern(Operation):
 
     def forward(
         self,
-        angle: Optional[torch.Tensor] = None,
+        data: Optional[torch.Tensor] = None,
         state: Optional[GraphState] = None,
     ) -> torch.Tensor:
-        """Perform a forward pass of the MBQC pattern and return the final state.
+        """Perform a forward pass of the MBQC pattern and return the final graph state.
 
         Args:
-            angle (torch.Tensor or None, optional): The input data for the ``encoders``. Default: ``None``
-            state (GraphState, optional): The initial state for the pattern. Default: ``None``
+            data (torch.Tensor or None, optional): The input angle data for the ``encoders``. Default: ``None``
+            state (GraphState or None, optional): The initial state for the pattern. Default: ``None``
 
         Returns:
-            torch.Tensor: The final state of the pattern after applying the ``commands``.
+            GraphState: The final graph state of the pattern after applying the ``commands``.
         """
         if state is None:
             self.state = deepcopy(self.init_state)
         else:
             self.state = state
-        self.encode(angle)
+        self.encode(data)
         self.state = self.commands(self.state)
-        return self.state.graph.full_state
+        return self.state
 
     def add_graph(self,
         nodes_state: Union[int, List[int], None] = None,
@@ -82,16 +82,16 @@ class Pattern(Operation):
         """Add a subgraph to the graph state.
 
         Args:
-            nodes_state (Union[int, List[int], None], optional): The nodes of the input state in the subgraph.
+            nodes_state (int, List[int] or None): The nodes of the input state in the subgraph.
                 It can be an integer representing the number of nodes or a list of node indices.
                 Default: ``None``.
             state (Any, optional): The initial state of the subgraph. Default: ``'plus'``.
-            edges (Optional[List], optional): Additional edges connecting the nodes in the subgraph.
+            edges (List or None, optional): Additional edges connecting the nodes in the subgraph.
                 Default: ``None``.
-            nodes (Union[int, List[int], None], optional): Additional nodes to include in the subgraph.
+            nodes (int, List[int] or None, optional): Additional nodes to include in the subgraph.
                 Default: ``None``.
             measure_dict (Dict, optional): A dictionary to record measurement results. Default: ``None``.
-            index (Optional[int], optional): The index where to insert the subgraph. Default: ``None``.
+            index (int or None, optional): The index where to insert the subgraph. Default: ``None``.
         """
         self.init_state.add_subgraph(nodes_state=nodes_state, state=state, edges=edges, nodes=nodes, index=index)
 
@@ -148,8 +148,7 @@ class Pattern(Operation):
         """Add a new node to the pattern.
 
         Args:
-            node (Union[int, List[int]]): Index or list of indices for the new node.
-                Default: ``None``
+            node (int or List[int]): Index or list of indices for the new node.
         """
         node_ = Node(nodes=node)
         self.add(node_)
@@ -166,7 +165,7 @@ class Pattern(Operation):
 
     def m(
         self,
-        node: int = None,
+        node: int,
         plane: Optional[str] = 'xy',
         angle: float = 0.,
         t_domain: Union[int, Iterable[int], None] = None,
@@ -176,12 +175,12 @@ class Pattern(Operation):
         """Add a measurement operation to the pattern.
 
         Args:
-            node (Optional[int]): The node to measure.
-            plane (Optional[str]): Measurement plane ('xy', 'yz', or 'xz'). Defaults to 'xy'.
+            node (int): The node to measure.
+            plane (str, optional): Measurement plane ('xy', 'yz', or 'xz'). Defaults to 'xy'.
             angle (float): Measurement angle in radians. Defaults to 0.
-            t_domain (Union[int, Iterable[int], None], optional): List of nodes that contribute to the Z correction.
+            t_domain (int, Iterable[int] or None], optional): List of nodes that contribute to the Z correction.
                 Default: None
-            s_domain (Union[int, Iterable[int], None], optional): List of nodes that contribute to the X correction.
+            s_domain (int, Iterable[int] or None], optional): List of nodes that contribute to the X correction.
                 Default: None
             encode (bool): Whether to encode angle. Default: ``False``.
         """
@@ -192,23 +191,23 @@ class Pattern(Operation):
                              s_domain=s_domain, requires_grad=requires_grad)
         self.add(mea_op, encode=encode)
 
-    def c_x(self, node: int = None, domain: Union[int, Iterable[int], None] = None):
+    def c_x(self, node: int, domain: Union[int, Iterable[int], None] = None):
         """Add an X correction operation to the pattern.
 
         Args:
-            node (int, optional): The node to apply the X correction.
-            domain (Union[int, Iterable[int], None], optional): List of nodes on which
+            node (int): The node to apply the X correction.
+            domain (int, Iterable[int] or None], optional): List of nodes on which
                 the signal depends. Default: None
         """
         c_x = Correction(nodes=node, basis='x', domain=domain)
         self.add(c_x)
 
-    def c_z(self, node: int = None, domain: Union[int, Iterable[int], None] = None):
+    def c_z(self, node: int, domain: Union[int, Iterable[int], None] = None):
         """Add a Z correction operation to the pattern.
 
         Args:
-            node (int, optional): The node to apply the Z correction.
-            domain (Union[int, Iterable[int], None], optional): List of nodes on which
+            node (int): The node to apply the Z correction.
+            domain (int, Iterable[int] or None], optional): List of nodes on which
                 the signal depends. Default: None
         """
         c_z = Correction(nodes=node, basis='z', domain=domain)
@@ -247,14 +246,14 @@ class Pattern(Operation):
         draw_networkx_edges(g, pos, edges_s_domain, arrows=True, style=':',
                             edge_color='#db1d2c', connectionstyle='arc3,rad=0.2')
         draw_networkx_labels(g, pos)
-        plt.plot([], [], color="k",label="graph edge")
-        plt.plot([], [], ':', color="#4cd925", label="xflow")
-        plt.plot([], [], ':', color="#db1d2c", label="zflow")
-        plt.plot([], [], 's', color="#1f78b4", label="input nodes")
-        plt.plot([], [], 'o', color="#d7dde0", label="output nodes")
+        plt.plot([], [], color='k',label='graph edge')
+        plt.plot([], [], ':', color='#4cd925', label='xflow')
+        plt.plot([], [], ':', color='#db1d2c', label='zflow')
+        plt.plot([], [], 's', color='#1f78b4', label='input nodes')
+        plt.plot([], [], 'o', color='#d7dde0', label='output nodes')
         plt.xlim(-width/2,width/2)
         plt.ylim(-width/2,width/2)
-        plt.legend(loc="upper right", fontsize=10)
+        plt.legend(loc='upper right', fontsize=10)
         plt.tight_layout()
         plt.show()
 
@@ -295,7 +294,7 @@ class Pattern(Operation):
         2. Moving corrections through measurements (modifying measurement signal domains)
         3. Collecting remaining corrections at the end
 
-        See https://arxiv.org/pdf/0704.1263 ch.(5.4)
+        See https://arxiv.org/pdf/0704.1263 Ch.(5.4)
         """
         # Initialize lists for each operation type
         n_list = []  # Node operations
@@ -304,7 +303,7 @@ class Pattern(Operation):
         z_dict = {}  # Tracks Z corrections by node
         x_dict = {}  # Tracks X corrections by node
 
-        def add_correction_domain(domain_dict: dict, node, domain) -> None:
+        def add_correction_domain(domain_dict: Dict, node, domain) -> None:
             """Helper function to update correction domains with XOR operation"""
             if previous_domain := domain_dict.get(node):
                 previous_domain = previous_domain ^ domain
@@ -356,7 +355,7 @@ class Pattern(Operation):
         Returns:
             A signal dictionary including all the signal shifting commands.
 
-        See https://arxiv.org/pdf/0704.1263 ch.(5.5)
+        See https://arxiv.org/pdf/0704.1263 Ch.(5.5)
         """
 
         signal_dict = {}
