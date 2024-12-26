@@ -3,7 +3,7 @@ Measurement pattern
 """
 
 from copy import copy, deepcopy
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Iterable, List, Optional, Union
 
 import matplotlib.pyplot as plt
 import torch
@@ -144,21 +144,21 @@ class Pattern(Operation):
             op.init_para(data[count:count_up])
             count = count_up % len(data)
 
-    def n(self, node: Union[int, List[int]] = None):
+    def n(self, node: Union[int, List[int]]):
         """Add a new node to the pattern.
 
         Args:
-            node (Union[int, List[int]], optional): Index or list of indices for the new node.
+            node (Union[int, List[int]]): Index or list of indices for the new node.
                 Default: ``None``
         """
         node_ = Node(nodes=node)
         self.add(node_)
 
-    def e(self, node: List[int] = None):
+    def e(self, node: List[int]):
         """Add an entanglement operators on two nodes in the pattern.
 
         Args:
-            node (List[int], optional): A list of two integers specifying the nodes to entangle.
+            node (List[int]): A list of two integers specifying the nodes to entangle.
                 Must reference existing nodes in the pattern.
         """
         entang_ = Entanglement(node1=node[0], node2=node[1])
@@ -167,22 +167,22 @@ class Pattern(Operation):
     def m(
         self,
         node: int = None,
-        plane: Optional[str] = 'XY',
-        angle: float = 0,
-        t_domain: Union[int, List[int]] = [],
-        s_domain: Union[int, List[int]] = [],
+        plane: Optional[str] = 'xy',
+        angle: float = 0.,
+        t_domain: Union[int, Iterable[int], None] = None,
+        s_domain: Union[int, Iterable[int], None] = None,
         encode: bool = False
     ):
         """Add a measurement operation to the pattern.
 
         Args:
             node (Optional[int]): The node to measure.
-            plane (Optional[str]): Measurement plane ('XY', 'YZ', or 'XZ'). Defaults to 'XY'.
+            plane (Optional[str]): Measurement plane ('xy', 'yz', or 'xz'). Defaults to 'xy'.
             angle (float): Measurement angle in radians. Defaults to 0.
-            t_domain (Union[int, List[int]]): List of nodes that contribute to the Z correction.
-                Default: []
-            s_domain (Union[int, List[int]]): List of nodes that contribute to the X correction.
-                Default: []
+            t_domain (Union[int, Iterable[int], None], optional): List of nodes that contribute to the Z correction.
+                Default: None
+            s_domain (Union[int, Iterable[int], None], optional): List of nodes that contribute to the X correction.
+                Default: None
             encode (bool): Whether to encode angle. Default: ``False``.
         """
         requires_grad = not encode
@@ -192,22 +192,24 @@ class Pattern(Operation):
                              s_domain=s_domain, requires_grad=requires_grad)
         self.add(mea_op, encode=encode)
 
-    def c_x(self, node: int = None, domain: List[int] = None):
+    def c_x(self, node: int = None, domain: Union[int, Iterable[int], None] = None):
         """Add an X correction operation to the pattern.
 
         Args:
             node (int, optional): The node to apply the X correction.
-            domain (List[int], optional): List of nodes on which the signal depends.
+            domain (Union[int, Iterable[int], None], optional): List of nodes on which
+                the signal depends. Default: None
         """
         c_x = Correction(nodes=node, basis='x', domain=domain)
         self.add(c_x)
 
-    def c_z(self, node: int = None, domain: List[int] = None):
+    def c_z(self, node: int = None, domain: Union[int, Iterable[int], None] = None):
         """Add a Z correction operation to the pattern.
 
         Args:
             node (int, optional): The node to apply the Z correction.
-            domain (List[int], optional): List of nodes on which the signal depends.
+            domain (Union[int, Iterable[int], None], optional): List of nodes on which
+                the signal depends. Default: None
         """
         c_z = Correction(nodes=node, basis='z', domain=domain)
         self.add(c_z)
@@ -235,12 +237,15 @@ class Pattern(Operation):
                 for i in op.s_domain:
                     edges_s_domain.append(tuple([i, op.nodes[0]]))
         pos = multipartite_layout(g, subset_key='layer')
-        draw_networkx_nodes(g,pos,nodelist=nodes_init, node_color='#1f78b4', node_shape='s')
-        draw_networkx_nodes(g,pos,nodelist=nodes_measured, node_color='#1f78b4')
-        draw_networkx_nodes(g,pos,nodelist=list(set(g.nodes()) - set(nodes_measured)), node_color='#d7dde0', node_shape='o')
+        draw_networkx_nodes(g, pos, nodelist=nodes_init, node_color='#1f78b4', node_shape='s')
+        draw_networkx_nodes(g, pos, nodelist=nodes_measured, node_color='#1f78b4')
+        draw_networkx_nodes(g, pos, nodelist=list(set(g.nodes()) - set(nodes_measured)),
+                            node_color='#d7dde0', node_shape='o')
         draw_networkx_edges(g, pos, g.edges(), arrows=False)
-        draw_networkx_edges(g, pos, edges_t_domain, arrows=True, style=':', edge_color='#4cd925', connectionstyle='arc3,rad=-0.2')
-        draw_networkx_edges(g, pos, edges_s_domain, arrows=True, style=':', edge_color='#db1d2c', connectionstyle='arc3,rad=0.2')
+        draw_networkx_edges(g, pos, edges_t_domain, arrows=True, style=':',
+                            edge_color='#4cd925', connectionstyle='arc3,rad=-0.2')
+        draw_networkx_edges(g, pos, edges_s_domain, arrows=True, style=':',
+                            edge_color='#db1d2c', connectionstyle='arc3,rad=0.2')
         draw_networkx_labels(g, pos)
         plt.plot([], [], color="k",label="graph edge")
         plt.plot([], [], ':', color="#4cd925", label="xflow")
@@ -256,9 +261,8 @@ class Pattern(Operation):
     def is_standard(self) -> bool:
         """Determine whether the command sequence is standard.
 
-        Returns
-        -------
-        is_standard : bool
+        Returns:
+            A bool value,
             True if the pattern follows NEMC standardization, False otherwise
         """
         it = iter(self.commands)
@@ -340,7 +344,7 @@ class Pattern(Operation):
                     *(Correction(nodes=node, basis='x', domain=domain) for node, domain in x_dict.items())
         )
 
-    def signal_shifting(self) -> Dict:
+    def shift_signals(self) -> Dict:
         """Perform signal shifting procedure.
         This allows one to dispose of dependencies induced by the Z-action,
         and obtain sometimes standard patterns with smaller computational depth complexity.
@@ -349,9 +353,8 @@ class Pattern(Operation):
         1. Extracting signals via t_domain(in XY plane cases) of measurements.
         2. Moving signals to the left, through modifying other measurements and corrections.
 
-        Returns
-        -------
-        Signal dictionary including all the signal shifting commands
+        Returns:
+            A signal dictionary including all the signal shifting commands.
 
         See https://arxiv.org/pdf/0704.1263 ch.(5.5)
         """

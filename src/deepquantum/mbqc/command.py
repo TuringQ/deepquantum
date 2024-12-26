@@ -2,7 +2,7 @@
 MBQC commands
 """
 
-from typing import Any, Iterable, List, Union
+from typing import Any, Iterable, List, Optional, Union
 
 import torch
 from torch import nn
@@ -72,9 +72,9 @@ class Measurement(Command):
         nodes (int or List[int]): The indices of the nodes to measure.
         plane (str, optional): The measurement plane (``'xy'``, ``'yz'`` or ``'zx'``). Default: ``'xy'``
         angle (Any, optional): The measurement angle in radians. Default: 0.
-        s_domain (int, Iterable[int] or None, optional): The indices of the nodes that contribute to signal domain s.
+        s_domain (Union[int, Iterable[int], None], optional): The indices of the nodes that contribute to signal domain s.
             Default: ``None``
-        t_domain (int, Iterable[int] or None, optional): The indices of the nodes that contribute to signal domain t.
+        t_domain (Union[int, Iterable[int], None], optional): The indices of the nodes that contribute to signal domain t.
             Default: ``None``
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
@@ -84,13 +84,11 @@ class Measurement(Command):
         nodes: Union[int, List[int]],
         plane: str = 'xy',
         angle: Any = 0.,
-        s_domain: Union[int, Iterable[int]] = None,
-        t_domain: Union[int, Iterable[int]] = None,
+        s_domain: Union[int, Iterable[int], None] = None,
+        t_domain: Union[int, Iterable[int], None] = None,
         requires_grad: bool = False
     ) -> None:
         super().__init__(name='Measurement', nodes=nodes)
-        if plane is None:
-            plane = 'xy'
         self.plane = plane.lower()
         if s_domain is None:
             s_domain = []
@@ -192,14 +190,14 @@ class Correction(Command):
     Args:
         nodes (int or List[int]): The indices of the nodes to correct.
         basis (str, optional): The type of correction (``'x'`` or ``'z'``). Default: ``'x'``
-        domain (int, Iterable[int] or None, optional): The indices of the nodes that contribute to signal domain s.
+        domain (Union[int, Iterable[int], None], optional): The indices of the nodes that contribute to signal domain s.
             Default: ``None``
     """
     def __init__(
         self,
         nodes: Union[int, List[int]],
         basis: str = 'x',
-        domain: Union[int, Iterable[int]] = None
+        domain: Union[int, Iterable[int], None] = None
     ) -> None:
         super().__init__(name='Correction', nodes=nodes)
         self.basis = basis.lower()

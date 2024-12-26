@@ -42,12 +42,12 @@ class SubGraphState(nn.Module):
 
     @property
     def nodes(self, **kwargs):
-        """Return the nodes of the graph."""
+        """Nodes of the graph."""
         return self.graph.nodes(**kwargs)
 
     @property
     def edges(self, **kwargs):
-        """Return the edges of the graph."""
+        """Edges of the graph."""
         return self.graph.edges(**kwargs)
 
     @property
