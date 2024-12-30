@@ -864,6 +864,7 @@ class QumodeCircuit(Operation):
         Args:
             final_state (Any): The final Fock basis state.
             refer_state (Any, optional): The initial Fock basis state or the final Gaussian state. Default: ``None``
+            unitary (torch.Tensor or None, optional): The unitary matrix. Default: ``None``
         """
         if self.backend == 'fock':
             if refer_state is None:
