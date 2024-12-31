@@ -73,11 +73,10 @@ class QumodeCircuit(Operation):
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(name=name, nmode=nmode, wires=list(range(nmode)), noise=noise, mu=mu, sigma=sigma)
-        self.cutoff = cutoff
+        super().__init__(name=name, nmode=nmode, wires=list(range(nmode)), cutoff=cutoff, den_mat=den_mat,
+                         noise=noise, mu=mu, sigma=sigma)
         self.backend = backend
         self.basis = basis
-        self.den_mat = den_mat
         self.detector = detector.lower()
         self.mps = mps
         self.chi = chi

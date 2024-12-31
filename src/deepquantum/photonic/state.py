@@ -21,6 +21,8 @@ class FockState(nn.Module):
         nmode (int or None, optional): The number of modes in the state. Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
         basis (bool, optional): Whether the state is a Fock basis state or not. Default: ``True``
+        den_mat (bool, optional): Whether to use density matrix representation. Only valid for Fock state tensor.
+            Default: ``False``
     """
     def __init__(
         self,
