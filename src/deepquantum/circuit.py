@@ -211,6 +211,34 @@ class QubitCircuit(Operation):
             x = self.vector_rep(x)
         return x.squeeze(0)
 
+    def get_amplitudes(self, bits_list):
+        """
+        Get the amplitudes for given state bitstrings, the input should be
+        ['0000...', ..., '1111...']
+        """
+        q_list = [list(map(int, i)) for i in bits_list]
+        q_list = torch.tensor(q_list)
+        assert len(q_list[0]) == self.nqubit
+        final_state = self.state
+        if self.mps:
+            state = final_state[0][:, q_list[:, 0], :]
+            state = state.permute(1,0,2)
+            for i in range(1, self.nqubit):
+                temp = final_state[i][:, q_list[:, i], :]
+                temp = temp.permute(1,0,2)
+                state = state @ temp
+        else:
+            final_state = final_state.reshape([-1] + [2] * self.nqubit)
+            batch = final_state.shape[0]
+            indices = tuple(q_list[:, i] for i in range(self.nqubit))
+            state = [ ]
+            for i in range(batch):
+                state_i = final_state[i][indices]
+                state.append(state_i)
+            state = torch.stack(state)
+        amps = state.squeeze()
+        return amps
+
     def encode(self, data: Optional[torch.Tensor]) -> None:
         """Encode the input data into the quantum circuit parameters.
 
