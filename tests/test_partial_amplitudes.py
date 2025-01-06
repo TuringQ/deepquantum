@@ -14,7 +14,7 @@ def test_get_amplitude():
         cir1.rx(i, encode=True)
         cir1.ry(i, encode=True)
         cir1.rz(i, encode=True)
-    cir2.cnot_ring()
+    cir1.cnot_ring()
     cir1(data=data)
     amp1 = cir1.get_amplitude(bits)
 
