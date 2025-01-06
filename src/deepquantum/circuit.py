@@ -211,7 +211,7 @@ class QubitCircuit(Operation):
             x = self.vector_rep(x)
         return x.squeeze(0)
 
-    def get_amplitudes(self, bits_list):
+    def get_partial_amplitudes(self, bits_list):
         """
         Get the amplitudes for given state bitstrings, the input should be
         ['0000...', ..., '1111...']

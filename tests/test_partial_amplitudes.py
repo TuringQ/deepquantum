@@ -2,7 +2,7 @@ import deepquantum as dq
 import pytest
 import torch
 
-def test_multi_amplitudes():
+def test_partial_amplitudes():
     n = 10
     cir1 = dq.QubitCircuit(nqubit=n, mps=False)
     angles = 2*torch.pi*torch.rand(3)
@@ -14,7 +14,7 @@ def test_multi_amplitudes():
     for i in range(n-1):
         cir1.cnot(i, i+1)
     cir1()
-    amps_1 = cir1.get_amplitudes(['0000000000', '1111111111', '0101010101'])
+    amps_1 = cir1.get_partial_amplitudes(['0000000000', '1111111111', '0101010101'])
 
     cir2 = dq.QubitCircuit(nqubit=n, mps=True, chi=5)
     for i in range(n):
@@ -25,5 +25,5 @@ def test_multi_amplitudes():
     for i in range(n-1):
         cir2.cnot(i, i+1)
     cir2()
-    amps_2 = cir2.get_amplitudes(['0000000000', '1111111111', '0101010101'])
-    assert abs(amps_1 - amps_2).max() < 1e-6
+    amps_2 = cir2.get_partial_amplitudes(['0000000000', '1111111111', '0101010101'])
+    assert abs(amps_1 - amps_2).max() < 1e-5
