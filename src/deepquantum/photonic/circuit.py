@@ -73,11 +73,10 @@ class QumodeCircuit(Operation):
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(name=name, nmode=nmode, wires=list(range(nmode)), noise=noise, mu=mu, sigma=sigma)
-        self.cutoff = cutoff
+        super().__init__(name=name, nmode=nmode, wires=list(range(nmode)), cutoff=cutoff, den_mat=den_mat,
+                         noise=noise, mu=mu, sigma=sigma)
         self.backend = backend
         self.basis = basis
-        self.den_mat = den_mat
         self.detector = detector.lower()
         self.mps = mps
         self.chi = chi
@@ -811,14 +810,14 @@ class QumodeCircuit(Operation):
     def get_amplitude(
         self,
         final_state: Any,
-        init_state: Optional[FockState] = None,
+        init_state: Any = None,
         unitary: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         """Get the transfer amplitude between the final state and the initial state.
 
         Args:
             final_state (Any): The final Fock basis state.
-            init_state (FockState or None, optional): The initial Fock basis state. Default: ``None``
+            init_state (Any, optional): The initial Fock basis state. Default: ``None``
             unitary (torch.Tensor or None, optional): The unitary matrix. Default: ``None``
         """
         assert self.backend == 'fock'
@@ -826,6 +825,8 @@ class QumodeCircuit(Operation):
             final_state = torch.tensor(final_state, dtype=torch.long)
         if init_state is None:
             init_state = self.init_state
+        elif not isinstance(init_state, FockState):
+            init_state = FockState(state=init_state, nmode=self.nmode, cutoff=self.cutoff, basis=self.basis)
         assert init_state.basis, 'The initial state must be a Fock basis state'
         assert max(final_state) < self.cutoff, 'The number of photons in the final state must be less than cutoff'
         if unitary is None:
@@ -854,15 +855,15 @@ class QumodeCircuit(Operation):
     def get_prob(
         self,
         final_state: Any,
-        refer_state: Union[FockState, GaussianState, None] = None,
+        refer_state: Any = None,
         unitary: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         """Get the probability of the final state related to the reference state.
 
         Args:
             final_state (Any): The final Fock basis state.
-            refer_state (FockState, GaussianState or None, optional): The initial Fock basis state or
-                the final Gaussian state. Default: ``None``
+            refer_state (Any, optional): The initial Fock basis state or the final Gaussian state. Default: ``None``
+            unitary (torch.Tensor or None, optional): The unitary matrix. Default: ``None``
         """
         if self.backend == 'fock':
             if refer_state is None:
@@ -882,14 +883,14 @@ class QumodeCircuit(Operation):
     def _get_prob_fock(
         self,
         final_state: Any,
-        init_state: Optional[FockState] = None,
+        init_state: Any = None,
         unitary: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         """Get the transfer probability between the final state and the initial state for the Fock backend.
 
         Args:
             final_state (Any): The final Fock basis state.
-            init_state (FockState or None, optional): The initial Fock basis state. Default: ``None``
+            init_state (Any, optional): The initial Fock basis state. Default: ``None``
             unitary (torch.Tensor or None, optional): The unitary matrix. Default: ``None``
         """
         if init_state is None:
@@ -909,7 +910,7 @@ class QumodeCircuit(Operation):
     def _get_prob_gaussian(
         self,
         final_state: Any,
-        state: Optional[GaussianState] = None
+        state: Any = None
     ) -> torch.Tensor:
         """Get the batched probabilities of the final state for Gaussian backend."""
         if not isinstance(final_state, torch.Tensor):
@@ -918,6 +919,8 @@ class QumodeCircuit(Operation):
             cov = self._cov
             mean = self._mean
         else:
+            if not isinstance(state, GaussianState):
+                state = GaussianState(state=state, nmode=self.nmode, cutoff=self.cutoff)
             cov = state.cov
             mean = state.mean
         if cov.ndim == 2:
