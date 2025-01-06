@@ -370,7 +370,7 @@ class QubitCircuit(Operation):
         else:
             return u
 
-    def get_amplitude(self, bits):
+    def get_amplitude(self, bits: str) -> torch.Tensor:
         """Get the amplitude for the given bit string.
 
         Args:
