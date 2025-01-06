@@ -434,8 +434,46 @@ class QubitCircuit(Operation):
         state = nn.functional.normalize(state.reshape(batch, -1), p=2, dim=-1)
         return state
 
-    def _qasm(self):
+    def qasm(self) -> str:
         """Get QASM of the quantum circuit."""
+        allowed_ops = (U3Gate, PhaseShift, PauliX, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, TGate,
+                       TDaggerGate, Rx, Ry, Rz, CNOT, Swap, Rxx, Ryy, Rzz, Toffoli, Fredkin, Barrier, Layer)
+        without_control_gates = (TGate, TDaggerGate, CNOT, Rxx, Ryy, Rzz, Toffoli, Fredkin, Barrier)
+        single_control_gates = (U3Gate, PhaseShift, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, Rx, Ry, Rz, Swap)
+        qasm_lst = ['OPENQASM 2.0;\n' + 'include "qelib1.inc";\n']
+        if self.wires_measure is None and self.wires_condition == []:
+            qasm_lst.append(f'qreg q[{self.nqubit}];\n')
+        else:
+            qasm_lst.append(f'qreg q[{self.nqubit}];\n' + f'creg c[{self.nqubit}];\n')
+        for op in self.operators:
+            if not isinstance(op, allowed_ops):
+                Gate._reset_qasm_new_gate()
+                raise ValueError(f'{op.name} is NOT supported')
+            if isinstance(op, Gate):
+                if op.condition:
+                    Gate._reset_qasm_new_gate()
+                    raise ValueError(f'Conditional mode is NOT supported for {op.name}')
+                if isinstance(op, PauliX):
+                    if len(op.controls) > 4:
+                        Gate._reset_qasm_new_gate()
+                        raise ValueError(f'Too many control bits for {op.name}')
+                elif isinstance(op, without_control_gates):
+                    if len(op.controls) > 0:
+                        Gate._reset_qasm_new_gate()
+                        raise ValueError(f'Too many control bits for {op.name}')
+                elif isinstance(op, single_control_gates):
+                    if len(op.controls) > 1:
+                        Gate._reset_qasm_new_gate()
+                        raise ValueError(f'Too many control bits for {op.name}')
+            qasm_lst.append(op._qasm())
+        if self.wires_measure is not None:
+            for wire in self.wires_measure:
+                qasm_lst.append(f'measure q[{wire}] -> c[{wire}];\n')
+        Gate._reset_qasm_new_gate()
+        return ''.join(qasm_lst)
+
+    def _qasm(self):
+        """Get QASM of the quantum circuit for visualization."""
         # pylint: disable=protected-access
         qasm_lst = ['OPENQASM 2.0;\n' + 'include "qelib1.inc";\n']
         if self.wires_measure is None and self.wires_condition == []:
