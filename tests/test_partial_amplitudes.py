@@ -5,7 +5,7 @@ import torch
 
 def test_get_amplitude():
     n = 10
-    data = torch.randn(4, 3)
+    data = torch.randn(4, 3 * n)
     bits = '0101010101'
 
     cir1 = dq.QubitCircuit(nqubit=n, mps=False)
