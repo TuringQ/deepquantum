@@ -370,6 +370,24 @@ class QubitCircuit(Operation):
         else:
             return u
 
+    def get_amplitude(self, bits: str) -> torch.Tensor:
+        """Get the amplitude for the given bit string.
+
+        Args:
+            bits (str): A bit string.
+        """
+        assert not self.den_mat
+        assert len(bits) == self.nqubit
+        if self.mps:
+            state = [self.state[i][..., [int(bits[i])], :] for i in range(self.nqubit)]
+            amp = MatrixProductState(nsite=self.nqubit, state=state, qudit=1).full_tensor()
+        else:
+            state = self.state.reshape([-1] + [2] * self.nqubit)
+            for i in range(self.nqubit):
+                state = state[:, int(bits[i])]
+            amp = state.squeeze()
+        return amp
+
     def inverse(self, encode: bool = False) -> 'QubitCircuit':
         """Get the inversed circuit.
 
