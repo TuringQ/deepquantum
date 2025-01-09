@@ -41,6 +41,7 @@ class SingleGate(Gate):
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls, condition=condition,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         assert len(self.wires) == 1
+        self.nancilla = 2
 
     def get_unitary(self) -> torch.Tensor:
         """Get the global unitary matrix."""
@@ -767,6 +768,24 @@ class PauliX(SingleGate):
         else:
             return self._qasm_customized('x')
 
+    def pattern(self, nodes: Union[int, List[int]], ancilla: List[int]) -> nn.Sequential:
+        """Get the MBQC pattern."""
+        from .mbqc import Node, Entanglement, Measurement, Correction
+        if isinstance(nodes, list):
+            assert len(nodes) == len(self.wires)
+            nodes = nodes[0]
+        assert len(ancilla) == self.nancilla
+        cmds = nn.Sequential()
+        cmds.append(Node(ancilla))
+        cmds.append(Entanglement(nodes, ancilla[0]))
+        cmds.append(Entanglement(ancilla[0], ancilla[1]))
+        cmds.append(Measurement(nodes))
+        cmds.append(Measurement(ancilla[0], angle=-torch.pi))
+        cmds.append(Correction(ancilla[1], basis='x', domain=ancilla[0]))
+        cmds.append(Correction(ancilla[1], basis='z', domain=nodes))
+        self.nodes = [ancilla[1]]
+        return cmds
+
 
 class PauliY(SingleGate):
     r"""PauliY gate.
@@ -804,6 +823,7 @@ class PauliY(SingleGate):
         super().__init__(name='PauliY', nqubit=nqubit, wires=wires, controls=controls, condition=condition,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[0, -1j], [1j, 0]]))
+        self.nancilla = 4
 
     def _qasm(self) -> str:
         if self.condition:
@@ -814,6 +834,28 @@ class PauliY(SingleGate):
             return f'cy q{self.controls},q{self.wires};\n'
         else:
             return self._qasm_customized('y')
+
+    def pattern(self, nodes: Union[int, List[int]], ancilla: List[int]) -> nn.Sequential:
+        """Get the MBQC pattern."""
+        from .mbqc import Node, Entanglement, Measurement, Correction
+        if isinstance(nodes, list):
+            assert len(nodes) == len(self.wires)
+            nodes = nodes[0]
+        assert len(ancilla) == self.nancilla
+        cmds = nn.Sequential()
+        cmds.append(Node(ancilla))
+        cmds.append(Entanglement(nodes, ancilla[0]))
+        cmds.append(Entanglement(ancilla[0], ancilla[1]))
+        cmds.append(Entanglement(ancilla[1], ancilla[2]))
+        cmds.append(Entanglement(ancilla[2], ancilla[3]))
+        cmds.append(Measurement(nodes, angle=torch.pi/2))
+        cmds.append(Measurement(ancilla[0], angle=torch.pi, s_domain=nodes))
+        cmds.append(Measurement(ancilla[1], angle=-torch.pi/2, s_domain=nodes))
+        cmds.append(Measurement(ancilla[2]))
+        cmds.append(Correction(ancilla[3], basis='x', domain=[ancilla[0], ancilla[2]]))
+        cmds.append(Correction(ancilla[3], basis='z', domain=[ancilla[0], ancilla[1]]))
+        self.nodes = [ancilla[3]]
+        return cmds
 
 
 class PauliZ(SingleGate):
@@ -863,6 +905,24 @@ class PauliZ(SingleGate):
         else:
             return self._qasm_customized('z')
 
+    def pattern(self, nodes: Union[int, List[int]], ancilla: List[int]) -> nn.Sequential:
+        """Get the MBQC pattern."""
+        from .mbqc import Node, Entanglement, Measurement, Correction
+        if isinstance(nodes, list):
+            assert len(nodes) == len(self.wires)
+            nodes = nodes[0]
+        assert len(ancilla) == self.nancilla
+        cmds = nn.Sequential()
+        cmds.append(Node(ancilla))
+        cmds.append(Entanglement(nodes, ancilla[0]))
+        cmds.append(Entanglement(ancilla[0], ancilla[1]))
+        cmds.append(Measurement(nodes, angle=-torch.pi))
+        cmds.append(Measurement(ancilla[0]))
+        cmds.append(Correction(ancilla[1], basis='x', domain=ancilla[0]))
+        cmds.append(Correction(ancilla[1], basis='z', domain=nodes))
+        self.nodes = [ancilla[1]]
+        return cmds
+
 
 class Hadamard(SingleGate):
     r"""Hadamard gate.
@@ -901,6 +961,7 @@ class Hadamard(SingleGate):
         super().__init__(name='Hadamard', nqubit=nqubit, wires=wires, controls=controls, condition=condition,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 1], [1, -1]], dtype=torch.cfloat) / 2 ** 0.5)
+        self.nancilla = 1
 
     def _qasm(self) -> str:
         if self.condition:
@@ -911,6 +972,23 @@ class Hadamard(SingleGate):
             return f'ch q{self.controls},q{self.wires};\n'
         else:
             return self._qasm_customized('h')
+
+    def pattern(self, nodes: Union[int, List[int]], ancilla: Union[int, List[int]]) -> nn.Sequential:
+        """Get the MBQC pattern."""
+        from .mbqc import Node, Entanglement, Measurement, Correction
+        if isinstance(nodes, list):
+            assert len(nodes) == len(self.wires)
+            nodes = nodes[0]
+        if isinstance(ancilla, list):
+            assert len(ancilla) == self.nancilla
+            ancilla = ancilla[0]
+        cmds = nn.Sequential()
+        cmds.append(Node(ancilla))
+        cmds.append(Entanglement(nodes, ancilla))
+        cmds.append(Measurement(nodes))
+        cmds.append(Correction(ancilla, basis='x', domain=nodes))
+        self.nodes = [ancilla]
+        return cmds
 
 
 class SGate(SingleGate):
@@ -970,6 +1048,24 @@ class SGate(SingleGate):
             return qasm_str1 + qasm_str2
         else:
             return self._qasm_customized('s')
+
+    def pattern(self, nodes: Union[int, List[int]], ancilla: List[int]) -> nn.Sequential:
+        """Get the MBQC pattern."""
+        from .mbqc import Node, Entanglement, Measurement, Correction
+        if isinstance(nodes, list):
+            assert len(nodes) == len(self.wires)
+            nodes = nodes[0]
+        assert len(ancilla) == self.nancilla
+        cmds = nn.Sequential()
+        cmds.append(Node(ancilla))
+        cmds.append(Entanglement(nodes, ancilla[0]))
+        cmds.append(Entanglement(ancilla[0], ancilla[1]))
+        cmds.append(Measurement(nodes, angle=-torch.pi/2))
+        cmds.append(Measurement(ancilla[0]))
+        cmds.append(Correction(ancilla[1], basis='x', domain=ancilla[0]))
+        cmds.append(Correction(ancilla[1], basis='z', domain=nodes))
+        self.nodes = [ancilla[1]]
+        return cmds
 
 
 class SDaggerGate(SingleGate):
@@ -1200,6 +1296,30 @@ class Rx(ParametricSingleGate):
         else:
             return self._qasm_customized('rx')
 
+    def pattern(
+        self,
+        nodes: Union[int, List[int]],
+        ancilla: List[int],
+        angle: Any,
+        requires_grad: bool = False
+    ) -> nn.Sequential:
+        """Get the MBQC pattern."""
+        from .mbqc import Node, Entanglement, Measurement, Correction
+        if isinstance(nodes, list):
+            assert len(nodes) == len(self.wires)
+            nodes = nodes[0]
+        assert len(ancilla) == self.nancilla
+        cmds = nn.Sequential()
+        cmds.append(Node(ancilla))
+        cmds.append(Entanglement(nodes, ancilla[0]))
+        cmds.append(Entanglement(ancilla[0], ancilla[1]))
+        cmds.append(Measurement(nodes))
+        cmds.append(Measurement(ancilla[0], angle=-angle, s_domain=nodes, requires_grad=requires_grad))
+        cmds.append(Correction(ancilla[1], basis='x', domain=ancilla[0]))
+        cmds.append(Correction(ancilla[1], basis='z', domain=nodes))
+        self.nodes = [ancilla[1]]
+        return cmds
+
 
 class Ry(ParametricSingleGate):
     r"""Ry gate, rotation around y-axis.
@@ -1244,6 +1364,7 @@ class Ry(ParametricSingleGate):
     ) -> None:
         super().__init__(name='Ry', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          condition=condition, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
+        self.nancilla = 4
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
@@ -1265,6 +1386,34 @@ class Ry(ParametricSingleGate):
             return f'cry({theta.item()}) q{self.controls},q{self.wires};\n'
         else:
             return self._qasm_customized('ry')
+
+    def pattern(
+        self,
+        nodes: Union[int, List[int]],
+        ancilla: List[int],
+        angle: Any,
+        requires_grad: bool = False
+    ) -> nn.Sequential:
+        """Get the MBQC pattern."""
+        from .mbqc import Node, Entanglement, Measurement, Correction
+        if isinstance(nodes, list):
+            assert len(nodes) == len(self.wires)
+            nodes = nodes[0]
+        assert len(ancilla) == self.nancilla
+        cmds = nn.Sequential()
+        cmds.append(Node(ancilla))
+        cmds.append(Entanglement(nodes, ancilla[0]))
+        cmds.append(Entanglement(ancilla[0], ancilla[1]))
+        cmds.append(Entanglement(ancilla[1], ancilla[2]))
+        cmds.append(Entanglement(ancilla[2], ancilla[3]))
+        cmds.append(Measurement(nodes, angle=torch.pi / 2))
+        cmds.append(Measurement(ancilla[0], angle=-angle, s_domain=nodes, requires_grad=requires_grad))
+        cmds.append(Measurement(ancilla[1], angle=-torch.pi / 2, s_domain=nodes))
+        cmds.append(Measurement(ancilla[2]))
+        cmds.append(Correction(ancilla[3], basis='x', domain=[ancilla[0], ancilla[2]]))
+        cmds.append(Correction(ancilla[3], basis='z', domain=[ancilla[0], ancilla[1]]))
+        self.nodes = [ancilla[3]]
+        return cmds
 
 
 class Rz(ParametricSingleGate):
@@ -1329,6 +1478,30 @@ class Rz(ParametricSingleGate):
             return f'crz({theta.item()}) q{self.controls},q{self.wires};\n'
         else:
             return self._qasm_customized('rz')
+
+    def pattern(
+        self,
+        nodes: Union[int, List[int]],
+        ancilla: List[int],
+        angle: Any,
+        requires_grad: bool = False
+    ) -> nn.Sequential:
+        """Get the MBQC pattern."""
+        from .mbqc import Node, Entanglement, Measurement, Correction
+        if isinstance(nodes, list):
+            assert len(nodes) == len(self.wires)
+            nodes = nodes[0]
+        assert len(ancilla) == self.nancilla
+        cmds = nn.Sequential()
+        cmds.append(Node(ancilla))
+        cmds.append(Entanglement(nodes, ancilla[0]))
+        cmds.append(Entanglement(ancilla[0], ancilla[1]))
+        cmds.append(Measurement(nodes, angle=-angle, requires_grad=requires_grad))
+        cmds.append(Measurement(ancilla[0]))
+        cmds.append(Correction(ancilla[1], basis='x', domain=ancilla[0]))
+        cmds.append(Correction(ancilla[1], basis='z', domain=nodes))
+        self.nodes = [ancilla[1]]
+        return cmds
 
 
 class ProjectionJ(ParametricSingleGate):
@@ -1569,9 +1742,30 @@ class CNOT(DoubleControlGate):
                                                      [0, 1, 0, 0],
                                                      [0, 0, 0, 1],
                                                      [0, 0, 1, 0]]) + 0j)
+        self.nancilla = 2
 
     def _qasm(self) -> str:
         return f'cx q[{self.wires[0]}],q[{self.wires[1]}];\n'
+
+    def pattern(self, nodes: List[int], ancilla: List[int]) -> nn.Sequential:
+        """Get the MBQC pattern."""
+        from .mbqc import Node, Entanglement, Measurement, Correction
+        assert len(nodes) == len(self.wires)
+        assert len(ancilla) == self.nancilla
+        control = nodes[0]
+        target = nodes[1]
+        cmds = nn.Sequential()
+        cmds.append(Node(ancilla))
+        cmds.append(Entanglement(target, ancilla[0]))
+        cmds.append(Entanglement(control, ancilla[0]))
+        cmds.append(Entanglement(ancilla[0], ancilla[1]))
+        cmds.append(Measurement(target))
+        cmds.append(Measurement(ancilla[0]))
+        cmds.append(Correction(ancilla[1], basis='x', domain=ancilla[0]))
+        cmds.append(Correction(ancilla[1], basis='z', domain=target))
+        cmds.append(Correction(control, basis='z', domain=target))
+        self.nodes = [control, ancilla[1]]
+        return cmds
 
 
 class Swap(DoubleGate):
@@ -2038,6 +2232,7 @@ class Toffoli(TripleGate):
                                                      [0, 0, 0, 0, 0, 1, 0, 0],
                                                      [0, 0, 0, 0, 0, 0, 0, 1],
                                                      [0, 0, 0, 0, 0, 0, 1, 0]]) + 0j)
+        self.nancilla = 18
 
     def get_unitary(self) -> torch.Tensor:
         """Get the global unitary matrix."""
@@ -2058,6 +2253,75 @@ class Toffoli(TripleGate):
 
     def _qasm(self) -> str:
         return f'ccx q[{self.wires[0]}],q[{self.wires[1]}],q[{self.wires[2]}];\n'
+
+    def pattern(self, nodes: List[int], ancilla: List[int]) -> nn.Sequential:
+        """Get the MBQC pattern."""
+        from .mbqc import Node, Entanglement, Measurement, Correction
+        assert len(nodes) == len(self.wires)
+        assert len(ancilla) == self.nancilla
+        control1 = nodes[0]
+        control2 = nodes[1]
+        target = nodes[2]
+        cmds = nn.Sequential()
+        cmds.append(Node(ancilla))
+        cmds.append(Entanglement(target, ancilla[0]))
+        cmds.append(Entanglement(ancilla[0], ancilla[1]))
+        cmds.append(Entanglement(ancilla[1], ancilla[2]))
+        cmds.append(Entanglement(ancilla[1], control2))
+        cmds.append(Entanglement(control1, ancilla[14]))
+        cmds.append(Entanglement(ancilla[2], ancilla[3]))
+        cmds.append(Entanglement(ancilla[14], ancilla[4]))
+        cmds.append(Entanglement(ancilla[3], ancilla[5]))
+        cmds.append(Entanglement(ancilla[3], ancilla[4]))
+        cmds.append(Entanglement(ancilla[5], ancilla[6]))
+        cmds.append(Entanglement(control2, ancilla[6]))
+        cmds.append(Entanglement(control2, ancilla[9]))
+        cmds.append(Entanglement(ancilla[6], ancilla[7]))
+        cmds.append(Entanglement(ancilla[9], ancilla[4]))
+        cmds.append(Entanglement(ancilla[9], ancilla[10]))
+        cmds.append(Entanglement(ancilla[7], ancilla[8]))
+        cmds.append(Entanglement(ancilla[10], ancilla[11]))
+        cmds.append(Entanglement(ancilla[4], ancilla[8]))
+        cmds.append(Entanglement(ancilla[4], ancilla[11]))
+        cmds.append(Entanglement(ancilla[4], ancilla[16]))
+        cmds.append(Entanglement(ancilla[8], ancilla[12]))
+        cmds.append(Entanglement(ancilla[11], ancilla[15]))
+        cmds.append(Entanglement(ancilla[12], ancilla[13]))
+        cmds.append(Entanglement(ancilla[16], ancilla[17]))
+        cmds.append(Measurement(target))
+        cmds.append(Measurement(ancilla[0], s_domain=target))
+        cmds.append(Measurement(ancilla[1], s_domain=ancilla[0]))
+        cmds.append(Measurement(control1))
+        cmds.append(Measurement(ancilla[2], angle=-torch.pi * 7 / 4, s_domain=[ancilla[1], target]))
+        cmds.append(Measurement(ancilla[14], s_domain=control1))
+        cmds.append(Measurement(ancilla[3], s_domain=[ancilla[2], ancilla[0]]))
+        cmds.append(Measurement(ancilla[5], angle=-torch.pi / 4,
+                                s_domain=[ancilla[3], ancilla[1], ancilla[14], target]))
+        cmds.append(Measurement(control2, angle=-torch.pi / 4))
+        cmds.append(Measurement(ancilla[6], s_domain=[ancilla[5], ancilla[2], ancilla[0]]))
+        cmds.append(Measurement(ancilla[9], s_domain=[control2, ancilla[5], ancilla[2]]))
+        cmds.append(Measurement(ancilla[7], angle=-torch.pi * 7 / 4,
+                                s_domain=[ancilla[6], ancilla[3], ancilla[1], ancilla[14], target]))
+        cmds.append(Measurement(ancilla[10], angle=-torch.pi * 7 / 4, s_domain=[ancilla[9], ancilla[14]]))
+        cmds.append(Measurement(ancilla[4], angle=-torch.pi / 4, s_domain=ancilla[14]))
+        cmds.append(Measurement(ancilla[8], s_domain=[ancilla[7], ancilla[5], ancilla[2], ancilla[0]]))
+        cmds.append(Measurement(ancilla[11], s_domain=[ancilla[10], control2, ancilla[5], ancilla[2]]))
+        cmds.append(Measurement(ancilla[12], angle=-torch.pi / 4,
+                                s_domain=[ancilla[8], ancilla[6], ancilla[3], ancilla[1], target]))
+        cmds.append(Measurement(ancilla[16],
+                                s_domain=[ancilla[4], control1, ancilla[2], control2, ancilla[7],
+                                          ancilla[10], ancilla[2], control2, ancilla[5]]))
+        cmds.append(Correction(ancilla[17], basis='x', domain=[ancilla[14], ancilla[16]]))
+        cmds.append(Correction(ancilla[15], basis='x', domain=[ancilla[9], ancilla[11]]))
+        cmds.append(Correction(ancilla[13], basis='x',
+                               domain=[ancilla[0], ancilla[2], ancilla[5], ancilla[7], ancilla[12]]))
+        cmds.append(Correction(ancilla[17], basis='z',
+                               domain=[ancilla[4], ancilla[5], ancilla[7], ancilla[10], control1]))
+        cmds.append(Correction(ancilla[15], basis='z', domain=[control2, ancilla[2], ancilla[5], ancilla[10]]))
+        cmds.append(Correction(ancilla[13], basis='z',
+                               domain=[ancilla[1], ancilla[3], ancilla[6], ancilla[8], target]))
+        self.nodes = [ancilla[17], ancilla[15], ancilla[13]]
+        return cmds
 
 
 class Fredkin(TripleGate):
@@ -2414,6 +2678,7 @@ class Barrier(Gate):
         if wires is None:
             wires = list(range(nqubit))
         super().__init__(name='Barrier', nqubit=nqubit, wires=wires)
+        self.nancilla = 0
 
     def forward(self, x: Any) -> Any:
         """Perform a forward pass."""
@@ -2424,3 +2689,9 @@ class Barrier(Gate):
         for wire in self.wires:
             qasm_lst.append(f'q[{wire}],')
         return ''.join(qasm_lst)[:-1] + ';\n'
+
+    def pattern(self, nodes: List[int], ancilla: List[int]) -> nn.Sequential:
+        """Get the MBQC pattern."""
+        assert len(ancilla) == self.nancilla
+        self.nodes = nodes
+        return nn.Sequential()

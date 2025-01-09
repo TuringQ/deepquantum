@@ -25,12 +25,13 @@ class Pattern(Operation):
     Args:
         nodes_state (int, List[int] or None): The nodes of the input state in the subgraph.
             It can be an integer representing the number of nodes or a list of node indices.
-            Default: ``None``.
-        state (Any, optional): The initial state of the subgraph. Default: ``'plus'``.
+            Default: ``None``
+        state (Any, optional): The initial state of the subgraph. The string representation of state
+            could be ``'plus'``, ``'minus'``, ``'zero'``, and ``'one'``. Default: ``'plus'``
         edges (List or None, optional): Additional edges connecting the nodes in the subgraph.
-            Default: ``None``.
+            Default: ``None``
         nodes (int, List[int] or None, optional): Additional nodes to include in the subgraph.
-            Default: ``None``.
+            Default: ``None``
         name (str or None, optional): The name of the pattern. Default: ``None``
 
     Ref: V. Danos, E. Kashefi and P. Panangaden. J. ACM 54.2 8 (2007)

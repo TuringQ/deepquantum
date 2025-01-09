@@ -21,12 +21,13 @@ class SubGraphState(nn.Module):
     Args:
         nodes_state (int, List[int] or None, optional): The nodes of the input state in the subgraph.
             It can be an integer representing the number of nodes or a list of node indices.
-            Default: ``None``.
-        state (Any, optional): The initial state of the subgraph. Default: ``'plus'``.
+            Default: ``None``
+        state (Any, optional): The initial state of the subgraph. The string representation of state
+            could be ``'plus'``, ``'minus'``, ``'zero'``, and ``'one'``. Default: ``'plus'``
         edges (List or None, optional): Additional edges connecting the nodes in the subgraph.
-            Default: ``None``.
+            Default: ``None``
         nodes (int, List[int] or None, optional): Additional nodes to include in the subgraph.
-            Default: ``None``.
+            Default: ``None``
     """
     def __init__(
         self,
@@ -100,8 +101,15 @@ class SubGraphState(nn.Module):
     def set_state(self, state: Any = 'plus') -> None:
         """Set the quantum state of the subgraph."""
         nqubit = len(self.nodes_state)
-        if state == 'plus':
-            state = torch.tensor([1, 1]) / 2 ** 0.5 + 0j
+        if isinstance(state, str):
+            if state == 'plus':
+                state = torch.tensor([1, 1]) / 2 ** 0.5 + 0j
+            elif state == 'minus':
+                state = torch.tensor([1, -1]) / 2 ** 0.5 + 0j
+            elif state == 'zero':
+                state = torch.tensor([1, 0]) + 0j
+            elif state == 'one':
+                state = torch.tensor([0, 1]) + 0j
             if nqubit > 0:
                 state = multi_kron([state] * nqubit)
         elif not isinstance(state, torch.Tensor):

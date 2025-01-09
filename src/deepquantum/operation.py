@@ -143,6 +143,9 @@ class Gate(Operation):
         super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         self.controls = controls
         self.condition = condition
+        # MBQC
+        self.nodes = self.wires
+        self.nancilla = 1
 
     def get_matrix(self, inputs: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
