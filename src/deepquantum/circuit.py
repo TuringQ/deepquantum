@@ -515,15 +515,16 @@ class QubitCircuit(Operation):
         Channel._reset_qasm_new_gate()
         return ''.join(qasm_lst)
 
-    # def pattern(self) -> 'Pattern':
-    def pattern(self) -> nn.Sequential:
+    def pattern(self) -> nn.Module:
         """Get the MBQC pattern."""
         from .mbqc import Pattern
         allowed_ops = (PauliX, PauliY, PauliZ, Hadamard, SGate, Rx, Ry, Rz, CNOT, Toffoli, Barrier)
         for i in range(self.nqubit):
             self.wires2nodes_dict[i] = i
         node_next = self.nqubit
+        pattern = Pattern(nodes_state=self.init_state.nqubit, state=self.init_state.state)
         cmds = nn.Sequential()
+        encoders = []
         for op in self.operators:
             assert isinstance(op, allowed_ops), f'{op.name} is NOT supported for MBQC pattern transpiler'
             assert len(op.controls) == 0, f'Control bits are NOT supported for MBQC pattern transpiler'
@@ -532,12 +533,20 @@ class QubitCircuit(Operation):
             ancilla = [node_next + i for i in range(op.nancilla)]
             if isinstance(op, ParametricSingleGate):
                 cmds += op.pattern(nodes, ancilla, op.theta, op.requires_grad)
+                if op in self.encoders:
+                    encoders.append(op.encoder)
             else:
                 cmds += op.pattern(nodes, ancilla)
             for wire, node in zip(op.wires, op.nodes):
                 self.wires2nodes_dict[wire] = node
             node_next += op.nancilla
-        return cmds
+        for cmd in cmds:
+            if cmd in encoders:
+                pattern.add(cmd, encode=True)
+            else:
+                pattern.add(cmd)
+        pattern.final_wires2nodes_dict = self.wires2nodes_dict
+        return pattern
 
     def draw(self, output: str = 'mpl', **kwargs):
         """Visualize the quantum circuit."""

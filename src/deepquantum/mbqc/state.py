@@ -40,6 +40,7 @@ class SubGraphState(nn.Module):
         self.set_graph(nodes_state, edges, nodes)
         self.set_state(state)
         self.measure_dict = defaultdict(list) # record the measurement results: {node: batched_bit}
+        self.final_wires2nodes_dict = None
 
     @property
     def nodes(self, **kwargs):
@@ -59,6 +60,8 @@ class SubGraphState(nn.Module):
         for i in self.nodes_state:
             nodes_bg.remove(i)
         nodes = self.nodes_state + nodes_bg
+        if self.final_wires2nodes_dict is not None:
+            self.node2wire_dict = {value: key for key, value in self.final_wires2nodes_dict.items()}
         wires = [0] + list(map(lambda node: self.node2wire_dict[node] + 1, nodes)) # [0] for batch
         plus = torch.tensor([[1], [1]], dtype=self.state.dtype, device=self.state.device) / 2 ** 0.5
         init_state = multi_kron([self.state] + [plus] * len(nodes_bg)).reshape([-1] + [2] * nqubit)
@@ -207,6 +210,7 @@ class GraphState(nn.Module):
         else:
             sgs = SubGraphState(nodes_state, state, edges, nodes)
             self.subgraphs = nn.ModuleList([sgs])
+        self.final_wires2nodes_dict = None
 
     def add_subgraph(
         self,
@@ -251,6 +255,8 @@ class GraphState(nn.Module):
         if graph is None:
             return SubGraphState()
         else:
+            if self.final_wires2nodes_dict is not None:
+                graph.final_wires2nodes_dict = self.final_wires2nodes_dict
             return graph
 
     @property

@@ -50,6 +50,7 @@ class Pattern(Operation):
         self.encoders = []
         self.npara = 0
         self.ndata = 0
+        self.final_wires2nodes_dict = None
 
     def forward(
         self,
@@ -71,6 +72,8 @@ class Pattern(Operation):
             self.state = state
         self.encode(data)
         self.state = self.commands(self.state)
+        if self.final_wires2nodes_dict is not None:
+            self.state.final_wires2nodes_dict = self.final_wires2nodes_dict
         return self.state
 
     def add_graph(self,

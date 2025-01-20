@@ -1318,6 +1318,7 @@ class Rx(ParametricSingleGate):
         cmds.append(Correction(ancilla[1], basis='x', domain=ancilla[0]))
         cmds.append(Correction(ancilla[1], basis='z', domain=nodes))
         self.nodes = [ancilla[1]]
+        self.encoder = cmds[4]
         return cmds
 
 
@@ -1413,6 +1414,7 @@ class Ry(ParametricSingleGate):
         cmds.append(Correction(ancilla[3], basis='x', domain=[ancilla[0], ancilla[2]]))
         cmds.append(Correction(ancilla[3], basis='z', domain=[ancilla[0], ancilla[1]]))
         self.nodes = [ancilla[3]]
+        self.encoder = cmds[6]
         return cmds
 
 
@@ -1501,6 +1503,7 @@ class Rz(ParametricSingleGate):
         cmds.append(Correction(ancilla[1], basis='x', domain=ancilla[0]))
         cmds.append(Correction(ancilla[1], basis='z', domain=nodes))
         self.nodes = [ancilla[1]]
+        self.encoder = cmds[3]
         return cmds
 
 
