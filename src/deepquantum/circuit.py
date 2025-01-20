@@ -36,7 +36,7 @@ class QubitCircuit(Operation):
         mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
         chi (int or None, optional): The bond dimension for matrix product state representation.
             Default: ``None``
-        shots (int, optional): The number of shots for measurement. Default: ``1024``
+        shots (int, optional): The number of shots for the measurement. Default: ``1024``
 
     Raises:
         AssertionError: If the type or dimension of ``init_state`` does not match ``nqubit`` or ``den_mat``.
@@ -294,7 +294,14 @@ class QubitCircuit(Operation):
         with_prob: bool = False,
         wires: Union[int, List[int], None] = None
     ) -> Union[Dict, List[Dict], None]:
-        """Measure the final state."""
+        """Measure the final state.
+
+        Args:
+            shots (int or None, optional): The number of shots for the measurement. Default: ``None`` (which means
+                ``self.shots``)
+            with_prob (bool, optional): Whether to show the true probability of the measurement. Default: ``False``
+            wires (int, List[int] or None, optional): The wires to measure. Default: ``None`` (which means all wires)
+        """
         assert not self.mps, 'Currently NOT supported.'
         if shots is None:
             shots = self.shots
@@ -310,7 +317,12 @@ class QubitCircuit(Operation):
                            den_mat=self.den_mat)
 
     def expectation(self, shots: Optional[int] = None) -> torch.Tensor:
-        """Get the expectation value according to the final state and ``observables``."""
+        """Get the expectation value according to the final state and ``observables``.
+
+        Args:
+            shots (int or None, optional): The number of shots for the expectation value.
+                Default: ``None`` (which means the exact and differentiable expectation value).
+        """
         assert len(self.observables) > 0, 'There is no observable'
         if isinstance(self.state, list):
             assert all(isinstance(i, torch.Tensor) for i in self.state), 'Invalid final state'
