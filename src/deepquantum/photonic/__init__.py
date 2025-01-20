@@ -29,7 +29,7 @@ from .hafnian_ import hafnian
 from .mapper import UnitaryMapper
 from .measurement import Generaldyne, Homodyne
 from .qmath import permanent, takagi, xxpp_to_xpxp, xpxp_to_xxpp, quadrature_to_ladder, ladder_to_quadrature
-from .state import FockState, GaussianState
+from .state import FockState, GaussianState, NonGaussianState, CatState
 from .tdm import QumodeCircuitTDM
 from .torontonian_ import torontonian
 from .utils import set_hbar, set_kappa, set_perm_chunksize

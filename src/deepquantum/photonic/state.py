@@ -8,7 +8,9 @@ import torch
 from torch import nn
 
 import deepquantum.photonic as dqp
-from .qmath import dirac_ket
+from .qmath import dirac_ket, xpxp_to_xxpp
+
+import itertools
 
 
 class FockState(nn.Module):
@@ -200,3 +202,156 @@ class GaussianState(nn.Module):
         purity = 1 / torch.sqrt(torch.det(4 * dqp.kappa ** 2 / dqp.hbar * self.cov))
         unity = torch.tensor(1.0, dtype=purity.dtype, device=purity.device)
         return torch.allclose(purity, unity, rtol=rtol, atol=atol)
+
+
+class NonGaussianState(nn.Module):
+    r"""A linear combination of Gaussian state of n modes, representing by covariance matrix, displacement vector and weights.
+
+    Args:
+        state (str or List): The Gaussian state. It can be a vacuum state with ``'vac'``, or arbitrary Gaussian states
+            with [``cov``, ``mean``]. ``cov`` and ``mean`` are the covariance matrix and the displacement vector
+            of the Gaussian state, respectively. Use ``xxpp`` convention and :math:`\hbar=2` by default.
+            Default: ``'vac'``
+        nmode (int or None, optional): The number of modes in the state. Default: ``None``
+        cutoff (int, optional): The Fock space truncation. Default: 5
+    """
+    def __init__(
+        self,
+        state: Union[str, List] = 'vac',
+        nmode: Optional[int] = None,
+        cutoff: int = 5
+    ) -> None:
+        super().__init__()
+        if state == 'vac':
+            assert nmode == 1, 'valid for single mode'
+            cov = torch.eye(2 * nmode) * dqp.hbar / (4 * dqp.kappa ** 2)
+            mean = torch.zeros(2 * nmode, 1)
+            weight = torch.tensor([1])
+        elif isinstance(state, list):
+            cov = state[0]
+            mean = state[1]
+            weight = state[2]
+        if not isinstance(cov, torch.Tensor):
+            cov = torch.tensor(cov)
+        if not isinstance(mean, torch.Tensor):
+            mean = torch.tensor(mean)
+        if not isinstance(weight, torch.Tensor):
+            weight = torch.tensor(weight)
+        if nmode is None:
+            nmode = cov.shape[-1] // 2
+        if weight.dim() == 1:
+            n_combi = len(weight)
+        if weight.dim() == 2:
+            n_combi = len(weight[0])
+        cov = cov.reshape(-1, n_combi, 2 * nmode, 2 * nmode)
+        mean = mean.reshape(-1, n_combi, 2 * nmode, 1)
+        weight = weight.reshape(-1, n_combi)
+        assert cov.shape[0] == mean.shape[0] == weight.shape[0]
+        assert cov.ndim == mean.ndim == 4
+        assert cov.shape[-2] == cov.shape[-1] == 2 * nmode, (
+            'The shape of the covariance matrix should be (2*nmode, 2*nmode)')
+        assert mean.shape[-2] == 2 * nmode, 'The length of the mean vector should be 2*nmode'
+        self.register_buffer('cov', cov)
+        self.register_buffer('mean', mean)
+        self.register_buffer('weight', weight)
+        self.nmode = nmode
+        self.cutoff = cutoff
+
+    @staticmethod
+    def combine_states(nmode:int, states:list):
+        """
+        Combine local covs, means and weights to obtain the global covs, means and weights,
+        use ``xxpp`` convention and :math:`\hbar=2` by default.
+        """
+        def block_diag_func(mat):
+            return xpxp_to_xxpp(torch.block_diag(*mat))
+        def flat_func(mat):
+            return mat.flatten()
+        assert len(states) == nmode
+        covs = [ ]
+        means = [ ]
+        weights = [ ]
+        temp_= [ ]
+        batch = states[0].weight.shape[0]
+        k = 0
+        for s in states:
+            assert isinstance(s, NonGaussianState)
+            covs.append(s.cov)
+            means.append(s.mean)
+            weights.append(s.weight)
+            temp_.append(range(k, k + s.weight.shape[1]))
+            k = k + s.weight.shape[1]
+            temp_batch = s.weight.shape[0]
+            assert batch == temp_batch, 'the inputs batch should be the same'
+        covs = torch.cat(covs, dim=1)
+        means = torch.cat(means, dim=1)
+        weights = torch.cat(weights, dim=1)
+        covs_ = [ ]
+        means_ = [ ]
+        weights_ = [ ]
+        for i in itertools.product(*temp_):
+            cov_temp = covs[:, i]
+            mean_temp = means[:, i]
+            cov_all = torch.vmap(block_diag_func)(cov_temp)
+            mean_all = torch.vmap(flat_func)(mean_temp)
+            covs_.append(cov_all)
+            means_.append(mean_all)
+            weights_.append(weights[:, i].prod(dim=1))
+        covs_ = torch.stack(covs_).permute(1, 0, 2, 3).reshape(batch, -1, 2 * nmode, 2 * nmode)
+        means_xxpp = torch.zeros_like(torch.stack(means_))
+        means_xxpp[:, :, torch.arange(0, nmode)] = \
+        torch.stack(means_)[:, :, torch.arange(0, 2 * nmode, 2)]
+        means_xxpp[:, :, torch.arange(nmode, 2 * nmode)] = \
+        torch.stack(means_)[:,:, torch.arange(1, 2 * nmode, 2)]
+        means_ = means_xxpp.permute(1, 0, 2).reshape(batch, -1, 2 * nmode, 1)
+        weights_ = torch.stack(weights_).mT
+        return [covs_, means_, weights_]
+
+
+class CatState(NonGaussianState):
+    r"""
+    Cat state for single mode, The cat state is a non-Gaussian superposition of coherent states
+
+    see https://arxiv.org/abs/2103.05530
+
+    Args:
+        r (float): Displacement magnitude :math:`|r|`
+        theta (float): Displacement angle :math:`\theta`
+        p (int): Parity, where :math:`\theta=p\pi`. ``p=0`` corresponds to an even
+            cat state, and ``p=1`` an odd cat state.
+        cutoff (int, optional): The Fock space truncation. Default: 5
+    """
+    def __init__(
+        self,
+        r: Optional[torch.Tensor] = None,
+        theta: Optional[torch.Tensor] = None,
+        p: int = 1,
+        cutoff: int = 5
+    ) -> None:
+        nmode = 1
+        covs  = torch.stack([torch.eye(2)] * 4)
+        if r is None:
+            r = torch.rand(1)[0]
+        if theta is None:
+            theta = torch.rand(1)[0] * 2 * torch.pi
+        if not isinstance(r, torch.Tensor):
+            r = torch.tensor(r)
+        if not isinstance(theta, torch.Tensor):
+            theta = torch.tensor(theta)
+        if not isinstance(p, torch.Tensor):
+            p = torch.tensor(p)
+        real_part = r * torch.cos(theta)
+        imag_part = r * torch.sin(theta)
+        means = torch.sqrt(torch.tensor(2 * dqp.hbar)) * \
+        torch.stack([torch.stack([real_part, imag_part]),
+                    -torch.stack([real_part, imag_part]),
+                    1j*torch.stack([imag_part, -real_part]),
+                    -1j*torch.stack([imag_part, -real_part])])
+        temp = torch.exp(-2 * r**2)
+        w0 = 0.5 / (1 + temp * torch.cos(p * torch.pi))
+        w1 = w0
+        w2 = torch.exp(-1j * torch.pi * p) * temp * w0
+        w3 = torch.exp(1j * torch.pi * p) * temp * w0
+        weights = torch.stack([w0, w1, w2, w3])
+        state = [covs, means, weights]
+        super().__init__(state, nmode, cutoff)
