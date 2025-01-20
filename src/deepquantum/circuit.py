@@ -337,7 +337,8 @@ class QubitCircuit(Operation):
                         cir_basis.h(wire)
                 cir_basis.to(dtype).to(device)
                 state = cir_basis(state=self.state)
-                samples = measure(state=state, shots=shots, wires=observable.wires, den_mat=self.den_mat)
+                wires = sum(observable.wires, [])
+                samples = measure(state=state, shots=shots, wires=wires, den_mat=self.den_mat)
                 if isinstance(samples, list):
                     expval = []
                     for sample in samples:
@@ -346,6 +347,8 @@ class QubitCircuit(Operation):
                     expval = torch.cat(expval)
                 elif isinstance(samples, dict):
                     expval = sample2expval(sample=samples).to(dtype).to(device)
+                    if self.state.ndim == 2:
+                        expval = expval.squeeze(0)
                 out.append(expval)
         out = torch.stack(out, dim=-1)
         return out
