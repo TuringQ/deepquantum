@@ -64,7 +64,7 @@ class QubitCircuit(Operation):
         self.state = None
         self.ndata = 0
         self.depth = np.array([0] * nqubit)
-        self.wires_measure = None
+        self.wires_measure = []
         self.wires_condition = []
 
     def set_init_state(self, init_state: Any) -> None:
@@ -264,7 +264,7 @@ class QubitCircuit(Operation):
         self.npara = 0
         self.ndata = 0
         self.depth = np.array([0] * self.nqubit)
-        self.wires_measure = None
+        self.wires_measure = []
         self.wires_condition = []
 
     def amplitude_encoding(self, data: Any) -> torch.Tensor:
@@ -491,7 +491,7 @@ class QubitCircuit(Operation):
         without_control_gates = (TGate, TDaggerGate, CNOT, Rxx, Ryy, Rzz, Toffoli, Fredkin, Barrier)
         single_control_gates = (U3Gate, PhaseShift, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, Rx, Ry, Rz, Swap)
         qasm_lst = ['OPENQASM 2.0;\n' + 'include "qelib1.inc";\n']
-        if self.wires_measure is None and self.wires_condition == []:
+        if self.wires_measure == self.wires_condition == []:
             qasm_lst.append(f'qreg q[{self.nqubit}];\n')
         else:
             qasm_lst.append(f'qreg q[{self.nqubit}];\n' + f'creg c[{self.nqubit}];\n')
@@ -516,9 +516,8 @@ class QubitCircuit(Operation):
                         Gate._reset_qasm_new_gate()
                         raise ValueError(f'Too many control bits for {op.name}')
             qasm_lst.append(op._qasm())
-        if self.wires_measure is not None:
-            for wire in self.wires_measure:
-                qasm_lst.append(f'measure q[{wire}] -> c[{wire}];\n')
+        for wire in self.wires_measure:
+            qasm_lst.append(f'measure q[{wire}] -> c[{wire}];\n')
         Gate._reset_qasm_new_gate()
         return ''.join(qasm_lst)
 
@@ -526,15 +525,14 @@ class QubitCircuit(Operation):
         """Get QASM of the quantum circuit for visualization."""
         # pylint: disable=protected-access
         qasm_lst = ['OPENQASM 2.0;\n' + 'include "qelib1.inc";\n']
-        if self.wires_measure is None and self.wires_condition == []:
+        if self.wires_measure == self.wires_condition == []:
             qasm_lst.append(f'qreg q[{self.nqubit}];\n')
         else:
             qasm_lst.append(f'qreg q[{self.nqubit}];\n' + f'creg c[{self.nqubit}];\n')
         for op in self.operators:
             qasm_lst.append(op._qasm())
-        if self.wires_measure is not None:
-            for wire in self.wires_measure:
-                qasm_lst.append(f'measure q[{wire}] -> c[{wire}];\n')
+        for wire in self.wires_measure:
+            qasm_lst.append(f'measure q[{wire}] -> c[{wire}];\n')
         Gate._reset_qasm_new_gate()
         Channel._reset_qasm_new_gate()
         return ''.join(qasm_lst)
