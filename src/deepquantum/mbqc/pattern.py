@@ -50,13 +50,13 @@ class Pattern(Operation):
         self.encoders = []
         self.npara = 0
         self.ndata = 0
-        self.final_wires2nodes_dict = None
+        self.nodes_out_seq = None
 
     def forward(
         self,
         data: Optional[torch.Tensor] = None,
         state: Optional[GraphState] = None,
-    ) -> torch.Tensor:
+    ) -> GraphState:
         """Perform a forward pass of the MBQC pattern and return the final graph state.
 
         Args:
@@ -72,8 +72,7 @@ class Pattern(Operation):
             self.state = state
         self.encode(data)
         self.state = self.commands(self.state)
-        if self.final_wires2nodes_dict is not None:
-            self.state.final_wires2nodes_dict = self.final_wires2nodes_dict
+        self.state.set_nodes_out_seq(self.nodes_out_seq)
         return self.state
 
     def add_graph(self,
@@ -104,6 +103,10 @@ class Pattern(Operation):
             return self.state.graph
         else:
             return self.init_state.graph
+
+    def set_nodes_out_seq(self, nodes: Optional[List[int]] = None) -> None:
+        """Set the output sequence of the nodes."""
+        self.nodes_out_seq = nodes
 
     def add(
         self,

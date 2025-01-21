@@ -70,7 +70,7 @@ class QubitCircuit(Operation):
         self.wires_measure = None
         self.wires_condition = []
         # MBQC
-        self.wires2nodes_dict = defaultdict(lambda: None)
+        self.wire2node_dict = defaultdict(lambda: None)
 
     def set_init_state(self, init_state: Any) -> None:
         """Set the initial state of the circuit."""
@@ -515,37 +515,39 @@ class QubitCircuit(Operation):
         Channel._reset_qasm_new_gate()
         return ''.join(qasm_lst)
 
-    def pattern(self) -> nn.Module:
+    def pattern(self) -> 'Pattern':
         """Get the MBQC pattern."""
         from .mbqc import Pattern
         allowed_ops = (PauliX, PauliY, PauliZ, Hadamard, SGate, Rx, Ry, Rz, CNOT, Toffoli, Barrier)
         for i in range(self.nqubit):
-            self.wires2nodes_dict[i] = i
+            self.wire2node_dict[i] = i
         node_next = self.nqubit
         pattern = Pattern(nodes_state=self.init_state.nqubit, state=self.init_state.state)
         cmds = nn.Sequential()
-        encoders = []
         for op in self.operators:
             assert isinstance(op, allowed_ops), f'{op.name} is NOT supported for MBQC pattern transpiler'
             assert len(op.controls) == 0, f'Control bits are NOT supported for MBQC pattern transpiler'
             assert not op.condition, f'Conditional mode is NOT supported for MBQC pattern transpiler'
-            nodes = [self.wires2nodes_dict[i] for i in op.wires]
+            nodes = [self.wire2node_dict[i] for i in op.wires]
             ancilla = [node_next + i for i in range(op.nancilla)]
             if isinstance(op, ParametricSingleGate):
-                cmds += op.pattern(nodes, ancilla, op.theta, op.requires_grad)
+                cmd = op.pattern(nodes, ancilla, op.theta, op.requires_grad)
+                cmds += cmd
                 if op in self.encoders:
-                    encoders.append(op.encoder)
+                    for cmd_i in cmd:
+                        if cmd_i.npara > 0:
+                            pattern.encoders.append(cmd_i)
             else:
                 cmds += op.pattern(nodes, ancilla)
             for wire, node in zip(op.wires, op.nodes):
-                self.wires2nodes_dict[wire] = node
+                self.wire2node_dict[wire] = node
             node_next += op.nancilla
-        for cmd in cmds:
-            if cmd in encoders:
-                pattern.add(cmd, encode=True)
-            else:
-                pattern.add(cmd)
-        pattern.final_wires2nodes_dict = self.wires2nodes_dict
+        # for cmd in cmds:
+        #     if cmd in encoders:
+        #         pattern.add(cmd, encode=True)
+        #     else:
+        #         pattern.add(cmd)
+        pattern.set_nodes_out_seq([self.wire2node_dict[wire] for wire in self.wires])
         return pattern
 
     def draw(self, output: str = 'mpl', **kwargs):

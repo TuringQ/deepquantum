@@ -40,7 +40,7 @@ class SubGraphState(nn.Module):
         self.set_graph(nodes_state, edges, nodes)
         self.set_state(state)
         self.measure_dict = defaultdict(list) # record the measurement results: {node: batched_bit}
-        self.final_wires2nodes_dict = None
+        self.nodes_out_seq = None
 
     @property
     def nodes(self, **kwargs):
@@ -60,8 +60,6 @@ class SubGraphState(nn.Module):
         for i in self.nodes_state:
             nodes_bg.remove(i)
         nodes = self.nodes_state + nodes_bg
-        if self.final_wires2nodes_dict is not None:
-            self.node2wire_dict = {value: key for key, value in self.final_wires2nodes_dict.items()}
         wires = [0] + list(map(lambda node: self.node2wire_dict[node] + 1, nodes)) # [0] for batch
         plus = torch.tensor([[1], [1]], dtype=self.state.dtype, device=self.state.device) / 2 ** 0.5
         init_state = multi_kron([self.state] + [plus] * len(nodes_bg)).reshape([-1] + [2] * nqubit)
@@ -122,6 +120,13 @@ class SubGraphState(nn.Module):
         else:
             self.register_buffer('state', torch.tensor(1))
 
+    def set_nodes_out_seq(self, nodes: Optional[List[int]] = None) -> None:
+        """Set the output sequence of the nodes."""
+        if nodes is not None:
+            assert len(nodes) == len(self.nodes)
+            assert set(nodes) == set(self.nodes)
+        self.nodes_out_seq = nodes
+
     def add_nodes(self, nodes: Union[int, List[int]]) -> None:
         """Add nodes to the subgraph."""
         if isinstance(nodes, int):
@@ -171,8 +176,11 @@ class SubGraphState(nn.Module):
         Returns:
             Dict: A dictionary mapping nodes to their corresponding wire indices.
         """
-        wires = inverse_permutation(np.argsort(self.nodes).tolist())
-        self.node2wire_dict = {node: wire for node, wire in zip(self.nodes, wires)}
+        if self.nodes_out_seq is None:
+            wires = inverse_permutation(np.argsort(self.nodes).tolist())
+            self.node2wire_dict = {node: wire for node, wire in zip(self.nodes, wires)}
+        else:
+            self.node2wire_dict = {node: i for i, node in enumerate(self.nodes_out_seq)}
         return self.node2wire_dict
 
     def draw(self, **kwargs):
@@ -210,7 +218,7 @@ class GraphState(nn.Module):
         else:
             sgs = SubGraphState(nodes_state, state, edges, nodes)
             self.subgraphs = nn.ModuleList([sgs])
-        self.final_wires2nodes_dict = None
+        self.nodes_out_seq = None
 
     def add_subgraph(
         self,
@@ -255,11 +263,14 @@ class GraphState(nn.Module):
         if graph is None:
             return SubGraphState()
         else:
-            if self.final_wires2nodes_dict is not None:
-                graph.final_wires2nodes_dict = self.final_wires2nodes_dict
+            graph.set_nodes_out_seq(self.nodes_out_seq)
             return graph
 
     @property
     def measure_dict(self) -> Dict:
         """A dictionary containing all measurement results for the graph state."""
         return self.graph.measure_dict
+
+    def set_nodes_out_seq(self, nodes: Optional[List[int]] = None) -> None:
+        """Set the output sequence of the nodes."""
+        self.nodes_out_seq = nodes
