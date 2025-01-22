@@ -1274,6 +1274,7 @@ class Rx(ParametricSingleGate):
     ) -> None:
         super().__init__(name='Rx', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          condition=condition, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
+        self.idx_mbqc = 4 # index of the commands to encode
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
@@ -1318,7 +1319,6 @@ class Rx(ParametricSingleGate):
         cmds.append(Correction(ancilla[1], basis='x', domain=ancilla[0]))
         cmds.append(Correction(ancilla[1], basis='z', domain=nodes))
         self.nodes = [ancilla[1]]
-        self.encoder = cmds[4]
         return cmds
 
 
@@ -1366,6 +1366,7 @@ class Ry(ParametricSingleGate):
         super().__init__(name='Ry', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          condition=condition, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
         self.nancilla = 4
+        self.idx_mbqc = 6 # index of the commands to encode
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
@@ -1414,7 +1415,6 @@ class Ry(ParametricSingleGate):
         cmds.append(Correction(ancilla[3], basis='x', domain=[ancilla[0], ancilla[2]]))
         cmds.append(Correction(ancilla[3], basis='z', domain=[ancilla[0], ancilla[1]]))
         self.nodes = [ancilla[3]]
-        self.encoder = cmds[6]
         return cmds
 
 
@@ -1459,6 +1459,7 @@ class Rz(ParametricSingleGate):
     ) -> None:
         super().__init__(name='Rz', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          condition=condition, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
+        self.idx_mbqc = 3 # index of the commands to encode
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
@@ -1503,7 +1504,6 @@ class Rz(ParametricSingleGate):
         cmds.append(Correction(ancilla[1], basis='x', domain=ancilla[0]))
         cmds.append(Correction(ancilla[1], basis='z', domain=nodes))
         self.nodes = [ancilla[1]]
-        self.encoder = cmds[3]
         return cmds
 
 

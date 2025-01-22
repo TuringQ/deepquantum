@@ -55,7 +55,7 @@ class Pattern(Operation):
     def forward(
         self,
         data: Optional[torch.Tensor] = None,
-        state: Optional[GraphState] = None,
+        state: Optional[GraphState] = None
     ) -> GraphState:
         """Perform a forward pass of the MBQC pattern and return the final graph state.
 
