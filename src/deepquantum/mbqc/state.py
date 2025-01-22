@@ -37,10 +37,10 @@ class SubGraphState(nn.Module):
         nodes: Union[int, List[int], None] = None # primarily, for the single-node case
     ) -> None:
         super().__init__()
+        self.nodes_out_seq = None
         self.set_graph(nodes_state, edges, nodes)
         self.set_state(state)
         self.measure_dict = defaultdict(list) # record the measurement results: {node: batched_bit}
-        self.nodes_out_seq = None
 
     @property
     def nodes(self, **kwargs):
@@ -126,6 +126,7 @@ class SubGraphState(nn.Module):
             assert len(nodes) == len(self.nodes)
             assert set(nodes) == set(self.nodes)
         self.nodes_out_seq = nodes
+        self.update_node2wire_dict()
 
     def add_nodes(self, nodes: Union[int, List[int]]) -> None:
         """Add nodes to the subgraph."""
@@ -151,7 +152,7 @@ class SubGraphState(nn.Module):
 
         Args:
             other (SubGraphState): The other subgraph state to compose with.
-            relabel (bool, optional): Whether to relabel nodes to avoid conflicts. Default: ``True``.
+            relabel (bool, optional): Whether to relabel nodes to avoid conflicts. Default: ``True``
 
         Returns:
             SubGraphState: A new subgraph state that is the composition of the two.
@@ -198,12 +199,12 @@ class GraphState(nn.Module):
     Args:
         nodes_state (int, List[int] or None, optional): The nodes of the input state in the subgraph.
             It can be an integer representing the number of nodes or a list of node indices.
-            Default: ``None``.
-        state (Any, optional): The initial state of the subgraph. Default: ``'plus'``.
+            Default: ``None``
+        state (Any, optional): The initial state of the subgraph. Default: ``'plus'``
         edges (List or None, optional): Additional edges connecting the nodes in the subgraph.
-            Default: ``None``.
+            Default: ``None``
         nodes (int, List[int] or None, optional): Additional nodes to include in the subgraph.
-            Default: ``None``.
+            Default: ``None``
     """
     def __init__(
         self,
@@ -226,7 +227,7 @@ class GraphState(nn.Module):
         state: Any = 'plus',
         edges: Optional[List] = None,
         nodes: Union[int, List[int], None] = None,
-        measure_dict: Dict = None,
+        measure_dict: Optional[Dict] = None,
         index: Optional[int] = None
     ) -> None:
         """Add a subgraph to the graph state.
@@ -234,14 +235,14 @@ class GraphState(nn.Module):
         Args:
             nodes_state (int, List[int] or None, optional): The nodes of the input state in the subgraph.
                 It can be an integer representing the number of nodes or a list of node indices.
-                Default: ``None``.
-            state (Any, optional): The initial state of the subgraph. Default: ``'plus'``.
+                Default: ``None``
+            state (Any, optional): The initial state of the subgraph. Default: ``'plus'``
             edges (List or None, optional): Additional edges connecting the nodes in the subgraph.
-                Default: ``None``.
+                Default: ``None``
             nodes (int, List[int] or None, optional): Additional nodes to include in the subgraph.
-                Default: ``None``.
-            measure_dict (Dict or None, optional): A dictionary to record measurement results. Default: ``None``.
-            index (int or None, optional): The index where to insert the subgraph. Default: ``None``.
+                Default: ``None``
+            measure_dict (Dict or None, optional): A dictionary to record measurement results. Default: ``None``
+            index (int or None, optional): The index where to insert the subgraph. Default: ``None``
         """
         sgs = SubGraphState(nodes_state, state, edges, nodes)
         if measure_dict is not None:
