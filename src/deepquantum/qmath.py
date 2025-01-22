@@ -631,6 +631,17 @@ def expectation(
     return expval
 
 
+def sample2expval(sample: Dict) -> torch.Tensor:
+    """Get the expectation value according to the measurement results."""
+    total = 0
+    exp = 0
+    for bitstring, ncount in sample.items():
+        coeff = (-1) ** (bitstring.count('1') % 2)
+        exp += ncount * coeff
+        total += ncount
+    return torch.tensor([exp / total])
+
+
 def meyer_wallach_measure(state_tsr: torch.Tensor) -> torch.Tensor:
     r"""Calculate Meyer-Wallach entanglement measure.
 

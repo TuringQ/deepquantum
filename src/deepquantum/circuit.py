@@ -17,7 +17,7 @@ from .gate import Rx, Ry, Rz, ProjectionJ, CNOT, Swap, Rxx, Ryy, Rzz, Rxy, Recon
 from .gate import UAnyGate, LatentGate, HamiltonianGate, Barrier
 from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer, RyLayer, RzLayer, CnotLayer, CnotRing
 from .operation import Operation, Gate, Layer, Channel
-from .qmath import amplitude_encoding, measure, expectation
+from .qmath import amplitude_encoding, measure, expectation, sample2expval
 from .state import QubitState, MatrixProductState
 
 
@@ -36,6 +36,7 @@ class QubitCircuit(Operation):
         mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
         chi (int or None, optional): The bond dimension for matrix product state representation.
             Default: ``None``
+        shots (int, optional): The number of shots for the measurement. Default: ``1024``
 
     Raises:
         AssertionError: If the type or dimension of ``init_state`` does not match ``nqubit`` or ``den_mat``.
@@ -48,12 +49,14 @@ class QubitCircuit(Operation):
         den_mat: bool = False,
         reupload: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None
+        chi: Optional[int] = None,
+        shots: int = 1024
     ) -> None:
         super().__init__(name=name, nqubit=nqubit, wires=None, den_mat=den_mat)
         self.reupload = reupload
         self.mps = mps
         self.chi = chi
+        self.shots = shots
         self.set_init_state(init_state)
         self.operators = nn.Sequential()
         self.encoders = []
@@ -61,7 +64,7 @@ class QubitCircuit(Operation):
         self.state = None
         self.ndata = 0
         self.depth = np.array([0] * nqubit)
-        self.wires_measure = None
+        self.wires_measure = []
         self.wires_condition = []
 
     def set_init_state(self, init_state: Any) -> None:
@@ -261,7 +264,7 @@ class QubitCircuit(Operation):
         self.npara = 0
         self.ndata = 0
         self.depth = np.array([0] * self.nqubit)
-        self.wires_measure = None
+        self.wires_measure = []
         self.wires_condition = []
 
     def amplitude_encoding(self, data: Any) -> torch.Tensor:
@@ -287,12 +290,23 @@ class QubitCircuit(Operation):
 
     def measure(
         self,
-        shots: int = 1024,
+        shots: Optional[int] = None,
         with_prob: bool = False,
         wires: Union[int, List[int], None] = None
     ) -> Union[Dict, List[Dict], None]:
-        """Measure the final state."""
+        """Measure the final state.
+
+        Args:
+            shots (int or None, optional): The number of shots for the measurement. Default: ``None`` (which means
+                ``self.shots``)
+            with_prob (bool, optional): Whether to show the true probability of the measurement. Default: ``False``
+            wires (int, List[int] or None, optional): The wires to measure. Default: ``None`` (which means all wires)
+        """
         assert not self.mps, 'Currently NOT supported.'
+        if shots is None:
+            shots = self.shots
+        else:
+            self.shots = shots
         if wires is None:
             wires = list(range(self.nqubit))
         self.wires_measure = self._convert_indices(wires)
@@ -302,8 +316,13 @@ class QubitCircuit(Operation):
             return measure(self.state, shots=shots, with_prob=with_prob, wires=self.wires_measure,
                            den_mat=self.den_mat)
 
-    def expectation(self) -> torch.Tensor:
-        """Get the expectation value according to the final state and ``observables``."""
+    def expectation(self, shots: Optional[int] = None) -> torch.Tensor:
+        """Get the expectation value according to the final state and ``observables``.
+
+        Args:
+            shots (int or None, optional): The number of shots for the expectation value.
+                Default: ``None`` (which means the exact and differentiable expectation value).
+        """
         assert len(self.observables) > 0, 'There is no observable'
         if isinstance(self.state, list):
             assert all(isinstance(i, torch.Tensor) for i in self.state), 'Invalid final state'
@@ -312,9 +331,37 @@ class QubitCircuit(Operation):
             assert isinstance(self.state, torch.Tensor), 'There is no final state'
         assert self.wires_condition == [], 'Expectation with conditional measurement is NOT supported'
         out = []
-        for observable in self.observables:
-            expval = expectation(self.state, observable=observable, den_mat=self.den_mat, chi=self.chi)
-            out.append(expval)
+        if shots is None:
+            for observable in self.observables:
+                expval = expectation(self.state, observable=observable, den_mat=self.den_mat, chi=self.chi)
+                out.append(expval)
+        else:
+            self.shots = shots
+            dtype = self.state[0].real.dtype # in order to be compatible with MPS
+            device = self.state[0].device
+            for observable in self.observables:
+                cir_basis = QubitCircuit(nqubit=self.nqubit, den_mat=self.den_mat, mps=self.mps, chi=self.chi)
+                for wire, basis in zip(observable.wires, observable.basis):
+                    if basis == 'x':
+                        cir_basis.h(wire)
+                    elif basis == 'y':
+                        cir_basis.sdg(wire)
+                        cir_basis.h(wire)
+                cir_basis.to(dtype).to(device)
+                state = cir_basis(state=self.state)
+                wires = sum(observable.wires, [])
+                samples = measure(state=state, shots=shots, wires=wires, den_mat=self.den_mat)
+                if isinstance(samples, list):
+                    expval = []
+                    for sample in samples:
+                        expval_i = sample2expval(sample=sample).to(dtype).to(device)
+                        expval.append(expval_i)
+                    expval = torch.cat(expval)
+                elif isinstance(samples, dict):
+                    expval = sample2expval(sample=samples).to(dtype).to(device)
+                    if self.state.ndim == 2:
+                        expval = expval.squeeze(0)
+                out.append(expval)
         out = torch.stack(out, dim=-1)
         return out
 
@@ -459,7 +506,7 @@ class QubitCircuit(Operation):
         without_control_gates = (TGate, TDaggerGate, CNOT, Rxx, Ryy, Rzz, Toffoli, Fredkin, Barrier)
         single_control_gates = (U3Gate, PhaseShift, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, Rx, Ry, Rz, Swap)
         qasm_lst = ['OPENQASM 2.0;\n' + 'include "qelib1.inc";\n']
-        if self.wires_measure is None and self.wires_condition == []:
+        if self.wires_measure == self.wires_condition == []:
             qasm_lst.append(f'qreg q[{self.nqubit}];\n')
         else:
             qasm_lst.append(f'qreg q[{self.nqubit}];\n' + f'creg c[{self.nqubit}];\n')
@@ -484,9 +531,8 @@ class QubitCircuit(Operation):
                         Gate._reset_qasm_new_gate()
                         raise ValueError(f'Too many control bits for {op.name}')
             qasm_lst.append(op._qasm())
-        if self.wires_measure is not None:
-            for wire in self.wires_measure:
-                qasm_lst.append(f'measure q[{wire}] -> c[{wire}];\n')
+        for wire in self.wires_measure:
+            qasm_lst.append(f'measure q[{wire}] -> c[{wire}];\n')
         Gate._reset_qasm_new_gate()
         return ''.join(qasm_lst)
 
@@ -494,15 +540,14 @@ class QubitCircuit(Operation):
         """Get QASM of the quantum circuit for visualization."""
         # pylint: disable=protected-access
         qasm_lst = ['OPENQASM 2.0;\n' + 'include "qelib1.inc";\n']
-        if self.wires_measure is None and self.wires_condition == []:
+        if self.wires_measure == self.wires_condition == []:
             qasm_lst.append(f'qreg q[{self.nqubit}];\n')
         else:
             qasm_lst.append(f'qreg q[{self.nqubit}];\n' + f'creg c[{self.nqubit}];\n')
         for op in self.operators:
             qasm_lst.append(op._qasm())
-        if self.wires_measure is not None:
-            for wire in self.wires_measure:
-                qasm_lst.append(f'measure q[{wire}] -> c[{wire}];\n')
+        for wire in self.wires_measure:
+            qasm_lst.append(f'measure q[{wire}] -> c[{wire}];\n')
         Gate._reset_qasm_new_gate()
         Channel._reset_qasm_new_gate()
         return ''.join(qasm_lst)
