@@ -205,13 +205,14 @@ class GaussianState(nn.Module):
 
 
 class NonGaussianState(nn.Module):
-    r"""A linear combination of Gaussian state of n modes, representing by covariance matrix, displacement vector and weights.
+    r"""A linear combination of Gaussian state of n modes, representing by covariance matrix, displacement vector and weight.
 
     Args:
-        state (str or List): The Gaussian state. It can be a vacuum state with ``'vac'``, or arbitrary Gaussian states
-            with [``cov``, ``mean``]. ``cov`` and ``mean`` are the covariance matrix and the displacement vector
-            of the Gaussian state, respectively. Use ``xxpp`` convention and :math:`\hbar=2` by default.
-            Default: ``'vac'``
+        state (str or List): A linear combination of Gaussian state. It can be a vacuum state with ``'vac'``,
+        or arbitrary linear combination of Gaussian states with [``cov``, ``mean``, ``weight``]. ``cov``,``mean``
+        and ``weight`` are the covariance matrix, the displacement vector and combination weight
+        of the Gaussian state, respectively. Use ``xxpp`` convention and :math:`\hbar=2` by default.
+        Default: ``'vac'``
         nmode (int or None, optional): The number of modes in the state. Default: ``None``
         cutoff (int, optional): The Fock space truncation. Default: 5
     """
@@ -223,7 +224,7 @@ class NonGaussianState(nn.Module):
     ) -> None:
         super().__init__()
         if state == 'vac':
-            assert nmode == 1, 'valid for single mode'
+            nmode = 1
             cov = torch.eye(2 * nmode) * dqp.hbar / (4 * dqp.kappa ** 2)
             mean = torch.zeros(2 * nmode, 1)
             weight = torch.tensor([1])
