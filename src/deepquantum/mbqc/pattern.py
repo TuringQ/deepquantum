@@ -234,7 +234,7 @@ class Pattern(Operation):
         edges_s_domain = []
         for op in self.commands:
             if isinstance(op, Node):
-                g.add_node(*op.nodes,layer=2)
+                g.add_nodes_from(op.nodes, layer=2)
             elif isinstance(op, Entanglement):
                 g.add_edge(*op.nodes)
             elif isinstance(op, Measurement):
@@ -261,8 +261,8 @@ class Pattern(Operation):
         plt.plot([], [], ':', color='#db1d2c', label='zflow')
         plt.plot([], [], 's', color='#1f78b4', label='input nodes')
         plt.plot([], [], 'o', color='#d7dde0', label='output nodes')
-        plt.xlim(-width/2,width/2)
-        plt.ylim(-width/2,width/2)
+        # plt.xlim(-width/2,width/2)
+        # plt.ylim(-width/2,width/2)
         plt.legend(loc='upper right', fontsize=10)
         plt.tight_layout()
         plt.show()
