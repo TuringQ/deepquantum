@@ -392,6 +392,8 @@ class Layer(Operation):
             wires = [[0]]
         self.wires = self._convert_indices(wires)
         self.gates = nn.Sequential()
+        # MBQC
+        self.nodes = copy(self.wires)
 
     def get_unitary(self) -> torch.Tensor:
         """Get the global unitary matrix."""
@@ -456,6 +458,15 @@ class Layer(Operation):
             # pylint: disable=protected-access
             lst.append(gate._qasm())
         return ''.join(lst)
+
+    def pattern(self, nodes: List[List[int]], ancilla: List[List[int]]) -> nn.Sequential:
+        """Get the MBQC pattern."""
+        assert len(nodes) == len(ancilla) == len(self.gates)
+        cmds = nn.Sequential()
+        for i, gate in enumerate(self.gates):
+            cmds.extend(gate.pattern(nodes[i], ancilla[i]))
+            self.nodes[i] = gate.nodes
+        return cmds
 
 
 class Channel(Operation):

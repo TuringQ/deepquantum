@@ -18,6 +18,7 @@ from .gate import ParametricSingleGate
 from .gate import U3Gate, PhaseShift, PauliX, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, TGate, TDaggerGate
 from .gate import Rx, Ry, Rz, ProjectionJ, CNOT, Swap, Rxx, Ryy, Rzz, Rxy, ReconfigurableBeamSplitter, Toffoli, Fredkin
 from .gate import UAnyGate, LatentGate, HamiltonianGate, Barrier
+from .layer import ParametricSingleLayer
 from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer, RyLayer, RzLayer, CnotLayer, CnotRing
 from .operation import Operation, Gate, Layer, Channel
 from .qmath import amplitude_encoding, measure, expectation
@@ -519,7 +520,8 @@ class QubitCircuit(Operation):
         """Get the MBQC pattern."""
         assert not self.den_mat and not self.mps, 'Currently NOT supported'
         from .mbqc import Pattern
-        allowed_ops = (PauliX, PauliY, PauliZ, Hadamard, SGate, Rx, Ry, Rz, CNOT, Toffoli, Barrier)
+        allowed_ops = (PauliX, PauliY, PauliZ, Hadamard, SGate, Rx, Ry, Rz, CNOT, Toffoli, Barrier,
+                       XLayer, YLayer, ZLayer, HLayer, RxLayer, RyLayer, RzLayer, CnotLayer, CnotRing)
         for i in range(self.nqubit):
             self.wire2node_dict[i] = i
         state_zero = torch.zeros_like(self.init_state.state)
@@ -536,26 +538,35 @@ class QubitCircuit(Operation):
         node_next = self.nqubit
         for op in self.operators:
             assert isinstance(op, allowed_ops), f'{op.name} is NOT supported for MBQC pattern transpiler'
-            assert len(op.controls) == 0, f'Control bits are NOT supported for MBQC pattern transpiler'
-            assert not op.condition, f'Conditional mode is NOT supported for MBQC pattern transpiler'
-            nodes = [self.wire2node_dict[i] for i in op.wires]
-            ancilla = [node_next + i for i in range(op.nancilla)]
-            if isinstance(op, ParametricSingleGate):
-                cmds = op.pattern(nodes, ancilla, op.theta, op.requires_grad)
-            else:
-                cmds = op.pattern(nodes, ancilla)
-            pattern.commands.extend(cmds)
-            if op in self.encoders:
-                for i in op.idx_enc:
-                    pattern.encoders.append(cmds[i])
-                pattern.npara += op.nancilla - len(op.idx_enc)
-                pattern.ndata += len(op.idx_enc)
-            else:
-                pattern.npara += op.nancilla
-            for wire, node in zip(op.wires, op.nodes):
-                self.wire2node_dict[wire] = node
-            node_next += op.nancilla
+            if isinstance(op, Gate):
+                pattern = self._update_pattern(pattern, op, node_next)
+                node_next += op.nancilla
+            elif isinstance(op, Layer):
+                for gate in op.gates:
+                    pattern = self._update_pattern(pattern, gate, node_next)
+                    node_next += gate.nancilla
         pattern.set_nodes_out_seq([self.wire2node_dict[i] for i in range(self.nqubit)])
+        return pattern
+
+    def _update_pattern(self, pattern: 'Pattern', gate: Gate, node_next: int) -> 'Pattern':
+        assert len(gate.controls) == 0, f'Control bits are NOT supported for MBQC pattern transpiler'
+        assert not gate.condition, f'Conditional mode is NOT supported for MBQC pattern transpiler'
+        nodes = [self.wire2node_dict[i] for i in gate.wires]
+        ancilla = [node_next + i for i in range(gate.nancilla)]
+        if isinstance(gate, ParametricSingleGate):
+            cmds = gate.pattern(nodes, ancilla, gate.theta, gate.requires_grad)
+        else:
+            cmds = gate.pattern(nodes, ancilla)
+        pattern.commands.extend(cmds)
+        if gate in self.encoders:
+            for i in gate.idx_enc:
+                pattern.encoders.append(cmds[i])
+            pattern.npara += gate.nancilla - len(gate.idx_enc)
+            pattern.ndata += len(gate.idx_enc)
+        else:
+            pattern.npara += gate.nancilla
+        for wire, node in zip(gate.wires, gate.nodes):
+            self.wire2node_dict[wire] = node
         return pattern
 
     def draw(self, output: str = 'mpl', **kwargs):
