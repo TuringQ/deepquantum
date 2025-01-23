@@ -131,13 +131,13 @@ class Measurement(Command):
             init_state = init_state.unsqueeze(0)
         wire = sgs.node2wire_dict[self.nodes[0]]
         if len(self.s_domain) != 0:
-            qs = sum(map(lambda s: torch.tensor(sgs.measure_dict[s], device=self.angle.device), self.s_domain))
+            qs = sum(map(lambda s: torch.tensor(sgs.measure_dict[s], device=self.angle.device), self.s_domain)).reshape(-1,1)
         else:
-            qs = torch.zeros(init_state.shape[0], device=self.angle.device)
+            qs = torch.zeros(init_state.shape[0], device=self.angle.device).reshape(-1,1)
         if len(self.t_domain) != 0:
-            qt = sum(map(lambda t: torch.tensor(sgs.measure_dict[t], device=self.angle.device), self.t_domain))
+            qt = sum(map(lambda t: torch.tensor(sgs.measure_dict[t], device=self.angle.device), self.t_domain)).reshape(-1,1)
         else:
-            qt = torch.zeros(init_state.shape[0], device=self.angle.device)
+            qt = torch.zeros(init_state.shape[0], device=self.angle.device).reshape(-1,1)
         if self.plane in ['xy', 'yx']:
             alpha = (-1)**qs * self.angle + torch.pi * qt
             # M^{XY,α} X^s Z^t = M^{XY,(-1)^s·α+tπ}
@@ -152,7 +152,7 @@ class Measurement(Command):
             # M^{YZ,α} X^s Z^t = M^{YZ,(-1)^t·α+(s+t)π)}
         cir = QubitCircuit(nqubit=nqubit)
         cir.j(wires=wire, plane=self.plane, encode=True)
-        final_state = cir(data=alpha.reshape(-1,1), state=init_state)
+        final_state = cir(data=alpha, state=init_state.squeeze(0))
         rst = cir.measure(shots=1, wires=wire)
         state = []
         if type(rst) == list:
@@ -235,7 +235,7 @@ class Correction(Command):
             cir.rz(wires=wire, encode=True) # global phase
         else:
             raise ValueError(f'Invalid basis {self.basis}')
-        state = cir(data=theta.reshape(-1, 1), state=init_state)
+        state = cir(data=theta.reshape(-1, 1).squeeze(0), state=init_state.squeeze(0))
         nodes_state = sorted(list(sgs.nodes))
         x.subgraphs.pop(idx)
         x.add_subgraph(nodes_state=nodes_state, state=state, measure_dict=sgs.measure_dict, index=0)

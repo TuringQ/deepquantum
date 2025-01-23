@@ -144,11 +144,14 @@ class Pattern(Operation):
         """
         if data is None:
             return
-        assert len(data) >= self.ndata
+        assert data.size(-1) >= self.ndata
         count = 0
         for op in self.encoders:
             count_up = count + op.npara
-            op.init_para(data[count:count_up])
+            if data.ndim == 2:
+                op.init_para(data[:,count:count_up])
+            else:
+                op.init_para(data[count:count_up])
             count = count_up % len(data)
 
     def n(self, node: Union[int, List[int]]):
