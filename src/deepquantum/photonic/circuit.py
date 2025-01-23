@@ -474,48 +474,66 @@ class QumodeCircuit(Operation):
             state_ = self.init_state
         elif not isinstance(state, BosonicState):
             nmode = self.nmode
-            state_ = BosonicState(state=state, nmode=nmode, cutoff=self.cutoff)
+            state_ = BosonicState(state=state, nmode=nmode, cutoff=self.cutoff) # consider TDM
         state = [state_.cov, state_.mean, state_.weight]
-        results = [ ]
-        if data is None or data.ndim == 1: # use batch gaussian forward
-            for i in range(state[0].shape[0]):
-                state_i = [state[0][i], state[1][i]]
-                result = self._forward_gaussian(data, state_i, is_prob, detector, stepwise)
-                results.append(result)
-        else: # batch data
+        if data is None or data.ndim == 1:
+            covs_, means_  = self._forward_helper_bosonic(data, state, stepwise)
+            self.state = [covs_, means_, state[2]]
+        else:
             assert data.ndim == 2
-            if state[0].shape[0] == 1:
-                state[2] = torch.stack([state_.weight[0]] * data.shape[0])
-                state_i = [state[0][0], state[1][0]]
-                for i in range(data.shape[0]):
-                    result = self._forward_gaussian(data[i], state_i, is_prob, detector, stepwise)
-                    results.append(result)
+            batch = data.shape[0]
+            if state[0].shape[0] == 1: # state batch=1
+                covs_, means_ = vmap(self._forward_helper_bosonic, in_dims=(0, None, None))(data, state, stepwise)
+                weight = torch.stack([state[2]] * batch).squeeze()
             else:
-                assert data.shape[0] == state[0].shape[0]
-                for i in range(data.shape[0]):
-                    state_i = [state[0][i], state[1][i]]
-                    result = self._forward_gaussian(data[i], state_i, is_prob, detector, stepwise)
-                    results.append(result)
+                covs_, means_ = vmap(self._forward_helper_bosonic, in_dims=(0, 0, None))(data, state, stepwise)
+                weight = state[2]
+            covs_ = torch.squeeze(covs_, dim=1)
+            means_ = torch.squeeze(means_, dim=1)
+            self.encode(data[-1])
+            self.state = [covs_, means_, weight]
 
         if is_prob:
-            temp_dic = defaultdict(list)
-            for i in range(len(results)):
-                prob_dic = results[i]
-                for key, val in prob_dic.items():
-                    temp_prob = (val * state[2][i]).sum()
-                    assert abs(temp_prob.imag) < 1e-8
-                    temp_dic[key].append(temp_prob.real)
-            for key, val in temp_dic.items():
-                temp_dic[key] = torch.stack(val)
-            self.state = dict(temp_dic)
-        else:
-            cov = []
-            mean = []
-            for i in results:
-                cov.append(i[0])
-                mean.append(i[1])
-            self.state = [torch.stack(cov), torch.stack(mean), state[2]]
+            self.state = self._forward_gaussian_prob(self.state[0], self.state[1], detector) # small bug
+        elif self._if_delayloop:
+            self.state = self._shift_state(self.state)
         return self.state
+
+    def _forward_helper_bosonic(
+        self,
+        data: Optional[torch.Tensor] = None,
+        state: Optional[List[torch.Tensor]] = None,
+        stepwise: bool = False
+    ) -> List[torch.Tensor]:
+        """Perform a forward pass for one sample if the input is a Gaussian state."""
+        if self._lossy:
+            stepwise = True
+        self.encode(data)
+        if self._if_delayloop:
+            operators = self._operators_tdm
+        else:
+            operators = self.operators
+        if state is None:
+            cov = self.init_state.cov
+            mean = self.init_state.mean
+        else:
+            cov, mean = state[:2]
+        if cov.dim() == 3:
+            cov = cov.unsqueeze(0)
+        if mean.dim() == 3:
+            mean = mean.unsqueeze(0)
+        shape = cov.shape
+        cov = cov.reshape(shape[0]*shape[1], shape[2], shape[3])
+        mean = mean.reshape(shape[0]*shape[1], shape[2], 1)
+        if stepwise:
+            cov, mean = operators([cov, mean])
+        else:
+            sp_mat = self.get_symplectic()
+            cov = sp_mat @ cov @ sp_mat.mT
+            mean = self.get_displacement(mean)
+        covs_ = cov.reshape(shape[0], shape[1], shape[2], shape[3])
+        means_ = mean.reshape(shape[0], shape[1], shape[2], 1)
+        return [covs_, means_]
 
     def _forward_helper_gaussian(
         self,
@@ -554,7 +572,11 @@ class QumodeCircuit(Operation):
             detector (str or None, optional): Use ``'pnrd'`` for the photon-number-resolving detector or
                 ``'threshold'`` for the threshold detector. Default: ``None``
         """
-        cov, mean = self.state
+        cov, mean = self.state[:2]
+        if self.backend == 'bosonic':
+            shape = cov.shape
+            cov = cov.reshape(shape[0]*shape[1], shape[2], shape[3])
+            mean = mean.reshape(shape[0]*shape[1], shape[2], 1)
         batch_forward = vmap(self._forward_gaussian_prob_helper, in_dims=(0, 0, None, None, None, None, None))
         if detector is None:
             detector = self.detector
@@ -593,6 +615,11 @@ class QumodeCircuit(Operation):
             loop = True
             probs = batch_forward(cov, mean, even_basis, odd_basis, basis, detector, loop)
         keys = list(map(FockState, final_states.tolist()))
+        if self.backend == 'bosonic':
+            weight = self.state[2]
+            probs = probs.mT * weight.flatten()
+            probs = torch.stack(torch.split(probs, shape[1], dim=1))
+            probs = probs.sum(dim=2)
         return dict(zip(keys, probs.mT))
 
     def _forward_gaussian_prob_helper(self, cov, mean, even_basis, odd_basis, basis, detector, loop):

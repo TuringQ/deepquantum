@@ -84,5 +84,3 @@ def test_photon_number_mean_var():
     test2 = state.mean_photon(0)
     err = abs(torch.tensor(test1) - np.array(test2)).sum()
     assert err < 1e-5
-
-
