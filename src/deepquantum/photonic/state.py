@@ -204,7 +204,7 @@ class GaussianState(nn.Module):
         return torch.allclose(purity, unity, rtol=rtol, atol=atol)
 
 
-class NonGaussianState(nn.Module):
+class BosonicState(nn.Module):
     r"""A linear combination of Gaussian state of n modes, representing by covariance matrix, displacement vector and weight.
 
     Args:
@@ -276,7 +276,7 @@ class NonGaussianState(nn.Module):
         batch = states[0].weight.shape[0]
         k = 0
         for s in states:
-            assert isinstance(s, NonGaussianState)
+            assert isinstance(s, BosonicState)
             covs.append(s.cov)
             means.append(s.mean)
             weights.append(s.weight)
@@ -309,7 +309,7 @@ class NonGaussianState(nn.Module):
         return [covs_, means_, weights_]
 
 
-class CatState(NonGaussianState):
+class CatState(BosonicState):
     r"""
     Cat state for single mode, The cat state is a non-Gaussian superposition of coherent states
 

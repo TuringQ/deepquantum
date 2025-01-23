@@ -30,8 +30,8 @@ def test_catstate():
 def test_forward_cov_mean():
     r = np.random.rand(1)[0]
     theta = 2*np.pi*np.random.rand(1)[0]
-    cat = dq.photonic.state.CatState(r=r, theta=theta, p=1)
-    vac  =dq.photonic.state.NonGaussianState(state='vac', nmode=1)
+    cat = dq.CatState(r=r, theta=theta, p=1)
+    vac  =dq.BosonicState(state='vac', nmode=1)
     cir = dq.QumodeCircuit(nmode=2, init_state=[cat, vac], backend='bosonic', cutoff=3)
     # cir.s(0, r=1.)
     angles = 2*np.pi*np.random.rand(2)
