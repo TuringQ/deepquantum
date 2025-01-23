@@ -41,6 +41,7 @@ class SingleGate(Gate):
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls, condition=condition,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         assert len(self.wires) == 1
+        # MBQC
         self.nancilla = 2
 
     def get_unitary(self) -> torch.Tensor:
@@ -823,6 +824,7 @@ class PauliY(SingleGate):
         super().__init__(name='PauliY', nqubit=nqubit, wires=wires, controls=controls, condition=condition,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[0, -1j], [1j, 0]]))
+        # MBQC
         self.nancilla = 4
 
     def _qasm(self) -> str:
@@ -961,6 +963,7 @@ class Hadamard(SingleGate):
         super().__init__(name='Hadamard', nqubit=nqubit, wires=wires, controls=controls, condition=condition,
                          den_mat=den_mat, tsr_mode=tsr_mode)
         self.register_buffer('matrix', torch.tensor([[1, 1], [1, -1]], dtype=torch.cfloat) / 2 ** 0.5)
+        # MBQC
         self.nancilla = 1
 
     def _qasm(self) -> str:
@@ -1274,7 +1277,8 @@ class Rx(ParametricSingleGate):
     ) -> None:
         super().__init__(name='Rx', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          condition=condition, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
-        self.idx_mbqc = 4 # index of the commands to encode
+        # MBQC
+        self.idx_enc = [4] # index of the commands to encode
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
@@ -1365,8 +1369,9 @@ class Ry(ParametricSingleGate):
     ) -> None:
         super().__init__(name='Ry', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          condition=condition, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
+        # MBQC
         self.nancilla = 4
-        self.idx_mbqc = 6 # index of the commands to encode
+        self.idx_enc = [6] # index of the commands to encode
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
@@ -1459,7 +1464,8 @@ class Rz(ParametricSingleGate):
     ) -> None:
         super().__init__(name='Rz', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
                          condition=condition, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
-        self.idx_mbqc = 3 # index of the commands to encode
+        # MBQC
+        self.idx_enc = [3] # index of the commands to encode
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
@@ -1745,6 +1751,7 @@ class CNOT(DoubleControlGate):
                                                      [0, 1, 0, 0],
                                                      [0, 0, 0, 1],
                                                      [0, 0, 1, 0]]) + 0j)
+        # MBQC
         self.nancilla = 2
 
     def _qasm(self) -> str:
@@ -2235,6 +2242,7 @@ class Toffoli(TripleGate):
                                                      [0, 0, 0, 0, 0, 1, 0, 0],
                                                      [0, 0, 0, 0, 0, 0, 0, 1],
                                                      [0, 0, 0, 0, 0, 0, 1, 0]]) + 0j)
+        # MBQC
         self.nancilla = 18
 
     def get_unitary(self) -> torch.Tensor:

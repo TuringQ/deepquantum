@@ -534,8 +534,6 @@ class QubitCircuit(Operation):
         else:
             pattern = Pattern(nodes_state=self.nqubit, state=self.init_state.state)
         node_next = self.nqubit
-        cmds = nn.Sequential()
-        encoders = []
         for op in self.operators:
             assert isinstance(op, allowed_ops), f'{op.name} is NOT supported for MBQC pattern transpiler'
             assert len(op.controls) == 0, f'Control bits are NOT supported for MBQC pattern transpiler'
@@ -543,20 +541,20 @@ class QubitCircuit(Operation):
             nodes = [self.wire2node_dict[i] for i in op.wires]
             ancilla = [node_next + i for i in range(op.nancilla)]
             if isinstance(op, ParametricSingleGate):
-                cmds_op = op.pattern(nodes, ancilla, op.theta, op.requires_grad)
-                if op in self.encoders:
-                    encoders.append(cmds_op[op.idx_mbqc])
+                cmds = op.pattern(nodes, ancilla, op.theta, op.requires_grad)
             else:
-                cmds_op = op.pattern(nodes, ancilla)
-            cmds += cmds_op
+                cmds = op.pattern(nodes, ancilla)
+            pattern.commands.extend(cmds)
+            if op in self.encoders:
+                for i in op.idx_enc:
+                    pattern.encoders.append(cmds[i])
+                pattern.npara += op.nancilla - len(op.idx_enc)
+                pattern.ndata += len(op.idx_enc)
+            else:
+                pattern.npara += op.nancilla
             for wire, node in zip(op.wires, op.nodes):
                 self.wire2node_dict[wire] = node
             node_next += op.nancilla
-        for cmd in cmds:
-            if cmd in encoders:
-                pattern.add(cmd, encode=True)
-            else:
-                pattern.add(cmd)
         pattern.set_nodes_out_seq([self.wire2node_dict[i] for i in range(self.nqubit)])
         return pattern
 
