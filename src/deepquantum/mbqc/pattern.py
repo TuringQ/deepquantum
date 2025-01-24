@@ -144,6 +144,7 @@ class Pattern(Operation):
         """
         if data is None:
             return
+        # not yet for reuplaoding
         assert data.size(-1) >= self.ndata
         count = 0
         for op in self.encoders:
@@ -152,7 +153,7 @@ class Pattern(Operation):
                 op.init_para(data[:,count:count_up])
             else:
                 op.init_para(data[count:count_up])
-            count = count_up % len(data)
+            count = count_up % data.size(-1)
 
     def n(self, node: Union[int, List[int]]):
         """Add a new node to the pattern.

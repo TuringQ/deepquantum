@@ -140,8 +140,7 @@ def test_batch_data_transpilation():
     ]
 
     # Add random number of gates (3-10)
-    n_gates = 4
-    # n_gates = random.randint(3, 10)
+    n_gates = random.randint(3, 10)
     n_para = 0
 
     for _ in range(n_gates):

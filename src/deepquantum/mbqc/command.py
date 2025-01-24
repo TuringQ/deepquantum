@@ -180,7 +180,8 @@ class Measurement(Command):
             self.register_buffer('angle', angle)
 
     def extra_repr(self) -> str:
-        s = super().extra_repr() + f', plane={self.plane.upper()}, angle={self.angle.item()}'
+        s = super().extra_repr() + f', plane={self.plane.upper()}, angle={self.angle}'
+        # s = super().extra_repr() + f', plane={self.plane.upper()}, angle={self.angle.item()}'
         return s + f', s_domain={self.s_domain}, t_domain={self.t_domain}'
 
 
