@@ -13,27 +13,27 @@ from torch import nn
 
 from .command import Node, Entanglement, Measurement, Correction
 from .operation import Operation
-from .state import GraphState
+from .state import SubGraphState, GraphState
 
 
 class Pattern(Operation):
     """Measurement-based quantum computing (MBQC) pattern.
 
-    A Pattern represents a measurement-based quantum computation, which consists of a sequence of
+    A pattern represents a measurement-based quantum computation, which consists of a sequence of
     commands (node preparation, entanglement, measurement, and correction) applied to qubits arranged
     in a graph structure.
 
     Args:
-        nodes_state (int, List[int] or None): The nodes of the input state in the subgraph.
-            It can be an integer representing the number of nodes or a list of node indices.
-            Default: ``None``
-        state (Any, optional): The initial state of the subgraph. The string representation of state
+        nodes_state (int, List[int] or None, optional): The nodes of the input state in the initial graph state.
+            It can be an integer representing the number of nodes or a list of node indices. Default: ``None``
+        state (Any, optional): The input state of the initial graph state. The string representation of state
             could be ``'plus'``, ``'minus'``, ``'zero'``, and ``'one'``. Default: ``'plus'``
-        edges (List or None, optional): Additional edges connecting the nodes in the subgraph.
+        edges (List or None, optional): Additional edges connecting the nodes in the initial graph state.
             Default: ``None``
-        nodes (int, List[int] or None, optional): Additional nodes to include in the subgraph.
+        nodes (int, List[int] or None, optional): Additional nodes to include in the initial graph state.
             Default: ``None``
         name (str or None, optional): The name of the pattern. Default: ``None``
+        reupload (bool, optional): Whether to use data re-uploading. Default: ``False``
 
     Ref: V. Danos, E. Kashefi and P. Panangaden. J. ACM 54.2 8 (2007)
     """
@@ -43,28 +43,24 @@ class Pattern(Operation):
         state: Any = 'plus',
         edges: Optional[List] = None,
         nodes: Union[int, List[int], None] = None,
-        reupload: bool = False,
-        name: Optional[str] = None
+        name: Optional[str] = None,
+        reupload: bool = False
     ) -> None:
         super().__init__(name=name, nodes=None)
+        self.reupload = reupload
         self.init_state = GraphState(nodes_state, state, edges, nodes)
         self.commands = nn.Sequential()
         self.encoders = []
-        self.npara = 0
+        self.state = None
         self.ndata = 0
         self.nodes_out_seq = None
-        self.reupload = reupload
 
-    def forward(
-        self,
-        data: Optional[torch.Tensor] = None,
-        state: Optional[GraphState] = None
-    ) -> GraphState:
+    def forward(self, data: Optional[torch.Tensor] = None, state: Optional[GraphState] = None) -> GraphState:
         """Perform a forward pass of the MBQC pattern and return the final graph state.
 
         Args:
-            data (torch.Tensor or None, optional): The input angle data for the ``encoders``. Default: ``None``
-            state (GraphState or None, optional): The initial state for the pattern. Default: ``None``
+            data (torch.Tensor or None, optional): The input data for the ``encoders``. Default: ``None``
+            state (GraphState or None, optional): The initial graph state for the pattern. Default: ``None``
 
         Returns:
             GraphState: The final graph state of the pattern after applying the ``commands``.
@@ -78,6 +74,36 @@ class Pattern(Operation):
         self.state.set_nodes_out_seq(self.nodes_out_seq)
         return self.state
 
+    def encode(self, data: Optional[torch.Tensor]) -> None:
+        """Encode the input data into the measurement angles as parameters.
+
+        This method iterates over the ``encoders`` of the MBQC pattern and initializes their parameters
+        with the input data. If ``reupload`` is ``False``, the input data must be at least as long as the number
+        of parameters in the ``encoders``. If ``reupload`` is ``True``, the input data can be repeated to fill up
+        the parameters.
+
+        Args:
+            data (torch.Tensor or None): The input data for the ``encoders``, could be a 1D or 2D tensor.
+
+        Raises:
+            AssertionError: If input data is shorter than the number of parameters in the ``encoders``.
+        """
+        if data is None:
+            return
+        if not self.reupload:
+            assert data.shape[-1] >= self.ndata, 'The pattern needs more data, or consider data re-uploading'
+        count = 0
+        if self.reupload and self.ndata > data.shape[-1]:
+            n = int(np.ceil(self.ndata / data.shape[-1]))
+            data = torch.cat([data] * n, dim=-1)
+        for op in self.encoders:
+            count_up = count + op.npara
+            if data.ndim == 2:
+                op.init_para(data[:, count:count_up])
+            else:
+                op.init_para(data[count:count_up])
+            count = count_up
+
     def add_graph(self,
         nodes_state: Union[int, List[int], None] = None,
         state: Any = 'plus',
@@ -85,27 +111,28 @@ class Pattern(Operation):
         nodes: Union[int, List[int], None] = None,
         index: Optional[int] = None
     ) -> None:
-        """Add a subgraph to the graph state.
+        """Add a subgraph state to the graph state.
 
         Args:
-            nodes_state (int, List[int] or None): The nodes of the input state in the subgraph.
-                It can be an integer representing the number of nodes or a list of node indices.
-                Default: ``None``.
-            state (Any, optional): The initial state of the subgraph. Default: ``'plus'``.
-            edges (List or None, optional): Additional edges connecting the nodes in the subgraph.
-                Default: ``None``.
-            nodes (int, List[int] or None, optional): Additional nodes to include in the subgraph.
-                Default: ``None``.
-            measure_dict (Dict, optional): A dictionary to record measurement results. Default: ``None``.
-            index (int or None, optional): The index where to insert the subgraph. Default: ``None``.
+            nodes_state (int, List[int] or None, optional): The nodes of the input state in the subgraph state.
+                It can be an integer representing the number of nodes or a list of node indices. Default: ``None``
+            state (Any, optional): The input state of the subgraph state. The string representation of state
+                could be ``'plus'``, ``'minus'``, ``'zero'``, and ``'one'``. Default: ``'plus'``
+            edges (List or None, optional): Additional edges connecting the nodes in the subgraph state.
+                Default: ``None``
+            nodes (int, List[int] or None, optional): Additional nodes to include in the subgraph state.
+                Default: ``None``
+            index (int or None, optional): The index where to insert the subgraph state. Default: ``None``
         """
         self.init_state.add_subgraph(nodes_state=nodes_state, state=state, edges=edges, nodes=nodes, index=index)
 
-    def get_graph(self):
-        if hasattr(self, 'state'):
-            return self.state.graph
-        else:
+    @property
+    def graph(self) -> SubGraphState:
+        """The combined graph state of the initial or final graph state."""
+        if self.state is None:
             return self.init_state.graph
+        else:
+            return self.state.graph
 
     def set_nodes_out_seq(self, nodes: Optional[List[int]] = None) -> None:
         """Set the output sequence of the nodes."""
@@ -120,8 +147,8 @@ class Pattern(Operation):
 
         Args:
             op (Operation): The operation to add. It is an instance of ``Operation`` class or its subclasses,
-                such as ``Node``, or ``Measurement``.
-            encode (bool): Whether the command encodes data. Default: ``False``
+                such as ``Node``, ``Entanglement``, ``Measurement``, or ``Correction``.
+            encode (bool): Whether the command is to encode data. Default: ``False``
         """
         assert isinstance(op, Operation)
         self.commands.append(op)
@@ -132,105 +159,44 @@ class Pattern(Operation):
         else:
             self.npara += op.npara
 
-    def encode(self, data: Optional[torch.Tensor]) -> None:
-        """Encode the input data into measurement angle as parameters.
+    def n(self, nodes: Union[int, List[int]]) -> None:
+        """Add a node command."""
+        n = Node(nodes=nodes)
+        self.add(n)
 
-        This method iterates over the ``encoders`` of the pattern(``encode=True`` measurements) and
-        initializes their parameters with the input data. The input data must be at least as long
-        as the number of parameters in the ``encoders``.
-
-        Args:
-            data (torch.Tensor or None): The input data for the ``encoders``, must be a 1D tensor.
-
-        Raises:
-            AssertionError: If input data is shorter than the number of parameters in the ``encoders``.
-        """
-        if data is None:
-            return
-        if not self.reupload:
-            assert data.size(-1) >= self.ndata, 'The pattern needs more data, or consider data re-uploading'
-        count = 0
-        if self.reupload and self.ndata > data.size(-1):
-            n = int(np.ceil(self.ndata / data.size(-1)))
-            data = torch.cat([data] * n, dim=-1)
-        for op in self.encoders:
-            count_up = count + op.npara
-            if data.ndim == 2:
-                op.init_para(data[:,count:count_up])
-            else:
-                op.init_para(data[count:count_up])
-            count = count_up
-
-    def n(self, node: Union[int, List[int]]):
-        """Add a new node to the pattern.
-
-        Args:
-            node (int or List[int]): Index or list of indices for the new node.
-        """
-        node_ = Node(nodes=node)
-        self.add(node_)
-
-    def e(self, node: List[int]):
-        """Add an entanglement operators on two nodes in the pattern.
-
-        Args:
-            node (List[int]): A list of two integers specifying the nodes to entangle.
-                Must reference existing nodes in the pattern.
-        """
-        entang_ = Entanglement(node1=node[0], node2=node[1])
-        self.add(entang_)
+    def e(self, nodes: List[int]) -> None:
+        """Add an entanglement command."""
+        e = Entanglement(node1=nodes[0], node2=nodes[1])
+        self.add(e)
 
     def m(
         self,
         node: int,
-        plane: Optional[str] = 'xy',
+        plane: str = 'xy',
         angle: float = 0.,
         t_domain: Union[int, Iterable[int], None] = None,
         s_domain: Union[int, Iterable[int], None] = None,
         encode: bool = False
-    ):
-        """Add a measurement operation to the pattern.
-
-        Args:
-            node (int): The node to measure.
-            plane (str, optional): Measurement plane ('xy', 'yz', or 'xz'). Defaults to 'xy'.
-            angle (float): Measurement angle in radians. Defaults to 0.
-            t_domain (int, Iterable[int] or None], optional): List of nodes that contribute to the Z correction.
-                Default: None
-            s_domain (int, Iterable[int] or None], optional): List of nodes that contribute to the X correction.
-                Default: None
-            encode (bool): Whether to encode angle. Default: ``False``.
-        """
+    ) -> None:
+        """Add a measurement command."""
         requires_grad = not encode
         if angle is not None:
             requires_grad = False
-        mea_op = Measurement(nodes=node, plane=plane, angle=angle, t_domain=t_domain,
-                             s_domain=s_domain, requires_grad=requires_grad)
-        self.add(mea_op, encode=encode)
+        m = Measurement(nodes=node, plane=plane, angle=angle, t_domain=t_domain, s_domain=s_domain,
+                        requires_grad=requires_grad)
+        self.add(m, encode=encode)
 
-    def c_x(self, node: int, domain: Union[int, Iterable[int], None] = None):
-        """Add an X correction operation to the pattern.
-
-        Args:
-            node (int): The node to apply the X correction.
-            domain (int, Iterable[int] or None], optional): List of nodes on which
-                the signal depends. Default: None
-        """
+    def c_x(self, node: int, domain: Union[int, Iterable[int], None] = None) -> None:
+        """Add an X-correction command."""
         c_x = Correction(nodes=node, basis='x', domain=domain)
         self.add(c_x)
 
-    def c_z(self, node: int, domain: Union[int, Iterable[int], None] = None):
-        """Add a Z correction operation to the pattern.
-
-        Args:
-            node (int): The node to apply the Z correction.
-            domain (int, Iterable[int] or None], optional): List of nodes on which
-                the signal depends. Default: None
-        """
+    def c_z(self, node: int, domain: Union[int, Iterable[int], None] = None) -> None:
+        """Add a Z-correction command."""
         c_z = Correction(nodes=node, basis='z', domain=domain)
         self.add(c_z)
 
-    def draw(self, width: int=4):
+    def draw(self, width: int = 4):
         """Draw the MBQC pattern."""
         g = MultiDiGraph(self.init_state.graph.graph)
         nodes_init = deepcopy(g.nodes())
@@ -278,8 +244,7 @@ class Pattern(Operation):
         """Determine whether the command sequence is standard.
 
         Returns:
-            A bool value,
-            True if the pattern follows NEMC standardization, False otherwise
+            bool: ``True`` if the pattern follows NEMC standardization, ``False`` otherwise
         """
         it = iter(self.commands)
         try:
@@ -297,7 +262,7 @@ class Pattern(Operation):
         except StopIteration:
             return True  # If we run out of operations, pattern is standard
 
-    def standardize(self):
+    def standardize(self) -> None:
         """Standardize the command sequence into NEMC form.
 
         This function reorders operations into the standard form:
@@ -370,11 +335,10 @@ class Pattern(Operation):
         2. Moving signals to the left, through modifying other measurements and corrections.
 
         Returns:
-            A signal dictionary including all the signal shifting commands.
+            Dict: A signal dictionary including all the signal shifting commands.
 
         See https://arxiv.org/pdf/0704.1263 Ch.(5.5)
         """
-
         signal_dict = {}
 
         def expand_domain(domain: set[int]) -> None:

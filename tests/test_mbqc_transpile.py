@@ -1,7 +1,9 @@
-import deepquantum as dq
-import numpy as np
-import torch
 import random
+
+import deepquantum as dq
+import pytest
+import torch
+
 
 def test_random_circuit_transpilation():
     # Create a circuit with random number of qubits (2-5)
@@ -51,6 +53,7 @@ def test_random_circuit_transpilation():
         torch.abs(state_pattern.graph.full_state),
         atol=1e-6
     )
+
 
 def test_encode_transpilation():
     # Create a circuit with random number of qubits (2-5)
@@ -114,6 +117,7 @@ def test_encode_transpilation():
         atol=1e-6
     )
 
+
 def test_batch_data_transpilation():
     # Create a circuit with random number of qubits (2-5)
     n_qubits = random.randint(2, 5)
@@ -176,6 +180,7 @@ def test_batch_data_transpilation():
         torch.abs(state_pattern),
         atol=1e-6
     )
+
 
 def test_data_reupload_transpilation():
     # Create a circuit with random number of qubits (2-5)

@@ -18,7 +18,6 @@ from .gate import ParametricSingleGate
 from .gate import U3Gate, PhaseShift, PauliX, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, TGate, TDaggerGate
 from .gate import Rx, Ry, Rz, ProjectionJ, CNOT, Swap, Rxx, Ryy, Rzz, Rxy, ReconfigurableBeamSplitter, Toffoli, Fredkin
 from .gate import UAnyGate, LatentGate, HamiltonianGate, Barrier
-from .layer import ParametricSingleLayer
 from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer, RyLayer, RzLayer, CnotLayer, CnotRing
 from .operation import Operation, Gate, Layer, Channel
 from .qmath import amplitude_encoding, measure, expectation
@@ -301,7 +300,7 @@ class QubitCircuit(Operation):
         wires: Union[int, List[int], None] = None
     ) -> Union[Dict, List[Dict], None]:
         """Measure the final state."""
-        assert not self.mps, 'Currently NOT supported'
+        assert not self.mps, 'Currently NOT supported.'
         if wires is None:
             wires = list(range(self.nqubit))
         self.wires_measure = self._convert_indices(wires)

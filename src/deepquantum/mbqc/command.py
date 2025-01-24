@@ -2,7 +2,7 @@
 MBQC commands
 """
 
-from typing import Any, Iterable, List, Optional, Union
+from typing import Any, Iterable, List, Union
 
 import torch
 from torch import nn
@@ -72,9 +72,9 @@ class Measurement(Command):
         nodes (int or List[int]): The indices of the nodes to measure.
         plane (str, optional): The measurement plane (``'xy'``, ``'yz'`` or ``'zx'``). Default: ``'xy'``
         angle (Any, optional): The measurement angle in radians. Default: 0.
-        s_domain (Union[int, Iterable[int], None], optional): The indices of the nodes that contribute to signal domain s.
+        s_domain (int, Iterable[int] or None, optional): The indices of the nodes that contribute to signal domain s.
             Default: ``None``
-        t_domain (Union[int, Iterable[int], None], optional): The indices of the nodes that contribute to signal domain t.
+        t_domain (int, Iterable[int] or None, optional): The indices of the nodes that contribute to signal domain t.
             Default: ``None``
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
@@ -131,13 +131,15 @@ class Measurement(Command):
             init_state = init_state.unsqueeze(0)
         wire = sgs.node2wire_dict[self.nodes[0]]
         if len(self.s_domain) != 0:
-            qs = sum(map(lambda s: torch.tensor(sgs.measure_dict[s], device=self.angle.device), self.s_domain)).reshape(-1,1)
+            qs = sum(map(lambda s: torch.tensor(sgs.measure_dict[s], device=self.angle.device), self.s_domain))
+            qs = qs.reshape(-1, 1)
         else:
-            qs = torch.zeros(init_state.shape[0], device=self.angle.device).reshape(-1,1)
+            qs = torch.zeros(init_state.shape[0], device=self.angle.device).reshape(-1, 1)
         if len(self.t_domain) != 0:
-            qt = sum(map(lambda t: torch.tensor(sgs.measure_dict[t], device=self.angle.device), self.t_domain)).reshape(-1,1)
+            qt = sum(map(lambda t: torch.tensor(sgs.measure_dict[t], device=self.angle.device), self.t_domain))
+            qt = qt.reshape(-1, 1)
         else:
-            qt = torch.zeros(init_state.shape[0], device=self.angle.device).reshape(-1,1)
+            qt = torch.zeros(init_state.shape[0], device=self.angle.device).reshape(-1, 1)
         if self.plane in ['xy', 'yx']:
             alpha = (-1)**qs * self.angle + torch.pi * qt
             # M^{XY,α} X^s Z^t = M^{XY,(-1)^s·α+tπ}
@@ -145,7 +147,7 @@ class Measurement(Command):
             alpha = (-1)**(qs + qt) * self.angle + torch.pi * qs
             # M^{XZ,α} X^s Z^t = M^{XZ,(-1)^t((-1)^s·α+sπ)}
             #                  = M^{XZ,(-1)^{s+t}·α+(-1)^t·sπ}
-            #                  = M^{XZ,(-1)^{s+t}·α+sπ  (since (-1)^t·π ≡ π (mod 2π))
+            #                  = M^{XZ,(-1)^{s+t}·α+sπ}  (since (-1)^t·π ≡ π (mod 2π))
         elif self.plane in ['yz', 'zy']:
             alpha = (-1)**qt * self.angle + torch.pi * (qs + qt)
             # positive Y axis as 0 angle
@@ -155,7 +157,7 @@ class Measurement(Command):
         final_state = cir(data=alpha, state=init_state.squeeze(0))
         rst = cir.measure(shots=1, wires=wire)
         state = []
-        if type(rst) == list:
+        if isinstance(rst, list):
             for i, d in enumerate(rst):
                 (k, _), = d.items()
                 state.append(cir._slice_state_vector(state=final_state[i], wires=wire, bits=k))
