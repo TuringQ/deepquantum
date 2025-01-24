@@ -6,6 +6,7 @@ from copy import copy, deepcopy
 from typing import Any, Dict, Iterable, List, Optional, Union
 
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 from networkx import MultiDiGraph, draw_networkx_nodes, draw_networkx_edges, draw_networkx_labels, multipartite_layout
 from torch import nn
@@ -42,6 +43,7 @@ class Pattern(Operation):
         state: Any = 'plus',
         edges: Optional[List] = None,
         nodes: Union[int, List[int], None] = None,
+        reupload: bool = False,
         name: Optional[str] = None
     ) -> None:
         super().__init__(name=name, nodes=None)
@@ -51,6 +53,7 @@ class Pattern(Operation):
         self.npara = 0
         self.ndata = 0
         self.nodes_out_seq = None
+        self.reupload = reupload
 
     def forward(
         self,
@@ -144,16 +147,19 @@ class Pattern(Operation):
         """
         if data is None:
             return
-        # not yet for reuplaoding
-        assert data.size(-1) >= self.ndata
+        if not self.reupload:
+            assert data.size(-1) >= self.ndata, 'The pattern needs more data, or consider data re-uploading'
         count = 0
+        if self.reupload and self.ndata > data.size(-1):
+            n = int(np.ceil(self.ndata / data.size(-1)))
+            data = torch.cat([data] * n, dim=-1)
         for op in self.encoders:
             count_up = count + op.npara
             if data.ndim == 2:
                 op.init_para(data[:,count:count_up])
             else:
                 op.init_para(data[count:count_up])
-            count = count_up % data.size(-1)
+            count = count_up
 
     def n(self, node: Union[int, List[int]]):
         """Add a new node to the pattern.

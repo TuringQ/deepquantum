@@ -535,6 +535,7 @@ class QubitCircuit(Operation):
                 pattern.add_graph(nodes_state=[i], state='zero')
         else:
             pattern = Pattern(nodes_state=self.nqubit, state=self.init_state.state)
+        pattern.reupload = self.reupload
         node_next = self.nqubit
         for op in self.operators:
             assert isinstance(op, allowed_ops), f'{op.name} is NOT supported for MBQC pattern transpiler'
