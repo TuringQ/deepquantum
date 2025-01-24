@@ -474,8 +474,16 @@ class QumodeCircuit(Operation):
             state_ = self.init_state
         elif not isinstance(state, BosonicState):
             nmode = self.nmode
-            state_ = BosonicState(state=state, nmode=nmode, cutoff=self.cutoff) # consider TDM
+            if self._nmode_tdm is not None:
+                if isinstance(state, list):
+                    if state[0].size()[-1] // 2 == self._nmode_tdm:
+                        nmode = self._nmode_tdm
+            state_ = BosonicState(state=state, nmode=nmode, cutoff=self.cutoff)
         state = [state_.cov, state_.mean, state_.weight]
+        if self._if_delayloop:
+            self._prepare_unroll_dict()
+            state = self._unroll_init_state(state)
+            self._unroll_circuit()
         if data is None or data.ndim == 1:
             covs_, means_  = self._forward_helper_bosonic(data, state, stepwise)
             self.state = [covs_, means_, state[2]]
@@ -494,7 +502,7 @@ class QumodeCircuit(Operation):
             self.state = [covs_, means_, weight]
 
         if is_prob:
-            self.state = self._forward_gaussian_prob(self.state[0], self.state[1], detector) # small bug
+            self.state = self._forward_gaussian_prob(self.state[0], self.state[1], detector)
         elif self._if_delayloop:
             self.state = self._shift_state(self.state)
         return self.state
@@ -661,16 +669,26 @@ class QumodeCircuit(Operation):
         """Unroll the initial state from spatial modes to concurrent modes."""
         idx = torch.tensor([value[-1] for value in self._unroll_dict.values()])
         idx = torch.cat([idx, idx + self._nmode_tdm])
-        cov, mean = state
+        cov, mean = state[:2]
         size = cov.size()
         if size[-1] == 2 * self._nmode_tdm:
             return state
         else:
-            cov_tdm = torch.stack([torch.eye(2 * self._nmode_tdm, dtype=cov.dtype, device=cov.device)] * size[0])
-            mean_tdm = mean.new_zeros(size[0], 2 * self._nmode_tdm, 1)
-            cov_tdm[:, idx[:, None], idx] = cov
-            mean_tdm[:, idx] = mean
-            return [cov_tdm, mean_tdm]
+            if self.backend == 'gaussian':
+                cov_tdm = torch.stack([torch.eye(2 * self._nmode_tdm, dtype=cov.dtype, device=cov.device)] * size[0])
+                mean_tdm = mean.new_zeros(size[0], 2 * self._nmode_tdm, 1)
+                cov_tdm[:, idx[:, None], idx] = cov
+                mean_tdm[:, idx] = mean
+                return [cov_tdm, mean_tdm]
+            if self.backend == 'bosonic':
+                assert len(size) == 4
+                cov_tdm = torch.stack([torch.stack([torch.eye(2 * self._nmode_tdm, dtype=cov.dtype,
+                                                              device=cov.device)] * size[1])] * size[0])
+                mean_tdm = mean.new_zeros(size[0], size[1], 2 * self._nmode_tdm, 1)
+                cov_tdm[:, :, idx[:, None], idx] = cov
+                mean_tdm[:, :, idx] = mean
+                return [cov_tdm, mean_tdm, state[2]]
+
 
     def _unroll_circuit(self) -> None:
         """Unroll the circuit from spatial modes to concurrent modes."""
@@ -778,7 +796,7 @@ class QumodeCircuit(Operation):
 
     def _shift_state(self, state: List[torch.Tensor], nstep: int = 1, reverse: bool = False) -> List[torch.Tensor]:
         """Shift the state according to ``nstep``, which is equivalent to shifting the TDM circuit."""
-        cov, mean = state
+        cov, mean = state[:2]
         idx_shift = []
         for wire in self._unroll_dict:
             for idx in self._unroll_dict[wire]:
@@ -791,9 +809,16 @@ class QumodeCircuit(Operation):
                         idx_shift.extend(shift_func(idx, nstep))
         idx_shift = torch.tensor(idx_shift)
         idx_shift = torch.cat([idx_shift, idx_shift + self._nmode_tdm])
-        cov = cov[:, idx_shift[:, None], idx_shift]
-        mean = mean[:, idx_shift]
-        return [cov, mean]
+        if self.backend == 'gaussian':
+            cov = cov[:, idx_shift[:, None], idx_shift]
+            mean = mean[:, idx_shift]
+            return [cov, mean]
+        if self.backend == 'bosonic':
+            cov = cov[:, :, idx_shift[:, None], idx_shift]
+            mean = mean[:, :, idx_shift]
+
+            return [cov, mean, state[2]]
+
 
     def encode(self, data: Optional[torch.Tensor]) -> None:
         """Encode the input data into the photonic quantum circuit parameters.
