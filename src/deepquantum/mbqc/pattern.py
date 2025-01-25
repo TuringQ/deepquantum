@@ -72,6 +72,10 @@ class Pattern(Operation):
         self.encode(data)
         self.state = self.commands(self.state)
         self.state.set_nodes_out_seq(self.nodes_out_seq)
+        if data is not None:
+            if data.ndim == 2:
+                # for plotting the last data
+                self.encode(data[-1])
         return self.state
 
     def encode(self, data: Optional[torch.Tensor]) -> None:
