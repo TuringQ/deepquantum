@@ -92,7 +92,7 @@ class QumodeCircuit(Operation):
         self._nloss = 0
         self._state_expand = None
         self._all_fock_basis = None
-
+        # TDM
         self._if_delayloop = False
         self._nmode_tdm = self.nmode
         self._ntau_dict = defaultdict(list) # {wire: [tau1, tau2, ...]}

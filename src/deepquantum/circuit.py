@@ -3,7 +3,9 @@ Quantum circuit
 """
 
 from copy import copy
+from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
@@ -12,6 +14,7 @@ from torch import nn, vmap
 
 from .channel import BitFlip, PhaseFlip, Depolarizing, Pauli, AmplitudeDamping, PhaseDamping
 from .channel import GeneralizedAmplitudeDamping
+from .gate import ParametricSingleGate
 from .gate import U3Gate, PhaseShift, PauliX, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, TGate, TDaggerGate
 from .gate import Rx, Ry, Rz, ProjectionJ, CNOT, Swap, Rxx, Ryy, Rzz, Rxy, ReconfigurableBeamSplitter, Toffoli, Fredkin
 from .gate import UAnyGate, LatentGate, HamiltonianGate, Barrier
@@ -19,6 +22,9 @@ from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer,
 from .operation import Operation, Gate, Layer, Channel
 from .qmath import amplitude_encoding, measure, expectation, sample2expval
 from .state import QubitState, MatrixProductState
+
+if TYPE_CHECKING:
+    from .mbqc import Pattern
 
 
 class QubitCircuit(Operation):
@@ -66,6 +72,8 @@ class QubitCircuit(Operation):
         self.depth = np.array([0] * nqubit)
         self.wires_measure = []
         self.wires_condition = []
+        # MBQC
+        self.wire2node_dict = defaultdict(lambda: None)
 
     def set_init_state(self, init_state: Any) -> None:
         """Set the initial state of the circuit."""
@@ -551,6 +559,60 @@ class QubitCircuit(Operation):
         Gate._reset_qasm_new_gate()
         Channel._reset_qasm_new_gate()
         return ''.join(qasm_lst)
+
+    def pattern(self) -> 'Pattern':
+        """Get the MBQC pattern."""
+        assert not self.den_mat and not self.mps, 'Currently NOT supported'
+        from .mbqc import Pattern
+        allowed_ops = (PauliX, PauliY, PauliZ, Hadamard, SGate, Rx, Ry, Rz, CNOT, Toffoli, Barrier,
+                       XLayer, YLayer, ZLayer, HLayer, RxLayer, RyLayer, RzLayer, CnotLayer, CnotRing)
+        for i in range(self.nqubit):
+            self.wire2node_dict[i] = i
+        state_zero = torch.zeros_like(self.init_state.state)
+        if state_zero.ndim == 2:
+            state_zero[0] = 1
+        elif state_zero.ndim == 3:
+            state_zero[:, 0] = 1
+        if torch.all(self.init_state.state == state_zero):
+            pattern = Pattern()
+            for i in range(self.nqubit):
+                pattern.add_graph(nodes_state=[i], state='zero')
+        else:
+            pattern = Pattern(nodes_state=self.nqubit, state=self.init_state.state)
+        pattern.reupload = self.reupload
+        node_next = self.nqubit
+        for op in self.operators:
+            assert isinstance(op, allowed_ops), f'{op.name} is NOT supported for MBQC pattern transpiler'
+            if isinstance(op, Gate):
+                pattern = self._update_pattern(pattern, op, node_next)
+                node_next += op.nancilla
+            elif isinstance(op, Layer):
+                for gate in op.gates:
+                    pattern = self._update_pattern(pattern, gate, node_next)
+                    node_next += gate.nancilla
+        pattern.set_nodes_out_seq([self.wire2node_dict[i] for i in range(self.nqubit)])
+        return pattern
+
+    def _update_pattern(self, pattern: 'Pattern', gate: Gate, node_next: int) -> 'Pattern':
+        assert len(gate.controls) == 0, f'Control bits are NOT supported for MBQC pattern transpiler'
+        assert not gate.condition, f'Conditional mode is NOT supported for MBQC pattern transpiler'
+        nodes = [self.wire2node_dict[i] for i in gate.wires]
+        ancilla = [node_next + i for i in range(gate.nancilla)]
+        if isinstance(gate, ParametricSingleGate):
+            cmds = gate.pattern(nodes, ancilla, gate.theta, gate.requires_grad)
+        else:
+            cmds = gate.pattern(nodes, ancilla)
+        pattern.commands.extend(cmds)
+        if gate in self.encoders:
+            for i in gate.idx_enc:
+                pattern.encoders.append(cmds[i])
+            pattern.npara += gate.nancilla - len(gate.idx_enc)
+            pattern.ndata += len(gate.idx_enc)
+        else:
+            pattern.npara += gate.nancilla
+        for wire, node in zip(gate.wires, gate.nodes):
+            self.wire2node_dict[wire] = node
+        return pattern
 
     def draw(self, output: str = 'mpl', **kwargs):
         """Visualize the quantum circuit."""

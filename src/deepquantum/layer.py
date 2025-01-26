@@ -51,6 +51,59 @@ class SingleLayer(Layer):
         return multi_kron(lst)
 
 
+class ParametricSingleLayer(SingleLayer):
+    r"""A base class for layers of single-qubit gates with parameters.
+
+    Args:
+        name (str or None, optional): The name of the layer. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
+            Default: ``False``
+        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
+            Default: ``True`` (which means ``nn.Parameter``)
+    """
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        nqubit: int = 1,
+        wires: Union[int, List[int], List[List[int]], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False,
+        requires_grad: bool = True
+    ) -> None:
+        super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
+        self.requires_grad = requires_grad
+
+    def inverse(self) -> 'ParametricSingleLayer':
+        """Get the inversed layer."""
+        layer = deepcopy(self)
+        gates = nn.Sequential()
+        for gate in self.gates[::-1]:
+            gates.append(gate.inverse())
+        layer.gates = gates
+        layer.wires = self.wires[::-1]
+        return layer
+
+    def pattern(
+        self,
+        nodes: List[List[int]],
+        ancilla: List[List[int]],
+        angle: List[Any],
+        requires_grad: bool = False
+    ) -> nn.Sequential:
+        """Get the MBQC pattern."""
+        assert len(nodes) == len(ancilla) == len(self.gates)
+        cmds = nn.Sequential()
+        for i, gate in enumerate(self.gates):
+            cmds.extend(gate.pattern(nodes[i], ancilla[i]), angle[i], requires_grad)
+        return cmds
+
+
 class DoubleLayer(Layer):
     r"""A base class for layers of two-qubit gates.
 
@@ -122,7 +175,7 @@ class Observable(SingleLayer):
             self.gates.append(gate)
 
 
-class U3Layer(SingleLayer):
+class U3Layer(ParametricSingleLayer):
     r"""A layer of U3 gates.
 
     Args:
@@ -147,8 +200,8 @@ class U3Layer(SingleLayer):
         tsr_mode: bool = False,
         requires_grad: bool = True
     ) -> None:
-        super().__init__(name='U3Layer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
-        self.requires_grad = requires_grad
+        super().__init__(name='U3Layer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode,
+                         requires_grad=requires_grad)
         for i, wire in enumerate(self.wires):
             if inputs is None:
                 thetas = None
@@ -158,16 +211,6 @@ class U3Layer(SingleLayer):
                         tsr_mode=True, requires_grad=requires_grad)
             self.gates.append(u3)
             self.npara += u3.npara
-
-    def inverse(self) -> 'U3Layer':
-        """Get the inversed layer."""
-        layer = deepcopy(self)
-        gates = nn.Sequential()
-        for gate in self.gates[::-1]:
-            gates.append(gate.inverse())
-        layer.gates = gates
-        layer.wires = self.wires[::-1]
-        return layer
 
 
 class XLayer(SingleLayer):
@@ -274,7 +317,7 @@ class HLayer(SingleLayer):
             self.gates.append(h)
 
 
-class RxLayer(SingleLayer):
+class RxLayer(ParametricSingleLayer):
     r"""A layer of Rx gates.
 
     Args:
@@ -299,8 +342,8 @@ class RxLayer(SingleLayer):
         tsr_mode: bool = False,
         requires_grad: bool = True
     ) -> None:
-        super().__init__(name='RxLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
-        self.requires_grad = requires_grad
+        super().__init__(name='RxLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode,
+                         requires_grad=requires_grad)
         for i, wire in enumerate(self.wires):
             if inputs is None:
                 theta = None
@@ -311,18 +354,8 @@ class RxLayer(SingleLayer):
             self.gates.append(rx)
             self.npara += rx.npara
 
-    def inverse(self) -> 'RxLayer':
-        """Get the inversed layer."""
-        layer = deepcopy(self)
-        gates = nn.Sequential()
-        for gate in self.gates[::-1]:
-            gates.append(gate.inverse())
-        layer.gates = gates
-        layer.wires = self.wires[::-1]
-        return layer
 
-
-class RyLayer(SingleLayer):
+class RyLayer(ParametricSingleLayer):
     r"""A layer of Ry gates.
 
     Args:
@@ -347,8 +380,8 @@ class RyLayer(SingleLayer):
         tsr_mode: bool = False,
         requires_grad: bool = True
     ) -> None:
-        super().__init__(name='RyLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
-        self.requires_grad = requires_grad
+        super().__init__(name='RyLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode,
+                         requires_grad=requires_grad)
         for i, wire in enumerate(self.wires):
             if inputs is None:
                 theta = None
@@ -359,18 +392,8 @@ class RyLayer(SingleLayer):
             self.gates.append(ry)
             self.npara += ry.npara
 
-    def inverse(self) -> 'RyLayer':
-        """Get the inversed layer."""
-        layer = deepcopy(self)
-        gates = nn.Sequential()
-        for gate in self.gates[::-1]:
-            gates.append(gate.inverse())
-        layer.gates = gates
-        layer.wires = self.wires[::-1]
-        return layer
 
-
-class RzLayer(SingleLayer):
+class RzLayer(ParametricSingleLayer):
     r"""A layer of Rz gates.
 
     Args:
@@ -395,8 +418,8 @@ class RzLayer(SingleLayer):
         tsr_mode: bool = False,
         requires_grad: bool = True
     ) -> None:
-        super().__init__(name='RzLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
-        self.requires_grad = requires_grad
+        super().__init__(name='RzLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode,
+                         requires_grad=requires_grad)
         for i, wire in enumerate(self.wires):
             if inputs is None:
                 theta = None
@@ -406,16 +429,6 @@ class RzLayer(SingleLayer):
                     tsr_mode=True, requires_grad=requires_grad)
             self.gates.append(rz)
             self.npara += rz.npara
-
-    def inverse(self) -> 'RzLayer':
-        """Get the inversed layer."""
-        layer = deepcopy(self)
-        gates = nn.Sequential()
-        for gate in self.gates[::-1]:
-            gates.append(gate.inverse())
-        layer.gates = gates
-        layer.wires = self.wires[::-1]
-        return layer
 
 
 class CnotLayer(DoubleLayer):

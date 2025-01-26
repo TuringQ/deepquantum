@@ -19,14 +19,12 @@ class SubGraphState(nn.Module):
     """A subgraph state of a quantum state.
 
     Args:
-        nodes_state (int, List[int] or None, optional): The nodes of the input state in the subgraph.
-            It can be an integer representing the number of nodes or a list of node indices.
-            Default: ``None``.
-        state (Any, optional): The initial state of the subgraph. Default: ``'plus'``.
-        edges (List or None, optional): Additional edges connecting the nodes in the subgraph.
-            Default: ``None``.
-        nodes (int, List[int] or None, optional): Additional nodes to include in the subgraph.
-            Default: ``None``.
+        nodes_state (int, List[int] or None, optional): The nodes of the input state in the subgraph state.
+            It can be an integer representing the number of nodes or a list of node indices. Default: ``None``
+        state (Any, optional): The input state of the subgraph state. The string representation of state
+            could be ``'plus'``, ``'minus'``, ``'zero'``, and ``'one'``. Default: ``'plus'``
+        edges (List or None, optional): Additional edges connecting the nodes in the subgraph state. Default: ``None``
+        nodes (int, List[int] or None, optional): Additional nodes to include in the subgraph state. Default: ``None``
     """
     def __init__(
         self,
@@ -36,6 +34,7 @@ class SubGraphState(nn.Module):
         nodes: Union[int, List[int], None] = None # primarily, for the single-node case
     ) -> None:
         super().__init__()
+        self.nodes_out_seq = None
         self.set_graph(nodes_state, edges, nodes)
         self.set_state(state)
         self.measure_dict = defaultdict(list) # record the measurement results: {node: batched_bit}
@@ -52,7 +51,7 @@ class SubGraphState(nn.Module):
 
     @property
     def full_state(self) -> torch.Tensor:
-        """Compute and return the full quantum state of the subgraph."""
+        """Compute and return the full quantum state of the subgraph state."""
         nqubit = len(self.nodes)
         nodes_bg = list(self.nodes)
         for i in self.nodes_state:
@@ -98,10 +97,17 @@ class SubGraphState(nn.Module):
         self.update_node2wire_dict()
 
     def set_state(self, state: Any = 'plus') -> None:
-        """Set the quantum state of the subgraph."""
+        """Set the input state of the subgraph state."""
         nqubit = len(self.nodes_state)
-        if state == 'plus':
-            state = torch.tensor([1, 1]) / 2 ** 0.5 + 0j
+        if isinstance(state, str):
+            if state == 'plus':
+                state = torch.tensor([1, 1]) / 2 ** 0.5 + 0j
+            elif state == 'minus':
+                state = torch.tensor([1, -1]) / 2 ** 0.5 + 0j
+            elif state == 'zero':
+                state = torch.tensor([1, 0]) + 0j
+            elif state == 'one':
+                state = torch.tensor([0, 1]) + 0j
             if nqubit > 0:
                 state = multi_kron([state] * nqubit)
         elif not isinstance(state, torch.Tensor):
@@ -111,15 +117,23 @@ class SubGraphState(nn.Module):
         else:
             self.register_buffer('state', torch.tensor(1))
 
+    def set_nodes_out_seq(self, nodes: Optional[List[int]] = None) -> None:
+        """Set the output sequence of the nodes."""
+        if nodes is not None:
+            assert len(nodes) == len(self.nodes)
+            assert set(nodes) == set(self.nodes)
+        self.nodes_out_seq = nodes
+        self.update_node2wire_dict()
+
     def add_nodes(self, nodes: Union[int, List[int]]) -> None:
-        """Add nodes to the subgraph."""
+        """Add nodes to the subgraph state."""
         if isinstance(nodes, int):
             nodes = [nodes]
         self.graph.add_nodes_from(nodes)
         self.update_node2wire_dict()
 
     def add_edges(self, edges: List) -> None:
-        """Add edges to the subgraph."""
+        """Add edges to the subgraph state."""
         self.graph.add_edges_from(edges, cz=True)
         self.update_node2wire_dict()
 
@@ -135,7 +149,7 @@ class SubGraphState(nn.Module):
 
         Args:
             other (SubGraphState): The other subgraph state to compose with.
-            relabel (bool, optional): Whether to relabel nodes to avoid conflicts. Default: ``True``.
+            relabel (bool, optional): Whether to relabel nodes to avoid conflicts. Default: ``True``
 
         Returns:
             SubGraphState: A new subgraph state that is the composition of the two.
@@ -160,8 +174,11 @@ class SubGraphState(nn.Module):
         Returns:
             Dict: A dictionary mapping nodes to their corresponding wire indices.
         """
-        wires = inverse_permutation(np.argsort(self.nodes).tolist())
-        self.node2wire_dict = {node: wire for node, wire in zip(self.nodes, wires)}
+        if self.nodes_out_seq is None:
+            wires = inverse_permutation(np.argsort(self.nodes).tolist())
+            self.node2wire_dict = {node: wire for node, wire in zip(self.nodes, wires)}
+        else:
+            self.node2wire_dict = {node: i for i, node in enumerate(self.nodes_out_seq)}
         return self.node2wire_dict
 
     def draw(self, **kwargs):
@@ -169,7 +186,6 @@ class SubGraphState(nn.Module):
         nx.draw(self.graph, with_labels=True, **kwargs)
 
     def extra_repr(self) -> str:
-        """Return a string representation of the subgraph state."""
         return f'nodes_state={self.nodes_state}, nodes={self.nodes}'
 
 
@@ -177,14 +193,14 @@ class GraphState(nn.Module):
     """A graph state composed by several SubGraphStates.
 
     Args:
-        nodes_state (int, List[int] or None, optional): The nodes of the input state in the subgraph.
-            It can be an integer representing the number of nodes or a list of node indices.
-            Default: ``None``.
-        state (Any, optional): The initial state of the subgraph. Default: ``'plus'``.
-        edges (List or None, optional): Additional edges connecting the nodes in the subgraph.
-            Default: ``None``.
-        nodes (int, List[int] or None, optional): Additional nodes to include in the subgraph.
-            Default: ``None``.
+        nodes_state (int, List[int] or None, optional): The nodes of the input state in the initial graph state.
+            It can be an integer representing the number of nodes or a list of node indices. Default: ``None``
+        state (Any, optional): The input state of the initial graph state. The string representation of state
+            could be ``'plus'``, ``'minus'``, ``'zero'``, and ``'one'``. Default: ``'plus'``
+        edges (List or None, optional): Additional edges connecting the nodes in the initial graph state.
+            Default: ``None``
+        nodes (int, List[int] or None, optional): Additional nodes to include in the initial graph state.
+            Default: ``None``
     """
     def __init__(
         self,
@@ -199,6 +215,7 @@ class GraphState(nn.Module):
         else:
             sgs = SubGraphState(nodes_state, state, edges, nodes)
             self.subgraphs = nn.ModuleList([sgs])
+        self.nodes_out_seq = None
 
     def add_subgraph(
         self,
@@ -206,22 +223,22 @@ class GraphState(nn.Module):
         state: Any = 'plus',
         edges: Optional[List] = None,
         nodes: Union[int, List[int], None] = None,
-        measure_dict: Dict = None,
+        measure_dict: Optional[Dict] = None,
         index: Optional[int] = None
     ) -> None:
-        """Add a subgraph to the graph state.
+        """Add a subgraph state to the graph state.
 
         Args:
-            nodes_state (int, List[int] or None, optional): The nodes of the input state in the subgraph.
-                It can be an integer representing the number of nodes or a list of node indices.
-                Default: ``None``.
-            state (Any, optional): The initial state of the subgraph. Default: ``'plus'``.
-            edges (List or None, optional): Additional edges connecting the nodes in the subgraph.
-                Default: ``None``.
-            nodes (int, List[int] or None, optional): Additional nodes to include in the subgraph.
-                Default: ``None``.
-            measure_dict (Dict or None, optional): A dictionary to record measurement results. Default: ``None``.
-            index (int or None, optional): The index where to insert the subgraph. Default: ``None``.
+            nodes_state (int, List[int] or None, optional): The nodes of the input state in the subgraph state.
+                It can be an integer representing the number of nodes or a list of node indices. Default: ``None``
+            state (Any, optional): The input state of the subgraph state. The string representation of state
+                could be ``'plus'``, ``'minus'``, ``'zero'``, and ``'one'``. Default: ``'plus'``
+            edges (List or None, optional): Additional edges connecting the nodes in the subgraph state.
+                Default: ``None``
+            nodes (int, List[int] or None, optional): Additional nodes to include in the subgraph state.
+                Default: ``None``
+            measure_dict (Dict or None, optional): A dictionary containing all measurement results. Default: ``None``
+            index (int or None, optional): The index where to insert the subgraph state. Default: ``None``
         """
         sgs = SubGraphState(nodes_state, state, edges, nodes)
         if measure_dict is not None:
@@ -233,7 +250,7 @@ class GraphState(nn.Module):
 
     @property
     def graph(self) -> SubGraphState:
-        """The combined graph of all subgraphs."""
+        """The combined graph state of all subgraph states."""
         graph = None
         for subgraph in self.subgraphs:
             if graph is None:
@@ -243,9 +260,14 @@ class GraphState(nn.Module):
         if graph is None:
             return SubGraphState()
         else:
+            graph.set_nodes_out_seq(self.nodes_out_seq)
             return graph
 
     @property
     def measure_dict(self) -> Dict:
         """A dictionary containing all measurement results for the graph state."""
         return self.graph.measure_dict
+
+    def set_nodes_out_seq(self, nodes: Optional[List[int]] = None) -> None:
+        """Set the output sequence of the nodes."""
+        self.nodes_out_seq = nodes
