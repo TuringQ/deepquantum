@@ -583,17 +583,18 @@ class QubitCircuit(Operation):
         node_next = self.nqubit
         for op in self.operators:
             assert isinstance(op, allowed_ops), f'{op.name} is NOT supported for MBQC pattern transpiler'
+            encode = op in self.encoders
             if isinstance(op, Gate):
-                pattern = self._update_pattern(pattern, op, node_next)
+                pattern = self._update_pattern(pattern, op, node_next, encode)
                 node_next += op.nancilla
             elif isinstance(op, Layer):
                 for gate in op.gates:
-                    pattern = self._update_pattern(pattern, gate, node_next)
+                    pattern = self._update_pattern(pattern, gate, node_next, encode)
                     node_next += gate.nancilla
         pattern.set_nodes_out_seq([self.wire2node_dict[i] for i in range(self.nqubit)])
         return pattern
 
-    def _update_pattern(self, pattern: 'Pattern', gate: Gate, node_next: int) -> 'Pattern':
+    def _update_pattern(self, pattern: 'Pattern', gate: Gate, node_next: int, encode: bool = False) -> 'Pattern':
         assert len(gate.controls) == 0, f'Control bits are NOT supported for MBQC pattern transpiler'
         assert not gate.condition, f'Conditional mode is NOT supported for MBQC pattern transpiler'
         nodes = [self.wire2node_dict[i] for i in gate.wires]
@@ -603,7 +604,7 @@ class QubitCircuit(Operation):
         else:
             cmds = gate.pattern(nodes, ancilla)
         pattern.commands.extend(cmds)
-        if gate in self.encoders:
+        if encode:
             for i in gate.idx_enc:
                 pattern.encoders.append(cmds[i])
             pattern.npara += gate.nancilla - len(gate.idx_enc)

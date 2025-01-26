@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Union
 import networkx as nx
 import numpy as np
 import torch
-from torch import nn
+from torch import nn, vmap
 
 from ..circuit import QubitCircuit
 from ..qmath import multi_kron, inverse_permutation
@@ -161,7 +161,13 @@ class SubGraphState(nn.Module):
         for i in other.nodes_state:
             assert i not in self.nodes_state, 'Do NOT use repeated nodes for states'
         nodes_state = self.nodes_state + other.nodes_state
-        state = torch.kron(self.state, other.state)
+        if self.state.ndim == other.state.ndim == 3:
+            if self.state.shape[0] == 1 or other.state.shape[0] == 1:
+                state = torch.kron(self.state, other.state)
+            else:
+                state = vmap(torch.kron)(self.state, other.state)
+        else:
+            state = torch.kron(self.state, other.state)
         sgs = SubGraphState(nodes_state, state, graph.edges(data=True), graph.nodes)
         sgs.measure_dict = defaultdict(list)
         sgs.measure_dict.update(self.measure_dict)
