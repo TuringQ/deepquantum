@@ -3,7 +3,7 @@ This is the top level module from which all basic functions and classes of
 DeepQuantum can be directly imported.
 """
 
-__version__ = '3.5.0'
+__version__ = '4.0.0'
 
 
 from . import ansatz
@@ -49,6 +49,7 @@ from .qmath import multi_kron, partial_trace, amplitude_encoding, measure, expec
 from .qmath import meyer_wallach_measure
 from .state import QubitState, MatrixProductState
 
+from .mbqc import SubGraphState, GraphState
 from .mbqc import Pattern
 
 from .photonic import permanent, takagi, hafnian, torontonian
