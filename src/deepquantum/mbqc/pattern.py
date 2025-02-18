@@ -168,16 +168,16 @@ class Pattern(Operation):
         n = Node(nodes=nodes)
         self.add(n)
 
-    def e(self, nodes: List[int]) -> None:
+    def e(self, node1: int, node2: int) -> None:
         """Add an entanglement command."""
-        e = Entanglement(node1=nodes[0], node2=nodes[1])
+        e = Entanglement(node1=node1, node2=node2)
         self.add(e)
 
     def m(
         self,
         node: int,
-        plane: str = 'xy',
         angle: float = 0.,
+        plane: str = 'xy',
         t_domain: Union[int, Iterable[int], None] = None,
         s_domain: Union[int, Iterable[int], None] = None,
         encode: bool = False
@@ -186,19 +186,19 @@ class Pattern(Operation):
         requires_grad = not encode
         if angle is not None:
             requires_grad = False
-        m = Measurement(nodes=node, plane=plane, angle=angle, t_domain=t_domain, s_domain=s_domain,
+        m = Measurement(nodes=node, angle=angle, plane=plane, t_domain=t_domain, s_domain=s_domain,
                         requires_grad=requires_grad)
         self.add(m, encode=encode)
 
-    def c_x(self, node: int, domain: Union[int, Iterable[int], None] = None) -> None:
+    def x(self, node: int, domain: Union[int, Iterable[int], None] = None) -> None:
         """Add an X-correction command."""
-        c_x = Correction(nodes=node, basis='x', domain=domain)
-        self.add(c_x)
+        x = Correction(nodes=node, basis='x', domain=domain)
+        self.add(x)
 
-    def c_z(self, node: int, domain: Union[int, Iterable[int], None] = None) -> None:
+    def z(self, node: int, domain: Union[int, Iterable[int], None] = None) -> None:
         """Add a Z-correction command."""
-        c_z = Correction(nodes=node, basis='z', domain=domain)
-        self.add(c_z)
+        z = Correction(nodes=node, basis='z', domain=domain)
+        self.add(z)
 
     def draw(self, width: int = 4):
         """Draw the MBQC pattern."""
@@ -238,8 +238,8 @@ class Pattern(Operation):
         plt.plot([], [], ':', color='#db1d2c', label='xflow')
         plt.plot([], [], 's', color='#1f78b4', label='input nodes')
         plt.plot([], [], 'o', color='#d7dde0', label='output nodes')
-        # plt.xlim(-width/2,width/2)
-        # plt.ylim(-width/2,width/2)
+        plt.xlim(-width / 2, width / 2)
+        plt.ylim(-width / 2, width / 2)
         plt.legend(loc='upper right', fontsize=10)
         plt.tight_layout()
         plt.show()
@@ -331,11 +331,12 @@ class Pattern(Operation):
 
     def shift_signals(self) -> Dict:
         """Perform signal shifting procedure.
+
         This allows one to dispose of dependencies induced by the Z-action,
         and obtain sometimes standard patterns with smaller computational depth complexity.
 
         It handles the propagation of signal shifting commands by:
-        1. Extracting signals via t_domain(in XY plane cases) of measurements.
+        1. Extracting signals via t_domain (in XY plane cases) of measurements.
         2. Moving signals to the left, through modifying other measurements and corrections.
 
         Returns:
@@ -356,16 +357,27 @@ class Pattern(Operation):
                 expand_domain(s_domain)
                 expand_domain(t_domain)
                 if op.plane in ['xy', 'yx']:
+                    # M^{XY,α} X^s Z^t = M^{XY,(-1)^s·α+tπ}
+                    #                  = S^t M^{XY,(-1)^s·α}
+                    #                  = S^t M^{XY,α} X^s
                     if t_domain:
                         signal_dict[op.nodes[0]] = t_domain
                         t_domain = set()
                 elif op.plane in ['zx', 'xz']:
+                    # M^{XZ,α} X^s Z^t = M^{XZ,(-1)^t((-1)^s·α+sπ)}
+                    #                  = M^{XZ,(-1)^{s+t}·α+(-1)^t·sπ}
+                    #                  = M^{XZ,(-1)^{s+t}·α+sπ         (since (-1)^t·π ≡ π (mod 2π))
+                    #                  = S^s M^{XZ,(-1)^{s+t}·α}
+                    #                  = S^s M^{XZ,α} Z^{s+t}
                     if s_domain:
                         signal_dict[op.nodes[0]] = s_domain
                         t_domain ^= s_domain
                         s_domain = set()
                 elif op.plane in ['yz', 'zy']:
                     # positive Y axis as 0 angle
+                    # M^{YZ,α} X^s Z^t = M^{YZ,(-1)^t·α+(s+t)π)}
+                    #                  = S^s M^{YZ,(-1)^t·α+tπ}
+                    #                  = S^s M^{YZ,α} Z^t
                     # still remains M^{YZ,(-1)^t·α+tπ)} after signal shifting,
                     # but dependency on s_domain has been reduced
                     if s_domain:
