@@ -2,7 +2,7 @@ import deepquantum as dq
 import numpy as np
 import torch
 from graphix import Pattern, command
-from graphix.pauli import Plane
+from graphix.fundamentals import Plane
 
 def test_random_with_graphix():
     n = np.random.randint(4, 10)
