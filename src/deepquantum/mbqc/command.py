@@ -70,8 +70,8 @@ class Measurement(Command):
 
     Args:
         nodes (int or List[int]): The indices of the nodes to measure.
-        plane (str, optional): The measurement plane (``'xy'``, ``'yz'`` or ``'zx'``). Default: ``'xy'``
         angle (Any, optional): The measurement angle in radians. Default: 0.
+        plane (str, optional): The measurement plane (``'xy'``, ``'yz'`` or ``'zx'``). Default: ``'xy'``
         s_domain (int, Iterable[int] or None, optional): The indices of the nodes that contribute to signal domain s.
             Default: ``None``
         t_domain (int, Iterable[int] or None, optional): The indices of the nodes that contribute to signal domain t.
@@ -82,8 +82,8 @@ class Measurement(Command):
     def __init__(
         self,
         nodes: Union[int, List[int]],
-        plane: str = 'xy',
         angle: Any = 0.,
+        plane: str = 'xy',
         s_domain: Union[int, Iterable[int], None] = None,
         t_domain: Union[int, Iterable[int], None] = None,
         requires_grad: bool = False
