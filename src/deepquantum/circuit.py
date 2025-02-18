@@ -300,7 +300,8 @@ class QubitCircuit(Operation):
         self,
         shots: Optional[int] = None,
         with_prob: bool = False,
-        wires: Union[int, List[int], None] = None
+        wires: Union[int, List[int], None] = None,
+        block_size: int = 2**20
     ) -> Union[Dict, List[Dict], None]:
         """Measure the final state.
 
@@ -309,6 +310,7 @@ class QubitCircuit(Operation):
                 ``self.shots``)
             with_prob (bool, optional): Whether to show the true probability of the measurement. Default: ``False``
             wires (int, List[int] or None, optional): The wires to measure. Default: ``None`` (which means all wires)
+            block_size (int, optional): The block size for sampling. Default: 2**20
         """
         assert not self.mps, 'Currently NOT supported.'
         if shots is None:
@@ -322,7 +324,7 @@ class QubitCircuit(Operation):
             return
         else:
             return measure(self.state, shots=shots, with_prob=with_prob, wires=self.wires_measure,
-                           den_mat=self.den_mat)
+                           den_mat=self.den_mat, block_size=block_size)
 
     def expectation(self, shots: Optional[int] = None) -> torch.Tensor:
         """Get the expectation value according to the final state and ``observables``.

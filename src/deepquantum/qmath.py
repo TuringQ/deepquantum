@@ -2,7 +2,6 @@
 Common functions
 """
 
-import random
 from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -457,12 +456,38 @@ def evolve_den_mat(
     return state
 
 
+def block_sample(probs: torch.Tensor, shots: int = 1024, block_size: int = 2**20) -> List:
+    """Sample from a probability distribution using block sampling.
+
+    Args:
+        probs (torch.Tensor): The probability distribution to sample from.
+        shots (int, optional): The number of samples to draw. Default: 1024
+        block_size (int, optional): The block size for sampling. Default: 2**20
+    """
+    samples = []
+    num_blocks = int(np.ceil(len(probs) / block_size))
+    probs_block = torch.zeros(num_blocks, device=probs.device)
+    start = (num_blocks - 1) * block_size
+    end = min(num_blocks * block_size, len(probs))
+    probs_block[:-1] = probs[:start].reshape(num_blocks - 1, block_size).sum(1)
+    probs_block[-1] = probs[start:end].sum()
+    blocks = torch.multinomial(probs_block, shots, replacement=True).cpu().numpy()
+    block_dict = Counter(blocks)
+    for idx_block, shots_block in block_dict.items():
+        start = idx_block * block_size
+        end = min((idx_block + 1) * block_size, len(probs))
+        samples_block = torch.multinomial(probs[start:end], shots_block, replacement=True)
+        samples.extend((samples_block + start).cpu().numpy())
+    return samples
+
+
 def measure(
     state: torch.Tensor,
     shots: int = 1024,
     with_prob: bool = False,
     wires: Union[int, List[int], None] = None,
-    den_mat: bool = False
+    den_mat: bool = False,
+    block_size: int = 2**20
 ) -> Union[Dict, List[Dict]]:
     r"""A function that performs a measurement on a quantum state and returns the results.
 
@@ -484,6 +509,7 @@ def measure(
             integers specifying the indices of the wires. Default: ``None`` (which means all wires are
             measured)
         den_mat (bool, optional): Whether the state is a density matrix or not. Default: ``False``
+        block_size (int, optional): The block size for sampling. Default: 2**20
 
     Returns:
         Union[Dict, List[Dict]]: The measurement results. If the state is a single state vector, it returns
@@ -502,13 +528,16 @@ def measure(
     state = state.reshape(batch, -1)
     assert is_power_of_two(state.shape[-1]), 'The length of the quantum state is not in the form of 2^n'
     n = int(np.log2(state.shape[-1]))
-    if wires is None:
-        bit_strings = [format(i, f'0{n}b') for i in range(2 ** n)]
-    else:
-        assert isinstance(wires, (int, list))
+    if wires is not None:
         if isinstance(wires, int):
             wires = [wires]
-        bit_strings = [format(i, f'0{len(wires)}b') for i in range(2 ** len(wires))]
+        assert isinstance(wires, list)
+        wires = sorted(wires)
+        pm_shape = list(range(n))
+        for w in wires:
+            pm_shape.remove(w)
+        pm_shape = wires + pm_shape
+    num_bits = len(wires) if wires else n
     results_tot = []
     for i in range(batch):
         if den_mat:
@@ -516,14 +545,10 @@ def measure(
         else:
             probs = torch.abs(state[i]) ** 2
         if wires is not None:
-            wires = sorted(wires)
-            pm_shape = list(range(n))
-            for w in wires:
-                pm_shape.remove(w)
-            pm_shape = wires + pm_shape
             probs = probs.reshape([2] * n).permute(pm_shape).reshape([2] * len(wires) + [-1]).sum(-1).reshape(-1)
-        samples = random.choices(bit_strings, weights=probs, k=shots)
-        results = dict(Counter(samples))
+        # Perform block sampling to reduce memory consumption
+        samples = Counter(block_sample(probs, shots, block_size))
+        results = {format(key, f'0{num_bits}b'): value for key, value in samples.items()}
         if with_prob:
             for k in results:
                 index = int(k, 2)
