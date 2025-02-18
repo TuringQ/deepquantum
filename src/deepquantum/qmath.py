@@ -456,13 +456,13 @@ def evolve_den_mat(
     return state
 
 
-def block_sample(probs: torch.Tensor, shots: int = 1024, block_size: int = 2**20) -> List:
+def block_sample(probs: torch.Tensor, shots: int = 1024, block_size: int = 2 ** 20) -> List:
     """Sample from a probability distribution using block sampling.
 
     Args:
         probs (torch.Tensor): The probability distribution to sample from.
         shots (int, optional): The number of samples to draw. Default: 1024
-        block_size (int, optional): The block size for sampling. Default: 2**20
+        block_size (int, optional): The block size for sampling. Default: 2 ** 20
     """
     samples = []
     num_blocks = int(np.ceil(len(probs) / block_size))
@@ -487,7 +487,7 @@ def measure(
     with_prob: bool = False,
     wires: Union[int, List[int], None] = None,
     den_mat: bool = False,
-    block_size: int = 2**20
+    block_size: int = 2 ** 20
 ) -> Union[Dict, List[Dict]]:
     r"""A function that performs a measurement on a quantum state and returns the results.
 
@@ -509,7 +509,7 @@ def measure(
             integers specifying the indices of the wires. Default: ``None`` (which means all wires are
             measured)
         den_mat (bool, optional): Whether the state is a density matrix or not. Default: ``False``
-        block_size (int, optional): The block size for sampling. Default: 2**20
+        block_size (int, optional): The block size for sampling. Default: 2 ** 20
 
     Returns:
         Union[Dict, List[Dict]]: The measurement results. If the state is a single state vector, it returns
