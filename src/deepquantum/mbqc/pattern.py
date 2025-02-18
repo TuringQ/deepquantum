@@ -234,8 +234,8 @@ class Pattern(Operation):
                             edge_color='#db1d2c', connectionstyle='arc3,rad=0.2')
         draw_networkx_labels(g, pos)
         plt.plot([], [], color='k',label='graph edge')
-        plt.plot([], [], ':', color='#4cd925', label='xflow')
-        plt.plot([], [], ':', color='#db1d2c', label='zflow')
+        plt.plot([], [], ':', color='#4cd925', label='zflow')
+        plt.plot([], [], ':', color='#db1d2c', label='xflow')
         plt.plot([], [], 's', color='#1f78b4', label='input nodes')
         plt.plot([], [], 'o', color='#d7dde0', label='output nodes')
         # plt.xlim(-width/2,width/2)
@@ -292,7 +292,7 @@ class Pattern(Operation):
         def add_correction_domain(domain_dict: Dict, node, domain) -> None:
             """Helper function to update correction domains with XOR operation"""
             if previous_domain := domain_dict.get(node):
-                previous_domain = previous_domain ^ domain
+                previous_domain ^= domain
             else:
                 domain_dict[node] = domain.copy()
 
