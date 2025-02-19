@@ -32,12 +32,16 @@ class QumodeCircuitTDM(QumodeCircuit):
         nmode: int,
         init_state: Any,
         cutoff: Optional[int] = None,
+        backend: Optional[str] = None,
         name: Optional[str] = None,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
     ) -> None:
-        super().__init__(nmode=nmode, init_state=init_state, cutoff=cutoff, backend='gaussian', basis=False,
+        if backend is None:
+            backend == 'gaussian'
+        assert backend in ['gaussian', 'bosonic']
+        super().__init__(nmode=nmode, init_state=init_state, cutoff=cutoff, backend=backend, basis=False,
                          detector='pnrd', name=name, mps=False, chi=None, noise=noise, mu=mu, sigma=sigma)
         self.samples = None
 
