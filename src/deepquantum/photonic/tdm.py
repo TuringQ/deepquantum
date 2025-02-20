@@ -39,7 +39,7 @@ class QumodeCircuitTDM(QumodeCircuit):
         sigma: float = 0.1
     ) -> None:
         if backend is None:
-            backend == 'gaussian'
+            backend = 'gaussian'
         assert backend in ['gaussian', 'bosonic']
         super().__init__(nmode=nmode, init_state=init_state, cutoff=cutoff, backend=backend, basis=False,
                          detector='pnrd', name=name, mps=False, chi=None, noise=noise, mu=mu, sigma=sigma)
