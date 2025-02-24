@@ -751,12 +751,13 @@ def sample_sc_mcmc(prob_func: Callable,
         len_cache = min(shots_lst)
         if shots_lst[trial] > 1e5:
             len_cache = 4000
-        samples = []
+        # samples = []
         # random start
         sample_0 = proposal_sampler()
         if prob_func(sample_0) < 1e-12: # avoid the samples with almost-zero probability
-            sample_0 = torch.zeros_like(sample_0)
-        while prob_func(sample_0) < 1e-9:
+            sample_0 = 0
+            # sample_0 = torch.zeros_like(sample_0)
+        while prob_func(sample_0) < 1e-10:
             sample_0 = proposal_sampler()
         cache.append(sample_0)
         sample_max = sample_0
@@ -784,7 +785,7 @@ def sample_sc_mcmc(prob_func: Callable,
             #     prob_i = prob_func(sample_i)
             #     cache_prob[tuple(sample_i.tolist())] = prob_i
             rand_num = torch.rand(1, device= prob_i.device)
-            samples.append(sample_i)
+            # samples.append(sample_i)
             # MCMC transfer to new state
             if prob_i / prob_max > rand_num:
                 sample_max = sample_i
