@@ -14,6 +14,7 @@ from torch import nn, vmap
 
 from .channel import BitFlip, PhaseFlip, Depolarizing, Pauli, AmplitudeDamping, PhaseDamping
 from .channel import GeneralizedAmplitudeDamping
+from .qmath import sample_sc_mcmc
 from .gate import ParametricSingleGate
 from .gate import U3Gate, PhaseShift, PauliX, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, TGate, TDaggerGate
 from .gate import Rx, Ry, Rz, ProjectionJ, CNOT, Swap, Rxx, Ryy, Rzz, Rxy, ReconfigurableBeamSplitter, Toffoli, Fredkin
@@ -310,7 +311,7 @@ class QubitCircuit(Operation):
             with_prob (bool, optional): Whether to show the true probability of the measurement. Default: ``False``
             wires (int, List[int] or None, optional): The wires to measure. Default: ``None`` (which means all wires)
         """
-        assert not self.mps, 'Currently NOT supported.'
+        # assert not self.mps, 'Currently NOT supported.'
         if shots is None:
             shots = self.shots
         else:
@@ -318,6 +319,12 @@ class QubitCircuit(Operation):
         if wires is None:
             wires = list(range(self.nqubit))
         self.wires_measure = self._convert_indices(wires)
+        if self.mps:
+            dict_decimal = sample_sc_mcmc(prob_func=self.get_probs,
+                                  proposal_sampler=self._proposal_sampler,
+                                  shots=shots,
+                                  num_chain=5)
+            return {format(key, f'0{self.nqubit}b'): value for key, value in dict_decimal.items()}
         if self.state is None:
             return
         else:
@@ -443,6 +450,17 @@ class QubitCircuit(Operation):
             amp = state.squeeze()
         return amp
 
+    def get_probs(self, bits: Union[str, int]) -> torch.Tensor:
+        """Get the probability for the given bit string.
+
+        Args:
+            bits (str): A bit string.
+        """
+        if type(bits) is int:
+            bits = format(bits, f'0{self.nqubit}b')
+        amp = self.get_amplitude(bits)
+        return torch.abs(amp) ** 2
+
     def inverse(self, encode: bool = False) -> 'QubitCircuit':
         """Get the inversed circuit.
 
@@ -559,6 +577,13 @@ class QubitCircuit(Operation):
         Gate._reset_qasm_new_gate()
         Channel._reset_qasm_new_gate()
         return ''.join(qasm_lst)
+
+    def _proposal_sampler(self):
+        """The proposal sampler for MCMC sampling."""
+        sample = torch.randint(0, 2**self.nqubit, (1,))[0].item()
+        # sample = format(torch.randint(0, 2**self.nqubit, (1,))[0], f'0{self.nqubit}b')
+        # sample = f'{0:0{self.nqubit}b}'.format(torch.randint(0, 2**self.nqubit, (1,))[0])
+        return sample
 
     def pattern(self) -> 'Pattern':
         """Get the MBQC pattern."""

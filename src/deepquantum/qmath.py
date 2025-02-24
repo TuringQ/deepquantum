@@ -2,13 +2,15 @@
 Common functions
 """
 
+import copy
 import random
-from collections import Counter
-from typing import Any, Dict, List, Optional, Tuple, Union
+from collections import Counter, defaultdict
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
 from torch import nn, vmap
+from tqdm import tqdm
 
 
 def is_power_of_two(n: int) -> bool:
@@ -733,3 +735,82 @@ def meyer_wallach_measure_brennen(state_tsr: torch.Tensor) -> torch.Tensor:
         trace_rho_i = rho_i.diagonal(offset=0, dim1=-2, dim2=-1).sum(-1).real
         rst += trace_rho_i
     return 2 * (1 - rst / nqubit)
+
+def sample_sc_mcmc(prob_func: Callable,
+                   proposal_sampler: Callable,
+                   shots: int = 1024,
+                   num_chain: int = 5) -> defaultdict:
+    """Get the samples of the probability distribution function via SC-MCMC method."""
+    samples_chain = []
+    merged_samples = defaultdict(int)
+    cache_prob = {}
+    shots_lst = [shots // num_chain] * num_chain
+    shots_lst[-1] += shots % num_chain
+    for trial in range(num_chain):
+        cache = []
+        len_cache = min(shots_lst)
+        if shots_lst[trial] > 1e5:
+            len_cache = 4000
+        samples = []
+        # random start
+        sample_0 = proposal_sampler()
+        if prob_func(sample_0) < 1e-12: # avoid the samples with almost-zero probability
+            sample_0 = torch.zeros_like(sample_0)
+        while prob_func(sample_0) < 1e-9:
+            sample_0 = proposal_sampler()
+        cache.append(sample_0)
+        sample_max = sample_0
+        if sample_max in cache_prob:
+            prob_max = cache_prob[sample_max]
+        else:
+            prob_max = prob_func(sample_0)
+            cache_prob[sample_max] = prob_max
+        # if tuple(sample_max.tolist()) in cache_prob:
+        #     prob_max = cache_prob[tuple(sample_max.tolist())]
+        # else:
+        #     prob_max = prob_func(sample_0)
+        #     cache_prob[tuple(sample_max.tolist())] = prob_max
+        dict_sample = defaultdict(int)
+        for i in tqdm(range(1, shots_lst[trial]), desc=f'chain {trial+1}', ncols=80, colour='green'):
+            sample_i = proposal_sampler()
+            if sample_i in cache_prob:
+                prob_i = cache_prob[sample_i]
+            else:
+                prob_i = prob_func(sample_i)
+                cache_prob[sample_i] = prob_i
+            # if tuple(sample_i.tolist()) in cache_prob:
+            #     prob_i = cache_prob[tuple(sample_i.tolist())]
+            # else:
+            #     prob_i = prob_func(sample_i)
+            #     cache_prob[tuple(sample_i.tolist())] = prob_i
+            rand_num = torch.rand(1, device= prob_i.device)
+            samples.append(sample_i)
+            # MCMC transfer to new state
+            if prob_i / prob_max > rand_num:
+                sample_max = sample_i
+                prob_max = prob_i
+            if i < len_cache: # cache not full
+                cache.append(sample_max)
+            else: # full
+                idx = np.random.randint(0, len_cache)
+                out_sample = copy.deepcopy(cache[idx])
+                cache[idx] = sample_max
+                out_sample_key = out_sample
+                # out_sample_key = tuple(out_sample.tolist())
+                if out_sample_key in dict_sample:
+                    dict_sample[out_sample_key] = dict_sample[out_sample_key] + 1
+                else:
+                    dict_sample[out_sample_key] = 1
+        # clear the cache
+        for i in range(len_cache):
+            out_sample = cache[i]
+            out_sample_key = out_sample
+            # out_sample_key = tuple(out_sample.tolist())
+            if out_sample_key in dict_sample:
+                dict_sample[out_sample_key] = dict_sample[out_sample_key] + 1
+            else:
+                dict_sample[out_sample_key] = 1
+        samples_chain.append(dict_sample)
+        for key, value in dict_sample.items():
+            merged_samples[key] += value
+    return merged_samples
