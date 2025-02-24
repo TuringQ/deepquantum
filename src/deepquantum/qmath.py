@@ -456,7 +456,7 @@ def evolve_den_mat(
     return state
 
 
-def block_sample(probs: torch.Tensor, shots: int = 1024, block_size: int = 2 ** 20) -> List:
+def block_sample(probs: torch.Tensor, shots: int = 1024, block_size: int = 2 ** 24) -> List:
     """Sample from a probability distribution using block sampling.
 
     Args:
@@ -464,20 +464,21 @@ def block_sample(probs: torch.Tensor, shots: int = 1024, block_size: int = 2 ** 
         shots (int, optional): The number of samples to draw. Default: 1024
         block_size (int, optional): The block size for sampling. Default: 2 ** 20
     """
-    samples = []
+    samples_lst = []
     num_blocks = int(np.ceil(len(probs) / block_size))
     probs_block = torch.zeros(num_blocks, device=probs.device)
     start = (num_blocks - 1) * block_size
     end = min(num_blocks * block_size, len(probs))
     probs_block[:-1] = probs[:start].reshape(num_blocks - 1, block_size).sum(1)
     probs_block[-1] = probs[start:end].sum()
-    blocks = torch.multinomial(probs_block, shots, replacement=True).cpu().numpy()
-    block_dict = Counter(blocks)
-    for idx_block, shots_block in block_dict.items():
-        start = idx_block * block_size
-        end = min((idx_block + 1) * block_size, len(probs))
-        samples_block = torch.multinomial(probs[start:end], shots_block, replacement=True)
-        samples.extend((samples_block + start).cpu().numpy())
+    blocks = torch.multinomial(probs_block, shots, replacement=True)
+    idx_block, block_counts = blocks.unique(return_counts=True)
+    for i in range(len(idx_block)):
+        start = idx_block[i] * block_size
+        end = min((idx_block[i] + 1) * block_size, len(probs))
+        samples_block = torch.multinomial(probs[start:end], block_counts[i], replacement=True) + start
+        samples_lst.append(samples_block)
+    samples = torch.cat(samples_lst)
     return samples
 
 
@@ -487,7 +488,7 @@ def measure(
     with_prob: bool = False,
     wires: Union[int, List[int], None] = None,
     den_mat: bool = False,
-    block_size: int = 2 ** 20
+    block_size: int = 2 ** 24
 ) -> Union[Dict, List[Dict]]:
     r"""A function that performs a measurement on a quantum state and returns the results.
 
@@ -547,8 +548,8 @@ def measure(
         if wires is not None:
             probs = probs.reshape([2] * n).permute(pm_shape).reshape([2] * len(wires) + [-1]).sum(-1).reshape(-1)
         # Perform block sampling to reduce memory consumption
-        samples = Counter(block_sample(probs, shots, block_size))
-        results = {format(key, f'0{num_bits}b'): value for key, value in samples.items()}
+        key, value = block_sample(probs, shots, block_size).unique(return_counts=True)
+        results = {format(key[i], f'0{num_bits}b'): value[i].item() for i in range(len(key))}
         if with_prob:
             for k in results:
                 index = int(k, 2)
