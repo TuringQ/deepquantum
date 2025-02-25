@@ -200,7 +200,7 @@ class Pattern(Operation):
         z = Correction(nodes=node, basis='z', domain=domain)
         self.add(z)
 
-    def draw(self, width: int = 4):
+    def draw(self):
         """Draw the MBQC pattern."""
         g = MultiDiGraph(self.init_state.graph.graph)
         nodes_init = deepcopy(g.nodes())
@@ -366,7 +366,7 @@ class Pattern(Operation):
                 elif op.plane in ['zx', 'xz']:
                     # M^{XZ,α} X^s Z^t = M^{XZ,(-1)^t((-1)^s·α+sπ)}
                     #                  = M^{XZ,(-1)^{s+t}·α+(-1)^t·sπ}
-                    #                  = M^{XZ,(-1)^{s+t}·α+sπ         (since (-1)^t·π ≡ π (mod 2π))
+                    #                  = M^{XZ,(-1)^{s+t}·α+sπ}         (since (-1)^t·π ≡ π (mod 2π))
                     #                  = S^s M^{XZ,(-1)^{s+t}·α}
                     #                  = S^s M^{XZ,α} Z^{s+t}
                     if s_domain:
