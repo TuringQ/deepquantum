@@ -2,6 +2,7 @@
 Common functions
 """
 
+from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -455,7 +456,7 @@ def evolve_den_mat(
     return state
 
 
-def block_sample(probs: torch.Tensor, shots: int = 1024, block_size: int = 2 ** 24) -> torch.Tensor:
+def block_sample(probs: torch.Tensor, shots: int = 1024, block_size: int = 2 ** 24) -> List:
     """Sample from a probability distribution using block sampling.
 
     Args:
@@ -463,21 +464,21 @@ def block_sample(probs: torch.Tensor, shots: int = 1024, block_size: int = 2 ** 
         shots (int, optional): The number of samples to draw. Default: 1024
         block_size (int, optional): The block size for sampling. Default: 2 ** 24
     """
-    samples_lst = []
+    samples = []
     num_blocks = int(np.ceil(len(probs) / block_size))
     probs_block = torch.zeros(num_blocks, device=probs.device)
     start = (num_blocks - 1) * block_size
     end = min(num_blocks * block_size, len(probs))
     probs_block[:-1] = probs[:start].reshape(num_blocks - 1, block_size).sum(1)
     probs_block[-1] = probs[start:end].sum()
-    blocks = torch.multinomial(probs_block, shots, replacement=True)
-    idx_block, shots_block = blocks.unique(return_counts=True)
-    for idx, shot in zip(idx_block, shots_block):
-        start = idx * block_size
-        end = min((idx + 1) * block_size, len(probs))
-        samples_block = torch.multinomial(probs[start:end], shot, replacement=True) + start
-        samples_lst.append(samples_block)
-    return torch.cat(samples_lst)
+    blocks = torch.multinomial(probs_block, shots, replacement=True).cpu().numpy()
+    block_dict = Counter(blocks)
+    for idx_block, shots_block in block_dict.items():
+        start = idx_block * block_size
+        end = min((idx_block + 1) * block_size, len(probs))
+        samples_block = torch.multinomial(probs[start:end], shots_block, replacement=True)
+        samples.extend((samples_block + start).cpu().numpy())
+    return samples
 
 
 def measure(
@@ -546,8 +547,8 @@ def measure(
         if wires is not None:
             probs = probs.reshape([2] * n).permute(pm_shape).reshape([2] * len(wires) + [-1]).sum(-1).reshape(-1)
         # Perform block sampling to reduce memory consumption
-        indices_i, shots_i = block_sample(probs, shots, block_size).unique(return_counts=True)
-        results = {format(idx, f'0{num_bits}b'): shot.item() for idx, shot in zip(indices_i, shots_i)}
+        samples = Counter(block_sample(probs, shots, block_size))
+        results = {format(key, f'0{num_bits}b'): value for key, value in samples.items()}
         if with_prob:
             for k in results:
                 index = int(k, 2)
