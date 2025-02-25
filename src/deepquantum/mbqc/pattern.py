@@ -366,7 +366,7 @@ class Pattern(Operation):
                 elif op.plane in ['zx', 'xz']:
                     # M^{XZ,α} X^s Z^t = M^{XZ,(-1)^t((-1)^s·α+sπ)}
                     #                  = M^{XZ,(-1)^{s+t}·α+(-1)^t·sπ}
-                    #                  = M^{XZ,(-1)^{s+t}·α+sπ}         (since (-1)^t·π ≡ π (mod 2π))
+                    #                  = M^{XZ,(-1)^{s+t}·α+sπ}  (since (-1)^t·π ≡ π (mod 2π))
                     #                  = S^s M^{XZ,(-1)^{s+t}·α}
                     #                  = S^s M^{XZ,α} Z^{s+t}
                     if s_domain:
