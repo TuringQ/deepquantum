@@ -129,20 +129,20 @@ print(cir.measure_homodyne(wires=1))
 pattern = dq.Pattern(2)
 # Hadamard gate on qubit 1
 pattern.n(2)
-pattern.e([1,2])
+pattern.e(1, 2)
 pattern.m(1)
-pattern.c_x(2, domain=1)
+pattern.x(2, domain=1)
 # CNOT
 pattern.n([3,4])
-pattern.e([2,3])
-pattern.e([0,3])
-pattern.e([3,4])
+pattern.e(2, 3)
+pattern.e(0, 3)
+pattern.e(3, 4)
 pattern.m(2)
 pattern.m(3)
-pattern.c_x(4, domain=3)
-pattern.c_z(4, domain=2)
-pattern.c_z(0, domain=2)
-print(abs(pattern().graph.full_state))
+pattern.x(4, domain=3)
+pattern.z(4, domain=2)
+pattern.z(0, domain=2)
+print(abs(pattern().full_state))
 ```
 
 - Transpile quantum circuit to MBQC pattern
@@ -154,8 +154,8 @@ cir.cnot(0, 1)
 cir.rx(1, 0.2)
 pattern = cir.pattern()
 print(cir())
-print(pattern().graph.full_state)
-print(cir() / pattern().graph.full_state)
+print(pattern().full_state)
+print(cir() / pattern().full_state)
 ```
 
 # License

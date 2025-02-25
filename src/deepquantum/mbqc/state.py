@@ -270,6 +270,11 @@ class GraphState(nn.Module):
             return graph
 
     @property
+    def full_state(self) -> torch.Tensor:
+        """Compute and return the full quantum state of the graph state."""
+        return self.graph.full_state
+
+    @property
     def measure_dict(self) -> Dict:
         """A dictionary containing all measurement results for the graph state."""
         return self.graph.measure_dict
