@@ -2,7 +2,6 @@
 Common functions
 """
 
-from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -456,13 +455,13 @@ def evolve_den_mat(
     return state
 
 
-def block_sample(probs: torch.Tensor, shots: int = 1024, block_size: int = 2 ** 24) -> List:
+def block_sample(probs: torch.Tensor, shots: int = 1024, block_size: int = 2 ** 24) -> torch.Tensor:
     """Sample from a probability distribution using block sampling.
 
     Args:
         probs (torch.Tensor): The probability distribution to sample from.
         shots (int, optional): The number of samples to draw. Default: 1024
-        block_size (int, optional): The block size for sampling. Default: 2 ** 20
+        block_size (int, optional): The block size for sampling. Default: 2 ** 24
     """
     samples_lst = []
     num_blocks = int(np.ceil(len(probs) / block_size))
@@ -472,14 +471,13 @@ def block_sample(probs: torch.Tensor, shots: int = 1024, block_size: int = 2 ** 
     probs_block[:-1] = probs[:start].reshape(num_blocks - 1, block_size).sum(1)
     probs_block[-1] = probs[start:end].sum()
     blocks = torch.multinomial(probs_block, shots, replacement=True)
-    idx_block, block_counts = blocks.unique(return_counts=True)
-    for i in range(len(idx_block)):
-        start = idx_block[i] * block_size
-        end = min((idx_block[i] + 1) * block_size, len(probs))
-        samples_block = torch.multinomial(probs[start:end], block_counts[i], replacement=True) + start
+    idx_block, shots_block = blocks.unique(return_counts=True)
+    for idx, shot in zip(idx_block, shots_block):
+        start = idx * block_size
+        end = min((idx + 1) * block_size, len(probs))
+        samples_block = torch.multinomial(probs[start:end], shot, replacement=True) + start
         samples_lst.append(samples_block)
-    samples = torch.cat(samples_lst)
-    return samples
+    return torch.cat(samples_lst)
 
 
 def measure(
@@ -510,7 +508,7 @@ def measure(
             integers specifying the indices of the wires. Default: ``None`` (which means all wires are
             measured)
         den_mat (bool, optional): Whether the state is a density matrix or not. Default: ``False``
-        block_size (int, optional): The block size for sampling. Default: 2 ** 20
+        block_size (int, optional): The block size for sampling. Default: 2 ** 24
 
     Returns:
         Union[Dict, List[Dict]]: The measurement results. If the state is a single state vector, it returns
@@ -548,8 +546,8 @@ def measure(
         if wires is not None:
             probs = probs.reshape([2] * n).permute(pm_shape).reshape([2] * len(wires) + [-1]).sum(-1).reshape(-1)
         # Perform block sampling to reduce memory consumption
-        key, value = block_sample(probs, shots, block_size).unique(return_counts=True)
-        results = {format(key[i], f'0{num_bits}b'): value[i].item() for i in range(len(key))}
+        indices_i, shots_i = block_sample(probs, shots, block_size).unique(return_counts=True)
+        results = {format(idx, f'0{num_bits}b'): shot.item() for idx, shot in zip(indices_i, shots_i)}
         if with_prob:
             for k in results:
                 index = int(k, 2)

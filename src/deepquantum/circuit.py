@@ -301,7 +301,7 @@ class QubitCircuit(Operation):
         shots: Optional[int] = None,
         with_prob: bool = False,
         wires: Union[int, List[int], None] = None,
-        block_size: int = 2 ** 20
+        block_size: int = 2 ** 24
     ) -> Union[Dict, List[Dict], None]:
         """Measure the final state.
 
@@ -310,7 +310,7 @@ class QubitCircuit(Operation):
                 ``self.shots``)
             with_prob (bool, optional): Whether to show the true probability of the measurement. Default: ``False``
             wires (int, List[int] or None, optional): The wires to measure. Default: ``None`` (which means all wires)
-            block_size (int, optional): The block size for sampling. Default: 2 ** 20
+            block_size (int, optional): The block size for sampling. Default: 2 ** 24
         """
         assert not self.mps, 'Currently NOT supported.'
         if shots is None:
