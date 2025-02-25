@@ -3,11 +3,14 @@ Quantum states
 """
 
 from typing import Any, List, Optional, Union
+import matplotlib.pyplot as plt
+from matplotlib import cm
 
 import torch
 from torch import nn
 
 import deepquantum.photonic as dqp
+from .gate import PhaseShift
 from .qmath import dirac_ket, xpxp_to_xxpp
 
 import itertools
@@ -308,6 +311,76 @@ class BosonicState(nn.Module):
         weights_ = torch.stack(weights_).mT
         return [covs_, means_, weights_]
 
+    def wigner(self, wire, qvec, pvec, plot=False, k=0):
+        r"""Calculates the discretized Wigner function of the specified mode."""
+
+        def gaussian_func(cov, mean, x_vals):
+            """Calculate gaussian function values for batched x_vals.
+            """
+            mean = mean.flatten()
+            prefactor = 1 / torch.sqrt(torch.linalg.det(2 * torch.pi * cov))
+            diff = x_vals - mean.unsqueeze(0)
+            cov = cov.to(mean.dtype)
+            solved = torch.linalg.solve(cov, diff.T).T
+            quad = torch.sum(diff * solved, dim=1)
+            f_vals = torch.exp(-0.5 * quad)
+            return prefactor * f_vals
+
+        if not isinstance(wire, torch.Tensor):
+            wire = torch.tensor(wire).reshape(1)
+        idx = torch.cat([wire, wire + self.nmode]) # xxpp order
+        batch = self.cov.shape[0]
+        wigner_vals = []
+        for i in range(batch):
+            cov_sub  = self.cov[i][:, idx[:, None], idx]
+            mean_sub = self.mean[i][:, idx]
+            weight_sub = self.weight[i]
+            grid_x, grid_y = torch.meshgrid(pvec, qvec, indexing='ij')
+            coords = torch.stack([grid_x.reshape(-1), grid_y.reshape(-1)]).mT
+            vals = torch.vmap(gaussian_func, in_dims=(0, 0, None))(cov_sub, mean_sub, coords)
+            weighted_vals = weight_sub.reshape(-1, 1) * vals
+            wigner_vals.append(weighted_vals.sum(0).reshape(len(pvec), len(qvec)).mT)
+        wigner_vals = torch.stack(wigner_vals)
+        if plot:
+            fig, axs = plt.subplots(1, 1, figsize=(12, 10))
+            plt.xlabel('Quadrature q')
+            plt.ylabel('Quadrature p')
+            plt.contourf(qvec, pvec, wigner_vals[k], 60, cmap=cm.RdBu)
+            plt.colorbar()
+            plt.show()
+        return wigner_vals
+
+    def marginal(self, wire, qvec, phi=0., plot=False, k=0):
+        r"""Calculates the discretized marginal distribution of the specified mode along
+        the :math:`x\cos\phi + p\sin\phi` quadrature."""
+
+        if not isinstance(wire, torch.Tensor):
+            wire = torch.tensor(wire).reshape(1)
+        idx = torch.cat([wire, wire + self.nmode]) # xxpp order
+        batch = self.cov.shape[0]
+        marginal_vals = []
+        for i in range(batch):
+            weight = self.weight[i]
+            cov_sub  = self.cov[i][:, idx[:, None], idx]
+            mean_sub = self.mean[i][:, idx]
+            cov_sub = cov_sub.to(mean_sub.dtype)
+
+            r = PhaseShift(inputs=-phi, nmode=1, wires=wire.tolist(), cutoff=self.cutoff)
+            r.to(mean_sub.dtype).to(mean_sub.device)
+            cov_out, mean_out = r([cov_sub, mean_sub])
+            temp = 0
+            for i, weight_i in enumerate(weight):
+                prefactor = 1 / (torch.sqrt(2 * torch.pi * cov_out[i][0,0]))
+                temp += weight_i * prefactor * torch.exp(-0.5 * (qvec - mean_out[i][0])**2 / cov_out[i][0,0])
+            marginal_vals.append(temp)
+        marginal_vals = torch.stack(marginal_vals)
+        if plot:
+            fig, axs = plt.subplots(1, 1, figsize=(12, 10))
+            plt.xlabel('Quadrature q')
+            plt.ylabel('Wave_function')
+            plt.plot(qvec, marginal_vals[k])
+            plt.show()
+        return marginal_vals
 
 class CatState(BosonicState):
     r"""
@@ -356,3 +429,124 @@ class CatState(BosonicState):
         weights = torch.stack([w0, w1, w2, w3])
         state = [covs, means, weights]
         super().__init__(state, nmode, cutoff)
+
+
+class GKPState(BosonicState):
+    r"""
+    Finite energy of GKP state for single mode. Using GKP states to encode qubits, with the qubit state defined by:
+    :math:`\ket{\psi}_{gkp} = \cos\frac{\theta}{2}\ket{0}_{gkp} + e^{-i\phi}\sin\frac{\theta}{2}\ket{1}_{gkp}`
+
+    see https://arxiv.org/abs/2103.05530
+
+    Args:
+        theta (float): angle :math:`\theta` in Bloch sphere
+        phi (float): angle :math:`\phi` in Bloch sphere
+        amp_cutoff (float): amplitude threshold for keeping the terms. Default: 0.5
+        epsilon (float): finite energy damping parameter. Default: 0.1
+        cutoff (int, optional): the Fock space truncation. Default: 5
+    """
+    def __init__(
+        self,
+        theta: Optional[torch.Tensor] = None,
+        phi: Optional[torch.Tensor] = None,
+        amp_cutoff: float = 0.1,
+        epsilon: float = 0.05,
+        cutoff: int = 5
+    ) -> None:
+        nmode = 1
+        if not isinstance(epsilon, torch.Tensor):
+            epsilon = torch.tensor(epsilon)
+        if not isinstance(amp_cutoff, torch.Tensor):
+            amp_cutoff = torch.tensor(amp_cutoff)
+        self.epsilon = epsilon
+        self.amp_cutoff = amp_cutoff
+        exp_eps = torch.exp(-2 * epsilon)
+        # gaussian envelope
+        z_max = torch.ceil(torch.sqrt(-4 / torch.pi * torch.log(amp_cutoff) * (1 + exp_eps) / (1-exp_eps)))
+        coords = torch.arange(-z_max, z_max + 1)
+        grid_x, grid_y = torch.meshgrid(coords, coords, indexing='ij')
+        means = torch.stack([grid_x.reshape(-1), grid_y.reshape(-1)], dim=1)
+
+        k = means[:, 0]
+        l = means[:, 1]
+        thetas = torch.tensor([theta] * len(k))
+        phis = torch.tensor([phi] * len(k))
+        weights = self._update_weight(k, l, thetas, phis)
+
+        filt = abs(weights) > amp_cutoff
+        weights = weights[filt]
+        weights /= torch.sum(weights)
+        means = means[filt]
+        means = means * 2 * torch.exp(-epsilon) / (1 + exp_eps)
+        means = means * 0.5 * torch.sqrt(torch.tensor(torch.pi * dqp.hbar))   # lattice spacing
+        covs = torch.stack([torch.eye(2)] * len(means))
+        covs = covs * 0.5 * dqp.hbar * (1 - exp_eps) / (1 + exp_eps)
+        state = [covs, means, weights]
+        super().__init__(state, nmode, cutoff)
+
+    def _update_weight(self, k, l, theta, phi):
+        """
+        Compute the updated coefficients c_{k, l}(theta, phi) for given k, l, theta, and phi.
+
+        see https://arxiv.org/abs/2103.05530 eq.43
+        """
+        # Ensure that k and l are integers
+        k = k.long()
+        l = l.long()
+
+        k_mod_2 = k % 2
+        l_mod_2 = l % 2
+        k_mod_4 = k % 4
+        l_mod_4 = l % 4
+
+        result = torch.zeros_like(theta)
+
+        # Case 1: k mod 2 == 0 and l mod 2 == 0
+        mask1 = (k_mod_2 == 0) & (l_mod_2 == 0)
+        result[mask1] = 1
+
+        # Case 2: k mod 4 == 0 and l mod 2 == 1
+        mask2 = (k_mod_4 == 0) & (l_mod_2 == 1)
+        result[mask2] = torch.cos(theta[mask2])
+
+        # Case 3: k mod 4 == 2 and l mod 2 == 1
+        mask3 = (k_mod_4 == 2) & (l_mod_2 == 1)
+        result[mask3] = -torch.cos(theta[mask3])
+
+        # Case 4: k mod 4 == 3 and l mod 4 == 0
+        mask4_1 = (k_mod_4 == 3) & (l_mod_4 == 0)
+        result[mask4_1] = torch.sin(theta[mask4_1]) * torch.cos(phi[mask4_1])
+
+        # Case 5: k mod 4 == 1 and l mod 4 == 0
+        mask4_2 = (k_mod_4 == 1) & (l_mod_4 == 0)
+        result[mask4_2] = torch.sin(theta[mask4_2]) * torch.cos(phi[mask4_2])
+
+        # Case 6: k mod 4 == 3 and l mod 4 == 2
+        mask4_3 = (k_mod_4 == 3) & (l_mod_4 == 2)
+        result[mask4_3] = -torch.sin(theta[mask4_3]) * torch.cos(phi[mask4_3])
+
+        # Case 7: k mod 4 == 1 and l mod 4 == 2
+        mask4_4 = (k_mod_4 == 1) & (l_mod_4 == 2)
+        result[mask4_4] = -torch.sin(theta[mask4_4]) * torch.cos(phi[mask4_4])
+
+        # Case 8: k mod 4 == 3 and l mod 4 == 3
+        mask5_1 = (k_mod_4 == 3) & (l_mod_4 == 3)
+        result[mask5_1] = -torch.sin(theta[mask5_1]) * torch.sin(phi[mask5_1])
+
+        # Case 9: k mod 4 == 1 and l mod 4 == 1
+        mask5_2 = (k_mod_4 == 1) & (l_mod_4 == 1)
+        result[mask5_2] = -torch.sin(theta[mask5_2]) * torch.sin(phi[mask5_2])
+
+        # Case 10: k mod 4 == 3 and l mod 4 == 1
+        mask5_3 = (k_mod_4 == 3) & (l_mod_4 == 1)
+        result[mask5_3] = torch.sin(theta[mask5_3]) * torch.sin(phi[mask5_3])
+
+        # Case 11: k mod 4 == 1 and l mod 4 == 3
+        mask5_4 = (k_mod_4 == 1) & (l_mod_4 == 3)
+        result[mask5_4] = torch.sin(theta[mask5_4]) * torch.sin(phi[mask5_4])
+
+        exp_eps = torch.exp(-2 * self.epsilon)
+        prefactor = torch.exp(-0.25 * torch.pi * (l**2 + k**2) * (1 - exp_eps)/(1 + exp_eps))
+
+        weight = result * prefactor # update coefficient
+        return weight

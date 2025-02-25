@@ -84,3 +84,21 @@ def test_photon_number_mean_var():
     test2 = state.mean_photon(0)
     err = abs(torch.tensor(test1) - np.array(test2)).sum()
     assert err < 1e-5
+
+def test_wigner():
+    theta = 2*np.pi*np.random.rand(1)[0]
+    phi = 2*np.pi*np.random.rand(1)[0]
+    gkp = dq.GKPState(theta=theta, phi=phi, amp_cutoff=0.01, epsilon=0.05)
+
+    nmodes = 1
+    prog_cat_bosonic = sf.Program(nmodes)
+    with prog_cat_bosonic.context as q:
+        sf.ops.GKP(state=[theta, phi], epsilon=0.05, ampl_cutoff=0.01) | q[0] # superposition of 4 states
+    eng = sf.Engine("bosonic", backend_options={"hbar": 2}) #xpxp  order
+    state = eng.run(prog_cat_bosonic).state
+    qvec = torch.linspace(-5, 5, 200)
+    pvec = torch.linspace(-5, 5, 200)
+    w = state.wigner(0, qvec, pvec)
+    test = gkp.wigner(wire=[0], qvec=qvec, pvec=pvec)
+    err = abs(test[0] - w).max()
+    assert err < 1e-5

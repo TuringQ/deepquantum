@@ -113,10 +113,10 @@ class Generaldyne(Operation):
             exp_factor = exp_factor.squeeze()
             reweights = torch.exp(-0.5 * exp_factor) / torch.sqrt(torch.linalg.det(2 * torch.pi * (cov_b + self.cov_m)))
             new_weight = weight * reweights
-            new_weight /= torch.sum(abs(new_weight))
-            idx_out = abs(new_weight) > 0
+            new_weight /= torch.sum(new_weight)
+            idx_out = abs(new_weight) > 1e-8
             cov_out = cov_out[idx_out]
-            cov_out = cov_out[idx_out]
+            mean_out = mean_out[idx_out]
             weight_out = new_weight[idx_out]
             return [cov_out, mean_out, weight_out]
 
