@@ -3,15 +3,16 @@ Quantum states
 """
 
 from typing import Any, List, Optional, Union
-import matplotlib.pyplot as plt
-from matplotlib import cm
 
+import matplotlib.pyplot as plt
 import torch
-from torch import nn
+from matplotlib import cm
+from torch import nn, vmap
 
 import deepquantum.photonic as dqp
+from ..qmath import multi_kron
 from .gate import PhaseShift
-from .qmath import dirac_ket, xpxp_to_xxpp
+from .qmath import dirac_ket, xpxp_to_xxpp, xxpp_to_xpxp
 
 import itertools
 
@@ -174,6 +175,8 @@ class GaussianState(nn.Module):
     ) -> None:
         super().__init__()
         if state == 'vac':
+            if nmode is None:
+                nmode = 1
             cov = torch.eye(2 * nmode) * dqp.hbar / (4 * dqp.kappa ** 2)
             mean = torch.zeros(2 * nmode, 1)
         elif isinstance(state, list):
@@ -208,14 +211,14 @@ class GaussianState(nn.Module):
 
 
 class BosonicState(nn.Module):
-    r"""A linear combination of Gaussian state of n modes, representing by covariance matrix, displacement vector and weight.
+    r"""A Bosoncic state of n modes, representing by a linear combination of Gaussian states.
 
     Args:
-        state (str or List): A linear combination of Gaussian state. It can be a vacuum state with ``'vac'``,
-        or arbitrary linear combination of Gaussian states with [``cov``, ``mean``, ``weight``]. ``cov``,``mean``
-        and ``weight`` are the covariance matrix, the displacement vector and combination weight
-        of the Gaussian state, respectively. Use ``xxpp`` convention and :math:`\hbar=2` by default.
-        Default: ``'vac'``
+        state (str or List): The Bosoncic state. It can be a vacuum state with ``'vac'``, or arbitrary
+            linear combinations of Gaussian states with [``cov``, ``mean``, ``weight``]. ``cov``,``mean``
+            and ``weight`` are the covariance matrices, the displacement vectors and the weights
+            of the Gaussian state, respectively. Use ``xxpp`` convention and :math:`\hbar=2` by default.
+            Default: ``'vac'``
         nmode (int or None, optional): The number of modes in the state. Default: ``None``
         cutoff (int, optional): The Fock space truncation. Default: 5
     """
@@ -227,31 +230,29 @@ class BosonicState(nn.Module):
     ) -> None:
         super().__init__()
         if state == 'vac':
-            nmode = 1
-            cov = torch.eye(2 * nmode) * dqp.hbar / (4 * dqp.kappa ** 2)
-            mean = torch.zeros(2 * nmode, 1)
-            weight = torch.tensor([1])
+            if nmode is None:
+                nmode = 1
+            cov = torch.eye(2 * nmode) * dqp.hbar / (4 * dqp.kappa ** 2) + 0j
+            mean = torch.zeros(2 * nmode, 1) + 0j
+            weight = torch.tensor([1]) + 0j
         elif isinstance(state, list):
             cov = state[0]
             mean = state[1]
             weight = state[2]
-        if not isinstance(cov, torch.Tensor):
-            cov = torch.tensor(cov)
-        if not isinstance(mean, torch.Tensor):
-            mean = torch.tensor(mean)
-        if not isinstance(weight, torch.Tensor):
-            weight = torch.tensor(weight)
-        if nmode is None:
-            nmode = cov.shape[-1] // 2
-        if weight.dim() == 1:
-            n_combi = len(weight)
-        if weight.dim() == 2:
-            n_combi = len(weight[0])
-        cov = cov.reshape(-1, n_combi, 2 * nmode, 2 * nmode)
-        mean = mean.reshape(-1, n_combi, 2 * nmode, 1)
-        weight = weight.reshape(-1, n_combi)
-        assert cov.shape[0] == mean.shape[0] == weight.shape[0]
+            if not isinstance(cov, torch.Tensor):
+                cov = torch.tensor(cov, dtype=torch.cfloat)
+            if not isinstance(mean, torch.Tensor):
+                mean = torch.tensor(mean, dtype=torch.cfloat)
+            if not isinstance(weight, torch.Tensor):
+                weight = torch.tensor(weight, dtype=torch.cfloat)
+            if nmode is None:
+                nmode = cov.shape[-1] // 2
+        ncomb = weight.shape[-1]
+        cov = cov.reshape(-1, ncomb, 2 * nmode, 2 * nmode)
+        mean = mean.reshape(-1, ncomb, 2 * nmode, 1)
+        weight = weight.reshape(-1, ncomb)
         assert cov.ndim == mean.ndim == 4
+        assert cov.shape[0] == mean.shape[0] == weight.shape[0]
         assert cov.shape[-2] == cov.shape[-1] == 2 * nmode, (
             'The shape of the covariance matrix should be (2*nmode, 2*nmode)')
         assert mean.shape[-2] == 2 * nmode, 'The length of the mean vector should be 2*nmode'
@@ -260,6 +261,9 @@ class BosonicState(nn.Module):
         self.register_buffer('weight', weight)
         self.nmode = nmode
         self.cutoff = cutoff
+
+    def tensor_product(self, state: 'BosonicState') -> 'BosonicState':
+        return combine_bosonic_states([self, state])
 
     @staticmethod
     def combine_states(nmode:int, states:list):
@@ -550,3 +554,68 @@ class GKPState(BosonicState):
 
         weight = result * prefactor # update coefficient
         return weight
+
+
+def combine_tensors(tensors: List[torch.Tensor], ndim_ds: int = 2) -> torch.Tensor:
+    """Combine a list of 3D tensors for Bosonic states according to the dimension of direct sum.
+
+    Args:
+        tensors (List[torch.Tensor]): The list of 3D tensors to combine.
+        ndim_ds (int, optional): The dimension of direct sum. Use 1 for direct sum along rows.
+            Use 2 for direct sum along both rows and columns. Default: 2
+    """
+    assert ndim_ds in (1, 2)
+    # Get number of tensors and their shapes
+    n = len(tensors)
+    shape_lst = [tensor.shape for tensor in tensors]
+    len_lst, hs, ws = map(list, zip(*shape_lst))
+    size_h = sum(hs)
+    if ndim_ds == 1:
+        size_w = ws[0]
+    elif ndim_ds == 2:
+        size_w = sum(ws)
+    # Expand tensors to combination dimensions
+    expanded_tensors = []
+    for i in range(n):
+        # Insert new dimensions and expand for combination
+        view_shape = [1] * n + list(tensors[i].shape[1:]) # tensors[i]: (len_i, h_i, w_i)
+        view_shape[i] = tensors[i].shape[0]
+        expand_shape = len_lst + list(tensors[i].shape[1:])
+        expanded = tensors[i].view(*view_shape).expand(*expand_shape)
+        expanded_tensors.append(expanded)
+    # Create zero-initialized result template (len_1, len_2, ..., len_n, size_h, size_w)
+    result = tensors[0].new_zeros(*len_lst, size_h, size_w)
+    # Calculate block offsets
+    row_offsets = torch.cumsum(torch.tensor([0] + hs[:-1]), 0).tolist()
+    if ndim_ds == 2:
+        col_offsets = torch.cumsum(torch.tensor([0] + ws[:-1]), 0).tolist()
+    # Place each block in corresponding position
+    for i in range(n):
+        h, w = hs[i], ws[i]
+        row_start = row_offsets[i]
+        if ndim_ds == 1:
+            result[..., row_start:row_start+h, :w] = expanded_tensors[i]
+        elif ndim_ds == 2:
+            col_start = col_offsets[i]
+            result[..., row_start:row_start+h, col_start:col_start+w] = expanded_tensors[i]
+    # Flatten result to (len_1*len_2*...*len_n, size_h, size_w)
+    return result.view(-1, size_h, size_w)
+
+
+def combine_bosonic_states(states: List[BosonicState], cutoff: Optional[int] = None) -> BosonicState:
+    covs = []
+    means = []
+    weights = []
+    nmode = 0
+    if cutoff is None:
+        cutoff = states[0].cutoff
+    for state in states:
+        covs.append(xxpp_to_xpxp(state.cov))
+        means.append(xxpp_to_xpxp(state.mean))
+        weights.append(state.weight)
+        nmode += state.nmode
+    cov = xpxp_to_xxpp(vmap(combine_tensors)(covs))
+    mean = xpxp_to_xxpp(vmap(combine_tensors)(means, ndim_ds=1))
+    weight = vmap(multi_kron)(weights)
+    return [cov, mean, weight]
+    # return BosonicState([cov, mean, weight], nmode, cutoff)
