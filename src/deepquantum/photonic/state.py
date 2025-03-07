@@ -561,8 +561,8 @@ def combine_tensors(tensors: List[torch.Tensor], ndim_ds: int = 2) -> torch.Tens
 
     Args:
         tensors (List[torch.Tensor]): The list of 3D tensors to combine.
-        ndim_ds (int, optional): The dimension of direct sum. Use 1 for direct sum along rows.
-            Use 2 for direct sum along both rows and columns. Default: 2
+        ndim_ds (int, optional): The dimension of direct sum. Use 1 for direct sum along rows,
+            or use 2 for direct sum along both rows and columns. Default: 2
     """
     assert ndim_ds in (1, 2)
     # Get number of tensors and their shapes
@@ -617,5 +617,4 @@ def combine_bosonic_states(states: List[BosonicState], cutoff: Optional[int] = N
     cov = xpxp_to_xxpp(vmap(combine_tensors)(covs))
     mean = xpxp_to_xxpp(vmap(combine_tensors)(means, ndim_ds=1))
     weight = vmap(multi_kron)(weights)
-    return [cov, mean, weight]
-    # return BosonicState([cov, mean, weight], nmode, cutoff)
+    return BosonicState([cov, mean, weight], nmode, cutoff)
