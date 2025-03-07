@@ -359,6 +359,7 @@ class BeamSplitter(DoubleGate):
         # correspond to: U a U^+ = (u^*)^T @ a and U^+ a^+ U = u^* @ a^+
         matrix_xp = torch.cat([torch.cat([matrix.real, -matrix.imag], dim=-1),
                                torch.cat([matrix.imag,  matrix.real], dim=-1)], dim=-2).reshape(4, 4)
+        matrix_xp = matrix_xp.to(theta.device, theta.dtype)
         vector_xp = torch.zeros(4, 1, dtype=theta.dtype, device=theta.device)
         return matrix_xp, vector_xp
 
