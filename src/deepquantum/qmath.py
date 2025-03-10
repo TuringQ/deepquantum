@@ -550,7 +550,7 @@ def measure(
             probs = probs.reshape([2] * n).permute(pm_shape).reshape([2] * len(wires) + [-1]).sum(-1).reshape(-1)
         # Perform block sampling to reduce memory consumption
         samples = Counter(block_sample(probs, shots, block_size))
-        results = {format(key, f'0{num_bits}b'): value for key, value in samples.items()}
+        results = {bin(key)[2:].zfill(num_bits): value for key, value in samples.items()}
         if with_prob:
             for k in results:
                 index = int(k, 2)
