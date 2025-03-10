@@ -160,18 +160,18 @@ class GaussianState(nn.Module):
     r"""A Gaussian state of n modes, representing by covariance matrix and displacement vector.
 
     Args:
-        state (str or List): The Gaussian state. It can be a vacuum state with ``'vac'``, or arbitrary Gaussian states
-            with [``cov``, ``mean``]. ``cov`` and ``mean`` are the covariance matrix and the displacement vector
-            of the Gaussian state, respectively. Use ``xxpp`` convention and :math:`\hbar=2` by default.
+        state (str or List): The Gaussian state. It can be a vacuum state with ``'vac'``, or arbitrary Gaussian state
+            with ``[cov, mean]``. ``cov`` and ``mean`` are the covariance matrix and the displacement vector of
+            the Gaussian state, respectively. Use ``xxpp`` convention and :math:`\hbar=2` by default.
             Default: ``'vac'``
         nmode (int or None, optional): The number of modes in the state. Default: ``None``
-        cutoff (int, optional): The Fock space truncation. Default: 5
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
     """
     def __init__(
         self,
         state: Union[str, List] = 'vac',
         nmode: Optional[int] = None,
-        cutoff: int = 5
+        cutoff: Optional[int] = None
     ) -> None:
         super().__init__()
         if state == 'vac':
@@ -197,6 +197,8 @@ class GaussianState(nn.Module):
         self.register_buffer('cov', cov)
         self.register_buffer('mean', mean)
         self.nmode = nmode
+        if cutoff is None:
+            cutoff = 5
         self.cutoff = cutoff
         self.is_pure = self.check_purity()
 
@@ -215,24 +217,24 @@ class BosonicState(nn.Module):
 
     Args:
         state (str or List): The Bosoncic state. It can be a vacuum state with ``'vac'``, or arbitrary
-            linear combinations of Gaussian states with [``cov``, ``mean``, ``weight``]. ``cov``,``mean``
-            and ``weight`` are the covariance matrices, the displacement vectors and the weights
-            of the Gaussian state, respectively. Use ``xxpp`` convention and :math:`\hbar=2` by default.
+            linear combinations of Gaussian states with ``[cov, mean, weight]``. ``cov``,``mean`` and ``weight`` are
+            the covariance matrices, the displacement vectors and the weights of the Gaussian states, respectively.
+            Use ``xxpp`` convention and :math:`\hbar=2` by default.
             Default: ``'vac'``
         nmode (int or None, optional): The number of modes in the state. Default: ``None``
-        cutoff (int, optional): The Fock space truncation. Default: 5
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
     """
     def __init__(
         self,
         state: Union[str, List] = 'vac',
         nmode: Optional[int] = None,
-        cutoff: int = 5
+        cutoff: Optional[int] = None
     ) -> None:
         super().__init__()
         if state == 'vac':
             if nmode is None:
                 nmode = 1
-            cov = torch.eye(2 * nmode) * dqp.hbar / (4 * dqp.kappa ** 2) + 0j
+            cov = torch.eye(2 * nmode) * dqp.hbar / (4 * dqp.kappa ** 2)
             mean = torch.zeros(2 * nmode, 1) + 0j
             weight = torch.tensor([1]) + 0j
         elif isinstance(state, list):
@@ -260,6 +262,8 @@ class BosonicState(nn.Module):
         self.register_buffer('mean', mean)
         self.register_buffer('weight', weight)
         self.nmode = nmode
+        if cutoff is None:
+            cutoff = 5
         self.cutoff = cutoff
 
     def tensor_product(self, state: 'BosonicState') -> 'BosonicState':
