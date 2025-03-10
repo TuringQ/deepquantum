@@ -2,12 +2,14 @@
 Common functions
 """
 
-from collections import Counter
-from typing import Any, Dict, List, Optional, Tuple, Union
+import copy
+from collections import Counter, defaultdict
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
 from torch import nn, vmap
+from tqdm import tqdm
 
 
 def is_power_of_two(n: int) -> bool:
@@ -548,7 +550,7 @@ def measure(
             probs = probs.reshape([2] * n).permute(pm_shape).reshape([2] * len(wires) + [-1]).sum(-1).reshape(-1)
         # Perform block sampling to reduce memory consumption
         samples = Counter(block_sample(probs, shots, block_size))
-        results = {format(key, f'0{num_bits}b'): value for key, value in samples.items()}
+        results = {bin(key)[2:].zfill(num_bits): value for key, value in samples.items()}
         if with_prob:
             for k in results:
                 index = int(k, 2)
@@ -758,3 +760,94 @@ def meyer_wallach_measure_brennen(state_tsr: torch.Tensor) -> torch.Tensor:
         trace_rho_i = rho_i.diagonal(offset=0, dim1=-2, dim2=-1).sum(-1).real
         rst += trace_rho_i
     return 2 * (1 - rst / nqubit)
+
+def sample_sc_mcmc(prob_func: Callable,
+                   proposal_sampler: Callable,
+                   shots: int = 1024,
+                   num_chain: int = 5) -> defaultdict:
+    """Get the samples of the probability distribution function via SC-MCMC method."""
+    samples_chain = []
+    merged_samples = defaultdict(int)
+    cache_prob = {}
+    shots_lst = [shots // num_chain] * num_chain
+    shots_lst[-1] += shots % num_chain
+    for trial in range(num_chain):
+        cache = []
+        len_cache = min(shots_lst)
+        if shots_lst[trial] > 1e5:
+            len_cache = 4000
+        # random start
+        sample_0 = proposal_sampler()
+        cache.append(sample_0)
+        sample_max = sample_0
+        if sample_max in cache_prob:
+            prob_max = cache_prob[sample_max]
+        else:
+            prob_max = prob_func(sample_0)
+            cache_prob[sample_max] = prob_max
+        dict_sample = defaultdict(int)
+        for i in tqdm(range(1, shots_lst[trial]), desc=f'chain {trial+1}', ncols=80, colour='green'):
+            sample_i = proposal_sampler()
+            if sample_i in cache_prob:
+                prob_i = cache_prob[sample_i]
+            else:
+                prob_i = prob_func(sample_i)
+                cache_prob[sample_i] = prob_i
+            rand_num = torch.rand(1, device= prob_i.device)
+            # MCMC transfer to new state
+            if prob_i / prob_max > rand_num:
+                sample_max = sample_i
+                prob_max = prob_i
+            if i < len_cache: # cache not full
+                cache.append(sample_max)
+            else: # full
+                idx = np.random.randint(0, len_cache)
+                out_sample = copy.deepcopy(cache[idx])
+                cache[idx] = sample_max
+                out_sample_key = out_sample
+                if out_sample_key in dict_sample:
+                    dict_sample[out_sample_key] = dict_sample[out_sample_key] + 1
+                else:
+                    dict_sample[out_sample_key] = 1
+        # clear the cache
+        for i in range(len_cache):
+            out_sample = cache[i]
+            out_sample_key = out_sample
+            if out_sample_key in dict_sample:
+                dict_sample[out_sample_key] = dict_sample[out_sample_key] + 1
+            else:
+                dict_sample[out_sample_key] = 1
+        samples_chain.append(dict_sample)
+        for key, value in dict_sample.items():
+            merged_samples[key] += value
+    return merged_samples
+
+def get_prob_mps(k, mps_list):
+    """
+    get the 0,1 probs of the kth qubit using mps
+    """
+    def contract_conj(mps_list):
+        """
+        contract the mps with the conjugate part
+        """
+        assert len(mps_list) >= 1
+        tt2  = torch.tensordot(mps_list[0].conj(), mps_list[0], dims=([1], [1]))
+        tt2 = tt2.permute(0, 2, 1, 3)
+        for i in range(1, len(mps_list)):
+            tt = torch.tensordot(mps_list[i].conj(), mps_list[i], dims=([1], [1]))
+            tt2 = torch.tensordot(tt2, tt.permute(0, 2, 1, 3), dims=([2, 3], [0, 1]))
+        return tt2
+    if k == 0:
+        left_mps = [torch.tensor(1).reshape([1,1,1]).to(torch.complex64)]
+    else:
+        left_mps = mps_list[:k]
+    if k == len(mps_list) - 1:
+        right_mps = [torch.tensor(1).reshape([1,1,1]).to(torch.complex64)]
+    else:
+        right_mps = mps_list[k+1:]
+    a1 = contract_conj(left_mps)
+    a2 = contract_conj(right_mps)
+    a3 = torch.tensordot(a1, mps_list[k], dims=([2], [0]))
+    a4 = torch.tensordot(a3, mps_list[k].conj(), dims=([2], [0]))
+    a5 = torch.tensordot(a2, a4, dims=([0, 1], [5, 3])).squeeze()
+    return a5.diagonal().real # absolute prob values
