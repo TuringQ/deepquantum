@@ -177,7 +177,10 @@ class GBS_Graph(GaussianBosonSampling):
         """Postselect the results with the fixed node subgraph."""
         dic_list = [{} for _ in range(len(nodes_list))]
         for key in samples.keys():
-            temp = sum(key.state.tolist())
+            if isinstance(key, FockState):
+                temp = sum(key.state.tolist())
+            else:
+                temp = sum(key)
             if temp in nodes_list:
                 temp_idx = nodes_list.index(temp)
                 dic_list[temp_idx][key] = samples[key]
