@@ -776,14 +776,8 @@ def sample_sc_mcmc(prob_func: Callable,
         len_cache = min(shots_lst)
         if shots_lst[trial] > 1e5:
             len_cache = 4000
-        # samples = []
         # random start
         sample_0 = proposal_sampler()
-        if prob_func(sample_0) < 1e-12: # avoid the samples with almost-zero probability
-            sample_0 = 0
-            # sample_0 = torch.zeros_like(sample_0)
-        while prob_func(sample_0) < 1e-10:
-            sample_0 = proposal_sampler()
         cache.append(sample_0)
         sample_max = sample_0
         if sample_max in cache_prob:
@@ -791,11 +785,6 @@ def sample_sc_mcmc(prob_func: Callable,
         else:
             prob_max = prob_func(sample_0)
             cache_prob[sample_max] = prob_max
-        # if tuple(sample_max.tolist()) in cache_prob:
-        #     prob_max = cache_prob[tuple(sample_max.tolist())]
-        # else:
-        #     prob_max = prob_func(sample_0)
-        #     cache_prob[tuple(sample_max.tolist())] = prob_max
         dict_sample = defaultdict(int)
         for i in tqdm(range(1, shots_lst[trial]), desc=f'chain {trial+1}', ncols=80, colour='green'):
             sample_i = proposal_sampler()
@@ -804,13 +793,7 @@ def sample_sc_mcmc(prob_func: Callable,
             else:
                 prob_i = prob_func(sample_i)
                 cache_prob[sample_i] = prob_i
-            # if tuple(sample_i.tolist()) in cache_prob:
-            #     prob_i = cache_prob[tuple(sample_i.tolist())]
-            # else:
-            #     prob_i = prob_func(sample_i)
-            #     cache_prob[tuple(sample_i.tolist())] = prob_i
             rand_num = torch.rand(1, device= prob_i.device)
-            # samples.append(sample_i)
             # MCMC transfer to new state
             if prob_i / prob_max > rand_num:
                 sample_max = sample_i
@@ -822,7 +805,6 @@ def sample_sc_mcmc(prob_func: Callable,
                 out_sample = copy.deepcopy(cache[idx])
                 cache[idx] = sample_max
                 out_sample_key = out_sample
-                # out_sample_key = tuple(out_sample.tolist())
                 if out_sample_key in dict_sample:
                     dict_sample[out_sample_key] = dict_sample[out_sample_key] + 1
                 else:
@@ -831,7 +813,6 @@ def sample_sc_mcmc(prob_func: Callable,
         for i in range(len_cache):
             out_sample = cache[i]
             out_sample_key = out_sample
-            # out_sample_key = tuple(out_sample.tolist())
             if out_sample_key in dict_sample:
                 dict_sample[out_sample_key] = dict_sample[out_sample_key] + 1
             else:
@@ -840,3 +821,33 @@ def sample_sc_mcmc(prob_func: Callable,
         for key, value in dict_sample.items():
             merged_samples[key] += value
     return merged_samples
+
+def get_prob_mps(k, mps_list):
+    """
+    get the 0,1 probs of the kth qubit using mps
+    """
+    def contract_conj(mps_list):
+        """
+        contract the mps with the conjugate part
+        """
+        assert len(mps_list) >= 1
+        tt2  = torch.tensordot(mps_list[0].conj(), mps_list[0], dims=([1], [1]))
+        tt2 = tt2.permute(0, 2, 1, 3)
+        for i in range(1, len(mps_list)):
+            tt = torch.tensordot(mps_list[i].conj(), mps_list[i], dims=([1], [1]))
+            tt2 = torch.tensordot(tt2, tt.permute(0, 2, 1, 3), dims=([2, 3], [0, 1]))
+        return tt2
+    if k == 0:
+        left_mps = [torch.tensor(1).reshape([1,1,1]).to(torch.complex64)]
+    else:
+        left_mps = mps_list[:k]
+    if k == len(mps_list) - 1:
+        right_mps = [torch.tensor(1).reshape([1,1,1]).to(torch.complex64)]
+    else:
+        right_mps = mps_list[k+1:]
+    a1 = contract_conj(left_mps)
+    a2 = contract_conj(right_mps)
+    a3 = torch.tensordot(a1, mps_list[k], dims=([2], [0]))
+    a4 = torch.tensordot(a3, mps_list[k].conj(), dims=([2], [0]))
+    a5 = torch.tensordot(a2, a4, dims=([0, 1], [5, 3])).squeeze()
+    return a5.diagonal().real # absolute prob values
