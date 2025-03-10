@@ -2,15 +2,9 @@
 Common functions
 """
 
-<<<<<<< HEAD
 import copy
-import random
 from collections import Counter, defaultdict
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
-=======
-from collections import Counter
-from typing import Any, Dict, List, Optional, Tuple, Union
->>>>>>> b76545e00f40fddd78b461995bbeb27af0f12c98
 
 import numpy as np
 import torch
