@@ -254,40 +254,52 @@ def ladder_to_quadrature(matrix: torch.Tensor) -> torch.Tensor:
         return (omega @ matrix).real
 
 
-def _photon_number_mean_var_gaussain(
-    cov: torch.Tensor,
-    mean: torch.Tensor
-) -> Tuple[torch.Tensor, torch.Tensor]:
+def _photon_number_mean_var_gaussian(cov: torch.Tensor, mean: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     """Get the expectation value and variance of the photon number for single-mode Gaussian states."""
     coef = dqp.kappa ** 2 / dqp.hbar
     cov = cov.reshape(-1, 2, 2)
     mean = mean.reshape(-1, 2, 1)
     exp = coef * (vmap(torch.trace)(cov) + (mean.mT @ mean).squeeze()) - 1 / 2
-    var = coef ** 2 * (vmap(torch.trace)(cov @ cov) + 2 * (mean.mT @ cov @ mean).squeeze()) * 2 - 1 / 4
+    var = coef**2 * (vmap(torch.trace)(cov @ cov) + 2 * (mean.mT @ cov.to(mean.dtype) @ mean).squeeze()) * 2 - 1 / 4
     return exp, var
 
 
-def _photon_number_mean_var_non_gaussain(
+def _photon_number_mean_var_bosonic(
+    cov: torch.Tensor,
+    mean: torch.Tensor,
+    weight: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Get the expectation value and variance of the photon number for single-mode Bosonic states."""
+    shape_cov = cov.shape
+    shape_mean = mean.shape
+    cov = cov.reshape(*shape_cov[:2], 2, 2).reshape(-1, 2, 2)
+    mean = mean.reshape(*shape_mean[:2], 2, 1).reshape(-1, 2, 1)
+    # weight = weight.unsqueeze(-1)
+    exp_gaussian, var_gaussian = _photon_number_mean_var_gaussian(cov, mean)
+    exp_gaussian = exp_gaussian.reshape(*shape_cov[:2])
+    var_gaussian = var_gaussian.reshape(*shape_cov[:2])
+    exp = (weight * exp_gaussian).sum(-1)
+    var = (weight * var_gaussian).sum(-1) + (weight * exp_gaussian**2).sum(-1) - exp ** 2
+    return exp, var
+
+def _photon_number_mean_var_bosonic_old(
     covs: torch.Tensor,
     means: torch.Tensor,
     weights: torch.Tensor
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Get the expectation value and variance of the photon number for single-mode
-    for Non-Gaussian states.
-    """
+    """Get the expectation value and variance of the photon number for single-mode Bosonic states."""
     coef = dqp.kappa ** 2 / dqp.hbar
-    covs = covs.reshape(-1, weights.shape[1], 2, 2)
-    means = means.reshape(-1, weights.shape[1], 2, 1)
+    covs = covs.reshape(-1, weights.shape[-1], 2, 2)
+    means = means.reshape(-1, weights.shape[-1], 2, 1)
     batch = covs.shape[0]
-    exps = [ ]
-    vars = [ ]
+    exps = []
+    vars = []
     for i in range(batch):
         cov = covs[i]
         mean = means[i]
         exp = torch.sum(weights[i] * coef * (vmap(torch.trace)(cov) + (mean.mT @ mean).squeeze())) - 1 / 2
-        var = torch.sum(weights[i] * coef ** 2 * (vmap(torch.trace)(cov @ cov) + 2 * (mean.mT @ cov @ mean).squeeze()) * 2) - 1 / 4
-        var +=  torch.sum(weights[i] * (coef * (torch.vmap(torch.trace)(cov) + (mean.mT @ mean).squeeze()) - 1 / 2)**2)
+        var = torch.sum(weights[i] * coef ** 2 * (vmap(torch.trace)(cov @ cov) + 2 * (mean.mT @ cov.to(mean.dtype) @ mean).squeeze()) * 2) - 1 / 4
+        var += torch.sum(weights[i] * (coef * (vmap(torch.trace)(cov) + (mean.mT @ mean).squeeze()) - 1 / 2)**2)
         var -= exp ** 2
         exps.append(exp)
         vars.append(var)
@@ -299,13 +311,11 @@ def photon_number_mean_var(
     mean: torch.Tensor,
     weight: Optional[torch.Tensor] = None
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Get the expectation value and variance of the photon number for
-       single-mode for Gaussian and Non-Gaussian states.
-    """
+    """Get the expectation value and variance of the photon number for single-mode Gaussian (Bosonic) states."""
     if weight is None:
-        return  _photon_number_mean_var_gaussain(cov, mean)
+        return  _photon_number_mean_var_gaussian(cov, mean)
     else:
-        return _photon_number_mean_var_non_gaussain(cov, mean, weight)
+        return _photon_number_mean_var_bosonic(cov, mean, weight)
 
 
 def takagi(a: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:

@@ -183,9 +183,9 @@ class GaussianState(nn.Module):
             cov = state[0]
             mean = state[1]
             if not isinstance(cov, torch.Tensor):
-                cov = torch.tensor(cov)
+                cov = torch.tensor(cov, dtype=torch.float)
             if not isinstance(mean, torch.Tensor):
-                mean = torch.tensor(mean)
+                mean = torch.tensor(mean, dtype=torch.float)
             if nmode is None:
                 nmode = cov.shape[-1] // 2
         cov = cov.reshape(-1, 2 * nmode, 2 * nmode)
@@ -242,7 +242,7 @@ class BosonicState(nn.Module):
             mean = state[1]
             weight = state[2]
             if not isinstance(cov, torch.Tensor):
-                cov = torch.tensor(cov, dtype=torch.cfloat)
+                cov = torch.tensor(cov, dtype=torch.float)
             if not isinstance(mean, torch.Tensor):
                 mean = torch.tensor(mean, dtype=torch.cfloat)
             if not isinstance(weight, torch.Tensor):
@@ -417,11 +417,11 @@ class CatState(BosonicState):
         if theta is None:
             theta = torch.rand(1)[0] * 2 * torch.pi
         if not isinstance(r, torch.Tensor):
-            r = torch.tensor(r)
+            r = torch.tensor(r, dtype=torch.float)
         if not isinstance(theta, torch.Tensor):
-            theta = torch.tensor(theta)
+            theta = torch.tensor(theta, dtype=torch.float)
         if not isinstance(p, torch.Tensor):
-            p = torch.tensor(p)
+            p = torch.tensor(p, dtype=torch.long)
         real_part = r * torch.cos(theta)
         imag_part = r * torch.sin(theta)
         means = torch.sqrt(torch.tensor(2 * dqp.hbar)) * \
@@ -463,9 +463,9 @@ class GKPState(BosonicState):
     ) -> None:
         nmode = 1
         if not isinstance(epsilon, torch.Tensor):
-            epsilon = torch.tensor(epsilon)
+            epsilon = torch.tensor(epsilon, dtype=torch.float)
         if not isinstance(amp_cutoff, torch.Tensor):
-            amp_cutoff = torch.tensor(amp_cutoff)
+            amp_cutoff = torch.tensor(amp_cutoff, dtype=torch.float)
         self.epsilon = epsilon
         self.amp_cutoff = amp_cutoff
         exp_eps = torch.exp(-2 * epsilon)

@@ -2149,7 +2149,7 @@ class QumodeCircuit(Operation):
         if inputs is not None:
             requires_grad = False
             if not isinstance(inputs, torch.Tensor):
-                inputs = torch.tensor(inputs)
+                inputs = torch.tensor(inputs, dtype=torch.float)
             theta = torch.arccos(inputs ** 0.5) * 2
         loss = PhotonLoss(inputs=theta, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
                           requires_grad=requires_grad)
@@ -2173,7 +2173,7 @@ class QumodeCircuit(Operation):
         if inputs is not None:
             requires_grad = False
             if not isinstance(inputs, torch.Tensor):
-                inputs = torch.tensor(inputs)
+                inputs = torch.tensor(inputs, dtype=torch.float)
             t = 10 ** (-inputs / 10)
             theta = torch.arccos(t ** 0.5) * 2
         loss = PhotonLoss(inputs=theta, nmode=self.nmode, wires=wires, cutoff=self.cutoff,

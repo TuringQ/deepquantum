@@ -47,7 +47,7 @@ class Generaldyne(Operation):
             cutoff = 2
         super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, noise=noise, mu=mu, sigma=sigma)
         if not isinstance(cov_m, torch.Tensor):
-            cov_m = torch.tensor(cov_m).reshape(-1, 2 * len(self.wires), 2 * len(self.wires))
+            cov_m = torch.tensor(cov_m, dtype=torch.float).reshape(-1, 2 * len(self.wires), 2 * len(self.wires))
         assert cov_m.shape[-2] == cov_m.shape[-1] == 2 * len(self.wires), 'The size of cov_m does not match the wires'
         self.register_buffer('cov_m', cov_m)
         self.samples = None
