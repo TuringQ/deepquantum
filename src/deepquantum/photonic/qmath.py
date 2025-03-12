@@ -274,36 +274,12 @@ def _photon_number_mean_var_bosonic(
     shape_mean = mean.shape
     cov = cov.reshape(*shape_cov[:2], 2, 2).reshape(-1, 2, 2)
     mean = mean.reshape(*shape_mean[:2], 2, 1).reshape(-1, 2, 1)
-    # weight = weight.unsqueeze(-1)
     exp_gaussian, var_gaussian = _photon_number_mean_var_gaussian(cov, mean)
     exp_gaussian = exp_gaussian.reshape(*shape_cov[:2])
     var_gaussian = var_gaussian.reshape(*shape_cov[:2])
     exp = (weight * exp_gaussian).sum(-1)
     var = (weight * var_gaussian).sum(-1) + (weight * exp_gaussian**2).sum(-1) - exp ** 2
     return exp, var
-
-def _photon_number_mean_var_bosonic_old(
-    covs: torch.Tensor,
-    means: torch.Tensor,
-    weights: torch.Tensor
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Get the expectation value and variance of the photon number for single-mode Bosonic states."""
-    coef = dqp.kappa ** 2 / dqp.hbar
-    covs = covs.reshape(-1, weights.shape[-1], 2, 2)
-    means = means.reshape(-1, weights.shape[-1], 2, 1)
-    batch = covs.shape[0]
-    exps = []
-    vars = []
-    for i in range(batch):
-        cov = covs[i]
-        mean = means[i]
-        exp = torch.sum(weights[i] * coef * (vmap(torch.trace)(cov) + (mean.mT @ mean).squeeze())) - 1 / 2
-        var = torch.sum(weights[i] * coef ** 2 * (vmap(torch.trace)(cov @ cov) + 2 * (mean.mT @ cov.to(mean.dtype) @ mean).squeeze()) * 2) - 1 / 4
-        var += torch.sum(weights[i] * (coef * (vmap(torch.trace)(cov) + (mean.mT @ mean).squeeze()) - 1 / 2)**2)
-        var -= exp ** 2
-        exps.append(exp)
-        vars.append(var)
-    return torch.tensor(exps), torch.tensor(vars)
 
 
 def photon_number_mean_var(

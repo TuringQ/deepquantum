@@ -269,56 +269,6 @@ class BosonicState(nn.Module):
     def tensor_product(self, state: 'BosonicState') -> 'BosonicState':
         return combine_bosonic_states([self, state])
 
-    @staticmethod
-    def combine_states(nmode:int, states:list):
-        """
-        Combine local covs, means and weights to obtain the global covs, means and weights,
-        use ``xxpp`` convention and :math:`\hbar=2` by default.
-        """
-        def block_diag_func(mat):
-            return xpxp_to_xxpp(torch.block_diag(*mat))
-        def flat_func(mat):
-            return mat.flatten()
-        assert len(states) == nmode
-        covs = [ ]
-        means = [ ]
-        weights = [ ]
-        temp_= [ ]
-        batch = states[0].weight.shape[0]
-        k = 0
-        for s in states:
-            assert isinstance(s, BosonicState)
-            covs.append(s.cov)
-            means.append(s.mean)
-            weights.append(s.weight)
-            temp_.append(range(k, k + s.weight.shape[1]))
-            k = k + s.weight.shape[1]
-            temp_batch = s.weight.shape[0]
-            assert batch == temp_batch, 'the inputs batch should be the same'
-        covs = torch.cat(covs, dim=1)
-        means = torch.cat(means, dim=1)
-        weights = torch.cat(weights, dim=1)
-        covs_ = [ ]
-        means_ = [ ]
-        weights_ = [ ]
-        for i in itertools.product(*temp_):
-            cov_temp = covs[:, i]
-            mean_temp = means[:, i]
-            cov_all = torch.vmap(block_diag_func)(cov_temp)
-            mean_all = torch.vmap(flat_func)(mean_temp)
-            covs_.append(cov_all)
-            means_.append(mean_all)
-            weights_.append(weights[:, i].prod(dim=1))
-        covs_ = torch.stack(covs_).permute(1, 0, 2, 3).reshape(batch, -1, 2 * nmode, 2 * nmode)
-        means_xxpp = torch.zeros_like(torch.stack(means_))
-        means_xxpp[:, :, torch.arange(0, nmode)] = \
-        torch.stack(means_)[:, :, torch.arange(0, 2 * nmode, 2)]
-        means_xxpp[:, :, torch.arange(nmode, 2 * nmode)] = \
-        torch.stack(means_)[:,:, torch.arange(1, 2 * nmode, 2)]
-        means_ = means_xxpp.permute(1, 0, 2).reshape(batch, -1, 2 * nmode, 1)
-        weights_ = torch.stack(weights_).mT
-        return [covs_, means_, weights_]
-
     def wigner(self, wire, qvec, pvec, plot=False, k=0):
         r"""Calculates the discretized Wigner function of the specified mode."""
 
