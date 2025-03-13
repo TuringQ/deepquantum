@@ -1395,38 +1395,42 @@ class QumodeCircuit(Operation):
                 integers specifying the indices of the wires. Default: ``None`` (which means all wires are
                 measured)
         """
-        assert self.backend in ['gaussian', 'bosonic']
+        assert self.backend in ('gaussian', 'bosonic')
         if self.state is None:
             return
         if self.backend == 'gaussian':
             cov, mean = self.state
-        if self.backend == 'bosonic':
+        elif self.backend == 'bosonic':
             cov, mean, weight = self.state
         if wires is None:
             wires = self.wires
         wires = sorted(self._convert_indices(wires))
         if self._if_delayloop:
             wires = [self._unroll_dict[wire][-1] for wire in wires]
-        batch = cov.shape[0]
-        cov_lst = [] # batch * nwire
-        mean_lst = []
-        weight_lst = []
-        for i in range(batch):
-            cov_lst_i, mean_lst_i = self._get_local_covs_means(cov[i], mean[i], wires)
-            cov_lst += cov_lst_i
-            mean_lst += mean_lst_i
-            if self.backend == 'bosonic':
-                weight_i = [weight[i]] * len(wires)
-                weight_lst += weight_i
-        covs = torch.stack(cov_lst)
-        means = torch.stack(mean_lst)
+        shape_cov = cov.shape
+        shape_mean = mean.shape
+        batch = shape_cov[0]
+        nwire = len(wires)
+        print(shape_cov, shape_mean, nwire)
+        cov = cov.reshape(-1, *shape_cov[-2:])
+        mean = mean.reshape(-1, *shape_mean[-2:])
+        covs, means = self._get_local_covs_means(cov, mean, wires)
+        print(covs.shape, means.shape)
         if self.backend == 'gaussian':
             weights = None
-        else:
-            weights = torch.stack(weight_lst)
+        elif self.backend == 'bosonic':
+            covs = covs.reshape(*shape_cov[:2], nwire, 2, 2).transpose(1, 2)
+            covs = covs.reshape(-1, shape_cov[-3], 2, 2) # (batch*nwire, ncomb, 2, 2)
+            means = means.reshape(*shape_mean[:2], nwire, 2, 1).transpose(1, 2)
+            means = means.reshape(-1, shape_mean[-3], 2, 1)
+            if weight.shape[0] == 1:
+                weights = weight
+            else:
+                weights = torch.cat([weight] * nwire)
+                assert weights.shape[0] == batch * nwire
         exp, var = photon_number_mean_var(covs, means, weights)
-        exp = exp.reshape(batch, len(wires)).squeeze()
-        var = var.reshape(batch, len(wires)).squeeze()
+        exp = exp.reshape(batch, nwire).squeeze()
+        var = var.reshape(batch, nwire).squeeze()
         return exp, var
 
     def _get_local_covs_means(
@@ -1434,24 +1438,41 @@ class QumodeCircuit(Operation):
         cov: torch.Tensor,
         mean: torch.Tensor,
         wires: List[int]
-    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Get the local covariance matrices and mean vectors of a Gaussian state according to the wires to measure."""
-        cov_lst = []
-        mean_lst = []
+        def extract_blocks(mat: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
+            """Extract specified blocks from the input tensor.
+
+            Args:
+                mat (torch.Tensor): Input tensor.
+                idx (torch.Tensor): Index tensor of shape (nblock, block_size), where each row contains
+                    the row/column indices for a block.
+
+            Returns:
+                torch.Tensor: Output tensor of shape (batch, nblock, block_size, -1) containing all extracted blocks.
+            """
+            nblock, block_size = idx.shape
+            if mat.shape[-2] == mat.shape[-1]: # cov
+                rows = idx[:, :, None].expand(-1, -1, block_size) # (nblock, block_size, block_size)
+                cols = idx[:, None, :].expand(-1, block_size, -1) # (nblock, block_size, block_size)
+                all_rows = rows.reshape(-1)
+                all_cols = cols.reshape(-1)
+                out = mat[:, all_rows, all_cols]
+            elif mat.shape[-1] == 1: # mean
+                out = mat[:, idx, :]
+            return out.reshape(mat.shape[0], nblock, block_size, -1)
+
+        indices = []
         if self._if_delayloop:
             nmode = self._nmode_tdm
         else:
             nmode = self.nmode
         for wire in wires:
-            indices = [wire] + [wire + nmode]
-            if self.backend == 'gaussian':
-                cov_lst.append(cov[indices][:, indices])
-                mean_lst.append(mean[indices])
-            if self.backend == 'bosonic':
-                indices = torch.tensor(indices)
-                cov_lst.append(cov[:, indices[:, None], indices]) # with batch covs
-                mean_lst.append(mean[:, indices])
-        return cov_lst, mean_lst
+            indices.append([wire] + [wire + nmode])
+        indices = torch.tensor(indices)
+        covs = extract_blocks(cov, indices).reshape(-1, 2, 2) # batch * nwire
+        means = extract_blocks(mean, indices).reshape(-1, 2, 1)
+        return covs, means
 
     def measure_homodyne(
         self,
@@ -1470,15 +1491,15 @@ class QumodeCircuit(Operation):
                 an integer or a list of integers specifying the indices of the wires. Default: ``None`` (which means
                 all wires are measured)
         """
-        assert self.backend in ['gaussian', 'bosonic']
+        assert self.backend in ('gaussian', 'bosonic')
         if self.state is None:
             return
         if self._if_delayloop:
-                measurements = self._measurements_tdm
-                nmode = self._nmode_tdm
+            measurements = self._measurements_tdm
+            nmode = self._nmode_tdm
         else:
-                measurements = self.measurements
-                nmode = self.nmode
+            measurements = self.measurements
+            nmode = self.nmode
         if self.backend == 'gaussian':
             if len(self.measurements) > 0:
                 samples = []
