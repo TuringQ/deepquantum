@@ -14,8 +14,6 @@ from ..qmath import multi_kron
 from .gate import PhaseShift
 from .qmath import dirac_ket, xpxp_to_xxpp, xxpp_to_xpxp
 
-import itertools
-
 
 class FockState(nn.Module):
     """A Fock state of n modes, including Fock basis states and Fock state tensors.

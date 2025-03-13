@@ -1411,11 +1411,9 @@ class QumodeCircuit(Operation):
         shape_mean = mean.shape
         batch = shape_cov[0]
         nwire = len(wires)
-        print(shape_cov, shape_mean, nwire)
         cov = cov.reshape(-1, *shape_cov[-2:])
         mean = mean.reshape(-1, *shape_mean[-2:])
         covs, means = self._get_local_covs_means(cov, mean, wires)
-        print(covs.shape, means.shape)
         if self.backend == 'gaussian':
             weights = None
         elif self.backend == 'bosonic':
@@ -1426,8 +1424,7 @@ class QumodeCircuit(Operation):
             if weight.shape[0] == 1:
                 weights = weight
             else:
-                weights = torch.cat([weight] * nwire)
-                assert weights.shape[0] == batch * nwire
+                weights = torch.stack([weight] * nwire, dim=-2).reshape(batch * nwire, weight.shape[-1])
         exp, var = photon_number_mean_var(covs, means, weights)
         exp = exp.reshape(batch, nwire).squeeze()
         var = var.reshape(batch, nwire).squeeze()
@@ -1530,10 +1527,10 @@ class QumodeCircuit(Operation):
                 mean_sub = mean[:, indices].squeeze(-1)
                 samples = MultivariateNormal(mean_sub, cov_sub).sample([shots]) # (shots, batch, 2 * nwire)
                 return samples.permute(1, 0, 2).squeeze()
-        if self.backend == 'bosonic':
+        elif self.backend == 'bosonic':
             cov, mean, weight = self.state
             batch = cov.shape[0]
-            samples = [ ]
+            samples = []
             if len(self.measurements) > 0:
                 for i in range(batch):
                     self.state_measured = [cov[i], mean[i], weight[i]]
