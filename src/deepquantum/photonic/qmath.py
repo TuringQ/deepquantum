@@ -280,7 +280,9 @@ def _photon_number_mean_var_bosonic(
     var_gaussian = var_gaussian.reshape(*shape_cov[:2])
     exp = (weight * exp_gaussian).sum(-1)
     var = (weight * var_gaussian).sum(-1) + (weight * exp_gaussian**2).sum(-1) - exp ** 2
-    return exp, var
+    assert torch.allclose(exp.imag, torch.zeros(1))
+    assert torch.allclose(var.imag, torch.zeros(1))
+    return exp.real, var.real
 
 
 def photon_number_mean_var(
@@ -434,21 +436,22 @@ def sample_reject_bosonic(
         m0 = torch.multinomial(c_tilde[batches], 1).reshape(-1) # (batch)
         cov_m0 = cov[batches, m0]
         mean_m0 = mean[batches, m0].squeeze(-1).real
-        dist_g = MultivariateNormal(mean_rest.squeeze(-1).real, cov_t) # (batch, ncomb, 2*nmode)
-        r0 = MultivariateNormal(mean_m0, cov_m + cov_m0).sample([shots_tmp]) # (shots, batch, 2*nmode)
-        prob_g = dist_g.log_prob(r0.unsqueeze(-2)).exp() # (shots, batch, ncomb, 2*nmode) -> (shots, batch, ncomb)
+        dist_g = MultivariateNormal(mean_rest.squeeze(-1).real, cov_t) # (batch, ncomb, 2 * nmode)
+        r0 = MultivariateNormal(mean_m0, cov_m + cov_m0).sample([shots_tmp]) # (shots, batch, 2 * nmode)
+        prob_g = dist_g.log_prob(r0.unsqueeze(-2)).exp() # (shots, batch, ncomb, 2 * nmode) -> (shots, batch, ncomb)
         g_r0 = (c_tilde[batches] * prob_g).sum(-1) # (shots, batch)
         y0 = torch.rand_like(g_r0) * g_r0
-        rm = r0.unsqueeze(-1).unsqueeze(-3) # (shots, batch, 2*nmode) -> (shots, batch, 1, 2*nmode, 1)
+        rm = r0.unsqueeze(-1).unsqueeze(-3) # (shots, batch, 2 * nmode) -> (shots, batch, 1, 2 * nmode, 1)
         # (shots, batch, ncomb)
         exp_imag = torch.exp((rm - mean_rest.real).mT @ torch.linalg.solve(cov_t, mean_rest.imag) * 1j).squeeze()
+        # Eq.(70-71)
         p_r0 = (weight[batches] * exp_real[batches] * prob_g * exp_imag).sum(-1) # (shots, batch)
         assert torch.allclose(p_r0.imag, torch.zeros(1))
         idx_shots, idx_batch = torch.where((y0 <= p_r0.real))
         batches_done = []
         for i in range(len(batches)):
             idx = batches[i]
-            rst[idx] = torch.cat([rst[idx], r0[idx_shots[idx_batch==i], i]]) # (shots, 2*nmode)
+            rst[idx] = torch.cat([rst[idx], r0[idx_shots[idx_batch==i], i]]) # (shots, 2 * nmode)
             count_shots[idx] = len(rst[idx])
             if count_shots[idx] >= shots:
                 batches_done.append(idx)
@@ -456,4 +459,4 @@ def sample_reject_bosonic(
         for i in batches_done:
             batches.remove(i)
         shots_tmp = shots - min(count_shots)
-    return torch.stack(rst) # (batch, shots, 2*nmode)
+    return torch.stack(rst) # (batch, shots, 2 * nmode)

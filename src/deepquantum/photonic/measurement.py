@@ -12,6 +12,7 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 
 from .gate import PhaseShift
 from .operation import Operation
+from .qmath import sample_reject_bosonic
 
 
 class Generaldyne(Operation):
@@ -52,73 +53,57 @@ class Generaldyne(Operation):
         self.register_buffer('cov_m', cov_m)
         self.samples = None
 
-    def forward(self, x: List[torch.Tensor], shots: Optional[int] = None) -> List[torch.Tensor]:
+    def forward(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
         """Perform a forward pass for Gaussian states.
 
         See Quantum Continuous Variables: A Primer of Theoretical Methods (2024)
         by Alessio Serafini Eq.(5.143) and Eq.(5.144) in page 121
+
+        For Bosonic state, see https://arxiv.org/abs/2103.05530 Eq.(35-37)
         """
         cov, mean = x[:2]
         wires = torch.tensor(self.wires)
+        size = cov.size()
         idx = torch.cat([wires, wires + self.nmode]) # xxpp order
         idx_all = torch.arange(2 * self.nmode)
         mask = ~torch.isin(idx_all, idx)
         idx_rest = idx_all[mask]
-        cov_b  = cov[:, idx[:, None], idx]
-        mean_b = mean[:, idx]
 
-        if len(x) == 2:
-            mean_m = MultivariateNormal(mean_b.squeeze(-1), cov_b + self.cov_m).sample([1])[0] # (batch, 2 * nwire)
-            cov_out, mean_out = self.update_state(mean_m, x, idx, idx_rest)
-            x_out = [cov_out, mean_out]
-        if len(x) == 3:
+        cov_a  = cov[..., idx_rest[:, None], idx_rest]
+        cov_b  = cov[..., idx[:, None], idx]
+        cov_ab = cov[..., idx_rest[:, None], idx]
+        mean_a = mean[..., idx_rest, :]
+        mean_b = mean[..., idx, :]
+        cov_t = cov_b + self.cov_m
+
+        cov_a = cov_a - cov_ab @ torch.linalg.solve(cov_t, cov_ab.mT) # update the unmeasured part
+        cov_out = cov.new_ones(size[:-1].numel()).reshape(*size[:-1]).diag_embed()
+        cov_out[..., idx_rest[:, None], idx_rest] = cov_a # update the total cov mat
+
+        if len(x) == 2: # Gaussian
+            mean_m = MultivariateNormal(mean_b.squeeze(-1), cov_t).sample([1])[0] # (batch, 2 * nwire)
+        elif len(x) == 3: # Bosonic
             weight = x[2]
-            mean_m = self._reject_sample(cov, mean, weight, shots, wires.tolist())
-            mean_m_copy = torch.stack([mean_m[0]] * len(x[2]))
-            cov_out, mean_out, weight_out = self.update_state(mean_m_copy, x, idx, idx_rest) # only take the first example to update
-            x_out = [cov_out, mean_out, weight_out]
-        self.samples = mean_m[:, :len(self.wires)] # xxpp order
-        return x_out
+            mean_m = sample_reject_bosonic(cov_b, mean_b, weight, self.cov_m, 1)[:, 0] # (batch, 2 * nwire)
+            # (batch, ncomb)
+            exp_real = torch.exp(mean_b.imag.mT @ torch.linalg.solve(cov_t, mean_b.imag) / 2).squeeze()
+            gaus_b = MultivariateNormal(mean_b.squeeze(-1).real, cov_t) # (batch, ncomb, 2 * nwire)
+            prob_g = gaus_b.log_prob(mean_m.unsqueeze(-2)).exp() # (batch, ncomb, 2 * nwire) -> (batch, ncomb)
+            rm = mean_m.unsqueeze(-1).unsqueeze(-3) # (batch, 2 * nwire) -> (batch, 1, 2 * nwire, 1)
+            # (batch, ncomb)
+            exp_imag = torch.exp((rm - mean_b.real).mT @ torch.linalg.solve(cov_t, mean_b.imag) * 1j).squeeze()
+            weight *= exp_real * prob_g * exp_imag
+            weight /= weight.sum(dim=-1, keepdim=True)
 
-    def update_state(
-        self,
-        mean_m: List[torch.Tensor],
-        x: List[torch.Tensor],
-        idx: torch.Tensor,
-        idx_rest: torch.Tensor
-    ) -> List[torch.Tensor]:
-        """
-        update the state after homodyne measuremnet
-        """
-        cov, mean = x[:2]
-        size = cov.size()
-        cov_a  = cov[:, idx_rest[:, None], idx_rest]
-        cov_b  = cov[:, idx[:, None], idx]
-        cov_ab = cov[:, idx_rest[:, None], idx]
-        mean_a = mean[:, idx_rest]
-        mean_b = mean[:, idx]
-
-        cov_a = cov_a - cov_ab @ torch.linalg.solve(cov_b + self.cov_m, cov_ab.mT) # update the unmeasured part
-        cov_out = torch.stack([torch.eye(size[-1], dtype=cov.dtype, device=cov.device)] * size[0])
-        cov_out[:, idx_rest[:, None], idx_rest] = cov_a # update the total cov mat
-
-        mean_a = mean_a + cov_ab @ torch.linalg.solve(cov_b + self.cov_m, mean_m.unsqueeze(-1) - mean_b)
+        mean_a = mean_a + cov_ab @ torch.linalg.solve(cov_t, mean_m.unsqueeze(-1) - mean_b)
         mean_out = torch.zeros_like(mean)
-        mean_out[:, idx_rest] = mean_a
+        mean_out[..., idx_rest, :] = mean_a
+
+        self.samples = mean_m # xxpp order
         if len(x) == 2:
             return [cov_out, mean_out]
-        if len(x) == 3: # update weight
-            weight = x[2]
-            exp_factor = (mean_m.unsqueeze(-1) - mean_b).mT @ torch.linalg.solve(cov_b + self.cov_m, mean_m.unsqueeze(-1) - mean_b)
-            exp_factor = exp_factor.squeeze()
-            reweights = torch.exp(-0.5 * exp_factor) / torch.sqrt(torch.linalg.det(2 * torch.pi * (cov_b + self.cov_m)))
-            new_weight = weight * reweights
-            new_weight /= torch.sum(new_weight)
-            idx_out = abs(new_weight) > 1e-8
-            cov_out = cov_out[idx_out]
-            mean_out = mean_out[idx_out]
-            weight_out = new_weight[idx_out]
-            return [cov_out, mean_out, weight_out]
+        elif len(x) == 3:
+            return [cov_out, mean_out, weight]
 
     @staticmethod
     def _reject_sample(cov_i, mean_i, weight_i, shots, wires):
@@ -242,16 +227,13 @@ class Homodyne(Generaldyne):
         else:
             self.register_buffer('phi', phi)
 
-    def forward(self, x: List[torch.Tensor], shots: Optional[int] = None) -> List[torch.Tensor]:
+    def forward(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
         """Perform a forward pass for Gaussian states."""
         cov, mean = x[:2]
         r = PhaseShift(inputs=-self.phi, nmode=self.nmode, wires=self.wires, cutoff=self.cutoff)
         r.to(cov.dtype).to(cov.device)
         cov, mean = r([cov, mean])
-        x_out = [cov, mean]
-        if len(x) == 3:
-            x_out.append(x[2])
-        return super().forward(x_out, shots)
+        return super().forward([cov, mean] + x[2:])
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, phi={self.phi.item()}'

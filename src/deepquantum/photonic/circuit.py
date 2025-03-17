@@ -25,7 +25,7 @@ from .hafnian_ import hafnian
 from .measurement import Homodyne
 from .operation import Operation, Gate, Channel, Delay
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
-from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc, shift_func
+from .qmath import photon_number_mean_var, quadrature_to_ladder, shift_func, sample_sc_mcmc, sample_reject_bosonic
 from .state import FockState, GaussianState, BosonicState, combine_bosonic_states
 from .torontonian_ import torontonian
 
@@ -1491,61 +1491,46 @@ class QumodeCircuit(Operation):
         assert self.backend in ('gaussian', 'bosonic')
         if self.state is None:
             return
-        if self._if_delayloop:
-            measurements = self._measurements_tdm
-            nmode = self._nmode_tdm
-        else:
-            measurements = self.measurements
-            nmode = self.nmode
-        if self.backend == 'gaussian':
-            if len(self.measurements) > 0:
-                samples = []
-                batch = self.state[0].shape[0]
-                cov  = torch.stack([self.state[0]] * shots).reshape(shots * batch, 2 * nmode, 2 * nmode)
-                mean = torch.stack([self.state[1]] * shots).reshape(shots * batch, 2 * nmode, 1)
-                self.state_measured = [cov, mean]
-                for op_m in measurements:
-                    self.state_measured = op_m(self.state_measured)
-                    samples.append(op_m.samples.reshape(shots, batch, -1).permute(1, 0, 2))
-                return torch.cat(samples, dim=-1).squeeze() # (batch, shots, nwire)
+        if len(self.measurements) > 0:
+            if self._if_delayloop:
+                measurements = self._measurements_tdm
             else:
-                cov, mean = self.state
-                if not is_positive_definite(cov):
-                    size = cov.size()
-                    if cov.dtype == torch.double:
-                        epsilon = 1e-16
-                    elif cov.dtype == torch.float:
-                        epsilon = 1e-8
-                    else:
-                        raise ValueError('Unsupported dtype.')
-                    cov += epsilon * torch.stack([torch.eye(size[-1], dtype=cov.dtype, device=cov.device)] * size[0])
-                if wires is None:
-                    wires = self.wires
-                wires = sorted(self._convert_indices(wires))
-                indices = wires + [wire + self.nmode for wire in wires]
-                cov_sub = cov[:, indices][:, :, indices]
-                mean_sub = mean[:, indices].squeeze(-1)
-                samples = MultivariateNormal(mean_sub, cov_sub).sample([shots]) # (shots, batch, 2 * nwire)
-                return samples.permute(1, 0, 2).squeeze()
-        elif self.backend == 'bosonic':
-            cov, mean, weight = self.state
-            batch = cov.shape[0]
+                measurements = self.measurements
             samples = []
-            if len(self.measurements) > 0:
-                for i in range(batch):
-                    self.state_measured = [cov[i], mean[i], weight[i]]
-                    for op_m in measurements:
-                        self.state_measured = op_m(x=self.state_measured, shots=shots)
-                        sample_i = op_m.samples
-                        samples.append(sample_i)
-                return torch.stack(samples).permute(1, 0, 2).squeeze()
-            else:
-                if wires is None:
-                    wires = self.wires
-                for i in range(batch):
-                    sample_i = Homodyne._reject_sample(cov[i], mean[i], weight[i], shots, wires) # not support the tdm without homodyne case
-                    samples.append(sample_i)
-                return torch.stack(samples)
+            batch = self.state[0].shape[0]
+            self.state_measured = []
+            for state in self.state: # [cov, mean, weight]
+                shape = state.shape
+                self.state_measured.append(torch.stack([state] * shots).reshape(-1, *shape[1:]))
+            for op_m in measurements:
+                self.state_measured = op_m(self.state_measured)
+                nwire = len(op_m.wires)
+                samples.append(op_m.samples[:, :nwire].reshape(shots, batch, nwire).permute(1, 0, 2))
+            return torch.cat(samples, dim=-1).squeeze() # (batch, shots, nwire)
+        else:
+            cov, mean = self.state[:2]
+            if not is_positive_definite(cov):
+                size = cov.size()
+                if cov.dtype == torch.double:
+                    epsilon = 1e-16
+                elif cov.dtype == torch.float:
+                    epsilon = 1e-8
+                else:
+                    raise ValueError('Unsupported dtype.')
+                cov += epsilon * cov.new_ones(size[:-1].numel()).reshape(*size[:-1]).diag_embed()
+            if wires is None:
+                wires = self.wires
+            wires = torch.tensor(sorted(self._convert_indices(wires)))
+            idx = torch.cat([wires, wires + self.nmode])
+            cov_sub = cov[..., idx[:, None], idx]
+            mean_sub = mean[..., idx, :]
+            if len(self.state) == 2:
+                samples = MultivariateNormal(mean_sub.squeeze(-1), cov_sub).sample([shots]) # (shots, batch, 2 * nwire)
+                samples = samples.permute(1, 0, 2)
+            elif len(self.state) == 3:
+                weight = self.state[2]
+                samples = sample_reject_bosonic(cov_sub, mean_sub, weight, torch.zeros_like(cov_sub), shots)
+            return samples.squeeze()
 
     @property
     def max_depth(self) -> int:
