@@ -26,7 +26,7 @@ from .measurement import Homodyne
 from .operation import Operation, Gate, Channel, Delay
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
 from .qmath import photon_number_mean_var, quadrature_to_ladder, shift_func, sample_sc_mcmc, sample_reject_bosonic
-from .state import FockState, GaussianState, BosonicState, combine_bosonic_states
+from .state import FockState, GaussianState, BosonicState, CatState, GKPState, combine_bosonic_states
 from .torontonian_ import torontonian
 
 
@@ -188,47 +188,12 @@ class QumodeCircuit(Operation):
 
     def to(self, arg: Any) -> 'QumodeCircuit':
         """Set dtype or device of the ``QumodeCircuit``."""
-        if arg == torch.float:
-            if self.backend == 'fock' and not self.basis:
-                self.init_state.to(torch.cfloat)
-            elif self.backend == 'gaussian':
-                self.init_state.to(torch.float)
-            elif self.backend == 'bosonic':
-                self.init_state.to(torch.cfloat)
-                if isinstance(self._bosonic_states, list):
-                    for bs in self._bosonic_states:
-                        bs.to(torch.cfloat)
-            for op in self.operators:
-                if op.npara == 0:
-                    op.to(torch.cfloat)
-                elif op.npara > 0:
-                    op.to(torch.float)
-            for op_m in self.measurements:
-                op_m.to(torch.float)
-        elif arg == torch.double:
-            if self.backend == 'fock' and not self.basis:
-                self.init_state.to(torch.cdouble)
-            elif self.backend == 'gaussian':
-                self.init_state.to(torch.double)
-            elif self.backend == 'bosonic':
-                self.init_state.to(torch.cdouble)
-                if isinstance(self._bosonic_states, list):
-                    for bs in self._bosonic_states:
-                        bs.to(torch.cdouble)
-            for op in self.operators:
-                if op.npara == 0:
-                    op.to(torch.cdouble)
-                elif op.npara > 0:
-                    op.to(torch.double)
-            for op_m in self.measurements:
-                op_m.to(torch.double)
-        else:
-            self.init_state.to(arg)
-            self.operators.to(arg)
-            self.measurements.to(arg)
-            if self.backend == 'bosonic' and isinstance(self._bosonic_states, list):
-                for bs in self._bosonic_states:
-                    bs.to(arg)
+        self.init_state.to(arg)
+        self.operators.to(arg)
+        self.measurements.to(arg)
+        if self.backend == 'bosonic' and isinstance(self._bosonic_states, list):
+            for bs in self._bosonic_states:
+                bs.to(arg)
         return self
 
     # pylint: disable=arguments-renamed
@@ -1562,6 +1527,33 @@ class QumodeCircuit(Operation):
             if self.nmode > 50:
                 print('Too many modes in the circuit, please set filename to save the figure.')
         return self.draw_circuit.draw_
+
+    def cat(
+        self,
+        wires: int,
+        r: Any = None,
+        theta: Any = None,
+        p: int = 1
+    ) -> None:
+        """Prepare a cat state."""
+        if self._bosonic_states is None:
+            self._bosonic_states = [BosonicState(state='vac', nmode=1, cutoff=self.cutoff)] * self.nmode
+        cat = CatState(r=r, theta=theta, p=p, cutoff=self.cutoff)
+        self._bosonic_states[wires] = cat
+
+    def gkp(
+        self,
+        wires: int,
+        theta: Any = None,
+        phi: Any = None,
+        amp_cutoff: float = 0.1,
+        epsilon: float = 0.05
+    ) -> None:
+        """Prepare a GKP state."""
+        if self._bosonic_states is None:
+            self._bosonic_states = [BosonicState(state='vac', nmode=1, cutoff=self.cutoff)] * self.nmode
+        gkp = GKPState(theta=theta, phi=phi, amp_cutoff=amp_cutoff, epsilon=epsilon, cutoff=self.cutoff)
+        self._bosonic_states[wires] = gkp
 
     def add(
         self,

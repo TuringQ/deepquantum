@@ -109,6 +109,18 @@ class FockState(nn.Module):
             assert all(i == self.cutoff for i in state_ts.shape[1:])
         self.register_buffer('state', state_ts)
 
+    def to(self, arg: Any) -> 'FockState':
+        """Set dtype or device of the ``FockState``."""
+        if arg == torch.float:
+            if not self.basis:
+                self.state = self.state.to(torch.cfloat)
+        elif arg == torch.double:
+            if not self.basis:
+                self.state = self.state.to(torch.cdouble)
+        else:
+            self.state = self.state.to(arg)
+        return self
+
     def __repr__(self) -> str:
         """Return a string representation of the ``FockState``."""
         if self.basis:
@@ -264,11 +276,28 @@ class BosonicState(nn.Module):
             cutoff = 5
         self.cutoff = cutoff
 
+    def to(self, arg: Any) -> 'BosonicState':
+        """Set dtype or device of the ``BosonicState``."""
+        if arg == torch.float:
+            self.cov = self.cov.to(arg)
+            self.mean = self.mean.to(torch.cfloat)
+            self.weight = self.weight.to(torch.cfloat)
+        elif arg == torch.double:
+            self.cov = self.cov.to(arg)
+            self.mean = self.mean.to(torch.cdouble)
+            self.weight = self.weight.to(torch.cdouble)
+        else:
+            self.cov = self.cov.to(arg)
+            self.mean = self.mean.to(arg)
+            self.weight = self.weight.to(arg)
+        return self
+
     def tensor_product(self, state: 'BosonicState') -> 'BosonicState':
+        """Get the tensor product of two Bosonic states."""
         return combine_bosonic_states([self, state])
 
     def wigner(self, wire, qvec, pvec, plot=False, k=0):
-        r"""Calculates the discretized Wigner function of the specified mode."""
+        r"""Get the discretized Wigner function of the specified mode."""
 
         def gaussian_func(cov, mean, x_vals):
             """Calculate gaussian function values for batched x_vals.
@@ -298,7 +327,7 @@ class BosonicState(nn.Module):
             wigner_vals.append(weighted_vals.sum(0).reshape(len(pvec), len(qvec)).mT)
         wigner_vals = torch.stack(wigner_vals)
         if plot:
-            fig, axs = plt.subplots(1, 1, figsize=(12, 10))
+            plt.subplots(1, 1, figsize=(12, 10))
             plt.xlabel('Quadrature q')
             plt.ylabel('Quadrature p')
             plt.contourf(qvec, pvec, wigner_vals[k], 60, cmap=cm.RdBu)
@@ -307,8 +336,7 @@ class BosonicState(nn.Module):
         return wigner_vals
 
     def marginal(self, wire, qvec, phi=0., plot=False, k=0):
-        r"""Calculates the discretized marginal distribution of the specified mode along
-        the :math:`x\cos\phi + p\sin\phi` quadrature."""
+        r"""Get the discretized marginal distribution of the specified mode along :math:`x\cos\phi + p\sin\phi`."""
 
         if not isinstance(wire, torch.Tensor):
             wire = torch.tensor(wire).reshape(1)
@@ -331,18 +359,20 @@ class BosonicState(nn.Module):
             marginal_vals.append(temp)
         marginal_vals = torch.stack(marginal_vals)
         if plot:
-            fig, axs = plt.subplots(1, 1, figsize=(12, 10))
+            plt.subplots(1, 1, figsize=(12, 10))
             plt.xlabel('Quadrature q')
             plt.ylabel('Wave_function')
             plt.plot(qvec, marginal_vals[k])
             plt.show()
         return marginal_vals
 
-class CatState(BosonicState):
-    r"""
-    Cat state for single mode, The cat state is a non-Gaussian superposition of coherent states
 
-    see https://arxiv.org/abs/2103.05530
+class CatState(BosonicState):
+    r"""Single-mode cat state.
+
+    The cat state is a superposition of coherent states.
+
+    See https://arxiv.org/abs/2103.05530 Section IV B.
 
     Args:
         r (float): Displacement magnitude :math:`|r|`
@@ -388,11 +418,12 @@ class CatState(BosonicState):
 
 
 class GKPState(BosonicState):
-    r"""
-    Finite energy of GKP state for single mode. Using GKP states to encode qubits, with the qubit state defined by:
+    r"""Finite-energy single-mode GKP state.
+
+    Using GKP states to encode qubits, with the qubit state defined by:
     :math:`\ket{\psi}_{gkp} = \cos\frac{\theta}{2}\ket{0}_{gkp} + e^{-i\phi}\sin\frac{\theta}{2}\ket{1}_{gkp}`
 
-    see https://arxiv.org/abs/2103.05530
+    See https://arxiv.org/abs/2103.05530 Section IV A.
 
     Args:
         theta (float): angle :math:`\theta` in Bloch sphere
@@ -441,10 +472,9 @@ class GKPState(BosonicState):
         super().__init__(state, nmode, cutoff)
 
     def _update_weight(self, k, l, theta, phi):
-        """
-        Compute the updated coefficients c_{k, l}(theta, phi) for given k, l, theta, and phi.
+        """Compute the updated coefficients c_{k, l}(theta, phi) for given k, l, theta, and phi.
 
-        see https://arxiv.org/abs/2103.05530 eq.43
+        See https://arxiv.org/abs/2103.05530 Eq.(43) and (B1)
         """
         # Ensure that k and l are integers
         k = k.long()
@@ -555,6 +585,13 @@ def combine_tensors(tensors: List[torch.Tensor], ndim_ds: int = 2) -> torch.Tens
 
 
 def combine_bosonic_states(states: List[BosonicState], cutoff: Optional[int] = None) -> BosonicState:
+    """Combine multiple Bosonic states into a single state.
+
+    Args:
+        states (List[BosonicState]): List of Bosonic states to combine.
+        cutoff (int or None, optional): The Fock space truncation. If ``None``, the cutoff of the first state is used.
+            Default: ``None``
+    """
     covs = []
     means = []
     weights = []

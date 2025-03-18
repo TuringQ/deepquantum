@@ -10,8 +10,8 @@ import torch
 from torch import nn
 
 import deepquantum.photonic as dqp
-from .operation import Gate, Delay
 from ..qmath import is_unitary
+from .operation import Gate, Delay
 
 
 class SingleGate(Gate):
@@ -857,6 +857,20 @@ class UAnyGate(Gate):
         assert is_unitary(unitary), 'Please check the unitary matrix'
         self.register_buffer('matrix', unitary)
         self.register_buffer('matrix_state', None)
+
+    def to(self, arg: Any) -> 'UAnyGate':
+        """Set dtype or device of the ``UAnyGate``."""
+        if arg == torch.float:
+            self.matrix = self.matrix.to(torch.cfloat)
+            if self.matrix_state is not None:
+                self.matrix_state = self.matrix_state.to(torch.cfloat)
+        elif arg == torch.double:
+            self.matrix = self.matrix.to(torch.cdouble)
+            if self.matrix_state is not None:
+                self.matrix_state = self.matrix_state.to(torch.cdouble)
+        else:
+            super().to(arg)
+        return self
 
     def get_matrix_state(self, matrix: torch.Tensor) -> torch.Tensor:
         """Get the local transformation matrix acting on Fock state tensors.

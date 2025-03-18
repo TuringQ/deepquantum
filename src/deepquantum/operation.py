@@ -144,6 +144,22 @@ class Gate(Operation):
         self.controls = controls
         self.condition = condition
 
+    def to(self, arg: Any) -> 'Gate':
+        """Set dtype or device of the ``Gate``."""
+        if arg == torch.float:
+            if self.npara == 0:
+                self.matrix = self.matrix.to(torch.cfloat)
+            elif self.npara > 0:
+                super().to(torch.float)
+        elif arg == torch.double:
+            if self.npara == 0:
+                self.matrix = self.matrix.to(torch.cdouble)
+            elif self.npara > 0:
+                super().to(torch.double)
+        else:
+            super().to(arg)
+        return self
+
     def get_matrix(self, inputs: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
         return self.matrix

@@ -10,9 +10,9 @@ import numpy as np
 import torch
 from scipy.optimize import root
 
+from ..qmath import is_unitary
 from .circuit import QumodeCircuit
 from .qmath import sort_dict_fock_basis, takagi
-from ..qmath import is_unitary
 from .state import FockState
 
 
