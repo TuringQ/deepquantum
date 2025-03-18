@@ -82,6 +82,7 @@ class Generaldyne(Operation):
 
         if len(x) == 2: # Gaussian
             mean_m = MultivariateNormal(mean_b.squeeze(-1), cov_t).sample([1])[0] # (batch, 2 * nwire)
+            mean_a = mean_a + cov_ab @ torch.linalg.solve(cov_t, mean_m.unsqueeze(-1) - mean_b)
         elif len(x) == 3: # Bosonic
             weight = x[2]
             mean_m = sample_reject_bosonic(cov_b, mean_b, weight, self.cov_m, 1)[:, 0] # (batch, 2 * nwire)
@@ -94,8 +95,8 @@ class Generaldyne(Operation):
             exp_imag = torch.exp((rm - mean_b.real).mT @ torch.linalg.solve(cov_t, mean_b.imag) * 1j).squeeze()
             weight *= exp_real * prob_g * exp_imag
             weight /= weight.sum(dim=-1, keepdim=True)
+            mean_a = mean_a + cov_ab @ torch.linalg.solve(cov_t, rm - mean_b)
 
-        mean_a = mean_a + cov_ab @ torch.linalg.solve(cov_t, mean_m.unsqueeze(-1) - mean_b)
         mean_out = torch.zeros_like(mean)
         mean_out[..., idx_rest, :] = mean_a
 

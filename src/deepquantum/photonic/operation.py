@@ -178,7 +178,7 @@ class Gate(Operation):
         cov, mean = x[:2]
         sp_mat = self.get_symplectic()
         cov = sp_mat @ cov @ sp_mat.mT
-        mean = sp_mat @ mean + self.get_displacement()
+        mean = sp_mat.to(mean.dtype) @ mean + self.get_displacement()
         return [cov, mean] + x[2:]
 
     def get_mpo(self) -> Tuple[List[torch.Tensor], int]:
