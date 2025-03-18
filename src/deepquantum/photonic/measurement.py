@@ -95,7 +95,7 @@ class Generaldyne(Operation):
             exp_imag = torch.exp((rm - mean_b.real).mT @ torch.linalg.solve(cov_t, mean_b.imag) * 1j).squeeze()
             weight *= exp_real * prob_g * exp_imag
             weight /= weight.sum(dim=-1, keepdim=True)
-            mean_a = mean_a + cov_ab @ torch.linalg.solve(cov_t, rm - mean_b)
+            mean_a = mean_a + cov_ab.to(mean_b.dtype) @ torch.linalg.solve(cov_t.to(mean_b.dtype), rm - mean_b)
 
         mean_out = torch.zeros_like(mean)
         mean_out[..., idx_rest, :] = mean_a
