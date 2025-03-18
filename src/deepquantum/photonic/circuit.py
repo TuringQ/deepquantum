@@ -399,7 +399,10 @@ class QumodeCircuit(Operation):
             Union[List[torch.Tensor], Dict]: The final Gaussian (Bosonic) state or a dictionary of probabilities.
         """
         if state is None:
-            state = self.init_state
+            if self.backend == 'bosonic' and self._bosonic_states is not None:
+                state = combine_bosonic_states(states=self._bosonic_states, cutoff=self.cutoff)
+            else:
+                state = self.init_state
         elif not isinstance(state, (GaussianState, BosonicState)):
             nmode = self.nmode
             if self._nmode_tdm is not None and isinstance(state, list):
@@ -408,8 +411,6 @@ class QumodeCircuit(Operation):
             if self.backend == 'gaussian':
                 state = GaussianState(state=state, nmode=nmode, cutoff=self.cutoff)
             elif self.backend == 'bosonic':
-                if self._bosonic_states is not None:
-                    state = self._bosonic_states
                 state = BosonicState(state=state, nmode=nmode, cutoff=self.cutoff)
         cov, mean = state.cov, state.mean
         if self.backend == 'bosonic':
@@ -760,13 +761,17 @@ class QumodeCircuit(Operation):
         s = None
         if self._if_delayloop:
             operators = self._operators_tdm
+            nmode = self._nmode_tdm
         else:
             operators = self.operators
+            nmode = self.nmode
         for op in operators:
             if s is None:
                 s = op.get_symplectic()
             else:
                 s = op.get_symplectic() @ s
+        if s is None:
+            return torch.eye(2 * nmode, dtype=torch.float)
         return s
 
     def get_displacement(self, init_mean: Any) -> torch.Tensor:
@@ -775,9 +780,10 @@ class QumodeCircuit(Operation):
             init_mean = torch.tensor(init_mean)
         if self._if_delayloop:
             operators = self._operators_tdm
+            nmode = self._nmode_tdm
         else:
             operators = self.operators
-        nmode = operators[0].nmode
+            nmode = self.nmode
         mean = init_mean.reshape(-1, 2 * nmode, 1)
         for op in operators:
             mean = op.get_symplectic().to(mean.dtype) @ mean + op.get_displacement()
