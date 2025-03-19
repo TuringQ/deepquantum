@@ -422,7 +422,7 @@ def sample_reject_bosonic(
     assert cov.ndim == mean.ndim == 4
     assert weight.ndim == 2
     batch = cov.shape[0]
-    rst = [torch.tensor([])] * batch
+    rst = [torch.tensor([], device=cov.device)] * batch
     batches = list(range(batch))
     count_shots = [0] * batch
     shots_tmp = shots
@@ -446,7 +446,7 @@ def sample_reject_bosonic(
         exp_imag = torch.exp((rm - mean_rest.real).mT @ torch.linalg.solve(cov_t, mean_rest.imag) * 1j).squeeze()
         # Eq.(70-71)
         p_r0 = (weight[batches] * exp_real[batches] * prob_g * exp_imag).sum(-1) # (shots, batch)
-        assert torch.allclose(p_r0.imag, torch.zeros(1))
+        assert torch.allclose(p_r0.imag, torch.zeros(1, device=p_r0.device))
         idx_shots, idx_batch = torch.where((y0 <= p_r0.real))
         batches_done = []
         for i in range(len(batches)):
