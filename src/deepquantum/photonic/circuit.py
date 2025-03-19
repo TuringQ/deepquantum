@@ -23,10 +23,10 @@ from .hafnian_ import hafnian
 from .measurement import Homodyne
 from .operation import Operation, Gate, Channel, Delay
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
-from .qmath import photon_number_mean_var, quadrature_to_ladder, sample_sc_mcmc, shift_func
+from .qmath import photon_number_mean_var, quadrature_to_ladder, shift_func
 from .state import FockState, GaussianState
 from .torontonian_ import torontonian
-from ..qmath import is_positive_definite
+from ..qmath import is_positive_definite, sample_sc_mcmc
 from ..state import MatrixProductState
 
 
