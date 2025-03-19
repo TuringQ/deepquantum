@@ -459,4 +459,5 @@ def sample_reject_bosonic(
         for i in batches_done:
             batches.remove(i)
         shots_tmp = shots - min(count_shots)
+        print(len(batches))
     return torch.stack(rst) # (batch, shots, 2 * nmode)

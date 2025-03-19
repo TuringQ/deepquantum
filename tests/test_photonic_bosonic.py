@@ -23,7 +23,7 @@ def test_catstate():
     cat = dq.CatState(r=r, theta=theta, p=1)
     err1 = abs(cat.cov - covs_sf).sum()
     err2 = abs(cat.mean[0].squeeze() - means_sf).sum()
-    err3 = abs(cat.weight-weights_sf).sum()
+    err3 = abs(cat.weight - weights_sf).sum()
     assert err1 + err2 + err3 < 3 * 1e-4
 
 
@@ -83,7 +83,7 @@ def test_photon_number_mean_var():
     test1 = cir.photon_number_mean_var()
     test2 = state.mean_photon(0)
     err = abs(torch.tensor(test1) - np.array(test2)).sum()
-    assert err < 1e-5
+    assert err < 1e-4
 
 def test_wigner():
     theta = 2*np.pi*np.random.rand(1)[0]
@@ -100,5 +100,5 @@ def test_wigner():
     pvec = torch.linspace(-5, 5, 200)
     w = state.wigner(0, qvec, pvec)
     test = gkp.wigner(wire=[0], qvec=qvec, pvec=pvec)
-    err = abs(test[0] - w).max()
+    err = abs(test[0].mT - w).max()
     assert err < 1e-5

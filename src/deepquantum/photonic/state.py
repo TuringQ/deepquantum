@@ -6,6 +6,7 @@ from typing import Any, List, Optional, Union
 
 import matplotlib.pyplot as plt
 import torch
+from torch.distributions.multivariate_normal import MultivariateNormal
 from matplotlib import cm
 from torch import nn, vmap
 
@@ -296,68 +297,57 @@ class BosonicState(nn.Module):
         """Get the tensor product of two Bosonic states."""
         return combine_bosonic_states([self, state])
 
-    def wigner(self, wire, qvec, pvec, plot=False, k=0):
+    def wigner(self, wire: int, qvec: torch.Tensor, pvec: torch.Tensor, plot: bool=False, k: int=0):
         r"""Get the discretized Wigner function of the specified mode."""
-
-        def gaussian_func(cov, mean, x_vals):
-            """Calculate gaussian function values for batched x_vals.
-            """
-            mean = mean.flatten()
-            prefactor = 1 / torch.sqrt(torch.linalg.det(2 * torch.pi * cov))
-            diff = x_vals - mean.unsqueeze(0)
-            cov = cov.to(mean.dtype)
-            solved = torch.linalg.solve(cov, diff.T).T
-            quad = torch.sum(diff * solved, dim=1)
-            f_vals = torch.exp(-0.5 * quad)
-            return prefactor * f_vals
-
+        grid_x, grid_y = torch.meshgrid(qvec, pvec, indexing='ij')
+        coords = torch.stack([grid_x.reshape(-1), grid_y.reshape(-1)]).mT
+        coords2 = coords.unsqueeze(-2)
+        coords3 = coords.unsqueeze(-1).unsqueeze(-3)
         if not isinstance(wire, torch.Tensor):
             wire = torch.tensor(wire).reshape(1)
         idx = torch.cat([wire, wire + self.nmode]) # xxpp order
-        batch = self.cov.shape[0]
-        wigner_vals = []
-        for i in range(batch):
-            cov_sub  = self.cov[i][:, idx[:, None], idx]
-            mean_sub = self.mean[i][:, idx]
-            weight_sub = self.weight[i]
-            grid_x, grid_y = torch.meshgrid(pvec, qvec, indexing='ij')
-            coords = torch.stack([grid_x.reshape(-1), grid_y.reshape(-1)]).mT
-            vals = torch.vmap(gaussian_func, in_dims=(0, 0, None))(cov_sub, mean_sub, coords)
-            weighted_vals = weight_sub.reshape(-1, 1) * vals
-            wigner_vals.append(weighted_vals.sum(0).reshape(len(pvec), len(qvec)).mT)
-        wigner_vals = torch.stack(wigner_vals)
+        cov_sub  = self.cov[..., idx[:, None], idx]
+        mean_sub = self.mean[..., idx, :]
+        batch =  cov_sub.shape[0]
+        gauss_b = MultivariateNormal(mean_sub.reshape([-1, 2]).real, cov_sub.reshape([-1, 2, 2])) # batch * ncomb
+        prob_g = gauss_b.log_prob(coords2).exp() # normalized
+        exp_real = torch.exp(mean_sub.imag.mT @ torch.linalg.solve(cov_sub, mean_sub.imag) / 2).squeeze()
+        exp_imag = torch.exp((coords3 - mean_sub.real.unsqueeze(1)).mT @
+                             torch.linalg.solve(cov_sub, mean_sub.imag).unsqueeze(1) * 1j).squeeze()
+        prob_g_chunks = torch.stack(torch.chunk(prob_g, batch, dim=1))
+        wigner_vals = exp_real.reshape([batch,-1]).unsqueeze(1) * prob_g_chunks * exp_imag * self.weight.unsqueeze(1)
+        wigner_vals = wigner_vals.sum(dim=2).reshape([-1, len(qvec), len(pvec)])
         if plot:
             plt.subplots(1, 1, figsize=(12, 10))
             plt.xlabel('Quadrature q')
             plt.ylabel('Quadrature p')
-            plt.contourf(qvec, pvec, wigner_vals[k], 60, cmap=cm.RdBu)
+            plt.contourf(grid_x, grid_y, wigner_vals[k], 60, cmap=cm.RdBu)
             plt.colorbar()
             plt.show()
         return wigner_vals
 
-    def marginal(self, wire, qvec, phi=0., plot=False, k=0):
+    def marginal(self, wire: int, qvec: torch.Tensor, phi: float=0., plot: bool=False, k: int=0):
         r"""Get the discretized marginal distribution of the specified mode along :math:`x\cos\phi + p\sin\phi`."""
 
         if not isinstance(wire, torch.Tensor):
             wire = torch.tensor(wire).reshape(1)
         idx = torch.cat([wire, wire + self.nmode]) # xxpp order
-        batch = self.cov.shape[0]
-        marginal_vals = []
-        for i in range(batch):
-            weight = self.weight[i]
-            cov_sub  = self.cov[i][:, idx[:, None], idx]
-            mean_sub = self.mean[i][:, idx]
-            cov_sub = cov_sub.to(mean_sub.dtype)
-
-            r = PhaseShift(inputs=-phi, nmode=1, wires=wire.tolist(), cutoff=self.cutoff)
-            r.to(mean_sub.dtype).to(mean_sub.device)
-            cov_out, mean_out = r([cov_sub, mean_sub])
-            temp = 0
-            for i, weight_i in enumerate(weight):
-                prefactor = 1 / (torch.sqrt(2 * torch.pi * cov_out[i][0,0]))
-                temp += weight_i * prefactor * torch.exp(-0.5 * (qvec - mean_out[i][0])**2 / cov_out[i][0,0])
-            marginal_vals.append(temp)
-        marginal_vals = torch.stack(marginal_vals)
+        cov_sub  = self.cov[..., idx[:, None], idx]
+        mean_sub = self.mean[..., idx, :]
+        r = PhaseShift(inputs=-phi, nmode=1, wires=wire.tolist(), cutoff=self.cutoff)
+        # r.to(mean_sub.dtype).to(mean_sub.device)
+        cov_out, mean_out = r([cov_sub.reshape([-1, 2, 2]), mean_sub.reshape([-1, 2, 1])])
+        cov_out = cov_out.reshape(cov_sub.shape)
+        mean_out = mean_out.reshape(mean_sub.shape)
+        # batch =  cov_sub.shape[0]
+        prefactor = 1 / (torch.sqrt(2 * torch.pi * cov_out[..., 0, 0]))
+        print(prefactor.shape, mean_out[...,0, 0].shape)
+        print((torch.exp(-0.5 * (qvec.reshape(-1, 1) - mean_out[...,0, 0].unsqueeze(1))**2 / cov_out[..., 0, 0].unsqueeze(1))).shape)
+        print(self.weight.shape)
+        marginal_vals = self.weight.unsqueeze(1) * prefactor.unsqueeze(1) * torch.exp(-0.5 * (qvec.reshape(-1, 1) -
+                                                            mean_out[..., 0, 0].unsqueeze(1))**2 / cov_out[..., 0, 0].unsqueeze(1))
+        print(marginal_vals.shape)
+        marginal_vals = marginal_vals.sum(2)
         if plot:
             plt.subplots(1, 1, figsize=(12, 10))
             plt.xlabel('Quadrature q')
@@ -468,6 +458,8 @@ class GKPState(BosonicState):
         means = means * 0.5 * torch.sqrt(torch.tensor(torch.pi * dqp.hbar))   # lattice spacing
         covs = torch.stack([torch.eye(2)] * len(means))
         covs = covs * 0.5 * dqp.hbar * (1 - exp_eps) / (1 + exp_eps)
+        means = means.to(torch.cfloat)
+        weights = weights.to(torch.cfloat)
         state = [covs, means, weights]
         super().__init__(state, nmode, cutoff)
 
