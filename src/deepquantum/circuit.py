@@ -21,7 +21,7 @@ from .gate import Rx, Ry, Rz, ProjectionJ, CNOT, Swap, Rxx, Ryy, Rzz, Rxy, Recon
 from .gate import UAnyGate, LatentGate, HamiltonianGate, Barrier
 from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer, RyLayer, RzLayer, CnotLayer, CnotRing
 from .operation import Operation, Gate, Layer, Channel
-from .qmath import amplitude_encoding, expectation, get_prob_mps, measure, sample2expval
+from .qmath import amplitude_encoding, expectation, get_prob_mps, measure, sample2expval, inner_product_mps
 from .state import QubitState, MatrixProductState
 
 if TYPE_CHECKING:
@@ -463,11 +463,9 @@ class QubitCircuit(Operation):
             idx = 0
             state = copy(self.state)
             for i in wires:
-                if idx == len(wires) -1:
-                    prob = get_prob_mps(i, state)[int(bits[idx])]
-                    break
                 state[i] = state[i][:, [int(bits[idx])], :]
                 idx += 1
+                prob = inner_product_mps(state, state).real
         else:
             amp = self.get_amplitude(bits)
             prob = torch.abs(amp) ** 2
