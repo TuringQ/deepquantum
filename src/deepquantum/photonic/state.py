@@ -297,8 +297,17 @@ class BosonicState(nn.Module):
         """Get the tensor product of two Bosonic states."""
         return combine_bosonic_states([self, state])
 
-    def wigner(self, wire: int, qvec: torch.Tensor, pvec: torch.Tensor, plot: bool=False, k: int=0):
-        r"""Get the discretized Wigner function of the specified mode."""
+    def wigner(self, wire: int, qvec: torch.Tensor, pvec: torch.Tensor, plot: bool = False, k: int = 0):
+        r"""Get the discretized Wigner function of the specified mode.
+
+        Args:
+             wire (int): The wigner function for given wire.
+             qvec (torch.Tensor): The discrete values for quadrature q.
+             pvec (torch.Tensor): The discrete values for quadrature p.
+             plot (bool, optional): Whether to plot the wigner function. Default: ``False``.
+             k (int, optional):  The wigner function of kth batch to plot. Default: ``0``
+        """
+
         grid_x, grid_y = torch.meshgrid(qvec, pvec, indexing='ij')
         coords = torch.stack([grid_x.reshape(-1), grid_y.reshape(-1)]).mT
         coords2 = coords.unsqueeze(-2)
@@ -326,8 +335,16 @@ class BosonicState(nn.Module):
             plt.show()
         return wigner_vals
 
-    def marginal(self, wire: int, qvec: torch.Tensor, phi: float=0., plot: bool=False, k: int=0):
-        r"""Get the discretized marginal distribution of the specified mode along :math:`x\cos\phi + p\sin\phi`."""
+    def marginal(self, wire: int, qvec: torch.Tensor, phi: float = 0., plot: bool = False, k: int = 0):
+        r"""Get the discretized marginal distribution of the specified mode along :math:`x\cos\phi + p\sin\phi`.
+
+         Args:
+             wire (int): The marginal function for given wire.
+             qvec (torch.Tensor): The discrete values for quadrature q.
+             phi (float):The angle used to compute the linear combination of quadratures.
+             plot (bool, optional): Whether to plot the marginal function. Default: ``False``.
+             k (int, optional):  The marginal function of kth batch to plot. Default: ``0``
+        """
 
         if not isinstance(wire, torch.Tensor):
             wire = torch.tensor(wire).reshape(1)
@@ -335,18 +352,12 @@ class BosonicState(nn.Module):
         cov_sub  = self.cov[..., idx[:, None], idx]
         mean_sub = self.mean[..., idx, :]
         r = PhaseShift(inputs=-phi, nmode=1, wires=wire.tolist(), cutoff=self.cutoff)
-        # r.to(mean_sub.dtype).to(mean_sub.device)
         cov_out, mean_out = r([cov_sub.reshape([-1, 2, 2]), mean_sub.reshape([-1, 2, 1])])
         cov_out = cov_out.reshape(cov_sub.shape)
         mean_out = mean_out.reshape(mean_sub.shape)
-        # batch =  cov_sub.shape[0]
         prefactor = 1 / (torch.sqrt(2 * torch.pi * cov_out[..., 0, 0]))
-        print(prefactor.shape, mean_out[...,0, 0].shape)
-        print((torch.exp(-0.5 * (qvec.reshape(-1, 1) - mean_out[...,0, 0].unsqueeze(1))**2 / cov_out[..., 0, 0].unsqueeze(1))).shape)
-        print(self.weight.shape)
         marginal_vals = self.weight.unsqueeze(1) * prefactor.unsqueeze(1) * torch.exp(-0.5 * (qvec.reshape(-1, 1) -
                                                             mean_out[..., 0, 0].unsqueeze(1))**2 / cov_out[..., 0, 0].unsqueeze(1))
-        print(marginal_vals.shape)
         marginal_vals = marginal_vals.sum(2)
         if plot:
             plt.subplots(1, 1, figsize=(12, 10))
@@ -431,6 +442,10 @@ class GKPState(BosonicState):
         cutoff: int = 5
     ) -> None:
         nmode = 1
+        if theta is None:
+            theta = torch.rand(1)[0] * 2 * torch.pi
+        if phi is None:
+            phi = torch.rand(1)[0] * 2 * torch.pi
         if not isinstance(epsilon, torch.Tensor):
             epsilon = torch.tensor(epsilon, dtype=torch.float)
         if not isinstance(amp_cutoff, torch.Tensor):

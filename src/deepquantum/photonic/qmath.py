@@ -422,7 +422,7 @@ def sample_reject_bosonic(
     assert cov.ndim == mean.ndim == 4
     assert weight.ndim == 2
     batch = cov.shape[0]
-    rst = [torch.tensor([], device=cov.device)] * batch
+    rst = [cov.new_empty(0)] * batch
     batches = list(range(batch))
     count_shots = [0] * batch
     shots_tmp = shots
@@ -459,5 +459,4 @@ def sample_reject_bosonic(
         for i in batches_done:
             batches.remove(i)
         shots_tmp = shots - min(count_shots)
-        print(len(batches))
     return torch.stack(rst) # (batch, shots, 2 * nmode)
