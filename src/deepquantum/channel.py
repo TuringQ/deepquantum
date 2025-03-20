@@ -48,7 +48,7 @@ class BitFlip(Channel):
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local Kraus matrices acting on density matrices."""
         theta = self.inputs_to_tensor(theta).reshape(-1)
-        prob = torch.cos(theta) ** 2
+        prob = torch.sin(theta) ** 2
         mat1 = torch.sqrt(1 - prob) * mat_i.to(prob.device)
         mat2 = torch.sqrt(prob) * mat_x.to(prob.device)
         return torch.stack([mat1, mat2])
@@ -89,7 +89,7 @@ class PhaseFlip(Channel):
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local Kraus matrices acting on density matrices."""
         theta = self.inputs_to_tensor(theta).reshape(-1)
-        prob = torch.cos(theta) ** 2
+        prob = torch.sin(theta) ** 2
         mat1 = torch.sqrt(1 - prob) * mat_i.to(prob.device)
         mat2 = torch.sqrt(prob) * mat_z.to(prob.device)
         return torch.stack([mat1, mat2])
@@ -133,7 +133,7 @@ class Depolarizing(Channel):
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local Kraus matrices acting on density matrices."""
         theta = self.inputs_to_tensor(theta).reshape(-1)
-        prob = torch.cos(theta) ** 2
+        prob = torch.sin(theta) ** 2
         mat1 = torch.sqrt(1 - prob) * mat_i.to(prob.device)
         mat2 = torch.sqrt(prob / 3) * mat_x.to(prob.device)
         mat3 = torch.sqrt(prob / 3) * mat_y.to(prob.device)
@@ -180,7 +180,7 @@ class Pauli(Channel):
     @property
     def prob(self):
         """The error probabilities."""
-        prob = torch.cos(self.theta) ** 2
+        prob = torch.sin(self.theta) ** 2
         return prob / prob.sum()
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
@@ -194,7 +194,7 @@ class Pauli(Channel):
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local Kraus matrices acting on density matrices."""
         theta = self.inputs_to_tensor(theta).reshape(-1)
-        prob = torch.cos(theta) ** 2
+        prob = torch.sin(theta) ** 2
         prob = prob / prob.sum()
         mat1 = torch.sqrt(prob[0:1]) * mat_i.to(prob.device) # avoid scalar Tensor
         mat2 = torch.sqrt(prob[1:2]) * mat_x.to(prob.device)
@@ -240,7 +240,7 @@ class AmplitudeDamping(Channel):
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local Kraus matrices acting on density matrices."""
         theta = self.inputs_to_tensor(theta).reshape(-1)
-        prob = torch.cos(theta) ** 2
+        prob = torch.sin(theta) ** 2
         m0 = torch.tensor([0.], dtype=prob.dtype, device=prob.device)
         m1 = torch.tensor([1.], dtype=prob.dtype, device=prob.device)
         mat1 = torch.stack([m1, m0, m0, torch.sqrt(1 - prob)]).reshape(2, 2)
@@ -285,7 +285,7 @@ class PhaseDamping(Channel):
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local Kraus matrices acting on density matrices."""
         theta = self.inputs_to_tensor(theta).reshape(-1)
-        prob = torch.cos(theta) ** 2
+        prob = torch.sin(theta) ** 2
         m0 = torch.tensor([0.], dtype=prob.dtype, device=prob.device)
         m1 = torch.tensor([1.], dtype=prob.dtype, device=prob.device)
         mat1 = torch.stack([m1, m0, m0, torch.sqrt(1 - prob)]).reshape(2, 2)
@@ -343,7 +343,7 @@ class GeneralizedAmplitudeDamping(Channel):
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local Kraus matrices acting on density matrices."""
         theta = self.inputs_to_tensor(theta).reshape(-1)
-        prob = torch.cos(theta) ** 2
+        prob = torch.sin(theta) ** 2
         m0 = torch.tensor(0., dtype=prob.dtype, device=prob.device)
         m1 = torch.tensor(1., dtype=prob.dtype, device=prob.device)
         mat1 = torch.sqrt(prob[0]) * torch.stack([m1, m0, m0, torch.sqrt(1 - prob[1])]).reshape(2, 2)

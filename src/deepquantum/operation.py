@@ -507,7 +507,7 @@ class Channel(Operation):
     @property
     def prob(self):
         """The error probability."""
-        return torch.cos(self.theta) ** 2
+        return torch.sin(self.theta) ** 2
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
         """Convert inputs to torch.Tensor."""
