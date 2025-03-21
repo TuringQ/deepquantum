@@ -191,8 +191,14 @@ class QumodeCircuit(Operation):
     def to(self, arg: Any) -> 'QumodeCircuit':
         """Set dtype or device of the ``QumodeCircuit``."""
         self.init_state.to(arg)
-        self.operators.to(arg)
-        self.measurements.to(arg)
+        if arg in (torch.float, torch.double):
+            for op in self.operators:
+                op.to(arg)
+            for op_m in self.measurements:
+                op_m.to(arg)
+        else:
+            self.operators.to(arg)
+            self.measurements.to(arg)
         if self.backend == 'bosonic' and isinstance(self._bosonic_states, list):
             for bs in self._bosonic_states:
                 bs.to(arg)
