@@ -22,9 +22,8 @@ def test_cir_get_prob_mps():
     cir1.rylayer(encode=True)
     cir1.rzlayer(encode=True)
     cir1.cnot_ring()
-    state = cir1(data=data).reshape(-1)
-    state = slice_state_vector(state, n, wires, bits, False)
-    prob1 = (torch.abs(state) ** 2).sum()
+    cir1(data=data)
+    prob1 = cir1.get_prob(bits, wires)
 
     cir2 = dq.QubitCircuit(nqubit=n, mps=True)
     cir2.hlayer()
@@ -33,7 +32,7 @@ def test_cir_get_prob_mps():
     cir2.rzlayer(encode=True)
     cir2.cnot_ring()
     cir2(data=data)
-    prob2 = cir2.get_prob_mps(bits, wires)
+    prob2 = cir2.get_prob(bits, wires)
 
     assert torch.allclose(prob1, prob2)
 
