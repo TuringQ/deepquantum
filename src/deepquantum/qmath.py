@@ -827,32 +827,64 @@ def sample_sc_mcmc(prob_func: Callable,
             merged_samples[key] += value
     return merged_samples
 
-def get_prob_mps(k, mps_list):
+def get_prob_mps(wire: int, mps_lst: List[torch.Tensor]) -> torch.Tensor:
+    """Calculate the probability distribution (|0⟩ and |1⟩ probabilities) for a specific wire in an MPS.
+
+    This function computes the probability of measuring |0⟩ and |1⟩ for the k-th qubit in a quantum state
+    represented as a Matrix Product State (MPS). It does this by:
+    1. Contracting the tensors to the left of the target tensor
+    2. Contracting the tensors to the right of the target tensor
+    3. Computing the final contraction with the target tensor
+
+    Args:
+        wire (int): Index of the target qubit to compute probabilities for
+        mps_lst (List[torch.Tensor]): List of MPS tensors representing the quantum state
+            Each tensor should have shape (bond_dim_left, physical_dim, bond_dim_right)
+
+    Returns:
+        torch.Tensor: A tensor containing [P(|0⟩), P(|1⟩)] probabilities for the target qubit
     """
-    get the 0,1 probs of the kth qubit using mps
-    """
-    def contract_conj(mps_list):
+    def contract_conjugate_pair(tensors: List[torch.Tensor]) -> torch.Tensor:
+        """Contract a list of MPS tensors with their conjugates.
+
+        This helper function performs the contraction between a list of MPS tensors
+        and their complex conjugates, which is needed for probability calculation.
+
+        Args:
+            tensors (List[torch.Tensor]): List of MPS tensors to contract
+
+        Returns:
+            torch.Tensor: Contracted tensor
         """
-        contract the mps with the conjugate part
-        """
-        assert len(mps_list) >= 1
-        tt2  = torch.tensordot(mps_list[0].conj(), mps_list[0], dims=([1], [1]))
-        tt2 = tt2.permute(0, 2, 1, 3)
-        for i in range(1, len(mps_list)):
-            tt = torch.tensordot(mps_list[i].conj(), mps_list[i], dims=([1], [1]))
-            tt2 = torch.tensordot(tt2, tt.permute(0, 2, 1, 3), dims=([2, 3], [0, 1]))
-        return tt2
-    if k == 0:
-        left_mps = [torch.tensor(1).reshape([1,1,1]).to(torch.complex64)]
-    else:
-        left_mps = mps_list[:k]
-    if k == len(mps_list) - 1:
-        right_mps = [torch.tensor(1).reshape([1,1,1]).to(torch.complex64)]
-    else:
-        right_mps = mps_list[k+1:]
-    a1 = contract_conj(left_mps)
-    a2 = contract_conj(right_mps)
-    a3 = torch.tensordot(a1, mps_list[k].conj(), dims=([2], [0]))
-    a4 = torch.tensordot(a3, mps_list[k], dims=([2], [0]))
-    a5 = torch.tensordot(a2, a4, dims=([0, 1], [3, 5])).squeeze()
-    return a5.diagonal().real # absolute prob values
+        if not tensors:  # Handle empty tensor list case
+            return torch.tensor(1).reshape(1, 1, 1, 1).to(torch.complex64)
+
+        # Contract first tensor with its conjugate
+        contracted = torch.tensordot(tensors[0].conj(), tensors[0], dims=([1], [1]))
+        contracted = contracted.permute(0, 2, 1, 3)
+
+        # Iteratively contract remaining tensors
+        for tensor in tensors[1:]:
+            pair_contracted = torch.tensordot(tensor.conj(), tensor, dims=([1], [1]))
+            pair_contracted = pair_contracted.permute(0, 2, 1, 3)
+            contracted = torch.tensordot(contracted, pair_contracted, dims=([2, 3], [0, 1]))
+
+        return contracted
+
+    # Split MPS into left and right parts relative to target qubit
+    left_tensors = mps_lst[:wire] if wire > 0 else []
+    right_tensors = mps_lst[wire + 1:] if wire < len(mps_lst) - 1 else []
+    target_tensor = mps_lst[wire]
+
+    # Contract left and right parts separately
+    left_contracted = contract_conjugate_pair(left_tensors)
+    right_contracted = contract_conjugate_pair(right_tensors)
+
+    # Perform final contractions with target qubit tensor
+    temp1 = torch.tensordot(left_contracted, target_tensor.conj(), dims=([2], [0]))
+    temp2 = torch.tensordot(temp1, target_tensor, dims=([2], [0]))
+    final_tensor = torch.tensordot(right_contracted, temp2, dims=([0, 1], [3, 5])).squeeze()
+
+    # Extract probabilities from diagonal elements
+    probabilities = final_tensor.diagonal().real
+    return probabilities  # Returns [P(|0⟩), P(|1⟩)]
