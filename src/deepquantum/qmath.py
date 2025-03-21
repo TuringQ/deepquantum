@@ -852,7 +852,7 @@ def get_prob_mps(k, mps_list):
         right_mps = mps_list[k+1:]
     a1 = contract_conj(left_mps)
     a2 = contract_conj(right_mps)
-    a3 = torch.tensordot(a1, mps_list[k], dims=([2], [0]))
-    a4 = torch.tensordot(a3, mps_list[k].conj(), dims=([2], [0]))
-    a5 = torch.tensordot(a2, a4, dims=([0, 1], [5, 3])).squeeze()
+    a3 = torch.tensordot(a1, mps_list[k].conj(), dims=([2], [0]))
+    a4 = torch.tensordot(a3, mps_list[k], dims=([2], [0]))
+    a5 = torch.tensordot(a2, a4, dims=([0, 1], [3, 5])).squeeze()
     return a5.diagonal().real # absolute prob values

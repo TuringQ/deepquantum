@@ -610,16 +610,10 @@ class QubitCircuit(Operation):
         """The proposal sampler for MCMC sampling."""
         sample_chain = ''
         mps_state = copy(self.state)
-        idx = 0
         for i in self.wires_measure:
-            if idx != 0:
-                mps_s = MatrixProductState(nsite=self.nqubit, state=mps_state)
-                mps_s.center_orthogonalization(c=-1) # stay center-orthogonal form
-                mps_state = list(mps_s.state_dict().values())
             sample_single_wire = torch.multinomial(get_prob_mps(i, mps_state), num_samples=1)
             sample_chain += str(sample_single_wire.item())
             mps_state[i] = mps_state[i][:, [int(sample_single_wire)], :]
-            idx += 1
         return sample_chain
 
     def pattern(self) -> 'Pattern':
