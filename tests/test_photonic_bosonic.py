@@ -33,11 +33,9 @@ def test_forward_cov_mean():
     cat = dq.CatState(r=r, theta=theta, p=1)
     vac  =dq.BosonicState(state='vac', nmode=1)
     cir = dq.QumodeCircuit(nmode=2, init_state=[cat, vac], backend='bosonic', cutoff=3)
-    # cir.s(0, r=1.)
     angles = 2*np.pi*np.random.rand(2)
     cir.s(1, r=2.)
     cir.bs([0,1],  angles)
-    cir.to(torch.complex64)
     test = cir()
 
     nmodes = 2
@@ -69,17 +67,12 @@ def test_photon_number_mean_var():
         sf.ops.Catstate(a=r, phi=theta, p=1) | q[0] # superposition of 4 states
     eng = sf.Engine("bosonic", backend_options={"hbar": hbar}) #xpxp  order
     state = eng.run(prog_cat_bosonic).state
-    means_sf = state.means()
-    covs_sf = state.covs()
-    weights_sf = state.weights()
 
-    covs  = torch.tensor(covs_sf, dtype=torch.complex64)
-    means = torch.tensor(means_sf, dtype=torch.complex64).reshape(-1, 4, 1)
-    weights = torch.tensor(weights_sf, dtype=torch.complex64)
-    cir = dq.QumodeCircuit(nmode=1, init_state=[covs, means, weights], backend='bosonic', cutoff=3)
+    cir = dq.QumodeCircuit(nmode=1, init_state='vac', backend='bosonic', cutoff=3)
+    cir.cat(wires=0, r=r, theta=theta, p=1)
     cir.s(0, r=0)
-    cir.to(torch.complex64)
-    test = cir()
+    cir.to(torch.float)
+    cir()
     test1 = cir.photon_number_mean_var()
     test2 = state.mean_photon(0)
     err = abs(torch.tensor(test1) - np.array(test2)).sum()

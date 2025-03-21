@@ -301,31 +301,29 @@ class BosonicState(nn.Module):
         r"""Get the discretized Wigner function of the specified mode.
 
         Args:
-             wire (int): The wigner function for given wire.
-             qvec (torch.Tensor): The discrete values for quadrature q.
-             pvec (torch.Tensor): The discrete values for quadrature p.
-             plot (bool, optional): Whether to plot the wigner function. Default: ``False``.
-             k (int, optional):  The wigner function of kth batch to plot. Default: ``0``
+            wire (int): The wigner function for given wire.
+            qvec (torch.Tensor): The discrete values for quadrature q.
+            pvec (torch.Tensor): The discrete values for quadrature p.
+            plot (bool, optional): Whether to plot the wigner function. Default: ``False``
+            k (int, optional): The wigner function of kth batch to plot. Default: 0
         """
-
         grid_x, grid_y = torch.meshgrid(qvec, pvec, indexing='ij')
         coords = torch.stack([grid_x.reshape(-1), grid_y.reshape(-1)]).mT
-        coords2 = coords.unsqueeze(1).unsqueeze(2) # [npoints, 1, 1, 2]
+        coords2 = coords.unsqueeze(1).unsqueeze(2) # (npoints, 1, 1, 2)
         coords3 = coords.unsqueeze(-1).unsqueeze(-3)
         if not isinstance(wire, torch.Tensor):
             wire = torch.tensor(wire).reshape(1)
         idx = torch.cat([wire, wire + self.nmode]) # xxpp order
         cov  = self.cov[..., idx[:, None], idx]
         mean = self.mean[..., idx, :]
-        batch =  cov.shape[0]
-        gauss_b = MultivariateNormal(mean.squeeze(-1).real, cov) # mean shape: [batch, ncomb, 2]
-        prob_g = gauss_b.log_prob(coords2).exp() # [npoints, batch, ncomb]
-        exp_real = torch.exp(mean.imag.mT @ torch.linalg.solve(cov, mean.imag) / 2).squeeze() # [batch, ncomb]
-        # [batch, npoints, ncomb]
+        gauss_b = MultivariateNormal(mean.squeeze(-1).real, cov) # mean shape: (batch, ncomb, 2)
+        prob_g = gauss_b.log_prob(coords2).exp() # (npoints, batch, ncomb)
+        exp_real = torch.exp(mean.imag.mT @ torch.linalg.solve(cov, mean.imag) / 2).squeeze() # (batch, ncomb)
+        # (batch, npoints, ncomb)
         exp_imag = torch.exp((coords3 - mean.real.unsqueeze(1)).mT @
                              torch.linalg.solve(cov, mean.imag).unsqueeze(1) * 1j).squeeze()
-        wigner_vals = exp_real.reshape([batch, -1]).unsqueeze(1) * prob_g.permute(1, 0, 2) * exp_imag * self.weight.unsqueeze(1)
-        wigner_vals = wigner_vals.sum(dim=2).reshape([-1, len(qvec), len(pvec)])
+        wigner_vals = exp_real.unsqueeze(-2) * prob_g.permute(1, 0, 2) * exp_imag * self.weight.unsqueeze(-2)
+        wigner_vals = wigner_vals.sum(dim=2).reshape(-1, len(qvec), len(pvec))
         if plot:
             plt.subplots(1, 1, figsize=(12, 10))
             plt.xlabel('Quadrature q')
@@ -338,27 +336,26 @@ class BosonicState(nn.Module):
     def marginal(self, wire: int, qvec: torch.Tensor, phi: float = 0., plot: bool = False, k: int = 0):
         r"""Get the discretized marginal distribution of the specified mode along :math:`x\cos\phi + p\sin\phi`.
 
-         Args:
-             wire (int): The marginal function for given wire.
-             qvec (torch.Tensor): The discrete values for quadrature q.
-             phi (float):The angle used to compute the linear combination of quadratures.
-             plot (bool, optional): Whether to plot the marginal function. Default: ``False``.
-             k (int, optional):  The marginal function of kth batch to plot. Default: ``0``
+        Args:
+            wire (int): The marginal function for given wire.
+            qvec (torch.Tensor): The discrete values for quadrature q.
+            phi (float): The angle used to compute the linear combination of quadratures.
+            plot (bool, optional): Whether to plot the marginal function. Default: ``False``
+            k (int, optional): The marginal function of kth batch to plot. Default: 0
         """
-
         if not isinstance(wire, torch.Tensor):
             wire = torch.tensor(wire).reshape(1)
         idx = torch.cat([wire, wire + self.nmode]) # xxpp order
-        cov_sub  = self.cov[..., idx[:, None], idx]
-        mean_sub = self.mean[..., idx, :]
+        cov  = self.cov[..., idx[:, None], idx]
+        mean = self.mean[..., idx, :]
         r = PhaseShift(inputs=-phi, nmode=1, wires=wire.tolist(), cutoff=self.cutoff)
-        r.to(cov_sub.device, cov_sub.dtype)
-        cov_out, mean_out = r([cov_sub, mean_sub])
-        mean_out = mean_out.reshape(mean_sub.shape)
-        prefactor = 1 / (torch.sqrt(2 * torch.pi * cov_out[..., 0, 0]))
+        r.to(cov.device, cov.dtype)
+        cov_out, mean_out = r([cov, mean]) # (batch, ncomb, 2, 2)
+        prefactor = 1 / (torch.sqrt(2 * torch.pi * cov_out[..., 0, 0])) # (batch, ncomb)
+        # (batch, npoints, ncomb)
         marginal_vals = self.weight.unsqueeze(1) * prefactor.unsqueeze(1) * torch.exp(-0.5 * (qvec.reshape(-1, 1) -
                                                             mean_out[..., 0, 0].unsqueeze(1))**2 / cov_out[..., 0, 0].unsqueeze(1))
-        marginal_vals = marginal_vals.sum(2)
+        marginal_vals = marginal_vals.sum(2) # (batch, npoints)
         if plot:
             plt.subplots(1, 1, figsize=(12, 10))
             plt.xlabel('Quadrature q')
@@ -403,11 +400,11 @@ class CatState(BosonicState):
             p = torch.tensor(p, dtype=torch.long)
         real_part = r * torch.cos(theta)
         imag_part = r * torch.sin(theta)
-        means = torch.sqrt(torch.tensor(2 * dqp.hbar)) * \
-        torch.stack([torch.stack([real_part, imag_part]),
-                    -torch.stack([real_part, imag_part]),
-                    1j*torch.stack([imag_part, -real_part]),
-                    -1j*torch.stack([imag_part, -real_part])])
+        means = torch.sqrt(torch.tensor(dqp.hbar / dqp.kappa**2)) * \
+                torch.stack([torch.stack([real_part, imag_part]),
+                            -torch.stack([real_part, imag_part]),
+                             torch.stack([imag_part, -real_part]) * 1j,
+                            -torch.stack([imag_part, -real_part]) * 1j])
         temp = torch.exp(-2 * r**2)
         w0 = 0.5 / (1 + temp * torch.cos(p * torch.pi))
         w1 = w0
@@ -470,7 +467,7 @@ class GKPState(BosonicState):
         weights /= torch.sum(weights)
         means = means[filt]
         means = means * 2 * torch.exp(-epsilon) / (1 + exp_eps)
-        means = means * 0.5 * torch.sqrt(torch.tensor(torch.pi * dqp.hbar))   # lattice spacing
+        means = means * 0.5 * torch.sqrt(torch.tensor(torch.pi * dqp.hbar / (2 * dqp.kappa**2)))   # lattice spacing
         covs = torch.stack([torch.eye(2)] * len(means))
         covs = covs * dqp.hbar / (4 * dqp.kappa**2) * (1 - exp_eps) / (1 + exp_eps)
         means = means.to(torch.cfloat)
