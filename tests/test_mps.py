@@ -7,7 +7,7 @@ import torch
 from deepquantum.qmath import slice_state_vector, get_prob_mps
 
 
-def test_cir_get_prob_mps():
+def test_cir_get_prob():
     n = 10
     data = torch.randn(3 * n)
     num_bits = random.randint(1, n)

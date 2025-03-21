@@ -297,9 +297,9 @@ class QubitCircuit(Operation):
         self.wires_measure = self._convert_indices(wires)
         if self.mps:
             samples = sample_sc_mcmc(prob_func=self._get_prob,
-                                  proposal_sampler=self._proposal_sampler,
-                                  shots=shots,
-                                  num_chain=5)
+                                     proposal_sampler=self._proposal_sampler,
+                                     shots=shots,
+                                     num_chain=5)
             return dict(samples)
         if self.state is None:
             return
