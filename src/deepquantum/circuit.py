@@ -451,24 +451,29 @@ class QubitCircuit(Operation):
             amp = state.squeeze()
         return amp
 
-    def get_prob_mps(self, bits: str, wires: Union[int, List[int], None] = None) -> torch.Tensor:
+    def get_prob(self, bits: str, wires: Union[int, List[int], None] = None) -> torch.Tensor:
         """Get the probability for the given bit string.
 
         Args:
             bits (str): A bit string.
         """
-        if self.mps and wires is not None:
+        if wires is not None:
             wires = self._convert_indices(wires)
-            assert len(bits) == len(wires)
-            idx = 0
-            state = copy(self.state)
-            for i in wires:
-                state[i] = state[i][:, [int(bits[idx])], :]
-                idx += 1
-            prob = inner_product_mps(state, state).real
-        else:
-            amp = self.get_amplitude(bits)
-            prob = torch.abs(amp) ** 2
+            if len(wires) != self.nqubit:
+                if self.mps:
+                    assert len(bits) == len(wires)
+                    idx = 0
+                    state = copy(self.state)
+                    for i in wires:
+                        state[i] = state[i][:, [int(bits[idx])], :]
+                        idx += 1
+                    return inner_product_mps(state, state).real
+                else:
+                    state = self.state.reshape(-1)
+                    state = slice_state_vector(state, self.nqubit, wires, bits, False)
+                    return (torch.abs(state) ** 2).sum()
+        amp = self.get_amplitude(bits)
+        prob = torch.abs(amp) ** 2
         return prob
 
     def _get_prob(self, bits: str) -> torch.Tensor:
@@ -477,17 +482,7 @@ class QubitCircuit(Operation):
         Args:
             bits (str): A bit string.
         """
-        if self.mps and len(self.wires_measure) != self.nqubit:
-            idx = 0
-            state = copy(self.state)
-            for i in self.wires_measure:
-                state[i] = state[i][:, [int(bits[idx])], :]
-                idx += 1
-            prob = inner_product_mps(state, state).real
-        else:
-            amp = self.get_amplitude(bits)
-            prob = torch.abs(amp) ** 2
-        return prob
+        return self.get_prob_mps(bits, self.wires_measure)
 
     def inverse(self, encode: bool = False) -> 'QubitCircuit':
         """Get the inversed circuit.
@@ -596,7 +591,7 @@ class QubitCircuit(Operation):
         sample_chain = ''
         mps_state = copy(self.state)
         for i in self.wires_measure:
-            sample_single_wire = torch.multinomial(get_prob_mps(i, mps_state), num_samples=1)
+            sample_single_wire = torch.multinomial(get_prob_mps(mps_state, i), num_samples=1)
             sample_chain += str(sample_single_wire.item())
             mps_state[i] = mps_state[i][:, [int(sample_single_wire)], :]
         return sample_chain
