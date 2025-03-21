@@ -827,7 +827,7 @@ def sample_sc_mcmc(prob_func: Callable,
             merged_samples[key] += value
     return merged_samples
 
-def get_prob_mps(wire: int, mps_lst: List[torch.Tensor]) -> torch.Tensor:
+def get_prob_mps(mps_lst: List[torch.Tensor], wire: int) -> torch.Tensor:
     """Calculate the probability distribution (|0⟩ and |1⟩ probabilities) for a specific wire in an MPS.
 
     This function computes the probability of measuring |0⟩ and |1⟩ for the k-th qubit in a quantum state
@@ -839,7 +839,7 @@ def get_prob_mps(wire: int, mps_lst: List[torch.Tensor]) -> torch.Tensor:
     Args:
         wire (int): Index of the target qubit to compute probabilities for
         mps_lst (List[torch.Tensor]): List of MPS tensors representing the quantum state
-            Each tensor should have shape (bond_dim_left, physical_dim, bond_dim_right)
+            Each 3-dimensional tensor should have shape (bond_dim_left, physical_dim, bond_dim_right)
 
     Returns:
         torch.Tensor: A tensor containing [P(|0⟩), P(|1⟩)] probabilities for the target qubit
@@ -861,7 +861,7 @@ def get_prob_mps(wire: int, mps_lst: List[torch.Tensor]) -> torch.Tensor:
 
         # Contract first tensor with its conjugate
         contracted = torch.tensordot(tensors[0].conj(), tensors[0], dims=([1], [1]))
-        contracted = contracted.permute(0, 2, 1, 3)
+        contracted = contracted.permute(0, 2, 1, 3) # (left_c, left, right_c, right)
 
         # Iteratively contract remaining tensors
         for tensor in tensors[1:]:
