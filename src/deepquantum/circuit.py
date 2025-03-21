@@ -118,34 +118,9 @@ class QubitCircuit(Operation):
 
     def to(self, arg: Any) -> 'QubitCircuit':
         """Set dtype or device of the ``QubitCircuit``."""
-        if arg == torch.float:
-            self.init_state.to(torch.cfloat)
-            for op in self.operators:
-                if op.npara == 0:
-                    op.to(torch.cfloat)
-                elif op.npara > 0:
-                    op.to(torch.float)
-            for ob in self.observables:
-                if ob.npara == 0:
-                    ob.to(torch.cfloat)
-                elif ob.npara > 0:
-                    ob.to(torch.float)
-        elif arg == torch.double:
-            self.init_state.to(torch.cdouble)
-            for op in self.operators:
-                if op.npara == 0:
-                    op.to(torch.cdouble)
-                elif op.npara > 0:
-                    op.to(torch.double)
-            for ob in self.observables:
-                if ob.npara == 0:
-                    ob.to(torch.cdouble)
-                elif ob.npara > 0:
-                    ob.to(torch.double)
-        else:
-            self.init_state.to(arg)
-            self.operators.to(arg)
-            self.observables.to(arg)
+        self.init_state.to(arg)
+        self.operators.to(arg)
+        self.observables.to(arg)
         return self
 
     # pylint: disable=arguments-renamed

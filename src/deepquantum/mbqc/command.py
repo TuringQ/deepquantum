@@ -7,9 +7,9 @@ from typing import Any, Iterable, List, Union
 import torch
 from torch import nn
 
+from ..circuit import QubitCircuit
 from .operation import Command
 from .state import GraphState
-from ..circuit import QubitCircuit
 
 
 class Node(Command):

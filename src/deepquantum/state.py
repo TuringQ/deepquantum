@@ -58,6 +58,16 @@ class QubitState(nn.Module):
                     state = state @ state.mH
                 self.register_buffer('state', state)
 
+    def to(self, arg: Any) -> 'QubitState':
+        """Set dtype or device of the ``QubitState``."""
+        if arg == torch.float:
+            self.state = self.state.to(torch.cfloat)
+        elif arg == torch.double:
+            self.state = self.state.to(torch.cdouble)
+        else:
+            self.state = self.state.to(arg)
+        return self
+
     def forward(self) -> None:
         """Pass."""
         pass
@@ -98,6 +108,18 @@ class MatrixProductState(nn.Module):
         self.normalize = normalize
         self.center = -1
         self.set_tensors(state)
+
+    def to(self, arg: Any) -> 'MatrixProductState':
+        """Set dtype or device of the ``MatrixProductState``."""
+        tensors = self.tensors
+        for i in range(self.nsite):
+            if arg == torch.float:
+                self._buffers[f'tensor{i}'] = tensors[i].to(torch.cfloat)
+            elif arg == torch.double:
+                self._buffers[f'tensor{i}'] = tensors[i].to(torch.cdouble)
+            else:
+                self._buffers[f'tensor{i}'] = tensors[i].to(arg)
+        return self
 
     @property
     def tensors(self) -> List[torch.Tensor]:

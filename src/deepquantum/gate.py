@@ -2582,11 +2582,30 @@ class HamiltonianGate(ArbitraryGate):
             minmax = self.get_minmax(hamiltonian)
         super().__init__(name=name, nqubit=nqubit, wires=wires, minmax=minmax, controls=controls,
                          den_mat=den_mat, tsr_mode=tsr_mode)
+        self.npara = 1
         self.requires_grad = requires_grad
         self.register_buffer('x', PauliX().matrix)
         self.register_buffer('y', PauliY().matrix)
         self.register_buffer('z', PauliZ().matrix)
         self.init_para([hamiltonian, t])
+
+    def to(self, arg: Any) -> 'HamiltonianGate':
+        """Set dtype or device of the ``HamiltonianGate``."""
+        if arg == torch.float:
+            self.x = self.x.to(torch.cfloat)
+            self.y = self.y.to(torch.cfloat)
+            self.z = self.z.to(torch.cfloat)
+            self.ham_tsr = self.ham_tsr.to(torch.cfloat)
+            self.t = self.t.to(torch.float)
+        elif arg == torch.double:
+            self.x = self.x.to(torch.cdouble)
+            self.y = self.y.to(torch.cdouble)
+            self.z = self.z.to(torch.cdouble)
+            self.ham_tsr = self.ham_tsr.to(torch.cdouble)
+            self.t = self.t.to(torch.double)
+        else:
+            super().to(arg)
+        return self
 
     def _convert_hamiltonian(self, hamiltonian: List) -> List[List]:
         """Convert and check the list representation of the Hamiltonian."""

@@ -147,6 +147,22 @@ class Gate(Operation):
         self.nodes = self.wires
         self.nancilla = 1
 
+    def to(self, arg: Any) -> 'Gate':
+        """Set dtype or device of the ``Gate``."""
+        if arg == torch.float:
+            if self.npara == 0:
+                self.matrix = self.matrix.to(torch.cfloat)
+            elif self.npara > 0:
+                super().to(torch.float)
+        elif arg == torch.double:
+            if self.npara == 0:
+                self.matrix = self.matrix.to(torch.cdouble)
+            elif self.npara > 0:
+                super().to(torch.double)
+        else:
+            super().to(arg)
+        return self
+
     def get_matrix(self, inputs: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
         return self.matrix
@@ -507,7 +523,7 @@ class Channel(Operation):
     @property
     def prob(self):
         """The error probability."""
-        return torch.cos(self.theta) ** 2
+        return torch.sin(self.theta) ** 2
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
         """Convert inputs to torch.Tensor."""
