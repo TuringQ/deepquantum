@@ -20,7 +20,8 @@ from .gate import Rx, Ry, Rz, ProjectionJ, CNOT, Swap, Rxx, Ryy, Rzz, Rxy, Recon
 from .gate import UAnyGate, LatentGate, HamiltonianGate, Barrier
 from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer, RyLayer, RzLayer, CnotLayer, CnotRing
 from .operation import Operation, Gate, Layer, Channel
-from .qmath import amplitude_encoding, measure, expectation, sample2expval
+from .qmath import amplitude_encoding, measure, expectation, sample_sc_mcmc, sample2expval
+from .qmath import slice_state_vector, inner_product_mps, get_prob_mps
 from .state import QubitState, MatrixProductState
 
 if TYPE_CHECKING:
@@ -287,7 +288,6 @@ class QubitCircuit(Operation):
             wires (int, List[int] or None, optional): The wires to measure. Default: ``None`` (which means all wires)
             block_size (int, optional): The block size for sampling. Default: 2 ** 24
         """
-        assert not self.mps, 'Currently NOT supported.'
         if shots is None:
             shots = self.shots
         else:
@@ -295,6 +295,12 @@ class QubitCircuit(Operation):
         if wires is None:
             wires = list(range(self.nqubit))
         self.wires_measure = self._convert_indices(wires)
+        if self.mps:
+            samples = sample_sc_mcmc(prob_func=self._get_prob,
+                                     proposal_sampler=self._proposal_sampler,
+                                     shots=shots,
+                                     num_chain=5)
+            return dict(samples)
         if self.state is None:
             return
         else:
@@ -420,6 +426,39 @@ class QubitCircuit(Operation):
             amp = state.squeeze()
         return amp
 
+    def get_prob(self, bits: str, wires: Union[int, List[int], None] = None) -> torch.Tensor:
+        """Get the probability for the given bit string.
+
+        Args:
+            bits (str): A bit string.
+        """
+        if wires is not None:
+            wires = self._convert_indices(wires)
+            if len(wires) != self.nqubit:
+                if self.mps:
+                    assert len(bits) == len(wires)
+                    idx = 0
+                    state = copy(self.state)
+                    for i in wires:
+                        state[i] = state[i][:, [int(bits[idx])], :]
+                        idx += 1
+                    return inner_product_mps(state, state).real
+                else:
+                    state = self.state.reshape(-1)
+                    state = slice_state_vector(state, self.nqubit, wires, bits, False)
+                    return (torch.abs(state) ** 2).sum()
+        amp = self.get_amplitude(bits)
+        prob = torch.abs(amp) ** 2
+        return prob
+
+    def _get_prob(self, bits: str) -> torch.Tensor:
+        """During MCMC measurement, Get the probability for the given bit string.
+
+        Args:
+            bits (str): A bit string.
+        """
+        return self.get_prob(bits, self.wires_measure)
+
     def inverse(self, encode: bool = False) -> 'QubitCircuit':
         """Get the inversed circuit.
 
@@ -460,29 +499,14 @@ class QubitCircuit(Operation):
         self,
         state: torch.Tensor,
         wires: Union[int, List[int]],
-        bits: str
+        bits: str,
+        normalize: bool = True
     ) -> torch.Tensor:
         """Get the sliced state vectors according to ``wires`` and ``bits``."""
         assert not self.den_mat
         assert not self.mps
         wires = self._convert_indices(wires)
-        if len(bits) == 1:
-            bits = bits * len(wires)
-        assert len(wires) == len(bits)
-        wires = [i + 1 for i in wires]
-        state = state.reshape([-1] + [2] * self.nqubit)
-        batch = state.shape[0]
-        permute_shape = list(range(self.nqubit + 1))
-        for i in wires:
-            permute_shape.remove(i)
-        permute_shape = wires + permute_shape
-        state = state.permute(permute_shape)
-        for b in bits:
-            b = int(b)
-            assert b in (0, 1)
-            state = state[b]
-        state = nn.functional.normalize(state.reshape(batch, -1), p=2, dim=-1)
-        return state
+        return slice_state_vector(state, self.nqubit, wires, bits, normalize)
 
     def qasm(self) -> str:
         """Get QASM of the quantum circuit."""
@@ -536,6 +560,16 @@ class QubitCircuit(Operation):
         Gate._reset_qasm_new_gate()
         Channel._reset_qasm_new_gate()
         return ''.join(qasm_lst)
+
+    def _proposal_sampler(self):
+        """The proposal sampler for MCMC sampling."""
+        sample_chain = ''
+        mps_state = copy(self.state)
+        for i in self.wires_measure:
+            sample_single_wire = torch.multinomial(get_prob_mps(mps_state, i), num_samples=1)
+            sample_chain += str(sample_single_wire.item())
+            mps_state[i] = mps_state[i][:, [int(sample_single_wire)], :]
+        return sample_chain
 
     def pattern(self) -> 'Pattern':
         """Get the MBQC pattern."""

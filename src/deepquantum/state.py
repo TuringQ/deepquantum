@@ -203,7 +203,7 @@ class MatrixProductState(nn.Module):
 
     def full_tensor(self) -> torch.Tensor:
         """Get the full tensor product of the state."""
-        assert self.nsite < 24
+        assert self.nsite < 30
         tensors = self.tensors
         psi = tensors[0]
         for i in range(1, self.nsite):

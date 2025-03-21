@@ -2,12 +2,14 @@
 Common functions
 """
 
-from collections import Counter
-from typing import Any, Dict, List, Optional, Tuple, Union
+import copy
+from collections import Counter, defaultdict
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
 from torch import nn, vmap
+from tqdm import tqdm
 
 
 def is_power_of_two(n: int) -> bool:
@@ -295,6 +297,35 @@ def state_to_tensors(state: torch.Tensor, nsite: int, qudit: int = 2) -> List[to
     return tensors
 
 
+def slice_state_vector(
+    state: torch.Tensor,
+    nqubit: int,
+    wires: List[int],
+    bits: str,
+    normalize: bool = True
+) -> torch.Tensor:
+    """Get the sliced state vectors according to ``wires`` and ``bits``."""
+    if len(bits) == 1:
+        bits = bits * len(wires)
+    assert len(wires) == len(bits)
+    wires = [i + 1 for i in wires]
+    state = state.reshape([-1] + [2] * nqubit)
+    batch = state.shape[0]
+    permute_shape = list(range(nqubit + 1))
+    for i in wires:
+        permute_shape.remove(i)
+    permute_shape = wires + permute_shape
+    state = state.permute(permute_shape)
+    for b in bits:
+        b = int(b)
+        assert b in (0, 1)
+        state = state[b]
+    state = state.reshape(batch, -1)
+    if normalize:
+        state = nn.functional.normalize(state, p=2, dim=-1)
+    return state
+
+
 def multi_kron(lst: List[torch.Tensor]) -> torch.Tensor:
     """Calculate the Kronecker/tensor/outer product for a list of tensors.
 
@@ -548,7 +579,7 @@ def measure(
             probs = probs.reshape([2] * n).permute(pm_shape).reshape([2] * len(wires) + [-1]).sum(-1).reshape(-1)
         # Perform block sampling to reduce memory consumption
         samples = Counter(block_sample(probs, shots, block_size))
-        results = {format(key, f'0{num_bits}b'): value for key, value in samples.items()}
+        results = {bin(key)[2:].zfill(num_bits): value for key, value in samples.items()}
         if with_prob:
             for k in results:
                 index = int(k, 2)
@@ -558,6 +589,138 @@ def measure(
         return results_tot[0]
     else:
         return results_tot
+
+
+def sample_sc_mcmc(
+    prob_func: Callable,
+    proposal_sampler: Callable,
+    shots: int = 1024,
+    num_chain: int = 5
+) -> defaultdict:
+    """Get the samples of the probability distribution function via SC-MCMC method."""
+    samples_chain = []
+    merged_samples = defaultdict(int)
+    cache_prob = {}
+    shots_lst = [shots // num_chain] * num_chain
+    shots_lst[-1] += shots % num_chain
+    for trial in range(num_chain):
+        cache = []
+        len_cache = min(shots_lst)
+        if shots_lst[trial] > 1e5:
+            len_cache = 4000
+        # random start
+        sample_0 = proposal_sampler()
+        if not isinstance(sample_0, str):
+            if prob_func(sample_0) < 1e-12: # avoid the samples with almost-zero probability
+                sample_0 = torch.zeros_like(sample_0)
+            while prob_func(sample_0) < 1e-9:
+                sample_0 = proposal_sampler()
+        cache.append(sample_0)
+        sample_max = sample_0
+        if sample_max in cache_prob:
+            prob_max = cache_prob[sample_max]
+        else:
+            prob_max = prob_func(sample_0)
+            cache_prob[sample_max] = prob_max
+        dict_sample = defaultdict(int)
+        for i in tqdm(range(1, shots_lst[trial]), desc=f'chain {trial+1}', ncols=80, colour='green'):
+            sample_i = proposal_sampler()
+            if sample_i in cache_prob:
+                prob_i = cache_prob[sample_i]
+            else:
+                prob_i = prob_func(sample_i)
+                cache_prob[sample_i] = prob_i
+            rand_num = torch.rand(1, device=prob_i.device)
+            # MCMC transfer to new state
+            if prob_i / prob_max > rand_num:
+                sample_max = sample_i
+                prob_max = prob_i
+            if i < len_cache: # cache not full
+                cache.append(sample_max)
+            else: # full
+                idx = np.random.randint(0, len_cache)
+                out_sample = copy.deepcopy(cache[idx])
+                cache[idx] = sample_max
+                out_sample_key = out_sample
+                if out_sample_key in dict_sample:
+                    dict_sample[out_sample_key] = dict_sample[out_sample_key] + 1
+                else:
+                    dict_sample[out_sample_key] = 1
+        # clear the cache
+        for i in range(len_cache):
+            out_sample = cache[i]
+            out_sample_key = out_sample
+            if out_sample_key in dict_sample:
+                dict_sample[out_sample_key] = dict_sample[out_sample_key] + 1
+            else:
+                dict_sample[out_sample_key] = 1
+        samples_chain.append(dict_sample)
+        for key, value in dict_sample.items():
+            merged_samples[key] += value
+    return merged_samples
+
+
+def get_prob_mps(mps_lst: List[torch.Tensor], wire: int) -> torch.Tensor:
+    """Calculate the probability distribution (|0⟩ and |1⟩ probabilities) for a specific wire in an MPS.
+
+    This function computes the probability of measuring |0⟩ and |1⟩ for the k-th qubit in a quantum state
+    represented as a Matrix Product State (MPS). It does this by:
+    1. Contracting the tensors to the left of the target tensor
+    2. Contracting the tensors to the right of the target tensor
+    3. Computing the final contraction with the target tensor
+
+    Args:
+        wire (int): Index of the target qubit to compute probabilities for
+        mps_lst (List[torch.Tensor]): List of MPS tensors representing the quantum state
+            Each 3-dimensional tensor should have shape (bond_dim_left, physical_dim, bond_dim_right)
+
+    Returns:
+        torch.Tensor: A tensor containing [P(|0⟩), P(|1⟩)] probabilities for the target qubit
+    """
+    def contract_conjugate_pair(tensors: List[torch.Tensor]) -> torch.Tensor:
+        """Contract a list of MPS tensors with their conjugates.
+
+        This helper function performs the contraction between a list of MPS tensors
+        and their complex conjugates, which is needed for probability calculation.
+
+        Args:
+            tensors (List[torch.Tensor]): List of MPS tensors to contract
+
+        Returns:
+            torch.Tensor: Contracted tensor
+        """
+        if not tensors:  # Handle empty tensor list case
+            return torch.tensor(1).reshape(1, 1, 1, 1).to(mps_lst[0].dtype).to(mps_lst[0].device)
+
+        # Contract first tensor with its conjugate
+        contracted = torch.tensordot(tensors[0].conj(), tensors[0], dims=([1], [1]))
+        contracted = contracted.permute(0, 2, 1, 3) # (left_c, left, right_c, right)
+
+        # Iteratively contract remaining tensors
+        for tensor in tensors[1:]:
+            pair_contracted = torch.tensordot(tensor.conj(), tensor, dims=([1], [1]))
+            pair_contracted = pair_contracted.permute(0, 2, 1, 3)
+            contracted = torch.tensordot(contracted, pair_contracted, dims=([2, 3], [0, 1]))
+
+        return contracted
+
+    # Split MPS into left and right parts relative to target qubit
+    left_tensors = mps_lst[:wire] if wire > 0 else []
+    right_tensors = mps_lst[wire + 1:] if wire < len(mps_lst) - 1 else []
+    target_tensor = mps_lst[wire]
+
+    # Contract left and right parts separately
+    left_contracted = contract_conjugate_pair(left_tensors)
+    right_contracted = contract_conjugate_pair(right_tensors)
+
+    # Perform final contractions with target qubit tensor
+    temp1 = torch.tensordot(left_contracted, target_tensor.conj(), dims=([2], [0]))
+    temp2 = torch.tensordot(temp1, target_tensor, dims=([2], [0]))
+    final_tensor = torch.tensordot(right_contracted, temp2, dims=([0, 1], [3, 5])).squeeze()
+
+    # Extract probabilities from diagonal elements
+    probabilities = final_tensor.diagonal().real
+    return probabilities  # Returns [P(|0⟩), P(|1⟩)]
 
 
 def inner_product_mps(
