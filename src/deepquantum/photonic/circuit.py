@@ -784,7 +784,18 @@ class QumodeCircuit(Operation):
         else:
             operators = self.operators
             nmode = self.nmode
-        mean = init_mean.reshape(-1, 2 * nmode, 1)
+        mean = init_mean
+        if self.backend == 'gaussian':
+            mean = mean.reshape(-1, 2 * nmode, 1)
+        elif self.backend == 'bosonic':
+            if mean.ndim == 2:
+                mean = mean.unsqueeze(0).unsqueeze(-1)
+            elif mean.ndim == 3:
+                if mean.shape[-1] == 1:
+                    mean = mean.unsqueeze(0)
+                elif mean.shape[-1] == 2 * nmode:
+                    mean = mean.unsqueeze(-1)
+            assert mean.ndim == 4
         for op in operators:
             mean = op.get_symplectic().to(mean.dtype) @ mean + op.get_displacement()
         return mean

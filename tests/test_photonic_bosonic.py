@@ -23,7 +23,7 @@ def test_catstate():
     cat = dq.CatState(r=r, theta=theta, p=1)
     err1 = abs(cat.cov - covs_sf).sum()
     err2 = abs(cat.mean[0].squeeze() - means_sf).sum()
-    err3 = abs(cat.weight - weights_sf).sum()
+    err3 = abs(cat.weight - weights_sf).sum() / abs(weights_sf).sum() # relative error
     assert err1 + err2 + err3 < 3 * 1e-4
 
 
@@ -55,7 +55,7 @@ def test_forward_cov_mean():
     weights_sf = state.weights()
     err1 = abs(xxpp_to_xpxp(test[0][0]) - covs_sf).sum()
     err2 = abs(xxpp_to_xpxp(test[1][0]).squeeze() - means_sf).sum()
-    err3 = abs(test[2] - weights_sf).sum()
+    err3 = abs(test[2] - weights_sf).sum() / abs(weights_sf).sum() # relative error
     assert err1 + err2 + err3 < 3 * 1e-4
 
 

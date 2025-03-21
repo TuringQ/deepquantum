@@ -310,27 +310,27 @@ class BosonicState(nn.Module):
 
         grid_x, grid_y = torch.meshgrid(qvec, pvec, indexing='ij')
         coords = torch.stack([grid_x.reshape(-1), grid_y.reshape(-1)]).mT
-        coords2 = coords.unsqueeze(-2)
+        coords2 = coords.unsqueeze(1).unsqueeze(2) # [npoints, 1, 1, 2]
         coords3 = coords.unsqueeze(-1).unsqueeze(-3)
         if not isinstance(wire, torch.Tensor):
             wire = torch.tensor(wire).reshape(1)
         idx = torch.cat([wire, wire + self.nmode]) # xxpp order
-        cov_sub  = self.cov[..., idx[:, None], idx]
-        mean_sub = self.mean[..., idx, :]
-        batch =  cov_sub.shape[0]
-        gauss_b = MultivariateNormal(mean_sub.reshape([-1, 2]).real, cov_sub.reshape([-1, 2, 2])) # batch * ncomb
-        prob_g = gauss_b.log_prob(coords2).exp() # normalized
-        exp_real = torch.exp(mean_sub.imag.mT @ torch.linalg.solve(cov_sub, mean_sub.imag) / 2).squeeze()
-        exp_imag = torch.exp((coords3 - mean_sub.real.unsqueeze(1)).mT @
-                             torch.linalg.solve(cov_sub, mean_sub.imag).unsqueeze(1) * 1j).squeeze()
-        prob_g_chunks = torch.stack(torch.chunk(prob_g, batch, dim=1))
-        wigner_vals = exp_real.reshape([batch,-1]).unsqueeze(1) * prob_g_chunks * exp_imag * self.weight.unsqueeze(1)
+        cov  = self.cov[..., idx[:, None], idx]
+        mean = self.mean[..., idx, :]
+        batch =  cov.shape[0]
+        gauss_b = MultivariateNormal(mean.squeeze(-1).real, cov) # mean shape: [batch, ncomb, 2]
+        prob_g = gauss_b.log_prob(coords2).exp() # [npoints, batch, ncomb]
+        exp_real = torch.exp(mean.imag.mT @ torch.linalg.solve(cov, mean.imag) / 2).squeeze() # [batch, ncomb]
+        # [batch, npoints, ncomb]
+        exp_imag = torch.exp((coords3 - mean.real.unsqueeze(1)).mT @
+                             torch.linalg.solve(cov, mean.imag).unsqueeze(1) * 1j).squeeze()
+        wigner_vals = exp_real.reshape([batch, -1]).unsqueeze(1) * prob_g.permute(1, 0, 2) * exp_imag * self.weight.unsqueeze(1)
         wigner_vals = wigner_vals.sum(dim=2).reshape([-1, len(qvec), len(pvec)])
         if plot:
             plt.subplots(1, 1, figsize=(12, 10))
             plt.xlabel('Quadrature q')
             plt.ylabel('Quadrature p')
-            plt.contourf(grid_x, grid_y, wigner_vals[k], 60, cmap=cm.RdBu)
+            plt.contourf(grid_x.cpu(), grid_y.cpu(), wigner_vals[k].cpu(), 60, cmap=cm.RdBu)
             plt.colorbar()
             plt.show()
         return wigner_vals
@@ -352,8 +352,8 @@ class BosonicState(nn.Module):
         cov_sub  = self.cov[..., idx[:, None], idx]
         mean_sub = self.mean[..., idx, :]
         r = PhaseShift(inputs=-phi, nmode=1, wires=wire.tolist(), cutoff=self.cutoff)
-        cov_out, mean_out = r([cov_sub.reshape([-1, 2, 2]), mean_sub.reshape([-1, 2, 1])])
-        cov_out = cov_out.reshape(cov_sub.shape)
+        r.to(cov_sub.device, cov_sub.dtype)
+        cov_out, mean_out = r([cov_sub, mean_sub])
         mean_out = mean_out.reshape(mean_sub.shape)
         prefactor = 1 / (torch.sqrt(2 * torch.pi * cov_out[..., 0, 0]))
         marginal_vals = self.weight.unsqueeze(1) * prefactor.unsqueeze(1) * torch.exp(-0.5 * (qvec.reshape(-1, 1) -
@@ -363,7 +363,7 @@ class BosonicState(nn.Module):
             plt.subplots(1, 1, figsize=(12, 10))
             plt.xlabel('Quadrature q')
             plt.ylabel('Wave_function')
-            plt.plot(qvec, marginal_vals[k])
+            plt.plot(qvec.cpu(), marginal_vals[k].cpu())
             plt.show()
         return marginal_vals
 
@@ -472,7 +472,7 @@ class GKPState(BosonicState):
         means = means * 2 * torch.exp(-epsilon) / (1 + exp_eps)
         means = means * 0.5 * torch.sqrt(torch.tensor(torch.pi * dqp.hbar))   # lattice spacing
         covs = torch.stack([torch.eye(2)] * len(means))
-        covs = covs * 0.5 * dqp.hbar * (1 - exp_eps) / (1 + exp_eps)
+        covs = covs * dqp.hbar / (4 * dqp.kappa**2) * (1 - exp_eps) / (1 + exp_eps)
         means = means.to(torch.cfloat)
         weights = weights.to(torch.cfloat)
         state = [covs, means, weights]
