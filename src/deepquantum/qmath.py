@@ -610,7 +610,7 @@ def sample_sc_mcmc(
             len_cache = 4000
         # random start
         sample_0 = proposal_sampler()
-        if type(sample_0) is not str:
+        if not isinstance(sample_0, str):
             if prob_func(sample_0) < 1e-12: # avoid the samples with almost-zero probability
                 sample_0 = torch.zeros_like(sample_0)
             while prob_func(sample_0) < 1e-9:

@@ -482,7 +482,7 @@ class QubitCircuit(Operation):
         Args:
             bits (str): A bit string.
         """
-        return self.get_prob_mps(bits, self.wires_measure)
+        return self.get_prob(bits, self.wires_measure)
 
     def inverse(self, encode: bool = False) -> 'QubitCircuit':
         """Get the inversed circuit.
