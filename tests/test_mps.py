@@ -1,41 +1,71 @@
+import random
+
 import deepquantum as dq
 import pytest
 import torch
-import random
 
-def test_get_prob_mps():
+from deepquantum.qmath import slice_state_vector, get_prob_mps
+
+
+def test_cir_get_prob_mps():
     n = 10
     data = torch.randn(3 * n)
-    num_bits = random.randint(1,10)
-    bits_value = random.randint(0, 2**num_bits-1)
+    num_bits = random.randint(1, n)
+    bits_value = random.randint(0, 2**num_bits - 1)
     bits = bin(bits_value)[2:].zfill(num_bits)
     wires = random.sample(range(n), k=num_bits)
     wires.sort()
 
     cir1 = dq.QubitCircuit(nqubit=n, mps=False)
-    for i in range(n):
-        cir1.h(i)
-        cir1.rx(i, encode=True)
-        cir1.ry(i, encode=True)
-        cir1.rz(i, encode=True)
+    cir1.hlayer()
+    cir1.rxlayer(encode=True)
+    cir1.rylayer(encode=True)
+    cir1.rzlayer(encode=True)
     cir1.cnot_ring()
     state = cir1(data=data).reshape(-1)
-    pm_shape = list(range(n))
-    for w in wires:
-        pm_shape.remove(w)
-    pm_shape = wires + pm_shape
-    num_bits = len(wires) if wires else n
-    probs = torch.abs(state) ** 2
-    prob1 = probs.reshape([2] * n).permute(pm_shape).reshape([2] * len(wires) + [-1]).sum(-1).reshape(-1)[bits_value]
+    state = slice_state_vector(state, n, wires, bits, False)
+    prob1 = (torch.abs(state) ** 2).sum()
 
     cir2 = dq.QubitCircuit(nqubit=n, mps=True)
-    for i in range(n):
-        cir2.h(i)
-        cir2.rx(i, encode=True)
-        cir2.ry(i, encode=True)
-        cir2.rz(i, encode=True)
+    cir2.hlayer()
+    cir2.rxlayer(encode=True)
+    cir2.rylayer(encode=True)
+    cir2.rzlayer(encode=True)
     cir2.cnot_ring()
     cir2(data=data)
     prob2 = cir2.get_prob_mps(bits, wires)
 
     assert torch.allclose(prob1, prob2)
+
+
+def test_get_prob_mps():
+    n = 10
+    data = torch.randn(2 * n)
+    num_bits = random.randint(1, n)
+    bits_value = random.randint(0, 2**num_bits - 1)
+    bits = bin(bits_value)[2:].zfill(num_bits)
+    wires = random.sample(range(n), k=num_bits)
+    wires.sort()
+
+    cir = dq.QubitCircuit(n, mps=True)
+    cir.rylayer(encode=True)
+    cir.cnot_ring()
+    cir.rxlayer(encode=True)
+    mps = cir(data=data)
+
+    cir2 = dq.QubitCircuit(n)
+    cir2.rylayer(encode=True)
+    cir2.cnot_ring()
+    cir2.rxlayer(encode=True)
+    sv = cir2(data=data).reshape([2] * n)
+
+    offset = 0
+    for i, b in zip(wires, bits):
+        prob0_sv = (slice_state_vector(sv, n - offset, [i - offset], '0', False).abs() ** 2).sum()
+        prob1_sv = (slice_state_vector(sv, n - offset, [i - offset], '1', False).abs() ** 2).sum()
+        probs_mps = get_prob_mps(mps, i)
+        assert torch.allclose(prob0_sv, probs_mps[0])
+        assert torch.allclose(prob1_sv, probs_mps[1])
+        sv = slice_state_vector(sv, n - offset, [i - offset], b, False)
+        mps[i] = mps[i][:, [int(b)], :]
+        offset += 1

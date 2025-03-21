@@ -14,14 +14,14 @@ from torch import nn, vmap
 
 from .channel import BitFlip, PhaseFlip, Depolarizing, Pauli, AmplitudeDamping, PhaseDamping
 from .channel import GeneralizedAmplitudeDamping
-from .qmath import sample_sc_mcmc
 from .gate import ParametricSingleGate
 from .gate import U3Gate, PhaseShift, PauliX, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, TGate, TDaggerGate
 from .gate import Rx, Ry, Rz, ProjectionJ, CNOT, Swap, Rxx, Ryy, Rzz, Rxy, ReconfigurableBeamSplitter, Toffoli, Fredkin
 from .gate import UAnyGate, LatentGate, HamiltonianGate, Barrier
 from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer, RyLayer, RzLayer, CnotLayer, CnotRing
 from .operation import Operation, Gate, Layer, Channel
-from .qmath import amplitude_encoding, expectation, get_prob_mps, measure, sample2expval, inner_product_mps
+from .qmath import amplitude_encoding, measure, expectation, sample_sc_mcmc, sample2expval
+from .qmath import slice_state_vector, inner_product_mps, get_prob_mps
 from .state import QubitState, MatrixProductState
 
 if TYPE_CHECKING:
@@ -529,29 +529,14 @@ class QubitCircuit(Operation):
         self,
         state: torch.Tensor,
         wires: Union[int, List[int]],
-        bits: str
+        bits: str,
+        normalize: bool = True
     ) -> torch.Tensor:
         """Get the sliced state vectors according to ``wires`` and ``bits``."""
         assert not self.den_mat
         assert not self.mps
         wires = self._convert_indices(wires)
-        if len(bits) == 1:
-            bits = bits * len(wires)
-        assert len(wires) == len(bits)
-        wires = [i + 1 for i in wires]
-        state = state.reshape([-1] + [2] * self.nqubit)
-        batch = state.shape[0]
-        permute_shape = list(range(self.nqubit + 1))
-        for i in wires:
-            permute_shape.remove(i)
-        permute_shape = wires + permute_shape
-        state = state.permute(permute_shape)
-        for b in bits:
-            b = int(b)
-            assert b in (0, 1)
-            state = state[b]
-        state = nn.functional.normalize(state.reshape(batch, -1), p=2, dim=-1)
-        return state
+        return slice_state_vector(state, self.nqubit, wires, bits, normalize)
 
     def qasm(self) -> str:
         """Get QASM of the quantum circuit."""
