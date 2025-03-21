@@ -53,6 +53,6 @@ from .mbqc import SubGraphState, GraphState
 from .mbqc import Pattern
 
 from .photonic import permanent, takagi, hafnian, torontonian
-from .photonic import FockState, GaussianState
+from .photonic import FockState, GaussianState, BosonicState, CatState, GKPState
 from .photonic import QumodeCircuit, QumodeCircuitTDM, Clements, GaussianBosonSampling
 from .photonic import UnitaryMapper, UnitaryDecomposer, DrawClements

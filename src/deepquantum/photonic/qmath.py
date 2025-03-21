@@ -2,20 +2,21 @@
 Common functions
 """
 
-import copy
 import itertools
 import warnings
 from collections import defaultdict
+from copy import deepcopy
 from typing import Callable, Dict, Generator, List, Optional, Tuple
 
 import numpy as np
 import torch
 from torch import vmap
+from torch.distributions.multivariate_normal import MultivariateNormal
 from tqdm import tqdm
 
 import deepquantum.photonic as dqp
-from .utils import mem_to_chunksize
 from ..qmath import is_unitary
+from .utils import mem_to_chunksize
 
 
 def dirac_ket(matrix: torch.Tensor) -> Dict:
@@ -254,14 +255,46 @@ def ladder_to_quadrature(matrix: torch.Tensor) -> torch.Tensor:
         return (omega @ matrix).real
 
 
-def photon_number_mean_var(cov: torch.Tensor, mean: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+def _photon_number_mean_var_gaussian(cov: torch.Tensor, mean: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     """Get the expectation value and variance of the photon number for single-mode Gaussian states."""
     coef = dqp.kappa ** 2 / dqp.hbar
     cov = cov.reshape(-1, 2, 2)
     mean = mean.reshape(-1, 2, 1)
     exp = coef * (vmap(torch.trace)(cov) + (mean.mT @ mean).squeeze()) - 1 / 2
-    var = coef ** 2 * (vmap(torch.trace)(cov @ cov) + 2 * (mean.mT @ cov @ mean).squeeze()) * 2 - 1 / 4
+    var = coef**2 * (vmap(torch.trace)(cov @ cov) + 2 * (mean.mT @ cov.to(mean.dtype) @ mean).squeeze()) * 2 - 1 / 4
     return exp, var
+
+
+def _photon_number_mean_var_bosonic(
+    cov: torch.Tensor,
+    mean: torch.Tensor,
+    weight: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Get the expectation value and variance of the photon number for single-mode Bosonic states."""
+    shape_cov = cov.shape
+    shape_mean = mean.shape
+    cov = cov.reshape(*shape_cov[:2], 2, 2).reshape(-1, 2, 2)
+    mean = mean.reshape(*shape_mean[:2], 2, 1).reshape(-1, 2, 1)
+    exp_gaussian, var_gaussian = _photon_number_mean_var_gaussian(cov, mean)
+    exp_gaussian = exp_gaussian.reshape(*shape_cov[:2])
+    var_gaussian = var_gaussian.reshape(*shape_cov[:2])
+    exp = (weight * exp_gaussian).sum(-1)
+    var = (weight * var_gaussian).sum(-1) + (weight * exp_gaussian**2).sum(-1) - exp ** 2
+    assert torch.allclose(exp.imag, torch.zeros(1))
+    assert torch.allclose(var.imag, torch.zeros(1))
+    return exp.real, var.real
+
+
+def photon_number_mean_var(
+    cov: torch.Tensor,
+    mean: torch.Tensor,
+    weight: Optional[torch.Tensor] = None
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Get the expectation value and variance of the photon number for single-mode Gaussian (Bosonic) states."""
+    if weight is None:
+        return  _photon_number_mean_var_gaussian(cov, mean)
+    else:
+        return _photon_number_mean_var_bosonic(cov, mean, weight)
 
 
 def takagi(a: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -299,10 +332,12 @@ def takagi(a: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
                     return v, diag
 
 
-def sample_sc_mcmc(prob_func: Callable,
-                   proposal_sampler: Callable,
-                   shots: int = 1024,
-                   num_chain: int = 5) -> defaultdict:
+def sample_sc_mcmc(
+    prob_func: Callable,
+    proposal_sampler: Callable,
+    shots: int = 1024,
+    num_chain: int = 5
+) -> defaultdict:
     """Get the samples of the probability distribution function via SC-MCMC method."""
     samples_chain = []
     merged_samples = defaultdict(int)
@@ -346,7 +381,7 @@ def sample_sc_mcmc(prob_func: Callable,
                 cache.append(sample_max)
             else: # full
                 idx = np.random.randint(0, len_cache)
-                out_sample = copy.deepcopy(cache[idx])
+                out_sample = deepcopy(cache[idx])
                 cache[idx] = sample_max
                 out_sample_key = tuple(out_sample.tolist())
                 if out_sample_key in dict_sample:
@@ -365,3 +400,63 @@ def sample_sc_mcmc(prob_func: Callable,
         for key, value in dict_sample.items():
             merged_samples[key] += value
     return merged_samples
+
+
+def sample_reject_bosonic(
+    cov: torch.Tensor,
+    mean: torch.Tensor,
+    weight: torch.Tensor,
+    cov_m: torch.Tensor,
+    shots: int
+) -> torch.Tensor:
+    """Get the samples of the Bosonic states via rejection sampling.
+
+    See https://arxiv.org/abs/2103.05530 Algorithm 1 in Section VI B
+    """
+    if cov.ndim == 3:
+        cov = cov.unsqueeze(0)
+    if mean.ndim == 3:
+        mean = mean.unsqueeze(0)
+    if weight.ndim == 1:
+        weight = weight.unsqueeze(0)
+    assert cov.ndim == mean.ndim == 4
+    assert weight.ndim == 2
+    batch = cov.shape[0]
+    rst = [cov.new_empty(0)] * batch
+    batches = list(range(batch))
+    count_shots = [0] * batch
+    shots_tmp = shots
+    mask = (weight.real > 0) | (abs(weight.imag) > 1e-8) | (abs(mean.imag) > 1e-8).any(-2).squeeze(-1)
+    exp_real = torch.exp(mean.imag.mT @ torch.linalg.solve(cov_m + cov, mean.imag) / 2).squeeze()
+    c_tilde = mask * abs(weight) * exp_real
+    while len(batches) > 0:
+        cov_rest = cov[batches]
+        mean_rest = mean[batches]
+        cov_t = cov_m + cov_rest
+        m0 = torch.multinomial(c_tilde[batches], 1).reshape(-1) # (batch)
+        cov_m0 = cov[batches, m0]
+        mean_m0 = mean[batches, m0].squeeze(-1).real
+        dist_g = MultivariateNormal(mean_rest.squeeze(-1).real, cov_t) # (batch, ncomb, 2 * nmode)
+        r0 = MultivariateNormal(mean_m0, cov_m + cov_m0).sample([shots_tmp]) # (shots, batch, 2 * nmode)
+        prob_g = dist_g.log_prob(r0.unsqueeze(-2)).exp() # (shots, batch, ncomb, 2 * nmode) -> (shots, batch, ncomb)
+        g_r0 = (c_tilde[batches] * prob_g).sum(-1) # (shots, batch)
+        y0 = torch.rand_like(g_r0) * g_r0
+        rm = r0.unsqueeze(-1).unsqueeze(-3) # (shots, batch, 2 * nmode) -> (shots, batch, 1, 2 * nmode, 1)
+        # (shots, batch, ncomb)
+        exp_imag = torch.exp((rm - mean_rest.real).mT @ torch.linalg.solve(cov_t, mean_rest.imag) * 1j).squeeze()
+        # Eq.(70-71)
+        p_r0 = (weight[batches] * exp_real[batches] * prob_g * exp_imag).sum(-1) # (shots, batch)
+        assert torch.allclose(p_r0.imag, p_r0.imag.new_zeros(1))
+        idx_shots, idx_batch = torch.where((y0 <= p_r0.real))
+        batches_done = []
+        for i in range(len(batches)):
+            idx = batches[i]
+            rst[idx] = torch.cat([rst[idx], r0[idx_shots[idx_batch==i], i]]) # (shots, 2 * nmode)
+            count_shots[idx] = len(rst[idx])
+            if count_shots[idx] >= shots:
+                batches_done.append(idx)
+                rst[idx] = rst[idx][:shots]
+        for i in batches_done:
+            batches.remove(i)
+        shots_tmp = shots - min(count_shots)
+    return torch.stack(rst) # (batch, shots, 2 * nmode)

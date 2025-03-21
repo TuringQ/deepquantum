@@ -2,6 +2,8 @@
 Photonic measurements
 """
 
+import numpy as np
+from copy import deepcopy
 from typing import Any, List, Optional, Union
 
 import torch
@@ -10,6 +12,7 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 
 from .gate import PhaseShift
 from .operation import Operation
+from .qmath import sample_reject_bosonic
 
 
 class Generaldyne(Operation):
@@ -45,7 +48,7 @@ class Generaldyne(Operation):
             cutoff = 2
         super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, noise=noise, mu=mu, sigma=sigma)
         if not isinstance(cov_m, torch.Tensor):
-            cov_m = torch.tensor(cov_m).reshape(-1, 2 * len(self.wires), 2 * len(self.wires))
+            cov_m = torch.tensor(cov_m, dtype=torch.float).reshape(-1, 2 * len(self.wires), 2 * len(self.wires))
         assert cov_m.shape[-2] == cov_m.shape[-1] == 2 * len(self.wires), 'The size of cov_m does not match the wires'
         self.register_buffer('cov_m', cov_m)
         self.samples = None
@@ -55,8 +58,10 @@ class Generaldyne(Operation):
 
         See Quantum Continuous Variables: A Primer of Theoretical Methods (2024)
         by Alessio Serafini Eq.(5.143) and Eq.(5.144) in page 121
+
+        For Bosonic state, see https://arxiv.org/abs/2103.05530 Eq.(35-37)
         """
-        cov, mean = x
+        cov, mean = x[:2]
         wires = torch.tensor(self.wires)
         size = cov.size()
         idx = torch.cat([wires, wires + self.nmode]) # xxpp order
@@ -64,22 +69,42 @@ class Generaldyne(Operation):
         mask = ~torch.isin(idx_all, idx)
         idx_rest = idx_all[mask]
 
-        cov_a  = cov[:, idx_rest[:, None], idx_rest]
-        cov_b  = cov[:, idx[:, None], idx]
-        cov_ab = cov[:, idx_rest[:, None], idx]
-        mean_a = mean[:, idx_rest]
-        mean_b = mean[:, idx]
+        cov_a  = cov[..., idx_rest[:, None], idx_rest]
+        cov_b  = cov[..., idx[:, None], idx]
+        cov_ab = cov[..., idx_rest[:, None], idx]
+        mean_a = mean[..., idx_rest, :]
+        mean_b = mean[..., idx, :]
+        cov_t = cov_b + self.cov_m
 
-        cov_a = cov_a - cov_ab @ torch.linalg.solve(cov_b + self.cov_m, cov_ab.mT) # update the unmeasured part
-        cov_out = torch.stack([torch.eye(size[-1], dtype=cov.dtype, device=cov.device)] * size[0])
-        cov_out[:, idx_rest[:, None], idx_rest] = cov_a # update the total cov mat
+        cov_a = cov_a - cov_ab @ torch.linalg.solve(cov_t, cov_ab.mT) # update the unmeasured part
+        cov_out = cov.new_ones(size[:-1].numel()).reshape(*size[:-1]).diag_embed()
+        cov_out[..., idx_rest[:, None], idx_rest] = cov_a # update the total cov mat
 
-        mean_m = MultivariateNormal(mean_b.squeeze(-1), cov_b + self.cov_m).sample([1])[0] # (batch, 2 * nwire)
-        mean_a = mean_a + cov_ab @ torch.linalg.solve(cov_b + self.cov_m, mean_m.unsqueeze(-1) - mean_b)
+        if len(x) == 2: # Gaussian
+            mean_m = MultivariateNormal(mean_b.squeeze(-1), cov_t).sample([1])[0] # (batch, 2 * nwire)
+            mean_a = mean_a + cov_ab @ torch.linalg.solve(cov_t, mean_m.unsqueeze(-1) - mean_b)
+        elif len(x) == 3: # Bosonic
+            weight = x[2]
+            mean_m = sample_reject_bosonic(cov_b, mean_b, weight, self.cov_m, 1)[:, 0] # (batch, 2 * nwire)
+            # (batch, ncomb)
+            exp_real = torch.exp(mean_b.imag.mT @ torch.linalg.solve(cov_t, mean_b.imag) / 2).squeeze()
+            gaus_b = MultivariateNormal(mean_b.squeeze(-1).real, cov_t) # (batch, ncomb, 2 * nwire)
+            prob_g = gaus_b.log_prob(mean_m.unsqueeze(-2)).exp() # (batch, ncomb, 2 * nwire) -> (batch, ncomb)
+            rm = mean_m.unsqueeze(-1).unsqueeze(-3) # (batch, 2 * nwire) -> (batch, 1, 2 * nwire, 1)
+            # (batch, ncomb)
+            exp_imag = torch.exp((rm - mean_b.real).mT @ torch.linalg.solve(cov_t, mean_b.imag) * 1j).squeeze()
+            weight *= exp_real * prob_g * exp_imag
+            weight /= weight.sum(dim=-1, keepdim=True)
+            mean_a = mean_a + cov_ab.to(mean_b.dtype) @ torch.linalg.solve(cov_t.to(mean_b.dtype), rm - mean_b)
+
         mean_out = torch.zeros_like(mean)
-        mean_out[:, idx_rest] = mean_a
-        self.samples = mean_m[:, :len(self.wires)] # xxpp order
-        return [cov_out, mean_out]
+        mean_out[..., idx_rest, :] = mean_a
+
+        self.samples = mean_m # xxpp order
+        if len(x) == 2:
+            return [cov_out, mean_out]
+        elif len(x) == 3:
+            return [cov_out, mean_out, weight]
 
 
 class Homodyne(Generaldyne):
@@ -146,11 +171,11 @@ class Homodyne(Generaldyne):
 
     def forward(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
         """Perform a forward pass for Gaussian states."""
-        cov, mean = x
+        cov, mean = x[:2]
         r = PhaseShift(inputs=-self.phi, nmode=self.nmode, wires=self.wires, cutoff=self.cutoff)
         r.to(cov.dtype).to(cov.device)
         cov, mean = r([cov, mean])
-        return super().forward([cov, mean])
+        return super().forward([cov, mean] + x[2:])
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, phi={self.phi.item()}'

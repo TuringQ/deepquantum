@@ -173,13 +173,13 @@ class Gate(Operation):
         d[np.ix_(wires)] = vector
         return d
 
-    def op_gaussian(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
-        """Perform a forward pass for Gaussian states."""
-        cov, mean = x
+    def op_cv(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
+        """Perform a forward pass for Gaussian (Bosonic) states."""
+        cov, mean = x[:2]
         sp_mat = self.get_symplectic()
         cov = sp_mat @ cov @ sp_mat.mT
-        mean = sp_mat @ mean + self.get_displacement()
-        return [cov, mean]
+        mean = sp_mat.to(mean.dtype) @ mean + self.get_displacement()
+        return [cov, mean] + x[2:]
 
     def get_mpo(self) -> Tuple[List[torch.Tensor], int]:
         r"""Convert gate to MPO form with identities at empty sites.
@@ -259,7 +259,7 @@ class Gate(Operation):
             else:
                 return self.op_state_tensor(x)
         elif isinstance(x, list):
-            return self.op_gaussian(x)
+            return self.op_cv(x)
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}'
@@ -305,13 +305,13 @@ class Channel(Operation):
         """Update the local transformation matrices X and Y acting on Gaussian states."""
         return self.matrix_x, self.matrix_y
 
-    def op_gaussian(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
-        """Perform a forward pass for Gaussian states.
+    def op_cv(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
+        """Perform a forward pass for Gaussian (Bosonic) states.
 
         See Quantum Continuous Variables: A Primer of Theoretical Methods (2024)
         by Alessio Serafini Eq.(5.35-5.37) in page 90
         """
-        cov, mean = x
+        cov, mean = x[:2]
         local_x, local_y = self.update_transform_xy()
         assert local_x.shape[-2] == local_x.shape[-1] == 2 * len(self.wires), 'Invalid matrix shape.'
         assert local_y.shape[-2] == local_y.shape[-1] == 2 * len(self.wires), 'Invalid matrix shape.'
@@ -323,14 +323,14 @@ class Channel(Operation):
         mat_y[np.ix_(wires, wires)] = local_y
         cov = mat_x @ cov @ mat_x.mT + mat_y
         mean = mat_x @ mean
-        return [cov, mean]
+        return [cov, mean] + x[2:]
 
     def forward(self, x: Union[torch.Tensor, List[torch.Tensor]]) -> Union[torch.Tensor, List[torch.Tensor]]:
         """Perform a forward pass."""
         if isinstance(x, torch.Tensor):
             return self.op_den_mat(x)
         elif isinstance(x, list):
-            return self.op_gaussian(x)
+            return self.op_cv(x)
 
 
 class Delay(Operation):
