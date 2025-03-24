@@ -4,15 +4,11 @@ Common functions
 
 import itertools
 import warnings
-from collections import defaultdict
-from copy import deepcopy
-from typing import Callable, Dict, Generator, List, Optional, Tuple
+from typing import Dict, Generator, List, Optional, Tuple
 
-import numpy as np
 import torch
 from torch import vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
-from tqdm import tqdm
 
 import deepquantum.photonic as dqp
 from ..qmath import is_unitary
