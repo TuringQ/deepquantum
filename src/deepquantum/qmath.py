@@ -720,7 +720,7 @@ def get_prob_mps(mps_lst: List[torch.Tensor], wire: int) -> torch.Tensor:
 
     # Extract probabilities from diagonal elements
     probabilities = final_tensor.diagonal().real
-    return probabilities  # Returns [P(|0⟩), P(|1⟩)]
+    return torch.clamp(probabilities, min=0)  # Returns [P(|0⟩), P(|1⟩)]
 
 
 def inner_product_mps(

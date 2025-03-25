@@ -431,6 +431,8 @@ class QubitCircuit(Operation):
 
         Args:
             bits (str): A bit string.
+            wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
+                integers specifying the indices of the wires.
         """
         if wires is not None:
             wires = self._convert_indices(wires)
