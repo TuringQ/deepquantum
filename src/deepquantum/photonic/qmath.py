@@ -195,7 +195,7 @@ def xxpp_to_xpxp(matrix: torch.Tensor) -> torch.Tensor:
     """Transform the representation in ``xxpp`` ordering to the representation in ``xpxp`` ordering."""
     nmode = matrix.shape[-2] // 2
     # transformation matrix
-    t = torch.zeros([2 * nmode] * 2, dtype=matrix.dtype, device=matrix.device)
+    t = matrix.new_zeros([2 * nmode] * 2)
     for i in range(2 * nmode):
         if i % 2 == 0:
             t[i][i // 2] = 1
@@ -212,7 +212,7 @@ def xpxp_to_xxpp(matrix: torch.Tensor) -> torch.Tensor:
     """Transform the representation in ``xpxp`` ordering to the representation in ``xxpp`` ordering."""
     nmode = matrix.shape[-2] // 2
     # transformation matrix
-    t = torch.zeros([2 * nmode] * 2, dtype=matrix.dtype, device=matrix.device)
+    t = matrix.new_zeros([2 * nmode] * 2)
     for i in range(2 * nmode):
         if i < nmode:
             t[i][2 * i] = 1
@@ -226,29 +226,29 @@ def xpxp_to_xxpp(matrix: torch.Tensor) -> torch.Tensor:
 
 
 def quadrature_to_ladder(matrix: torch.Tensor) -> torch.Tensor:
-    """Transform the representation in ``xxpp`` ordering to the representation in ``aa^+`` ordering."""
+    """Transform the representation in ``xxpp`` ordering to the representation in ``aaa^+a^+`` ordering."""
     nmode = matrix.shape[-2] // 2
     matrix = matrix + 0j
     identity = torch.eye(nmode, dtype=matrix.dtype, device=matrix.device)
     omega = torch.cat([torch.cat([identity, identity * 1j], dim=-1),
-                       torch.cat([identity, identity * -1j], dim=-1)]) * dqp.kappa / dqp.hbar ** 0.5
+                       torch.cat([identity, identity * -1j], dim=-1)])
     if matrix.shape[-1] == 2 * nmode:
-        return omega @ matrix @ omega.mH
+        return omega @ matrix @ omega.mH / 2
     elif matrix.shape[-1] == 1:
-        return omega @ matrix
+        return omega @ matrix * dqp.kappa / dqp.hbar ** 0.5
 
 
 def ladder_to_quadrature(matrix: torch.Tensor) -> torch.Tensor:
-    """Transform the representation in ``aa^+`` ordering to the representation in ``xxpp`` ordering."""
+    """Transform the representation in ``aaa^+a^+`` ordering to the representation in ``xxpp`` ordering."""
     nmode = matrix.shape[-2] // 2
     matrix = matrix + 0j
     identity = torch.eye(nmode, dtype=matrix.dtype, device=matrix.device)
     omega = torch.cat([torch.cat([identity, identity], dim=-1),
-                       torch.cat([identity * -1j, identity * 1j], dim=-1)]) * dqp.hbar ** 0.5 / (2 * dqp.kappa)
+                       torch.cat([identity * -1j, identity * 1j], dim=-1)])
     if matrix.shape[-1] == 2 * nmode:
-        return (omega @ matrix @ omega.mH).real
+        return (omega @ matrix @ omega.mH).real / 2
     elif matrix.shape[-1] == 1:
-        return (omega @ matrix).real
+        return (omega @ matrix).real * dqp.hbar ** 0.5 / (2 * dqp.kappa)
 
 
 def _photon_number_mean_var_gaussian(cov: torch.Tensor, mean: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:

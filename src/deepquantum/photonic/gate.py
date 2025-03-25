@@ -164,6 +164,7 @@ class PhaseShift(SingleGate):
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix acting on creation operators."""
+        # correspond to: U a^+ U^+ = u^T @ a^+
         theta = self.inputs_to_tensor(theta)
         if self.inv_mode:
             theta = -theta
@@ -309,6 +310,7 @@ class BeamSplitter(DoubleGate):
 
     def get_matrix(self, theta: Any, phi: Any) -> torch.Tensor:
         """Get the local unitary matrix acting on creation operators."""
+        # correspond to: U a^+ U^+ = u^T @ a^+
         theta, phi = self.inputs_to_tensor([theta, phi])
         cos = torch.cos(theta)
         sin = torch.sin(theta)
@@ -471,7 +473,8 @@ class MZI(BeamSplitter):
         self.name = 'MZI'
 
     def get_matrix(self, theta: Any, phi: Any) -> torch.Tensor:
-        """Get the local unitary matrix acting on operators."""
+        """Get the local unitary matrix acting on creation operators."""
+        # correspond to: U a^+ U^+ = u^T @ a^+
         theta, phi = self.inputs_to_tensor([theta, phi])
         cos = torch.cos(theta / 2)
         sin = torch.sin(theta / 2)
@@ -764,6 +767,7 @@ class BeamSplitterSingle(BeamSplitter):
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix acting on creation operators."""
+        # correspond to: U a^+ U^+ = u^T @ a^+
         theta = self.inputs_to_tensor(theta)
         cos = torch.cos(theta / 2) + 0j
         sin = torch.sin(theta / 2) + 0j
@@ -997,6 +1001,7 @@ class Squeezing(SingleGate):
 
     def get_matrix(self, r: Any, theta: Any) -> torch.Tensor:
         """Get the local matrix acting on annihilation and creation operators."""
+        # correspond to: U^+ (a a^+) U = u @ (a a^+)
         r, theta = self.inputs_to_tensor([r, theta])
         ch = torch.cosh(r)
         sh = torch.sinh(r)
@@ -1152,6 +1157,7 @@ class Squeezing2(DoubleGate):
 
     def get_matrix(self, r: Any, theta: Any) -> torch.Tensor:
         """Get the local matrix acting on annihilation and creation operators."""
+        # correspond to: U^+ (a a^+) U = u @ (a a^+)
         r, theta = self.inputs_to_tensor([r, theta])
         ch = torch.cosh(r)
         sh = torch.sinh(r)
@@ -1318,6 +1324,7 @@ class Displacement(SingleGate):
 
     def get_matrix(self, r: Any, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix acting on annihilation and creation operators."""
+        # correspond to: U^+ (a a^+) U = u @ (a a^+)
         r, theta = self.inputs_to_tensor([r, theta])
         return torch.eye(2, dtype=r.dtype, device=r.device) + 0j
 
