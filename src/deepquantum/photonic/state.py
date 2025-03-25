@@ -261,11 +261,20 @@ class BosonicState(nn.Module):
             if nmode is None:
                 nmode = cov.shape[-1] // 2
         ncomb = weight.shape[-1]
-        cov = cov.reshape(-1, ncomb, 2 * nmode, 2 * nmode)
-        mean = mean.reshape(-1, ncomb, 2 * nmode, 1)
+        if cov.ndim == 2:
+            cov = cov.reshape(1, 1, 2 * nmode, 2 * nmode)
+        elif cov.ndim == 3:
+            cov = cov.reshape(-1, ncomb, 2 * nmode, 2 * nmode)
+        if mean.ndim == 2:
+            if mean.shape[-1] == 1:
+                mean = mean.reshape(1, 1, 2 * nmode, 1)
+            elif mean.shape[0] == ncomb:
+                mean = mean.reshape(1, ncomb, 2 * nmode, 1)
+        elif mean.ndim == 3:
+            mean = mean.reshape(-1, ncomb, 2 * nmode, 1)
         weight = weight.reshape(-1, ncomb)
         assert cov.ndim == mean.ndim == 4
-        assert cov.shape[0] == mean.shape[0] == weight.shape[0]
+        assert cov.shape[0] == mean.shape[0]
         assert cov.shape[-2] == cov.shape[-1] == 2 * nmode, (
             'The shape of the covariance matrix should be (2*nmode, 2*nmode)')
         assert mean.shape[-2] == 2 * nmode, 'The length of the mean vector should be 2*nmode'
@@ -387,7 +396,7 @@ class CatState(BosonicState):
         cutoff: int = 5
     ) -> None:
         nmode = 1
-        covs  = torch.stack([torch.eye(2)] * 4)
+        covs  = torch.eye(2)
         if r is None:
             r = torch.rand(1)[0]
         if theta is None:
@@ -468,7 +477,7 @@ class GKPState(BosonicState):
         means = means[filt]
         means = means * 2 * torch.exp(-epsilon) / (1 + exp_eps)
         means = means * 0.5 * torch.sqrt(torch.tensor(torch.pi * dqp.hbar / (2 * dqp.kappa**2)))   # lattice spacing
-        covs = torch.stack([torch.eye(2)] * len(means))
+        covs = torch.eye(2)
         covs = covs * dqp.hbar / (4 * dqp.kappa**2) * (1 - exp_eps) / (1 + exp_eps)
         means = means.to(torch.cfloat)
         weights = weights.to(torch.cfloat)

@@ -460,3 +460,17 @@ def sample_reject_bosonic(
             batches.remove(i)
         shots_tmp = shots - min(count_shots)
     return torch.stack(rst) # (batch, shots, 2 * nmode)
+
+
+def align_shape(cov: torch.Tensor, mean: torch.Tensor, weight: torch.Tensor) -> List[torch.Tensor]:
+    """Align the shape for Bosonic state."""
+    assert cov.ndim == mean.ndim == 4
+    assert weight.ndim == 2
+    ncomb = weight.shape[-1]
+    if cov.shape[1] == 1:
+        cov = cov.expand(-1, ncomb, -1, -1)
+    if mean.shape[1] == 1:
+        mean = mean.expand(-1, ncomb, -1, -1)
+    if weight.shape[0] == 1:
+        weight = weight.expand(cov.shape[0], -1)
+    return [cov, mean, weight]
