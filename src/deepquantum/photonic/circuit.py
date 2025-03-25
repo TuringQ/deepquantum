@@ -25,7 +25,7 @@ from .hafnian_ import hafnian
 from .measurement import Homodyne
 from .operation import Operation, Gate, Channel, Delay
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
-from .qmath import photon_number_mean_var, quadrature_to_ladder, shift_func, sample_reject_bosonic
+from .qmath import photon_number_mean_var, quadrature_to_ladder, shift_func, sample_reject_bosonic, align_shape
 from .state import FockState, GaussianState, BosonicState, CatState, GKPState, combine_bosonic_states
 from .torontonian_ import torontonian
 
@@ -465,6 +465,9 @@ class QumodeCircuit(Operation):
             mean = self.init_state.mean
         else:
             cov, mean = state
+        if self.backend == 'bosonic':
+            if cov.ndim == 3:
+                cov = cov.unsqueeze(0)
         if stepwise:
             cov, mean = operators([cov, mean])
         else:
@@ -491,6 +494,10 @@ class QumodeCircuit(Operation):
         """
         shape_cov = cov.shape
         shape_mean = mean.shape
+        if shape_cov[1] == 1:
+            cov = cov.expand(-1, shape_mean[1], -1, -1)
+        if shape_mean[1] == 1:
+            mean = mean.expand(-1, shape_cov[1], -1, -1)
         cov = cov.reshape(-1, *shape_cov[-2:])
         mean = mean.reshape(-1, *shape_mean[-2:])
         batch_forward = vmap(self._forward_gaussian_prob_helper, in_dims=(0, 0, None, None, None, None, None))
@@ -1407,6 +1414,11 @@ class QumodeCircuit(Operation):
                 weights = weight
             else:
                 weights = torch.stack([weight] * nwire, dim=-2).reshape(batch * nwire, weight.shape[-1])
+        ncomb = weights.shape[-1]
+        if covs.shape[1] == 1:
+            covs = covs.expand(-1, ncomb, -1, -1)
+        if means.shape[1] == 1:
+            means = means.expand(-1, ncomb, -1, -1)
         exp, var = photon_number_mean_var(covs, means, weights)
         exp = exp.reshape(batch, nwire).squeeze()
         var = var.reshape(batch, nwire).squeeze()
@@ -1481,9 +1493,13 @@ class QumodeCircuit(Operation):
             samples = []
             batch = self.state[0].shape[0]
             self.state_measured = []
-            for state in self.state: # [cov, mean, weight]
-                shape = state.shape
-                self.state_measured.append(torch.stack([state] * shots).reshape(-1, *shape[1:]))
+            if self.backend == 'bosonic':
+                state = align_shape(*self.state)
+            else:
+                state = self.state
+            for s in state: # [cov, mean, weight]
+                shape = s.shape
+                self.state_measured.append(torch.stack([s] * shots).reshape(-1, *shape[1:]))
             for op_m in measurements:
                 self.state_measured = op_m(self.state_measured)
                 nwire = len(op_m.wires)
