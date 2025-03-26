@@ -14,7 +14,7 @@ import torch
 from torch import nn, vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
 
-from ..qmath import is_positive_definite, sample_sc_mcmc
+from ..qmath import get_prob_mps, inner_product_mps, is_positive_definite, sample_sc_mcmc
 from ..state import MatrixProductState
 from .channel import PhotonLoss
 from .decompose import UnitaryDecomposer
@@ -132,6 +132,8 @@ class QumodeCircuit(Operation):
             if self.mps:
                 assert self.backend == 'fock' and not self.basis, \
                     'Only support MPS for Fock backend with Fock state tensor.'
+                assert self.cutoff is not None, \
+                    'Please set the cutoff.'
                 self.init_state = MatrixProductState(nsite=self.nmode, state=init_state, chi=self.chi,
                                                      qudit=self.cutoff, normalize=False)
             else:
@@ -1056,6 +1058,34 @@ class QumodeCircuit(Operation):
             prob = p_vac * torontonian(sub_mat, sub_gamma)
         return abs(prob.real).squeeze()
 
+    def _get_prob_mps(
+        self,
+        final_state: Any,
+        wires: Union[int, List[int], None] = None
+    ) -> torch.Tensor:
+        """Get the probability for the given bit string in mps mode.
+
+        Args:
+            final_state (Any): The final Fock basis state.
+            wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
+                integers specifying the indices of the wires.
+        """
+        if isinstance(final_state, FockState):
+            final_state = final_state.state.tolist()
+        if wires is None:
+            wires = list(range(self.nmode))
+        else:
+            wires = self._convert_indices(wires)
+        assert len(final_state) == len(wires)
+        idx = 0
+        state = copy(self.state)
+        if self.state[0].ndim == 3:
+            state = [site.unsqueeze(0) for site in state]
+        for i in wires:
+            state[i] = state[i][:, :, [final_state[idx]], :]
+            idx += 1
+        return inner_product_mps(state, state).real
+
     def measure(
         self,
         shots: int = 1024,
@@ -1079,7 +1109,6 @@ class QumodeCircuit(Operation):
 
         See https://arxiv.org/pdf/2108.01622 for MCMC.
         """
-        assert not self.mps, 'Currently NOT supported.'
         if self.state is None:
             return
         if self.backend == 'fock':
@@ -1115,6 +1144,8 @@ class QumodeCircuit(Operation):
         elif isinstance(self.state, Dict):
             assert not mcmc, "Final states have been calculated, we don't need mcmc!"
             return self._measure_dict(shots, with_prob, wires)
+        elif isinstance(self.state, List):
+            return self._measure_mps(shots, with_prob, wires)
         else:
             assert False, 'Check your forward function or input!'
 
@@ -1268,6 +1299,32 @@ class QumodeCircuit(Operation):
             all_results.append(results)
         return all_results
 
+    def _measure_mps(
+        self,
+        shots: int = 1024,
+        with_prob: bool = False,
+        wires: Union[int, List[int], None] = None
+    ) -> List[Dict]:
+        """Measure the final state according to mps state."""
+        if wires is None:
+            wires = self.wires
+        wires = sorted(self._convert_indices(wires))
+        all_results = []
+        samples = []
+        for _ in range(shots):
+            samples.append(self._generate_chain_sample(wires))
+        for j in range(samples[0].shape[0]):
+            samples_j = [tuple(sample[j].tolist()) for sample in samples]
+            samples_j = dict(Counter(samples_j))
+            keys = list(map(FockState, samples_j.keys()))
+            results = dict(zip(keys, samples_j.values()))
+            if with_prob:
+                for k in results:
+                    prob = self._get_prob_mps(k, wires)[j]
+                    results[k] = results[k], prob
+            all_results.append(results)
+        return all_results
+
     def _sample_mcmc_fock(self, shots: int, init_state: torch.Tensor, unitary: torch.Tensor, num_chain: int):
         """Sample the output states for Fock backend via SC-MCMC method."""
         self._init_state = init_state
@@ -1359,7 +1416,7 @@ class QumodeCircuit(Operation):
             sample = self._all_fock_basis[torch.randint(0, len(self._all_fock_basis), (1,))[0]]
         elif self.backend == 'gaussian':
             sample = self._generate_rand_sample(self.detector)
-        return sample
+        return tuple(sample.tolist())
 
     def _generate_rand_sample(self, detector: str = 'pnrd'):
         """Generate random sample according to uniform proposal distribution."""
@@ -1371,6 +1428,32 @@ class QumodeCircuit(Operation):
             sample = torch.randint(0, 2, [nmode])
         elif detector == 'pnrd':
             sample = torch.randint(0, self.cutoff, [nmode])
+        return sample
+
+    def _generate_chain_sample(
+        self,
+        wires: Union[int, List[int], None] = None
+    ) -> torch.Tensor:
+        """Generate random sample via chain rule.
+
+        Returns:
+                torch.Tensor: sample tensor of shape (batch, len(wires)).
+        """
+        if wires is None:
+            wires = self.wires
+        wires = sorted(self._convert_indices(wires))
+        sample = []
+        mps_state = copy(self.state)
+        if mps_state[0].ndim == 3:
+            mps_state = [site.unsqueeze(0) for site in mps_state]
+        for i in wires:
+            p = vmap(get_prob_mps)(mps_state, wire=i)
+            sample_single_wire = torch.multinomial(p, num_samples=1)
+            sample.append(sample_single_wire)
+            index = sample_single_wire.reshape(-1).view(-1, 1, 1, 1)\
+                    .expand(-1, mps_state[i].shape[-3], -1, mps_state[i].shape[-1])
+            mps_state[i] = torch.gather(mps_state[i], dim=2, index=index)
+        sample = torch.stack(sample, dim=-1).squeeze(1)
         return sample
 
     def photon_number_mean_var(
