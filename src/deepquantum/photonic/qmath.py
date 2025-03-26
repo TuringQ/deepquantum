@@ -225,30 +225,48 @@ def xpxp_to_xxpp(matrix: torch.Tensor) -> torch.Tensor:
         return t @ matrix
 
 
-def quadrature_to_ladder(matrix: torch.Tensor) -> torch.Tensor:
-    """Transform the representation in ``xxpp`` ordering to the representation in ``aaa^+a^+`` ordering."""
-    nmode = matrix.shape[-2] // 2
-    matrix = matrix + 0j
-    identity = torch.eye(nmode, dtype=matrix.dtype, device=matrix.device)
+def quadrature_to_ladder(tensor: torch.Tensor, symplectic: bool = False) -> torch.Tensor:
+    """Transform the representation in ``xxpp`` ordering to the representation in ``aaa^+a^+`` ordering.
+
+    Args:
+        tensor (torch.Tensor): The input tensor in ``xxpp`` ordering.
+        symplectic (bool, optional): Whether the transformation is applied for symplectic matrix or Gaussian state.
+            Default: ``False`` (which means covariance matrix or displacement vector)
+    """
+    nmode = tensor.shape[-2] // 2
+    tensor = tensor + 0j
+    identity = torch.eye(nmode, dtype=tensor.dtype, device=tensor.device)
     omega = torch.cat([torch.cat([identity, identity * 1j], dim=-1),
                        torch.cat([identity, identity * -1j], dim=-1)])
-    if matrix.shape[-1] == 2 * nmode:
-        return omega @ matrix @ omega.mH / 2
-    elif matrix.shape[-1] == 1:
-        return omega @ matrix * dqp.kappa / dqp.hbar ** 0.5
+    if tensor.shape[-1] == 2 * nmode:
+        if symplectic:
+            return omega @ tensor @ omega.mH / 2 # inversed omega
+        else:
+            return omega @ tensor @ omega.mH * dqp.kappa**2 / dqp.hbar
+    elif tensor.shape[-1] == 1:
+        return omega @ tensor * dqp.kappa / dqp.hbar**0.5
 
 
-def ladder_to_quadrature(matrix: torch.Tensor) -> torch.Tensor:
-    """Transform the representation in ``aaa^+a^+`` ordering to the representation in ``xxpp`` ordering."""
-    nmode = matrix.shape[-2] // 2
-    matrix = matrix + 0j
-    identity = torch.eye(nmode, dtype=matrix.dtype, device=matrix.device)
+def ladder_to_quadrature(tensor: torch.Tensor, symplectic: bool = False) -> torch.Tensor:
+    """Transform the representation in ``aaa^+a^+`` ordering to the representation in ``xxpp`` ordering.
+
+    Args:
+        tensor (torch.Tensor): The input tensor in ``aaa^+a^+`` ordering.
+        symplectic (bool, optional): Whether the transformation is applied for symplectic matrix or Gaussian state.
+            Default: ``False`` (which means covariance matrix or displacement vector)
+    """
+    nmode = tensor.shape[-2] // 2
+    tensor = tensor + 0j
+    identity = torch.eye(nmode, dtype=tensor.dtype, device=tensor.device)
     omega = torch.cat([torch.cat([identity, identity], dim=-1),
                        torch.cat([identity * -1j, identity * 1j], dim=-1)])
-    if matrix.shape[-1] == 2 * nmode:
-        return (omega @ matrix @ omega.mH).real / 2
-    elif matrix.shape[-1] == 1:
-        return (omega @ matrix).real * dqp.hbar ** 0.5 / (2 * dqp.kappa)
+    if tensor.shape[-1] == 2 * nmode:
+        if symplectic:
+            return (omega @ tensor @ omega.mH).real / 2 # inversed omega
+        else:
+            return (omega @ tensor @ omega.mH).real * dqp.hbar / (4 * dqp.kappa**2)
+    elif tensor.shape[-1] == 1:
+        return (omega @ tensor).real * dqp.hbar**0.5 / (2 * dqp.kappa)
 
 
 def _photon_number_mean_var_gaussian(cov: torch.Tensor, mean: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
