@@ -1071,17 +1071,11 @@ class QumodeCircuit(Operation):
             wires = self._convert_indices(wires)
         assert len(final_state) == len(wires)
         idx = 0
-        batch = False
         state = copy(self.state)
-        if self.state[0].ndim == 4:
-            batch = True
-            batch_size = self.state[0].shape[0]
+        if self.state[0].ndim == 3:
+            state = [site.unsqueeze(0) for site in state]
         for i in wires:
-            if batch:
-                state[i] = torch.stack([state[i][j, :, [int(final_state[idx])], :] \
-                                            for j in range(batch_size)])
-            else:
-                state[i] = state[i][:, [int(final_state[idx])], :]
+            state[i] = state[i][:, :, [final_state[idx]], :]
             idx += 1
         return inner_product_mps(state, state).real
 
@@ -1309,33 +1303,19 @@ class QumodeCircuit(Operation):
             wires = self.wires
         wires = sorted(self._convert_indices(wires))
         all_results = []
-        if self.state[0].ndim == 3:
-            samples = []
-            for i in range(shots):
-                samples.append(self._generate_chain_sample(wires))
-            samples = dict(Counter(samples))
-            keys = list(map(FockState, samples.keys()))
-            results = dict(zip(keys, samples.values()))
+        samples = []
+        for _ in range(shots):
+            samples.append(self._generate_chain_sample(wires))
+        for j in range(samples[0].shape[0]):
+            samples_j = [tuple(sample[j].tolist()) for sample in samples]
+            samples_j = dict(Counter(samples_j))
+            keys = list(map(FockState, samples_j.keys()))
+            results = dict(zip(keys, samples_j.values()))
             if with_prob:
                 for k in results:
-                    prob = self._get_prob_mps(k, wires)
+                    prob = self._get_prob_mps(k, wires)[j]
                     results[k] = results[k], prob
             all_results.append(results)
-        else:
-            batch_size = self.state[0].shape[0]
-            samples = []
-            for _ in range(shots):
-                samples.append(self._generate_chain_sample(wires, batch_size))
-            for j in range(batch_size):
-                samples_j = [tuple(sample[j]) for sample in samples]
-                samples_j = dict(Counter(samples_j))
-                keys = list(map(FockState, samples_j.keys()))
-                results = dict(zip(keys, samples_j.values()))
-                if with_prob:
-                    for k in results:
-                        prob = self._get_prob_mps(k, wires)[j]
-                        results[k] = results[k], prob
-                all_results.append(results)
         return all_results
 
     def _sample_mcmc_fock(self, shots: int, init_state: torch.Tensor, unitary: torch.Tensor, num_chain: int):
@@ -1443,28 +1423,31 @@ class QumodeCircuit(Operation):
             sample = torch.randint(0, self.cutoff, [nmode])
         return sample
 
-    def _generate_chain_sample(self, wires=None, batch_size=None):
-        """Generate random sample via chain rule."""
+    def _generate_chain_sample(
+        self,
+        wires: Union[int, List[int], None] = None
+    ) -> torch.Tensor:
+        """Generate random sample via chain rule.
+
+        Returns:
+                torch.Tensor: sample tensor of shape (batch, len(wires)).
+        """
         if wires is None:
             wires = self.wires
         wires = sorted(self._convert_indices(wires))
         sample = []
         mps_state = copy(self.state)
-        if batch_size is None:
-            for i in wires:
-                p = get_prob_mps(mps_state, i)
-                sample_single_wire = torch.multinomial(p, num_samples=1)
-                sample.append(sample_single_wire.item())
-                mps_state[i] = mps_state[i][:, [int(sample_single_wire)], :]
-        else:
-            for i in wires:
-                p = vmap(get_prob_mps)(mps_state, wire=i)
-                sample_single_wire = torch.multinomial(p, num_samples=1)
-                sample.append(sample_single_wire)
-                mps_state[i] = torch.stack([mps_state[i][j, :, [int(sample_single_wire[j])], :] \
-                                            for j in range(batch_size)])
-            sample = torch.stack(sample, dim=-1).squeeze().tolist()
-        return tuple(sample)
+        if mps_state[0].ndim == 3:
+            mps_state = [site.unsqueeze(0) for site in mps_state]
+        for i in wires:
+            p = vmap(get_prob_mps)(mps_state, wire=i)
+            sample_single_wire = torch.multinomial(p, num_samples=1)
+            sample.append(sample_single_wire)
+            index = sample_single_wire.reshape(-1).view(-1, 1, 1, 1)\
+                    .expand(-1, mps_state[i].shape[-3], -1, mps_state[i].shape[-1])
+            mps_state[i] = torch.gather(mps_state[i], dim=2, index=index)
+        sample = torch.stack(sample, dim=-1).squeeze(1)
+        return sample
 
     def photon_number_mean_var(
         self,
