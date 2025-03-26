@@ -46,7 +46,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-dev = ['pytest', 'perceval-quandela', 'strawberryfields', 'thewalrus', 'pytest-assume']
+dev = ['pytest', 'perceval-quandela', 'strawberryfields', 'thewalrus']
 
 [project.urls]
 Homepage = 'https://deepquantum.turingq.com/'

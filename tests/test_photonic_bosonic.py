@@ -3,8 +3,8 @@ import numpy as np
 import pytest
 import strawberryfields as sf
 import torch
-
 from deepquantum.photonic import xxpp_to_xpxp
+
 
 def test_catstate():
     r = np.random.rand(1)[0]

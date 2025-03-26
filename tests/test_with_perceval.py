@@ -3,8 +3,8 @@ import numpy as np
 import perceval as pcvl
 import perceval.components as comp
 import pytest
-from perceval.components import BS
 import torch
+from perceval.components import BS
 
 
 def test_random_circuit():
@@ -68,6 +68,7 @@ def test_random_circuit():
         if tmp_error > max_error:
             max_error = tmp_error
     assert max_error < 1e-4
+
 
 def test_loss_fock_basis_True():
     n = 3

@@ -1,9 +1,11 @@
-import strawberryfields as sf
-from strawberryfields.ops import *
+import itertools
+
 import deepquantum as dq
 import numpy as np
-import itertools
+import strawberryfields as sf
 import torch
+from strawberryfields.ops import Fock, Rgate, BSgate, LossChannel
+
 
 def test_loss_fock_basis_True():
     n = 3
@@ -48,6 +50,7 @@ def test_loss_fock_basis_True():
         sf_prob = result.state.fock_prob(fock_st)
         err += abs(dq_prob - sf_prob)
     assert err < 1e-6
+
 
 def test_loss_fock_basis_False():
     n = 3
