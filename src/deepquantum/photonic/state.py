@@ -358,12 +358,13 @@ class BosonicState(nn.Module):
         cov  = self.cov[..., idx[:, None], idx]
         mean = self.mean[..., idx, :]
         r = PhaseShift(inputs=-phi, nmode=1, wires=wire.tolist(), cutoff=self.cutoff)
-        r.to(cov.device, cov.dtype)
-        cov_out, mean_out = r([cov, mean]) # (batch, ncomb, 2, 2)
-        prefactor = 1 / (torch.sqrt(2 * torch.pi * cov_out[..., 0, 0])) # (batch, ncomb)
+        r.to(cov.dtype).to(cov.device)
+        cov, mean = r([cov, mean]) # (batch, ncomb, 2, 2)
+        cov = cov[..., 0, 0].unsqueeze(1)
+        mean = mean[..., 0, 0].unsqueeze(1)
+        prefactor = 1 / (torch.sqrt(2 * torch.pi * cov)) # (batch, 1, ncomb)
         # (batch, npoints, ncomb)
-        marginal_vals = self.weight.unsqueeze(1) * prefactor.unsqueeze(1) * torch.exp(-0.5 * (qvec.reshape(-1, 1) -
-                                                            mean_out[..., 0, 0].unsqueeze(1))**2 / cov_out[..., 0, 0].unsqueeze(1))
+        marginal_vals = self.weight.unsqueeze(1) * prefactor * torch.exp(-0.5 * (qvec.reshape(-1, 1) - mean)**2 / cov)
         marginal_vals = marginal_vals.sum(2) # (batch, npoints)
         if plot:
             plt.subplots(1, 1, figsize=(12, 10))
@@ -472,15 +473,13 @@ class GKPState(BosonicState):
         weights = self._update_weight(k, l, thetas, phis)
 
         filt = abs(weights) > amp_cutoff
-        weights = weights[filt]
+        weights = weights[filt] + 0j
         weights /= torch.sum(weights)
         means = means[filt]
         means = means * 2 * torch.exp(-epsilon) / (1 + exp_eps)
-        means = means * 0.5 * torch.sqrt(torch.tensor(torch.pi * dqp.hbar / (2 * dqp.kappa**2)))   # lattice spacing
+        means = means / 2 * torch.sqrt(torch.tensor(torch.pi * dqp.hbar / (2 * dqp.kappa**2))) + 0j # lattice spacing
         covs = torch.eye(2)
         covs = covs * dqp.hbar / (4 * dqp.kappa**2) * (1 - exp_eps) / (1 + exp_eps)
-        means = means.to(torch.cfloat)
-        weights = weights.to(torch.cfloat)
         state = [covs, means, weights]
         super().__init__(state, nmode, cutoff)
 

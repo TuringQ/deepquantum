@@ -1,6 +1,7 @@
 import networkx as nx
 import pytest
 import torch
+from deepquantum.photonic import Squeezing2
 from deepquantum.photonic import quadrature_to_ladder, ladder_to_quadrature, takagi
 
 
@@ -23,3 +24,11 @@ def test_takagi():
         s_diag = torch.diag(diag).to(u.dtype)
         assert torch.allclose(u @ u.mH, torch.eye(size) + 0j, rtol=1e-5, atol=1e-5)
         assert torch.allclose(u @ s_diag @ u.mT, a + 0j, rtol=1e-5, atol=1e-5)
+
+
+def test_quadrature_ladder_transform():
+    gate = Squeezing2()
+    mat_ladder = gate.update_matrix()
+    mat_xxpp = gate.update_transform_xp()[0]
+    assert torch.allclose(ladder_to_quadrature(mat_ladder, True), mat_xxpp)
+    assert torch.allclose(quadrature_to_ladder(mat_xxpp, True), mat_ladder)

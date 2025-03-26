@@ -3,7 +3,6 @@ import random
 import deepquantum as dq
 import pytest
 import torch
-
 from deepquantum.qmath import slice_state_vector, get_prob_mps
 
 

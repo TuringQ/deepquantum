@@ -2,7 +2,6 @@ import deepquantum as dq
 import pytest
 import torch
 
-# pip install pytest-assume
 
 def test_gaussian_shape():
     cir = dq.QumodeCircuit(nmode=1, init_state='vac', cutoff=3, backend='gaussian')
@@ -10,9 +9,9 @@ def test_gaussian_shape():
 
     data2 = torch.tensor([[0,0], [0,1]])
     state = cir()
-    pytest.assume(tuple(state[0].shape) == (1, 2, 2) and tuple(state[1].shape) == (1, 2, 1))
+    assert tuple(state[0].shape) == (1, 2, 2) and tuple(state[1].shape) == (1, 2, 1)
     state = cir(data=data2)
-    pytest.assume(tuple(state[0].shape) == (2, 2, 2) and tuple(state[1].shape) == (2, 2, 1))
+    assert tuple(state[0].shape) == (2, 2, 2) and tuple(state[1].shape) == (2, 2, 1)
 
 def test_gaussian_batch_shape():
     batch = torch.randint(1, 10, size=[1])[0]
@@ -23,9 +22,9 @@ def test_gaussian_batch_shape():
 
     data2 = torch.tensor([[0,0]] * batch)
     state = cir()
-    pytest.assume(tuple(state[0].shape) == (batch, 2, 2) and tuple(state[1].shape) == (batch, 2, 1))
+    assert tuple(state[0].shape) == (batch, 2, 2) and tuple(state[1].shape) == (batch, 2, 1)
     state = cir(data=data2)
-    pytest.assume(tuple(state[0].shape) == (batch, 2, 2) and tuple(state[1].shape) == (batch, 2, 1))
+    assert tuple(state[0].shape) == (batch, 2, 2) and tuple(state[1].shape) == (batch, 2, 1)
 
 def test_bosonic_shape():
     cir = dq.QumodeCircuit(nmode=2, init_state='vac', cutoff=3, backend='bosonic')
@@ -35,13 +34,13 @@ def test_bosonic_shape():
 
     data2 = torch.tensor([[0,0], [0,1]])
     state = cir()
-    pytest.assume(tuple(state[0].shape) == (1, 1, 4, 4) and
-                  tuple(state[1].shape) == (1, 356, 4, 1) and
-                  tuple(state[2].shape) == (1, 356))
+    assert (tuple(state[0].shape) == (1, 1, 4, 4) and
+            tuple(state[1].shape) == (1, 356, 4, 1) and
+            tuple(state[2].shape) == (1, 356))
     state = cir(data=data2)
-    pytest.assume(tuple(state[0].shape) == (2, 1, 4, 4) and
-                  tuple(state[1].shape) == (2, 356, 4, 1) and
-                  tuple(state[2].shape) == (1, 356))
+    assert (tuple(state[0].shape) == (2, 1, 4, 4) and
+            tuple(state[1].shape) == (2, 356, 4, 1) and
+            tuple(state[2].shape) == (1, 356))
 
 def test_bosonic_batch_shape():
     batch = torch.randint(1, 10, size=[1])[0]
@@ -54,10 +53,10 @@ def test_bosonic_batch_shape():
 
     data2 = torch.tensor([[0,0]] * batch)
     state = cir()
-    pytest.assume(tuple(state[0].shape) == (batch, 1, 2, 2) and
-                  tuple(state[1].shape) == (batch, 4, 2, 1) and
-                  tuple(state[2].shape) == (batch, 4))
+    assert (tuple(state[0].shape) == (batch, 1, 2, 2) and
+            tuple(state[1].shape) == (batch, 4, 2, 1) and
+            tuple(state[2].shape) == (batch, 4))
     state = cir(data=data2)
-    pytest.assume(tuple(state[0].shape) == (batch, 1, 2, 2) and
-                  tuple(state[1].shape) == (batch, 4, 2, 1) and
-                  tuple(state[2].shape) == (batch, 4))
+    assert (tuple(state[0].shape) == (batch, 1, 2, 2) and
+            tuple(state[1].shape) == (batch, 4, 2, 1) and
+            tuple(state[2].shape) == (batch, 4))

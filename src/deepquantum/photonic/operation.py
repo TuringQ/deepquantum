@@ -372,6 +372,12 @@ class Delay(Operation):
         self.ntau = ntau
         self.gates = nn.Sequential()
 
+    def to(self, arg: Any) -> 'Delay':
+        """Set dtype or device of the ``Delay``."""
+        for gate in self.gates:
+            gate.to(arg)
+        return self
+
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
         count = 0

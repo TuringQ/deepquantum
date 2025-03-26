@@ -164,6 +164,7 @@ class PhaseShift(SingleGate):
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix acting on creation operators."""
+        # correspond to: U a^+ U^+ = u^T @ a^+
         theta = self.inputs_to_tensor(theta)
         if self.inv_mode:
             theta = -theta
@@ -309,6 +310,7 @@ class BeamSplitter(DoubleGate):
 
     def get_matrix(self, theta: Any, phi: Any) -> torch.Tensor:
         """Get the local unitary matrix acting on creation operators."""
+        # correspond to: U a^+ U^+ = u^T @ a^+
         theta, phi = self.inputs_to_tensor([theta, phi])
         cos = torch.cos(theta)
         sin = torch.sin(theta)
@@ -359,7 +361,6 @@ class BeamSplitter(DoubleGate):
         # correspond to: U a U^+ = (u^*)^T @ a and U^+ a^+ U = u^* @ a^+
         matrix_xp = torch.cat([torch.cat([matrix.real, -matrix.imag], dim=-1),
                                torch.cat([matrix.imag,  matrix.real], dim=-1)], dim=-2).reshape(4, 4)
-        matrix_xp = matrix_xp.to(theta.device, theta.dtype)
         vector_xp = torch.zeros(4, 1, dtype=theta.dtype, device=theta.device)
         return matrix_xp, vector_xp
 
@@ -472,7 +473,8 @@ class MZI(BeamSplitter):
         self.name = 'MZI'
 
     def get_matrix(self, theta: Any, phi: Any) -> torch.Tensor:
-        """Get the local unitary matrix acting on operators."""
+        """Get the local unitary matrix acting on creation operators."""
+        # correspond to: U a^+ U^+ = u^T @ a^+
         theta, phi = self.inputs_to_tensor([theta, phi])
         cos = torch.cos(theta / 2)
         sin = torch.sin(theta / 2)
@@ -765,6 +767,7 @@ class BeamSplitterSingle(BeamSplitter):
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix acting on creation operators."""
+        # correspond to: U a^+ U^+ = u^T @ a^+
         theta = self.inputs_to_tensor(theta)
         cos = torch.cos(theta / 2) + 0j
         sin = torch.sin(theta / 2) + 0j
@@ -848,8 +851,6 @@ class UAnyGate(Gate):
             wires = list(range(minmax[0], minmax[1] + 1))
         super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat, noise=False)
         self.minmax = [min(self.wires), max(self.wires)]
-        # for i in range(len(self.wires) - 1):
-        #     assert self.wires[i] + 1 == self.wires[i + 1], 'The wires should be consecutive integers'
         if not isinstance(unitary, torch.Tensor):
             unitary = torch.tensor(unitary, dtype=torch.cfloat).reshape(-1, len(self.wires))
         assert unitary.dtype in (torch.cfloat, torch.cdouble)
@@ -879,7 +880,7 @@ class UAnyGate(Gate):
         """
         nt = len(self.wires)
         sqrt = torch.sqrt(torch.arange(self.cutoff, dtype=torch.double, device=matrix.device))
-        tran_mat = matrix.new_zeros([self.cutoff] *  2 * nt)
+        tran_mat = matrix.new_zeros([self.cutoff] * 2 * nt)
         tran_mat[tuple([0] * 2 * nt)] = 1.0
         for rank in range(nt + 1, 2 * nt + 1):
             col_num = rank - nt - 1
@@ -916,10 +917,10 @@ class UAnyGate(Gate):
         """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         # correspond to: U a^+ U^+ = u^T @ a^+ and U^+ a U = u @ a
         # correspond to: U a U^+ = (u^*)^T @ a and U^+ a^+ U = u^* @ a^+
+        n = len(self.wires)
         matrix_xp = torch.cat([torch.cat([matrix.real, -matrix.imag], dim=-1),
-                               torch.cat([matrix.imag,  matrix.real], dim=-1)], dim=-2)
-        matrix_xp = matrix_xp.reshape(2 * self.nmode, 2 * self.nmode)
-        vector_xp = torch.zeros(2 * self.nmode, 1, dtype=matrix.real.dtype, device=matrix.real.device)
+                               torch.cat([matrix.imag,  matrix.real], dim=-1)], dim=-2).reshape(2 * n, 2 * n)
+        vector_xp = torch.zeros(2 * n, 1, dtype=matrix.real.dtype, device=matrix.real.device)
         return matrix_xp, vector_xp
 
     def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -1000,6 +1001,7 @@ class Squeezing(SingleGate):
 
     def get_matrix(self, r: Any, theta: Any) -> torch.Tensor:
         """Get the local matrix acting on annihilation and creation operators."""
+        # correspond to: U^+ (a a^+) U = u @ (a a^+)
         r, theta = self.inputs_to_tensor([r, theta])
         ch = torch.cosh(r)
         sh = torch.sinh(r)
@@ -1155,6 +1157,7 @@ class Squeezing2(DoubleGate):
 
     def get_matrix(self, r: Any, theta: Any) -> torch.Tensor:
         """Get the local matrix acting on annihilation and creation operators."""
+        # correspond to: U^+ (a a^+) U = u @ (a a^+)
         r, theta = self.inputs_to_tensor([r, theta])
         ch = torch.cosh(r)
         sh = torch.sinh(r)
@@ -1321,6 +1324,7 @@ class Displacement(SingleGate):
 
     def get_matrix(self, r: Any, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix acting on annihilation and creation operators."""
+        # correspond to: U^+ (a a^+) U = u @ (a a^+)
         r, theta = self.inputs_to_tensor([r, theta])
         return torch.eye(2, dtype=r.dtype, device=r.device) + 0j
 

@@ -411,6 +411,12 @@ class Layer(Operation):
         # MBQC
         self.nodes = copy(self.wires)
 
+    def to(self, arg: Any) -> 'Layer':
+        """Set dtype or device of the ``Layer``."""
+        for gate in self.gates:
+            gate.to(arg)
+        return self
+
     def get_unitary(self) -> torch.Tensor:
         """Get the global unitary matrix."""
         u = None
