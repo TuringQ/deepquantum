@@ -12,10 +12,11 @@ from torch import nn
 import deepquantum.photonic as dqp
 from ..qmath import is_unitary
 from .operation import Gate, Delay
+from .qmath import ladder_ops
 
 
 class SingleGate(Gate):
-    """Single-mode photonic quantum gate.
+    """A base class for single-mode photonic quantum gates.
 
     Args:
         name (str or None, optional): The name of the gate. Default: ``None``
@@ -52,7 +53,7 @@ class SingleGate(Gate):
 
 
 class DoubleGate(Gate):
-    """Two-mode photonic quantum gate.
+    """A base class for two-mode photonic quantum gates.
 
     Args:
         name (str or None, optional): The name of the gate. Default: ``None``
@@ -103,7 +104,7 @@ class PhaseShift(SingleGate):
 
     .. math::
 
-        PS^{\dagger}(\theta)
+        PS^\dagger(\theta)
         \begin{pmatrix}
             \hat{x} \\
             \hat{p} \\
@@ -938,7 +939,7 @@ class Squeezing(SingleGate):
 
     .. math::
 
-        S^{\dagger}(r, \theta)
+        S^\dagger(r, \theta)
         \begin{pmatrix}
             \hat{x} \\
             \hat{p} \\
@@ -1000,8 +1001,8 @@ class Squeezing(SingleGate):
         return r, theta
 
     def get_matrix(self, r: Any, theta: Any) -> torch.Tensor:
-        """Get the local matrix acting on annihilation and creation operators."""
-        # correspond to: U^+ (a a^+) U = u @ (a a^+)
+        """Get the local symplectic matrix acting on annihilation and creation operators."""
+        # correspond to: U^+ (a a^+) U = s @ (a a^+)
         r, theta = self.inputs_to_tensor([r, theta])
         ch = torch.cosh(r)
         sh = torch.sinh(r)
@@ -1010,7 +1011,7 @@ class Squeezing(SingleGate):
         return torch.stack([ch, -e_it * sh, -e_m_it * sh, ch]).reshape(2, 2)
 
     def update_matrix(self) -> torch.Tensor:
-        """Update the local matrix acting on annihilation and creation operators."""
+        """Update the local symplectic matrix acting on annihilation and creation operators."""
         matrix = self.get_matrix(self.r, self.theta)
         self.matrix = matrix.detach()
         return matrix
@@ -1088,7 +1089,7 @@ class Squeezing2(DoubleGate):
 
     .. math::
 
-        S_2^{\dagger}(r, \theta)
+        S_2^\dagger(r, \theta)
         \begin{pmatrix}
             \hat{x}_1 \\
             \hat{x}_2 \\
@@ -1156,8 +1157,8 @@ class Squeezing2(DoubleGate):
         return r, theta
 
     def get_matrix(self, r: Any, theta: Any) -> torch.Tensor:
-        """Get the local matrix acting on annihilation and creation operators."""
-        # correspond to: U^+ (a a^+) U = u @ (a a^+)
+        """Get the local symplectic matrix acting on annihilation and creation operators."""
+        # correspond to: U^+ (a a^+) U = s @ (a a^+)
         r, theta = self.inputs_to_tensor([r, theta])
         ch = torch.cosh(r)
         sh = torch.sinh(r)
@@ -1168,7 +1169,7 @@ class Squeezing2(DoubleGate):
         return m1 + m2
 
     def update_matrix(self) -> torch.Tensor:
-        """Update the local matrix acting on annihilation and creation operators."""
+        """Update the local symplectic matrix acting on annihilation and creation operators."""
         matrix = self.get_matrix(self.r, self.theta)
         self.matrix = matrix.detach()
         return matrix
@@ -1256,6 +1257,7 @@ class Displacement(SingleGate):
     **Symplectic Transformation:**
 
     .. math::
+
         D^\dagger(r, \theta)
         \begin{pmatrix}
             \hat{x} \\
@@ -1323,13 +1325,13 @@ class Displacement(SingleGate):
         return r, theta
 
     def get_matrix(self, r: Any, theta: Any) -> torch.Tensor:
-        """Get the local unitary matrix acting on annihilation and creation operators."""
-        # correspond to: U^+ (a a^+) U = u @ (a a^+)
+        """Get the local symplectic unitary matrix acting on annihilation and creation operators."""
+        # correspond to: U^+ (a a^+) U = s @ (a a^+)
         r, theta = self.inputs_to_tensor([r, theta])
         return torch.eye(2, dtype=r.dtype, device=r.device) + 0j
 
     def update_matrix(self) -> torch.Tensor:
-        """Update the local unitary matrix acting on annihilation and creation operators."""
+        """Update the local symplectic unitary matrix acting on annihilation and creation operators."""
         matrix = self.get_matrix(self.r, self.theta)
         self.matrix = matrix.detach()
         return matrix
@@ -1542,6 +1544,784 @@ class DisplacementMomentum(Displacement):
         self.register_buffer('theta', theta)
         self.update_matrix()
         self.update_transform_xp()
+
+
+class QuadraticPhase(SingleGate):
+    r"""Quadratic phase gate.
+
+    **Operator Representation:**
+
+    .. math::
+
+        QP(s) = e^{i \frac{s}{2 \hbar} \hat{x}^2}
+
+    **Symplectic Transformation:**
+
+    .. math::
+
+        QP^\dagger(s)
+        \begin{pmatrix}
+            \hat{a} \\
+            \hat{a}^\dagger \\
+        \end{pmatrix}
+        QP(s) =
+        \begin{pmatrix}
+            1 + i \frac{s}{2} & i \frac{s}{2}     \\
+            -i \frac{s}{2}    & 1 - i \frac{s}{2} \\
+        \end{pmatrix}
+        \begin{pmatrix}
+            \hat{a} \\
+            \hat{a}^\dagger \\
+        \end{pmatrix}
+
+    .. math::
+
+        QP^\dagger(s)
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p} \\
+        \end{pmatrix}
+        QP(s) =
+        \begin{pmatrix}
+            1 & 0 \\
+            s & 1 \\
+        \end{pmatrix}
+        \begin{pmatrix}
+            \hat{x} \\
+            \hat{p} \\
+        \end{pmatrix}
+
+    **Decomposition Representation:**
+
+    .. math::
+
+        QP(s) = PS(\theta) S(r e^{i \phi})
+
+    where :math:`\cosh(r) = \sqrt{1 + (\frac{s}{2})^2}, \quad
+    \tan(\theta) = \frac{s}{2}, \quad
+    \phi = -\sign(s)\frac{\pi}{2} - \theta`.
+
+    Args:
+        inputs (Any, optional): The parameter of the gate. Default: ``None``
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
+        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
+        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
+        mu (float, optional): The mean of Gaussian noise. Default: 0
+        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nmode: int = 1,
+        wires: Union[int, List[int], None] = None,
+        cutoff: Optional[int] = None,
+        den_mat: bool = False,
+        requires_grad: bool = False,
+        noise: bool = False,
+        mu: float = 0,
+        sigma: float = 0.1
+    ) -> None:
+        super().__init__(name='QuadraticPhase', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
+                         den_mat=den_mat, requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        self.npara = 1
+
+    def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
+        """Convert inputs to torch.Tensor."""
+        if inputs is None:
+            s = torch.rand(1)[0]
+        else:
+            s = inputs[0]
+        if not isinstance(s, torch.Tensor):
+            s = torch.tensor(s, dtype=torch.float)
+        if self.noise:
+            s = s + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        return s
+
+    def get_matrix(self, s: Any) -> torch.Tensor:
+        """Get the local symplectic matrix acting on annihilation and creation operators."""
+        # correspond to: U^+ (a a^+) U = s @ (a a^+)
+        s = self.inputs_to_tensor(s)
+        x = 1j * s / 2
+        return torch.stack([1 + x, x, -x, 1 - x]).reshape(2, 2)
+
+    def update_matrix(self) -> torch.Tensor:
+        """Update the local symplectic matrix acting on annihilation and creation operators."""
+        matrix = self.get_matrix(self.s)
+        self.matrix = matrix.detach()
+        return matrix
+
+    def get_matrix_state(self, s: Any) -> torch.Tensor:
+        """Get the local transformation matrix acting on Fock state tensors."""
+        s = self.inputs_to_tensor(s)
+        r = torch.arccosh((1 + s**2 / 4) ** 0.5)
+        theta = torch.arctan(s / 2)
+        phi = -torch.sign(s) * torch.pi / 2 - theta
+        # noise already in s
+        mat_s  = Squeezing([r, phi], cutoff=self.cutoff).update_matrix_state()
+        mat_ps = PhaseShift(theta, cutoff=self.cutoff).update_matrix_state()
+        return mat_ps @ mat_s
+
+    def update_matrix_state(self) -> torch.Tensor:
+        """Update the local transformation matrix acting on Fock state tensors."""
+        return self.get_matrix_state(self.s)
+
+    def get_transform_xp(self, s: Any) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
+        s = self.inputs_to_tensor(s).reshape(-1)
+        one = s.new_ones(1)
+        zero = s.new_zeros(1)
+        matrix_xp = torch.stack([one, zero, s, one]).reshape(2, 2)
+        vector_xp = s.new_zeros(2, 1)
+        return matrix_xp, vector_xp
+
+    def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Update the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
+        matrix_xp, vector_xp = self.get_transform_xp(self.s)
+        self.matrix_xp = matrix_xp.detach()
+        self.vector_xp = vector_xp.detach()
+        return matrix_xp, vector_xp
+
+    def init_para(self, inputs: Any = None) -> None:
+        """Initialize the parameters."""
+        noise = self.noise
+        self.noise = False
+        s = self.inputs_to_tensor(inputs)
+        self.noise = noise
+        if self.requires_grad:
+            self.s = nn.Parameter(s)
+        else:
+            self.register_buffer('s', s)
+        self.update_matrix()
+        self.update_transform_xp()
+
+    def extra_repr(self) -> str:
+        return f'wires={self.wires}, s={self.s.item()}'
+
+
+class ControlledX(DoubleGate):
+    r"""Controlled-X gate.
+
+    **Operator Representation:**
+
+    .. math::
+
+        CX(s) = e^{-i \frac{s}{\hbar} \hat{x}_1 \hat{p}_2}
+
+    **Symplectic Transformation:**
+
+    .. math::
+
+        CX^\dagger(s)
+        \begin{pmatrix}
+            \hat{a}_1 \\
+            \hat{a}_2 \\
+            \hat{a}_1^\dagger \\
+            \hat{a}_2^\dagger \\
+        \end{pmatrix}
+        CX(s) =
+        \begin{pmatrix}
+            1           & -\frac{s}{2} & 0           & \frac{s}{2}  \\
+            \frac{s}{2} & 1            & \frac{s}{2} & 0            \\
+            0           & \frac{s}{2}  & 1           & -\frac{s}{2} \\
+            \frac{s}{2} & 0            & \frac{s}{2} & 1            \\
+        \end{pmatrix}
+        \begin{pmatrix}
+            \hat{a}_1 \\
+            \hat{a}_2 \\
+            \hat{a}_1^\dagger \\
+            \hat{a}_2^\dagger \\
+        \end{pmatrix}
+
+    .. math::
+
+        CX^\dagger(s)
+        \begin{pmatrix}
+            \hat{x}_1 \\
+            \hat{x}_2 \\
+            \hat{p}_1 \\
+            \hat{p}_2 \\
+        \end{pmatrix}
+        CX(s) =
+        \begin{pmatrix}
+            1 & 0 & 0 & 0  \\
+            s & 1 & 0 & 0  \\
+            0 & 0 & 1 & -s \\
+            0 & 0 & 0 & 1  \\
+        \end{pmatrix}
+        \begin{pmatrix}
+            \hat{x}_1 \\
+            \hat{x}_2 \\
+            \hat{p}_1 \\
+            \hat{p}_2 \\
+        \end{pmatrix}
+
+    **Decomposition Representation:**
+
+    .. math::
+
+        CX(s) = BS(\frac{\pi}{2} + \theta, 0) \left(S(r, 0) \otimes S(-r, 0)\right) BS(\theta, 0)
+
+    where :math:`\sin(2 \theta) = -\frac{1}{\cosh r}, \quad
+    \cos(2 \theta) = -\tanh r, \quad
+    \sinh(r) = -\frac{s}{2}`.
+
+    Args:
+        inputs (Any, optional): The parameter of the gate. Default: ``None``
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 2
+        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
+        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
+        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
+        mu (float, optional): The mean of Gaussian noise. Default: 0
+        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nmode: int = 2,
+        wires: Union[int, List[int], None] = None,
+        cutoff: Optional[int] = None,
+        den_mat: bool = False,
+        requires_grad: bool = False,
+        noise: bool = False,
+        mu: float = 0,
+        sigma: float = 0.1
+    ) -> None:
+        super().__init__(name='ControlledX', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
+                         den_mat=den_mat, requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        self.npara = 1
+
+    def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
+        """Convert inputs to torch.Tensor."""
+        if inputs is None:
+            s = torch.rand(1)[0]
+        else:
+            s = inputs[0]
+        if not isinstance(s, torch.Tensor):
+            s = torch.tensor(s, dtype=torch.float)
+        if self.noise:
+            s = s + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        return s
+
+    def get_matrix(self, s: Any) -> torch.Tensor:
+        """Get the local symplectic matrix acting on annihilation and creation operators."""
+        # correspond to: U^+ (a a^+) U = s @ (a a^+)
+        s = self.inputs_to_tensor(s).reshape(-1)
+        one = s.new_ones(1)
+        zero = s.new_zeros(1)
+        x = s / 2
+        mat = torch.stack([one, -x, zero, x,
+                           x, one, x, zero,
+                           zero, x, one, -x,
+                           x, zero, x, one]).reshape(4, 4) + 0j
+        return mat
+
+    def update_matrix(self) -> torch.Tensor:
+        """Update the local symplectic matrix acting on annihilation and creation operators."""
+        matrix = self.get_matrix(self.s)
+        self.matrix = matrix.detach()
+        return matrix
+
+    def get_matrix_state(self, s: Any) -> torch.Tensor:
+        """Get the local transformation matrix acting on Fock state tensors."""
+        s = self.inputs_to_tensor(s).reshape(-1)
+        zero = s.new_zeros(1)
+        r = torch.arcsinh(-s / 2)
+        theta = torch.arccos(-torch.tanh(r)) / 2
+        # noise already in s
+        mat_bs1 = BeamSplitter([theta, zero], cutoff=self.cutoff).update_matrix_state()
+        mat_s1 = Squeezing([r, zero], cutoff=self.cutoff).update_matrix_state()
+        mat_s2 = Squeezing([-r, zero], cutoff=self.cutoff).update_matrix_state()
+        mat_bs2 = BeamSplitter([theta + torch.pi / 2, zero], cutoff=self.cutoff).update_matrix_state()
+        mat = torch.einsum('abcd,ce,df,efgh->abgh', mat_bs2, mat_s1, mat_s2, mat_bs1)
+        return mat
+
+    def update_matrix_state(self) -> torch.Tensor:
+        """Update the local transformation matrix acting on Fock state tensors."""
+        return self.get_matrix_state(self.s)
+
+    def get_transform_xp(self, s: Any) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
+        s = self.inputs_to_tensor(s).reshape(-1)
+        one = s.new_ones(1)
+        zero = s.new_zeros(1)
+        mat1 = torch.stack([one, zero, s, one]).reshape(2, 2)
+        mat2 = torch.stack([one, -s, zero, one]).reshape(2, 2)
+        matrix_xp = torch.block_diag(mat1, mat2)
+        vector_xp = s.new_zeros(4, 1)
+        return matrix_xp, vector_xp
+
+    def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Update the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
+        matrix_xp, vector_xp = self.get_transform_xp(self.s)
+        self.matrix_xp = matrix_xp.detach()
+        self.vector_xp = vector_xp.detach()
+        return matrix_xp, vector_xp
+
+    def init_para(self, inputs: Any = None) -> None:
+        """Initialize the parameters."""
+        noise = self.noise
+        self.noise = False
+        s = self.inputs_to_tensor(inputs)
+        self.noise = noise
+        if self.requires_grad:
+            self.s = nn.Parameter(s)
+        else:
+            self.register_buffer('s', s)
+        self.update_matrix()
+        self.update_transform_xp()
+
+    def extra_repr(self) -> str:
+        return f'wires={self.wires}, s={self.s.item()}'
+
+
+class ControlledZ(DoubleGate):
+    r"""Controlled-Z gate.
+
+    **Operator Representation:**
+
+    .. math::
+
+        CZ(s) = e^{-i \frac{s}{\hbar} \hat{x}_1 \hat{x}_2}
+
+    **Symplectic Transformation:**
+
+    .. math::
+
+        CZ^\dagger(s)
+        \begin{pmatrix}
+            \hat{a}_1 \\
+            \hat{a}_2 \\
+            \hat{a}_1^\dagger \\
+            \hat{a}_2^\dagger \\
+        \end{pmatrix}
+        CZ(s) =
+        \begin{pmatrix}
+            1              & i \frac{s}{2}  & 0              & i \frac{s}{2}  \\
+            i \frac{s}{2}  & 1              & i \frac{s}{2}  & 0              \\
+            0              & -i \frac{s}{2} & 1              & -i \frac{s}{2} \\
+            -i \frac{s}{2} & 0              & -i \frac{s}{2} & 1              \\
+        \end{pmatrix}
+        \begin{pmatrix}
+            \hat{a}_1 \\
+            \hat{a}_2 \\
+            \hat{a}_1^\dagger \\
+            \hat{a}_2^\dagger \\
+        \end{pmatrix}
+
+    .. math::
+
+        CZ^\dagger(s)
+        \begin{pmatrix}
+            \hat{x}_1 \\
+            \hat{x}_2 \\
+            \hat{p}_1 \\
+            \hat{p}_2 \\
+        \end{pmatrix}
+        CZ(s) =
+        \begin{pmatrix}
+            1 & 0 & 0 & 0 \\
+            0 & 1 & 0 & 0 \\
+            0 & s & 1 & 0 \\
+            s & 0 & 0 & 1 \\
+        \end{pmatrix}
+        \begin{pmatrix}
+            \hat{x}_1 \\
+            \hat{x}_2 \\
+            \hat{p}_1 \\
+            \hat{p}_2 \\
+        \end{pmatrix}
+
+    **Decomposition Representation:**
+
+    .. math::
+
+        CZ(s) = PS_2(\pi/2) CX(s) PS_2^\dagger(\pi/2)
+
+    Args:
+        inputs (Any, optional): The parameter of the gate. Default: ``None``
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 2
+        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
+        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
+        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
+        mu (float, optional): The mean of Gaussian noise. Default: 0
+        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nmode: int = 2,
+        wires: Union[int, List[int], None] = None,
+        cutoff: Optional[int] = None,
+        den_mat: bool = False,
+        requires_grad: bool = False,
+        noise: bool = False,
+        mu: float = 0,
+        sigma: float = 0.1
+    ) -> None:
+        super().__init__(name='ControlledZ', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
+                         den_mat=den_mat, requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        self.npara = 1
+
+    def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
+        """Convert inputs to torch.Tensor."""
+        if inputs is None:
+            s = torch.rand(1)[0]
+        else:
+            s = inputs[0]
+        if not isinstance(s, torch.Tensor):
+            s = torch.tensor(s, dtype=torch.float)
+        if self.noise:
+            s = s + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        return s
+
+    def get_matrix(self, s: Any) -> torch.Tensor:
+        """Get the local symplectic matrix acting on annihilation and creation operators."""
+        # correspond to: U^+ (a a^+) U = s @ (a a^+)
+        s = self.inputs_to_tensor(s).reshape(-1)
+        one = s.new_ones(1)
+        zero = s.new_zeros(1)
+        x = 1j * s / 2
+        mat = torch.stack([one, x, zero, x,
+                           x, one, x, zero,
+                           zero, -x, one, -x,
+                           -x, zero, -x, one]).reshape(4, 4)
+        return mat
+
+    def update_matrix(self) -> torch.Tensor:
+        """Update the local symplectic matrix acting on annihilation and creation operators."""
+        matrix = self.get_matrix(self.s)
+        self.matrix = matrix.detach()
+        return matrix
+
+    def get_matrix_state(self, s: Any) -> torch.Tensor:
+        """Get the local transformation matrix acting on Fock state tensors."""
+        s = self.inputs_to_tensor(s)
+        theta = torch.tensor(torch.pi / 2, dtype=s.dtype, device=s.device)
+        # noise already in s
+        mat_ps1 = PhaseShift(-theta, cutoff=self.cutoff).update_matrix_state()
+        mat_cx = ControlledX(s, cutoff=self.cutoff).update_matrix()
+        mat_ps2 = PhaseShift(theta, cutoff=self.cutoff).update_matrix_state()
+        mat = torch.einsum('an,mnkl,lb->makb', mat_ps2, mat_cx, mat_ps1)
+        return mat
+
+    def update_matrix_state(self) -> torch.Tensor:
+        """Update the local transformation matrix acting on Fock state tensors."""
+        return self.get_matrix_state(self.s)
+
+    def get_transform_xp(self, s: Any) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
+        s = self.inputs_to_tensor(s).reshape(-1)
+        zero = s.new_zeros(1)
+        mat1 = torch.eye(4, dtype=s.dtype, device=s.device)
+        mat2 = torch.stack([zero, zero, s, s]).reshape(-1).diag_embed().fliplr().reshape(4, 4)
+        matrix_xp = mat1 + mat2
+        vector_xp = s.new_zeros(4, 1)
+        return matrix_xp, vector_xp
+
+    def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Update the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
+        matrix_xp, vector_xp = self.get_transform_xp(self.s)
+        self.matrix_xp = matrix_xp.detach()
+        self.vector_xp = vector_xp.detach()
+        return matrix_xp, vector_xp
+
+    def init_para(self, inputs: Any = None) -> None:
+        """Initialize the parameters."""
+        noise = self.noise
+        self.noise = False
+        s = self.inputs_to_tensor(inputs)
+        self.noise = noise
+        if self.requires_grad:
+            self.s = nn.Parameter(s)
+        else:
+            self.register_buffer('s', s)
+        self.update_matrix()
+        self.update_transform_xp()
+
+    def extra_repr(self) -> str:
+        return f'wires={self.wires}, s={self.s.item()}'
+
+
+class CubicPhase(SingleGate):
+    r"""Cubic phase gate.
+
+    **Operator Representation:**
+
+    .. math::
+
+        CP(\gamma) = e^{i \frac{\gamma}{3 \hbar} \hat{x}^3}
+
+    **Operator Transformation:**
+
+    .. math::
+
+        CP^\dagger(\gamma) \hat{a} CP(\gamma) = \hat{a} + i\frac{\gamma(\hat{a} + \hat{a}^\dagger)^2}{2\sqrt{2/\hbar}}
+
+    .. math::
+
+        CP^\dagger(\gamma) \hat{x} CP(\gamma) &= \hat{x}, \\
+        CP^\dagger(\gamma) \hat{p} CP(\gamma) &= \hat{p} + \gamma\hat{x}^2.
+
+    Args:
+        inputs (Any, optional): The parameter of the gate. Default: ``None``
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
+        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
+        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
+        mu (float, optional): The mean of Gaussian noise. Default: 0
+        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nmode: int = 1,
+        wires: Union[int, List[int], None] = None,
+        cutoff: Optional[int] = None,
+        den_mat: bool = False,
+        requires_grad: bool = False,
+        noise: bool = False,
+        mu: float = 0,
+        sigma: float = 0.1
+    ) -> None:
+        super().__init__(name='CubicPhase', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
+                         den_mat=den_mat, requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        self.npara = 1
+
+    def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
+        """Convert inputs to torch.Tensor."""
+        if inputs is None:
+            s = torch.rand(1)[0]
+        else:
+            s = inputs[0]
+        if not isinstance(s, torch.Tensor):
+            s = torch.tensor(s, dtype=torch.float)
+        if self.noise:
+            s = s + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        return s
+
+    def get_matrix_state(self, gamma: Any) -> torch.Tensor:
+        """Get the local transformation matrix acting on Fock state tensors."""
+        gamma = self.inputs_to_tensor(gamma)
+        a, ad = ladder_ops(self.cutoff, gamma.dtype, device=gamma.device)
+        x = (a + ad) * dqp.hbar**0.5 / (2 * dqp.kappa)
+        mat = torch.matrix_exp(1j * gamma * torch.matrix_power(x, 3) / (3 * dqp.hbar)).reshape([self.cutoff] * 2)
+        return mat
+
+    def update_matrix_state(self) -> torch.Tensor:
+        """Update the local transformation matrix acting on Fock state tensors."""
+        return self.get_matrix_state(self.gamma)
+
+    def init_para(self, inputs: Any = None) -> None:
+        """Initialize the parameters."""
+        noise = self.noise
+        self.noise = False
+        gamma = self.inputs_to_tensor(inputs)
+        self.noise = noise
+        if self.requires_grad:
+            self.gamma = nn.Parameter(gamma)
+        else:
+            self.register_buffer('gamma', gamma)
+        self.update_matrix()
+        self.update_transform_xp()
+
+    def extra_repr(self) -> str:
+        return f'wires={self.wires}, gamma={self.gamma.item()}'
+
+
+class Kerr(SingleGate):
+    r"""Kerr gate.
+
+    **Operator Representation:**
+
+    .. math::
+
+        K(\kappa) = e^{i \kappa \hat{n}^2}
+
+    **Operator Transformation:**
+
+    .. math::
+
+        K^\dagger(\kappa) \hat{a} K(\kappa) &= e^{i \kappa (2 \hat{a}^\dagger \hat{a} + 1)} \hat{a}
+                                             = \hat{a} e^{i \kappa (2 \hat{a}^\dagger \hat{a} - 1)}, \\
+        K^\dagger(\kappa) \hat{a}^\dagger K(\kappa) &= \hat{a}^\dagger e^{-i \kappa (2 \hat{a}^\dagger \hat{a} + 1)}
+                                                     = e^{i \kappa (2 \hat{a}^\dagger \hat{a} + 1)} \hat{a}^\dagger.
+
+    Args:
+        inputs (Any, optional): The parameter of the gate. Default: ``None``
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
+        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
+        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
+        mu (float, optional): The mean of Gaussian noise. Default: 0
+        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nmode: int = 1,
+        wires: Union[int, List[int], None] = None,
+        cutoff: Optional[int] = None,
+        den_mat: bool = False,
+        requires_grad: bool = False,
+        noise: bool = False,
+        mu: float = 0,
+        sigma: float = 0.1
+    ) -> None:
+        super().__init__(name='Kerr', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
+                         den_mat=den_mat, requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        self.npara = 1
+
+    def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
+        """Convert inputs to torch.Tensor."""
+        if inputs is None:
+            s = torch.rand(1)[0]
+        else:
+            s = inputs[0]
+        if not isinstance(s, torch.Tensor):
+            s = torch.tensor(s, dtype=torch.float)
+        if self.noise:
+            s = s + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        return s
+
+    def get_matrix_state(self, kappa: Any) -> torch.Tensor:
+        """Get the local transformation matrix acting on Fock state tensors."""
+        kappa = self.inputs_to_tensor(kappa)
+        n = torch.arange(self.cutoff, dtype=kappa.dtype, device=kappa.device)
+        mat = torch.exp(1j * kappa * n**2).diag_embed().reshape([self.cutoff] * 2)
+        return mat
+
+    def update_matrix_state(self) -> torch.Tensor:
+        """Update the local transformation matrix acting on Fock state tensors."""
+        return self.get_matrix_state(self.kappa)
+
+    def init_para(self, inputs: Any = None) -> None:
+        """Initialize the parameters."""
+        noise = self.noise
+        self.noise = False
+        kappa = self.inputs_to_tensor(inputs)
+        self.noise = noise
+        if self.requires_grad:
+            self.kappa = nn.Parameter(kappa)
+        else:
+            self.register_buffer('kappa', kappa)
+        self.update_matrix()
+        self.update_transform_xp()
+
+    def extra_repr(self) -> str:
+        return f'wires={self.wires}, kappa={self.kappa.item()}'
+
+
+class CrossKerr(DoubleGate):
+    r"""Cross-Kerr gate.
+
+    **Operator Representation:**
+
+    .. math::
+
+        CK(\kappa) = e^{i \kappa \hat{n}_1 \hat{n}_2}
+
+    **Operator Transformation:**
+
+    .. math::
+
+        CK^\dagger(\kappa) \hat{a}_1 CK(\kappa) &= e^{i \kappa \hat{n}_2} \hat{a}_1
+                                                 = \hat{a}_1 e^{i \kappa \hat{n}_2}, \\
+        CK^\dagger(\kappa) \hat{a}_2 CK(\kappa) &= e^{i \kappa \hat{n}_1} \hat{a}_2
+                                                 = \hat{a}_2 e^{i \kappa \hat{n}_1}, \\
+        CK^\dagger(\kappa) \hat{a}_1^\dagger CK(\kappa) &= e^{-i \kappa \hat{n}_2} \hat{a}_1^\dagger
+                                                         = \hat{a}_1^\dagger e^{-i \kappa \hat{n}_2}, \\
+        CK^\dagger(\kappa) \hat{a}_2^\dagger CK(\kappa) &= e^{-i \kappa \hat{n}_1} \hat{a}_2^\dagger
+                                                         = \hat{a}_2^\dagger e^{-i \kappa \hat{n}_1}.
+
+    Args:
+        inputs (Any, optional): The parameter of the gate. Default: ``None``
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 2
+        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
+        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
+        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
+        mu (float, optional): The mean of Gaussian noise. Default: 0
+        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+    """
+    def __init__(
+        self,
+        inputs: Any = None,
+        nmode: int = 2,
+        wires: Union[int, List[int], None] = None,
+        cutoff: Optional[int] = None,
+        den_mat: bool = False,
+        requires_grad: bool = False,
+        noise: bool = False,
+        mu: float = 0,
+        sigma: float = 0.1
+    ) -> None:
+        super().__init__(name='CrossKerr', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
+                         den_mat=den_mat, requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        self.npara = 1
+
+    def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
+        """Convert inputs to torch.Tensor."""
+        if inputs is None:
+            s = torch.rand(1)[0]
+        else:
+            s = inputs[0]
+        if not isinstance(s, torch.Tensor):
+            s = torch.tensor(s, dtype=torch.float)
+        if self.noise:
+            s = s + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        return s
+
+    def get_matrix_state(self, kappa: Any) -> torch.Tensor:
+        """Get the local transformation matrix acting on Fock state tensors."""
+        kappa = self.inputs_to_tensor(kappa)
+        n = torch.arange(self.cutoff, dtype=kappa.dtype, device=kappa.device)
+        n1n2 = torch.kron(n, n)
+        mat = torch.exp(1j * kappa * n1n2).diag_embed().reshape([self.cutoff] * 4)
+        return mat
+
+    def update_matrix_state(self) -> torch.Tensor:
+        """Update the local transformation matrix acting on Fock state tensors."""
+        return self.get_matrix_state(self.kappa)
+
+    def init_para(self, inputs: Any = None) -> None:
+        """Initialize the parameters."""
+        noise = self.noise
+        self.noise = False
+        kappa = self.inputs_to_tensor(inputs)
+        self.noise = noise
+        if self.requires_grad:
+            self.kappa = nn.Parameter(kappa)
+        else:
+            self.register_buffer('kappa', kappa)
+        self.update_matrix()
+        self.update_transform_xp()
+
+    def extra_repr(self) -> str:
+        return f'wires={self.wires}, kappa={self.kappa.item()}'
 
 
 class DelayBS(Delay):
