@@ -1632,15 +1632,15 @@ class QuadraticPhase(SingleGate):
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
         """Convert inputs to torch.Tensor."""
+        while isinstance(inputs, list):
+            inputs = inputs[0]
         if inputs is None:
-            s = torch.rand(1)[0]
-        else:
-            s = inputs[0]
-        if not isinstance(s, torch.Tensor):
-            s = torch.tensor(s, dtype=torch.float)
+            inputs = torch.rand(1)[0]
+        if not isinstance(inputs, torch.Tensor):
+            inputs = torch.tensor(inputs, dtype=torch.float)
         if self.noise:
-            s = s + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
-        return s
+            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        return inputs
 
     def get_matrix(self, s: Any) -> torch.Tensor:
         """Get the local symplectic matrix acting on annihilation and creation operators."""
@@ -1801,15 +1801,15 @@ class ControlledX(DoubleGate):
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
         """Convert inputs to torch.Tensor."""
+        while isinstance(inputs, list):
+            inputs = inputs[0]
         if inputs is None:
-            s = torch.rand(1)[0]
-        else:
-            s = inputs[0]
-        if not isinstance(s, torch.Tensor):
-            s = torch.tensor(s, dtype=torch.float)
+            inputs = torch.rand(1)[0]
+        if not isinstance(inputs, torch.Tensor):
+            inputs = torch.tensor(inputs, dtype=torch.float)
         if self.noise:
-            s = s + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
-        return s
+            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        return inputs
 
     def get_matrix(self, s: Any) -> torch.Tensor:
         """Get the local symplectic matrix acting on annihilation and creation operators."""
@@ -1835,7 +1835,7 @@ class ControlledX(DoubleGate):
         s = self.inputs_to_tensor(s).reshape(-1)
         zero = s.new_zeros(1)
         r = torch.arcsinh(-s / 2)
-        theta = torch.arccos(-torch.tanh(r)) / 2
+        theta = torch.atan2(-1 / torch.cosh(r), -torch.tanh(r)) / 2
         # noise already in s
         mat_bs1 = BeamSplitter([theta, zero], cutoff=self.cutoff).update_matrix_state()
         mat_s1 = Squeezing([r, zero], cutoff=self.cutoff).update_matrix_state()
@@ -1977,15 +1977,15 @@ class ControlledZ(DoubleGate):
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
         """Convert inputs to torch.Tensor."""
+        while isinstance(inputs, list):
+            inputs = inputs[0]
         if inputs is None:
-            s = torch.rand(1)[0]
-        else:
-            s = inputs[0]
-        if not isinstance(s, torch.Tensor):
-            s = torch.tensor(s, dtype=torch.float)
+            inputs = torch.rand(1)[0]
+        if not isinstance(inputs, torch.Tensor):
+            inputs = torch.tensor(inputs, dtype=torch.float)
         if self.noise:
-            s = s + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
-        return s
+            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        return inputs
 
     def get_matrix(self, s: Any) -> torch.Tensor:
         """Get the local symplectic matrix acting on annihilation and creation operators."""
@@ -2012,7 +2012,7 @@ class ControlledZ(DoubleGate):
         theta = torch.tensor(torch.pi / 2, dtype=s.dtype, device=s.device)
         # noise already in s
         mat_ps1 = PhaseShift(-theta, cutoff=self.cutoff).update_matrix_state()
-        mat_cx = ControlledX(s, cutoff=self.cutoff).update_matrix()
+        mat_cx = ControlledX(s, cutoff=self.cutoff).update_matrix_state()
         mat_ps2 = PhaseShift(theta, cutoff=self.cutoff).update_matrix_state()
         mat = torch.einsum('an,mnkl,lb->makb', mat_ps2, mat_cx, mat_ps1)
         return mat
@@ -2106,15 +2106,15 @@ class CubicPhase(SingleGate):
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
         """Convert inputs to torch.Tensor."""
+        while isinstance(inputs, list):
+            inputs = inputs[0]
         if inputs is None:
-            s = torch.rand(1)[0]
-        else:
-            s = inputs[0]
-        if not isinstance(s, torch.Tensor):
-            s = torch.tensor(s, dtype=torch.float)
+            inputs = torch.rand(1)[0]
+        if not isinstance(inputs, torch.Tensor):
+            inputs = torch.tensor(inputs, dtype=torch.float)
         if self.noise:
-            s = s + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
-        return s
+            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        return inputs
 
     def get_matrix_state(self, gamma: Any) -> torch.Tensor:
         """Get the local transformation matrix acting on Fock state tensors."""
@@ -2138,8 +2138,6 @@ class CubicPhase(SingleGate):
             self.gamma = nn.Parameter(gamma)
         else:
             self.register_buffer('gamma', gamma)
-        self.update_matrix()
-        self.update_transform_xp()
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, gamma={self.gamma.item()}'
@@ -2194,15 +2192,15 @@ class Kerr(SingleGate):
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
         """Convert inputs to torch.Tensor."""
+        while isinstance(inputs, list):
+            inputs = inputs[0]
         if inputs is None:
-            s = torch.rand(1)[0]
-        else:
-            s = inputs[0]
-        if not isinstance(s, torch.Tensor):
-            s = torch.tensor(s, dtype=torch.float)
+            inputs = torch.rand(1)[0]
+        if not isinstance(inputs, torch.Tensor):
+            inputs = torch.tensor(inputs, dtype=torch.float)
         if self.noise:
-            s = s + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
-        return s
+            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        return inputs
 
     def get_matrix_state(self, kappa: Any) -> torch.Tensor:
         """Get the local transformation matrix acting on Fock state tensors."""
@@ -2225,8 +2223,6 @@ class Kerr(SingleGate):
             self.kappa = nn.Parameter(kappa)
         else:
             self.register_buffer('kappa', kappa)
-        self.update_matrix()
-        self.update_transform_xp()
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, kappa={self.kappa.item()}'
@@ -2285,15 +2281,15 @@ class CrossKerr(DoubleGate):
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
         """Convert inputs to torch.Tensor."""
+        while isinstance(inputs, list):
+            inputs = inputs[0]
         if inputs is None:
-            s = torch.rand(1)[0]
-        else:
-            s = inputs[0]
-        if not isinstance(s, torch.Tensor):
-            s = torch.tensor(s, dtype=torch.float)
+            inputs = torch.rand(1)[0]
+        if not isinstance(inputs, torch.Tensor):
+            inputs = torch.tensor(inputs, dtype=torch.float)
         if self.noise:
-            s = s + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
-        return s
+            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        return inputs
 
     def get_matrix_state(self, kappa: Any) -> torch.Tensor:
         """Get the local transformation matrix acting on Fock state tensors."""
@@ -2317,8 +2313,6 @@ class CrossKerr(DoubleGate):
             self.kappa = nn.Parameter(kappa)
         else:
             self.register_buffer('kappa', kappa)
-        self.update_matrix()
-        self.update_transform_xp()
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, kappa={self.kappa.item()}'
