@@ -187,6 +187,7 @@ def ladder_ops(cutoff: int, dtype = torch.cfloat, device = 'cpu') -> Tuple[torch
     ad = a.mH # share the memory
     return a, ad
 
+
 def shift_func(l: List, nstep: int) -> List:
     """Shift a list by a number of steps.
 
