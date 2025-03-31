@@ -13,6 +13,7 @@ from torch import nn
 
 from .channel import PhotonLoss
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate, Squeezing, Squeezing2, Displacement
+from .gate import QuadraticPhase, ControlledX, ControlledZ, CubicPhase, Kerr, CrossKerr
 from .measurement import Homodyne
 from .operation import Delay
 
@@ -20,8 +21,13 @@ info_dic = {'PS': ['teal', 0],
             'S': ['royalblue', 3],
             'S2': ['royalblue', 0],
             'D': ['green', 3],
-            'U': ['cadetblue', 0]
-            }
+            'U': ['cadetblue', 0],
+            'QP': ['peru', 0],
+            'CP': ['peru', 0],
+            'K': ['pink', 3],
+            'CX': ['gold', 0],
+            'CZ': ['gold', 0],
+            'CK': ['pink', 0]}
 
 class DrawCircuit():
     """Draw the photonic quantum circuit.
@@ -123,21 +129,19 @@ class DrawCircuit():
                     self.draw_any(order, op.wires, name_)
                 else:
                     name_ = 'S2'
-                    r = op.r.item()
-                    theta = op.theta.item()
-                    self.draw_sq(order, op.wires, r, theta, name_)
+                    para_dic = {'r':op.r.item(), 'θ': op.theta.item()}
+                    self.draw_sq(order, op.wires, para_dic, name_)
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = order + 1
             elif isinstance(op, (Squeezing, Displacement)):
-                r = op.r.item()
-                theta = op.theta.item()
+                para_dic = {'r':op.r.item(), 'θ': op.theta.item()}
                 order = depth[op.wires[0]]
                 if isinstance(op, Squeezing):
                     name_ = 'S'
                 else:
                     name_ = 'D'
-                self.draw_sq(order, op.wires, r, theta, name=name_)
+                self.draw_sq(order, op.wires, para_dic, name=name_)
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = depth[i]+1
@@ -157,6 +161,33 @@ class DrawCircuit():
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = depth[i]+1
+            elif isinstance(op, (QuadraticPhase, ControlledX, ControlledZ, CubicPhase, Kerr, CrossKerr)):
+                if isinstance(op, (QuadraticPhase, CubicPhase, Kerr)):
+                    order = depth[op.wires[0]]
+                    if isinstance(op, QuadraticPhase):
+                        para_dic = {'s':op.s.item()}
+                        name_ = 'QP'
+                    elif isinstance(op, CubicPhase):
+                        para_dic = {'γ':op.gamma.item()}
+                        name_ = 'CP'
+                    elif isinstance(op, Kerr):
+                        para_dic = {'κ':op.kappa.item()}
+                        name_ = 'K'
+                elif isinstance(op, (ControlledX, ControlledZ, CrossKerr)):
+                    order = max(depth[min(op.wires) : max(op.wires)+1])
+                    if isinstance(op, ControlledX):
+                        para_dic = {'s':op.s.item()}
+                        name_ = 'CX'
+                    elif isinstance(op, ControlledZ):
+                        para_dic = {'s':op.s.item()}
+                        name_ = 'CZ'
+                    elif isinstance(op, CrossKerr):
+                        para_dic = {'κ':op.kappa.item()}
+                        name_ = 'CK'
+                self.draw_sq(order, op.wires, para_dic, name=name_)
+                order_dic[order] = order_dic[order] + op.wires
+                for i in op.wires:
+                    depth[i] = order + 1
 
         if len(measurements) > 0:
             for mea in measurements:
@@ -220,7 +251,7 @@ class DrawCircuit():
         Draw phaseshift (rotation) gate.
         """
         fill_c = info_dic[name][0]
-        shift= info_dic[name][1]
+        shift = info_dic[name][1]
         x = 90 * order + 40
         y_up = wires[0]
         # y_down = wires[1]
@@ -264,7 +295,7 @@ class DrawCircuit():
                                       transform = f"rotate({rotation} {arc_center_x} {arc_center_y})"))
         self.draw_.add(self.draw_.text('ϕ='+str(np.round(phi,3)), insert=(x+55, y_up*30+20), font_size=7))
 
-    def draw_sq(self, order, wires, r=None, theta=None, name=None):
+    def draw_sq(self, order, wires, para_dic, name=None):
         """
         Draw squeezing gate, displacement gate.
         """
@@ -286,8 +317,12 @@ class DrawCircuit():
         self.draw_.add(self.draw_.rect(insert=(x+42.5, y_up*30+25), size=(10, height), rx=0, ry=0,
                                     fill=fill_c, stroke='black', stroke_width=1.5))
         self.draw_.add(self.draw_.text(name, insert=(x+40+shift, y_up*30+20), font_size=9))
-        self.draw_.add(self.draw_.text('r='+str(np.round(r,3)), insert=(x+55, y_up*30+18), font_size=7))
-        self.draw_.add(self.draw_.text('θ='+str(np.round(theta,3)), insert=(x+55, y_up*30+24), font_size=7))
+
+        k = 0
+        for key in para_dic.keys():
+            self.draw_.add(self.draw_.text(key + '=' + str(np.round(para_dic[key],3)),
+                                           insert=(x+55, y_up*30+18+6*k), font_size=7))
+            k += 1
 
     def draw_delay(self, order, wires, inputs=None):
         """
