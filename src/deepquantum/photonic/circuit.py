@@ -20,7 +20,8 @@ from .channel import PhotonLoss
 from .decompose import UnitaryDecomposer
 from .draw import DrawCircuit
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
-from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum, DelayBS, DelayMZI
+from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum
+from .gate import QuadraticPhase, ControlledX, ControlledZ, CubicPhase, Kerr, CrossKerr, DelayBS, DelayMZI
 from .hafnian_ import hafnian
 from .measurement import Homodyne
 from .operation import Operation, Gate, Channel, Delay
@@ -2141,6 +2142,126 @@ class QumodeCircuit(Operation):
         f = PhaseShift(inputs=theta, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
                        requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
         self.add(f)
+
+    def qp(
+        self,
+        wires: int,
+        inputs: Any = None,
+        encode: bool = False,
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
+    ) -> None:
+        """Add a quadratic phase gate."""
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        qp = QuadraticPhase(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
+                            requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        self.add(qp, encode=encode)
+
+    def cx(
+        self,
+        wires: List[int],
+        inputs: Any = None,
+        encode: bool = False,
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
+    ) -> None:
+        """Add a controlled-X gate."""
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        cx = ControlledX(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
+                         requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        self.add(cx, encode=encode)
+
+    def cz(
+        self,
+        wires: List[int],
+        inputs: Any = None,
+        encode: bool = False,
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
+    ) -> None:
+        """Add a controlled-Z gate."""
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        cz = ControlledZ(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
+                         requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        self.add(cz, encode=encode)
+
+    def cp(
+        self,
+        wires: int,
+        inputs: Any = None,
+        encode: bool = False,
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
+    ) -> None:
+        """Add a cubic phase gate."""
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        cp = CubicPhase(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
+                        requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        self.add(cp, encode=encode)
+
+    def k(
+        self,
+        wires: int,
+        inputs: Any = None,
+        encode: bool = False,
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
+    ) -> None:
+        """Add a Kerr gate."""
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        k = Kerr(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
+                 requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        self.add(k, encode=encode)
+
+    def ck(
+        self,
+        wires: List[int],
+        inputs: Any = None,
+        encode: bool = False,
+        mu: Optional[float] = None,
+        sigma: Optional[float] = None
+    ) -> None:
+        """Add a cross-Kerr gate."""
+        requires_grad = not encode
+        if inputs is not None:
+            requires_grad = False
+        if mu is None:
+            mu = self.mu
+        if sigma is None:
+            sigma = self.sigma
+        ck = CrossKerr(inputs=inputs, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
+                       requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
+        self.add(ck, encode=encode)
 
     def delay(
         self,

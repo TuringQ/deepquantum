@@ -1626,7 +1626,7 @@ class CombinedSingleGate(SingleGate):
     r"""Combined single-qubit gate.
 
     Args:
-        gatelist (List[SingleGate]): The list of single-qubit gates.
+        gates (List[SingleGate]): The list of single-qubit gates.
         name (str or None, optional): The name of the gate. Default: ``None``
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
@@ -1641,7 +1641,7 @@ class CombinedSingleGate(SingleGate):
     """
     def __init__(
         self,
-        gatelist: List[SingleGate],
+        gates: List[SingleGate],
         name: Optional[str] = None,
         nqubit: int = 1,
         wires: Union[int, List[int], None] = None,
@@ -1652,21 +1652,21 @@ class CombinedSingleGate(SingleGate):
     ) -> None:
         super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls, condition=condition,
                          den_mat=den_mat, tsr_mode=tsr_mode)
-        for gate in gatelist:
+        for gate in gates:
             gate.nqubit = self.nqubit
             gate.wires = self.wires
             gate.controls = self.controls
             gate.condition = self.condition
             gate.den_mat = self.den_mat
             gate.tsr_mode = self.tsr_mode
-        self.gatelist = nn.ModuleList(gatelist)
+        self.gates = nn.ModuleList(gates)
         self.update_npara()
         self.update_matrix()
 
     def get_matrix(self) -> torch.Tensor:
         """Get the local unitary matrix."""
         matrix = None
-        for gate in self.gatelist:
+        for gate in self.gates:
             if matrix is None:
                 matrix = gate.update_matrix()
             else:
@@ -1682,7 +1682,7 @@ class CombinedSingleGate(SingleGate):
     def update_npara(self) -> None:
         """Update the number of parameters."""
         self.npara = 0
-        for gate in self.gatelist:
+        for gate in self.gates:
             self.npara += gate.npara
 
     def add(self, gate: SingleGate) -> None:
@@ -1693,22 +1693,22 @@ class CombinedSingleGate(SingleGate):
         gate.condition = self.condition
         gate.den_mat = self.den_mat
         gate.tsr_mode = self.tsr_mode
-        self.gatelist.append(gate)
+        self.gates.append(gate)
         self.matrix = gate.matrix @ self.matrix
         self.npara += gate.npara
 
     def inverse(self) -> 'CombinedSingleGate':
         """Get the inversed gate."""
-        gatelist = nn.ModuleList()
-        for gate in reversed(self.gatelist):
-            gatelist.append(gate.inverse())
-        return CombinedSingleGate(gatelist=gatelist, name=self.name, nqubit=self.nqubit, wires=self.wires,
+        gates = nn.ModuleList()
+        for gate in reversed(self.gates):
+            gates.append(gate.inverse())
+        return CombinedSingleGate(gates=gates, name=self.name, nqubit=self.nqubit, wires=self.wires,
                                   controls=self.controls, condition=self.condition, den_mat=self.den_mat,
                                   tsr_mode=self.tsr_mode)
 
     def _qasm(self) -> str:
         lst = []
-        for gate in self.gatelist:
+        for gate in self.gates:
             # pylint: disable=protected-access
             lst.append(gate._qasm())
         return ''.join(lst)
