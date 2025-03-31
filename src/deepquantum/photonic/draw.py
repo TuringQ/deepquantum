@@ -17,6 +17,7 @@ from .gate import QuadraticPhase, ControlledX, ControlledZ, CubicPhase, Kerr, Cr
 from .measurement import Homodyne
 from .operation import Delay
 
+
 info_dic = {'PS': ['teal', 0],
             'S': ['royalblue', 3],
             'S2': ['royalblue', 0],
@@ -28,6 +29,7 @@ info_dic = {'PS': ['teal', 0],
             'CX': ['gold', 0],
             'CZ': ['gold', 0],
             'CK': ['pink', 0]}
+
 
 class DrawCircuit():
     """Draw the photonic quantum circuit.
