@@ -397,7 +397,7 @@ class CatState(BosonicState):
         cutoff: int = 5
     ) -> None:
         nmode = 1
-        covs  = torch.eye(2)
+        covs  = torch.eye(2) * dqp.hbar / (4 * dqp.kappa**2)
         if r is None:
             r = torch.rand(1)[0]
         if theta is None:

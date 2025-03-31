@@ -11,7 +11,7 @@ from torch import vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 import deepquantum.photonic as dqp
-from ..qmath import is_unitary
+from ..qmath import is_unitary, partial_trace
 from .utils import mem_to_chunksize
 
 
@@ -418,3 +418,50 @@ def align_shape(cov: torch.Tensor, mean: torch.Tensor, weight: torch.Tensor) -> 
     if weight.shape[0] == 1:
         weight = weight.expand(cov.shape[0], -1)
     return [cov, mean, weight]
+
+def sample_fock_homodyne(
+    state: torch.Tensor,
+    wires: List,
+    nmode: int,
+    cutoff: int,
+    shots: int = 1
+) -> torch.Tensor:
+    """Perform homodyne measurement for batched fock states with density matrix representation"""
+    if state.ndim == nmode:
+        state = state.unsqueeze(0)
+    if state.ndim == nmode + 1:
+        state = state.reshape([-1, cutoff ** nmode])
+        state = (state.unsqueeze(-1) @ state.conj().unsqueeze(-2)).reshape([-1] + [cutoff] * 2 * nmode) # denisty matrix
+    if state.ndim == 2 * nmode:
+        state = state.unsqueeze(0) # (batch, [cutoff] * 2 * nmode)
+    assert state.ndim == 2 * nmode + 1
+    state = state.reshape(-1, cutoff**nmode, cutoff**nmode)
+    reduced_den_mat_lst = [ ]
+    for i in wires:
+        trace_lst = [j for j in range(nmode) if j != i]
+        reduced_den_mat = partial_trace(state, nmode, trace_lst, cutoff) # (batch, cutoff, cutoff)
+        reduced_den_mat = reduced_den_mat.reshape(-1, cutoff, cutoff) # density matrix for single mode
+        reduced_den_mat_lst.append(reduced_den_mat)
+    n = torch.arange(cutoff)
+    n = n.to(state.device)
+    qlist = torch.linspace(-10, 10, 100000) # with dimension \sqrt{m\omega\hbar}
+    qlist = qlist.to(state.device)
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore') # local warning
+        h_vals = torch.vmap(torch.special.hermite_polynomial_h, in_dims=(None, 0))(qlist, n) # （cutoff, num_bins)
+    coeff  = 1 / torch.sqrt(2 ** n * torch.exp(torch.lgamma(n.double() + 1))) # 1/(\sqrt(2^n * n!))
+    h_vals = h_vals.to(coeff.dtype)
+    h_vals1 = coeff.reshape(-1, 1) * h_vals
+    h_vals2 = h_vals1.reshape(1, cutoff, len(qlist)) * h_vals1.reshape(cutoff, 1, len(qlist)) # (cutoff, cutoff, num_bins)
+    h_vals3 = torch.stack([h_vals2] * state.shape[0]) # (batch, cutoff, cutoff, num_bins)
+    h_vals4 = h_vals3.expand(len(wires), *h_vals3.shape) # (wires, batch, cutoff, cutoff, num_bins)
+    h_terms = torch.stack(reduced_den_mat_lst).unsqueeze(-1) * h_vals4.to(state.device) # (wires, batch, cutoff, cutoff, num_bins)
+    probs = h_terms.sum(dim=(-2, -3)) * torch.exp(-(2 * dqp.kappa**2)/dqp.hbar * qlist**2) # (wires, batch, num_bins)
+    probs = probs.real
+    norm = probs.sum(dim=(-1))
+    probs = probs/norm.unsqueeze(-1)
+    probs[abs(probs) < 1e-10] = 0
+    indices = torch.multinomial(probs.reshape(-1, len(qlist)), num_samples=shots, replacement=True)
+    indices2 = indices.reshape(*probs.shape[:2], -1) # (wires, batch, shots)
+    samples = qlist[indices2].permute(1, 2, 0) # (batch, shots, wires)
+    return samples

@@ -10,9 +10,9 @@ import torch
 from torch import nn
 from torch.distributions.multivariate_normal import MultivariateNormal
 
-from .gate import PhaseShift
-from .operation import Operation
-from .qmath import sample_reject_bosonic
+from .gate import PhaseShift, DisplacementPosition
+from .operation import Operation, evolve_state, evolve_den_mat
+from .qmath import sample_reject_bosonic, sample_fock_homodyne
 
 
 class Generaldyne(Operation):
@@ -169,12 +169,49 @@ class Homodyne(Generaldyne):
         else:
             self.register_buffer('phi', phi)
 
-    def forward(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
-        """Perform a forward pass for Gaussian states."""
-        cov, mean = x[:2]
+    def forward(self, x: Union[torch.Tensor, List[torch.Tensor]]) -> List[torch.Tensor]:
+        """Perform a forward pass for fock state tensor and Gaussian states."""
         r = PhaseShift(inputs=-self.phi, nmode=self.nmode, wires=self.wires, cutoff=self.cutoff)
-        r.to(cov.dtype).to(cov.device)
-        cov, mean = r([cov, mean])
+        if isinstance(x, torch.Tensor): # den_mat
+            if x.ndim == self.nmode:
+                x = x.unsqueeze(0)
+            if x.ndim == self.nmode + 1:
+                x = x.reshape([-1, self.cutoff ** self.nmode])
+                x = (x.unsqueeze(-1) @ x.conj().unsqueeze(-2)).reshape([-1] + [self.cutoff] * 2 * self.nmode)
+            if x.ndim == 2 * self.nmode:
+                x = x.unsqueeze(0) # (batch, [cutoff] * 2 * nmode)
+            r.to(x.device)
+            r.den_mat = True
+            samples = sample_fock_homodyne(r(x), self.wires, self.nmode, self.cutoff, shots=1) # (batch, shots, 1)
+            self.samples = samples # with dimension \sqrt{m\omega\hbar}
+
+            # projection operator as single gate
+            vac_state = x.new_zeros(self.cutoff) # (cutoff)
+            vac_state[0] = 1.0 + 0j
+            inf_squeezed_vac = torch.zeros_like(vac_state) # (cutoff)
+            lst = torch.arange(self.cutoff//2 +1)
+            even_amp = (-0.5)**lst * torch.sqrt(torch.exp(torch.lgamma(2*lst.double() + 1))) \
+                                                /torch.exp(torch.lgamma(lst.double() + 1)) # unnormalized
+            inf_squeezed_vac[::2] = even_amp # with even fock contribution
+            r.nmode = 1
+            r.wires = [0]
+            r.den_mat = False
+            d = DisplacementPosition(inputs=1, nmode=1, wires=[0], cutoff=self.cutoff)
+            d.to(x.device)
+            d_mat = torch.vmap(d.get_matrix_state, in_dims=(0, None))(samples, 0)
+            project_q = r(evolve_state(inf_squeezed_vac.unsqueeze(0), d_mat, 1, [0], self.cutoff)) # (batch * shots, cutoff)
+            project_op = torch.vmap(torch.outer, in_dims=(None, 0))(vac_state, project_q.conj()) # (batch * shots, cutoff, cutoff)
+            # (batch, 1, [cutoff] * 2 * nmode)
+            rho_collapse = torch.vmap(evolve_den_mat, in_dims=(0, 0, None, None, None))(x.unsqueeze(1), project_op, self.nmode,
+                                                                                        self.wires, self.cutoff)
+            # normalization
+            traces = torch.vmap(torch.trace)(rho_collapse.reshape(-1, self.cutoff**self.nmode, self.cutoff**self.nmode)) # (batch)
+            rho_collapse = rho_collapse.squeeze()/traces.reshape([-1] + [1] * 2 * self.nmode)
+            return rho_collapse # (batch, [cutoff] * 2 * nmode)
+        else:
+            cov, mean = x[:2]
+            r.to(cov.dtype).to(cov.device)
+            cov, mean = r([cov, mean])
         return super().forward([cov, mean] + x[2:])
 
     def extra_repr(self) -> str:
