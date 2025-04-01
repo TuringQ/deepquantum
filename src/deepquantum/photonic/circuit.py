@@ -320,6 +320,7 @@ class QumodeCircuit(Operation):
                         self.state = vmap(self._forward_helper_tensor, in_dims=(0, 0, None))(data, state, is_prob)
             # for plotting the last data
             self.encode(data[-1])
+        self._state = state
         if self.basis and is_prob is not None:
             self.state = sort_dict_fock_basis(self.state)
         return self.state
@@ -947,7 +948,10 @@ class QumodeCircuit(Operation):
             unitary (torch.Tensor or None, optional): The unitary matrix. Default: ``None``
         """
         if init_state is None:
-            init_state = FockState(state=self._init_state, nmode=self.nmode, cutoff=self.cutoff, basis=self.basis)
+            nmode = self.nmode + self._nloss
+            if self._state_expand is not None:
+                nmode += 1
+            init_state = FockState(state=self._init_state, nmode=nmode, cutoff=self.cutoff, basis=self.basis)
         if unitary is None:
             unitary = self._unitary
         amplitude = self.get_amplitude(final_state, init_state, unitary)
@@ -1164,39 +1168,49 @@ class QumodeCircuit(Operation):
         if self.state.ndim == 2:
             self.state = self.state.unsqueeze(0)
         batch = self.state.shape[0]
-        init_state = self.init_state.state
+        init_state = self._state
         if init_state.ndim == 1:
             init_state = init_state.unsqueeze(0)
         batch_init = init_state.shape[0]
+        unitary = self.state
+        if self._state_expand is not None:
+            identity = torch.eye(1, dtype=self.state.dtype, device=self.state.device)
+            unitary = vmap(torch.block_diag, in_dims=(0, None))(self.state, identity)
         all_results = []
         if mcmc:
             for i in range(batch):
                 if batch_init == 1:
-                    samples_i = self._sample_mcmc_fock(shots=shots, init_state=init_state[0], unitary=self.state[i],
+                    samples_i = self._sample_mcmc_fock(shots=shots, init_state=init_state[0], unitary=unitary[i],
                                                        num_chain=5)
                 else:
-                    samples_i = self._sample_mcmc_fock(shots=shots, init_state=init_state[i], unitary=self.state[i],
+                    samples_i = self._sample_mcmc_fock(shots=shots, init_state=init_state[i], unitary=unitary[i],
                                                        num_chain=5)
-                keys = list(map(FockState, samples_i.keys()))
-                results = dict(zip(keys, samples_i.values()))
+                results = defaultdict(list)
                 if with_prob:
-                    for k in results:
-                        prob = self._get_prob_fock(k.state.to(init_state.device))
-                        results[k] = results[k], prob
+                    for k in samples_i:
+                        prob = self._get_prob_fock(k)
+                        samples_i[k] = samples_i[k], prob
+                for key in samples_i.keys():
+                    state_b = [key[wire] for wire in wires]
+                    state_b = FockState(state=state_b)
+                    results[state_b].append(samples_i[key])
+                if with_prob:
+                    results = {
+                        key: (
+                            sum(count for count, _ in results[key]),
+                            sum((prob for _, prob in results[key]))
+                        )
+                        for key in results
+                    }
+                else:
+                    results = {key: sum(value) for key, value in results.items()}
                 all_results.append(results)
         else:
             if batch_init == 1:
-                self._all_fock_basis = self._get_all_fock_basis(init_state[0])
                 prob_dict_batch = vmap(self._measure_fock_unitary_helper,
-                                       in_dims=(None, 0, None))(init_state[0], self.state, wires)
+                                       in_dims=(None, 0, None))(init_state[0], unitary, wires)
             else:
-                u = self.state
-                if self._state_expand is not None:
-                    init_state = self._state_expand
-                    identity = torch.eye(1, dtype=self.state.dtype, device=self.state.device)
-                    u = vmap(torch.block_diag, in_dims=(0, None))(self.state, identity)
-                self._all_fock_basis = self._get_all_fock_basis(init_state[0])
-                prob_dict_batch = vmap(self._measure_fock_unitary_helper, in_dims=(0, 0, None))(init_state, u, wires)
+                prob_dict_batch = vmap(self._measure_fock_unitary_helper, in_dims=(0, 0, None))(init_state, unitary, wires)
             for i in range(batch):
                 prob_dict = {key: value[i] for key, value in prob_dict_batch.items()}
                 results = self._prob_dict_to_measure_result(prob_dict, shots, with_prob)
