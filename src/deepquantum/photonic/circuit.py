@@ -1578,14 +1578,23 @@ class QumodeCircuit(Operation):
             batch = self.state[0].shape[0]
             self.state_measured = []
             if self.backend == 'fock':
-                for _ in range(shots):
-                    sample_i = []
-                    self.state_measured = copy(self.state)
-                    for op_m in measurements:
+                if shots == 1:
+                    self.state_measured = self.state
+                    for op_m in measurements: # shots = 1
                         self.state_measured = op_m(self.state_measured)
-                        sample_i.append(op_m.samples.reshape(-1)) # (batch)
-                    samples.append(torch.stack(sample_i)) # (nwire, batch)
-                return torch.stack(samples).permute(2, 0, 1).squeeze() # (batch, shots, nwire)
+                        samples.append(op_m.samples.reshape(-1)) # (batch)
+                    samples = torch.stack(samples).permute(1, 0) # (batch, nwire)
+                elif shots > 1:
+                    state = self.state
+                    r = PhaseShift(inputs=0, nmode=self.nmode, wires=[0], cutoff=self.cutoff)
+                    r.den_mat = self.den_mat
+                    for mea in measurements:
+                        r.init_para(-mea.phi)
+                        r.wires = mea.wires
+                        state = r(state)
+                    samples = sample_fock_homodyne(self.state, self.wires_homodyne,
+                                                   self.nmode, self.cutoff, shots)
+                return samples
             else:
                 if self.backend == 'bosonic':
                     state = align_shape(*self.state)
