@@ -172,16 +172,14 @@ class Homodyne(Generaldyne):
     def forward(self, x: Union[torch.Tensor, List[torch.Tensor]]) -> List[torch.Tensor]:
         """Perform a forward pass for fock state tensor and Gaussian states."""
         r = PhaseShift(inputs=-self.phi, nmode=self.nmode, wires=self.wires, cutoff=self.cutoff)
-        if isinstance(x, torch.Tensor): # den_mat
-            if x.ndim == self.nmode:
-                x = x.unsqueeze(0)
-            if x.ndim == self.nmode + 1:
-                x = x.reshape([-1, self.cutoff ** self.nmode])
-                x = (x.unsqueeze(-1) @ x.conj().unsqueeze(-2)).reshape([-1] + [self.cutoff] * 2 * self.nmode)
-            if x.ndim == 2 * self.nmode:
+        if isinstance(x, torch.Tensor):
+            if x.ndim == self.nmode: # state tensor
+                x = x.unsqueeze(0) # (batch, [cutoff] * nmode)
+            if x.ndim == 2 * self.nmode: # density matrix
                 x = x.unsqueeze(0) # (batch, [cutoff] * 2 * nmode)
+            if x.ndim == 2 * self.nmode + 1:
+                r.den_mat = True
             r.to(x.device)
-            r.den_mat = True
             samples = sample_fock_homodyne(r(x), self.wires, self.nmode, self.cutoff, shots=1) # (batch, shots, 1)
             self.samples = samples # with dimension \sqrt{m\omega\hbar}
 
@@ -201,13 +199,26 @@ class Homodyne(Generaldyne):
             d_mat = torch.vmap(d.get_matrix_state, in_dims=(0, None))(samples, 0)
             project_q = r(evolve_state(inf_squeezed_vac.unsqueeze(0), d_mat, 1, [0], self.cutoff)) # (batch * shots, cutoff)
             project_op = torch.vmap(torch.outer, in_dims=(None, 0))(vac_state, project_q.conj()) # (batch * shots, cutoff, cutoff)
-            # (batch, 1, [cutoff] * 2 * nmode)
-            rho_collapse = torch.vmap(evolve_den_mat, in_dims=(0, 0, None, None, None))(x.unsqueeze(1), project_op, self.nmode,
-                                                                                        self.wires, self.cutoff)
-            # normalization
-            traces = torch.vmap(torch.trace)(rho_collapse.reshape(-1, self.cutoff**self.nmode, self.cutoff**self.nmode)) # (batch)
-            rho_collapse = rho_collapse.squeeze()/traces.reshape([-1] + [1] * 2 * self.nmode)
-            return rho_collapse # (batch, [cutoff] * 2 * nmode)
+
+            # collapse the fock state
+            if x.ndim == self.nmode + 1: # state tensor
+                # (batch, 1, [cutoff] * nmode)
+                state_collapse = torch.vmap(evolve_state, in_dims=(0, 0, None, None, None))(x.unsqueeze(1), project_op, self.nmode,
+                                                                                            self.wires, self.cutoff)
+                state_collapse = state_collapse.squeeze(1)
+                norm = torch.sqrt((abs(state_collapse.flatten(start_dim=1))**2).sum(-1)) # (batch)
+                state_collapse = state_collapse / norm.reshape([-1] + [1] * self.nmode) # (batch, [cutoff] * nmode)
+
+
+            if x.ndim == 2 * self.nmode + 1: # density matrix
+                # (batch, 1, [cutoff] * 2 * nmode)
+                rho_collapse = torch.vmap(evolve_den_mat, in_dims=(0, 0, None, None, None))(x.unsqueeze(1), project_op, self.nmode,
+                                                                                            self.wires, self.cutoff)
+                # normalization
+                traces = torch.vmap(torch.trace)(rho_collapse.reshape(-1, self.cutoff**self.nmode, self.cutoff**self.nmode)) # (batch)
+                rho_collapse = rho_collapse.squeeze(1) / traces.reshape([-1] + [1] * 2 * self.nmode)
+                state_collapse = rho_collapse # (batch, [cutoff] * 2 * nmode)
+            return state_collapse
         else:
             cov, mean = x[:2]
             r.to(cov.dtype).to(cov.device)
