@@ -1251,8 +1251,11 @@ class QumodeCircuit(Operation):
         for i in range(batch):
             prob_dict = defaultdict(list)
             for key in self.state.keys():
-                state_b = key.state[wires]
-                state_b = FockState(state=state_b)
+                if wires == self.wires:
+                    state_b = key
+                else:
+                    state_b = key.state[wires]
+                    state_b = FockState(state=state_b)
                 if is_prob:
                     prob_dict[state_b].append(self.state[key][i])
                 else:
