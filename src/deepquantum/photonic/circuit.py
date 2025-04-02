@@ -25,7 +25,8 @@ from .hafnian_ import hafnian
 from .measurement import Homodyne
 from .operation import Operation, Gate, Channel, Delay
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
-from .qmath import photon_number_mean_var, quadrature_to_ladder, shift_func, sample_reject_bosonic, align_shape, sample_fock_homodyne
+from .qmath import photon_number_mean_var, sample_homodyne_fock, sample_reject_bosonic
+from .qmath import quadrature_to_ladder, shift_func, align_shape
 from .state import FockState, GaussianState, BosonicState, CatState, GKPState, combine_bosonic_states
 from .torontonian_ import torontonian
 
@@ -1551,7 +1552,7 @@ class QumodeCircuit(Operation):
 
     def measure_homodyne(
         self,
-        shots: int = 1024,
+        shots: int = 10,
         wires: Union[int, List[int], None] = None
     ) -> Optional[torch.Tensor]:
         """Get the homodyne measurement results.
@@ -1560,13 +1561,15 @@ class QumodeCircuit(Operation):
         the conditional homodyne measurement. Otherwise, return the results of the ideal homodyne measurement.
         The Gaussian states after measurements are stored in ``self.state_measured``.
 
+        Note:
+            ``batch`` * ``shots`` can not be too large for Fock backend.
+
         Args:
-            shots (int, optional): The number of times to sample from the quantum state. Default: 1024
+            shots (int, optional): The number of times to sample from the quantum state. Default: 10
             wires (int, List[int] or None, optional): The wires to measure for the ideal homodyne. It can be
                 an integer or a list of integers specifying the indices of the wires. Default: ``None`` (which means
                 all wires are measured)
         """
-        assert self.backend in ('fock', 'gaussian', 'bosonic')
         if self.state is None:
             return
         if len(self.measurements) > 0:
@@ -1575,27 +1578,14 @@ class QumodeCircuit(Operation):
             else:
                 measurements = self.measurements
             samples = []
-            batch = self.state[0].shape[0]
-            self.state_measured = []
             if self.backend == 'fock':
-                if shots == 1:
-                    self.state_measured = self.state
-                    for op_m in measurements: # shots = 1
-                        self.state_measured = op_m(self.state_measured)
-                        samples.append(op_m.samples.reshape(-1)) # (batch)
-                    samples = torch.stack(samples).permute(1, 0) # (batch, nwire)
-                elif shots > 1:
-                    state = self.state
-                    r = PhaseShift(inputs=0, nmode=self.nmode, wires=[0], cutoff=self.cutoff)
-                    r.den_mat = self.den_mat
-                    for mea in measurements:
-                        r.init_para(-mea.phi)
-                        r.wires = mea.wires
-                        state = r(state)
-                    samples = sample_fock_homodyne(self.state, self.wires_homodyne,
-                                                   self.nmode, self.cutoff, shots)
-                return samples
+                assert not self.mps, 'Currently NOT supported.'
+                shape = self.state.shape
+                batch = shape[0]
+                self.state_measured = torch.stack([self.state] * shots).reshape(-1, *shape[1:])
             else:
+                batch = self.state[0].shape[0]
+                self.state_measured = []
                 if self.backend == 'bosonic':
                     state = align_shape(*self.state)
                 else:
@@ -1603,17 +1593,19 @@ class QumodeCircuit(Operation):
                 for s in state: # [cov, mean, weight]
                     shape = s.shape
                     self.state_measured.append(torch.stack([s] * shots).reshape(-1, *shape[1:]))
-                for op_m in measurements:
-                    self.state_measured = op_m(self.state_measured)
-                    nwire = len(op_m.wires)
-                    samples.append(op_m.samples[:, :nwire].reshape(shots, batch, nwire).permute(1, 0, 2))
-                return torch.cat(samples, dim=-1).squeeze() # (batch, shots, nwire)
+            for op_m in measurements:
+                self.state_measured = op_m(self.state_measured)
+                nwire = len(op_m.wires)
+                samples.append(op_m.samples[:, :nwire].reshape(shots, batch, nwire).permute(1, 0, 2))
+            return torch.cat(samples, dim=-1).squeeze() # (batch, shots, nwire)
         else:
             if wires is None:
                 wires = self.wires
             wires = torch.tensor(sorted(self._convert_indices(wires)))
             if self.backend == 'fock':
-                samples = sample_fock_homodyne(self.state, wires, self.nmode, self.cutoff, shots)
+                assert len(wires) == 1
+                # (batch, shots, 1)
+                samples = sample_homodyne_fock(self.state, wires[0], self.nmode, self.cutoff, shots, self.den_mat)
             else:
                 cov, mean = self.state[:2]
                 if not is_positive_definite(cov):
@@ -1629,7 +1621,8 @@ class QumodeCircuit(Operation):
                 cov_sub = cov[..., idx[:, None], idx]
                 mean_sub = mean[..., idx, :]
                 if len(self.state) == 2:
-                    samples = MultivariateNormal(mean_sub.squeeze(-1), cov_sub).sample([shots]) # (shots, batch, 2 * nwire)
+                    # (shots, batch, 2 * nwire)
+                    samples = MultivariateNormal(mean_sub.squeeze(-1), cov_sub).sample([shots])
                     samples = samples.permute(1, 0, 2)
                 elif len(self.state) == 3:
                     weight = self.state[2]
@@ -2206,8 +2199,8 @@ class QumodeCircuit(Operation):
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        homodyne = Homodyne(phi=phi, nmode=self.nmode, wires=wires, cutoff=self.cutoff, eps=eps,
-                            requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
+        homodyne = Homodyne(phi=phi, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
+                            eps=eps, requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
         self.add(homodyne)
 
     def homodyne_x(
@@ -2223,8 +2216,8 @@ class QumodeCircuit(Operation):
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        homodyne = Homodyne(phi=phi, nmode=self.nmode, wires=wires, cutoff=self.cutoff, eps=eps,
-                            requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
+        homodyne = Homodyne(phi=phi, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
+                            eps=eps, requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
         self.add(homodyne)
 
     def homodyne_p(
@@ -2240,8 +2233,8 @@ class QumodeCircuit(Operation):
             mu = self.mu
         if sigma is None:
             sigma = self.sigma
-        homodyne = Homodyne(phi=phi, nmode=self.nmode, wires=wires, cutoff=self.cutoff, eps=eps,
-                            requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
+        homodyne = Homodyne(phi=phi, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat,
+                            eps=eps, requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
         self.add(homodyne)
 
     def loss(

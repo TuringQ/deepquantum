@@ -344,8 +344,8 @@ def multi_kron(lst: List[torch.Tensor]) -> torch.Tensor:
         return rst.contiguous()
 
 
-def partial_trace(rho: torch.Tensor, nqudit: int, trace_lst: List[int], qudit: int=2) -> torch.Tensor:
-    r"""Calculate the partial trace for a batch of nqudit density matrices with qudit dimensions.
+def partial_trace(rho: torch.Tensor, nqudit: int, trace_lst: List[int], qudit: int = 2) -> torch.Tensor:
+    r"""Calculate the partial trace for a batch of density matrices.
 
     Args:
         rho (torch.Tensor): Density matrices with the shape of

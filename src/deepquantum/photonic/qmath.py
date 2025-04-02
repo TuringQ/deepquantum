@@ -346,6 +346,40 @@ def takagi(a: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
                     return v, diag
 
 
+def sample_homodyne_fock(
+    state: torch.Tensor,
+    wire: int,
+    nmode: int,
+    cutoff: int,
+    shots: int = 1,
+    den_mat: bool = False
+) -> torch.Tensor:
+    """Get the samples of homodyne measurement for batched Fock state tensors on one mode."""
+    x_range = 10
+    nbin = 100000
+    coef = 2 * dqp.kappa**2 / dqp.hbar
+    if den_mat:
+        state = state.reshape(-1, cutoff ** nmode, cutoff ** nmode)
+    else:
+        state = state.reshape(-1, cutoff ** nmode, 1)
+        state = state @ state.mH
+    trace_lst = [i for i in range(nmode) if i != wire]
+    reduced_dm = partial_trace(state, nmode, trace_lst, cutoff) # (batch, cutoff, cutoff)
+    orders = torch.arange(cutoff, dtype=state.real.dtype, device=state.device).reshape(-1, 1) # (cutoff, 1)
+    # with dimension \sqrt{m\omega\hbar}
+    xs = torch.linspace(-x_range, x_range, nbin, dtype=state.real.dtype, device=state.device) # (nbin)
+    h_vals = torch.special.hermite_polynomial_h(coef**0.5 * xs, orders) #（cutoff, nbin)
+    # H_n / \sqrt{2^n * n!}
+    h_vals = h_vals / torch.sqrt(2**orders * torch.exp(torch.lgamma(orders.double() + 1))).to(orders.dtype)
+    h_mat = h_vals.reshape(1, cutoff, nbin) * h_vals.reshape(cutoff, 1, nbin) # (cutoff, cutoff, nbin)
+    h_terms = reduced_dm.unsqueeze(-1) * h_mat # (batch, cutoff, cutoff, nbin)
+    probs = (h_terms.sum(dim=[-3, -2]) * torch.exp(-coef * xs**2)).real # (batch, nbin)
+    probs[abs(probs) < 1e-10] = 0
+    indices = torch.multinomial(probs.reshape(-1, nbin), num_samples=shots, replacement=True) # (batch, shots)
+    samples = xs[indices]
+    return samples.unsqueeze(-1) # (batch, shots, 1)
+
+
 def sample_reject_bosonic(
     cov: torch.Tensor,
     mean: torch.Tensor,
