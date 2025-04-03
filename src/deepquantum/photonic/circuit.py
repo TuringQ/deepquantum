@@ -95,7 +95,8 @@ class QumodeCircuit(Operation):
         self._bosonic_states = None # list of initial Bosonic states
         self._lossy = False
         self._nloss = 0
-        self._state_expand = None
+        self._is_batch_expand = False # whether batch states are expanded out of photons conservation
+        self._expand_state = None # expanded state (init_state + lossy + batch expand)
         self._all_fock_basis = None
         # TDM
         self._if_delayloop = False
@@ -260,7 +261,6 @@ class QumodeCircuit(Operation):
         else:
             if self.basis:
                 self.init_state = FockState(state, nmode=self.nmode, cutoff=self.cutoff, basis=self.basis)
-                self._state_expand = None
         if isinstance(state, MatrixProductState):
             assert not self.basis
             state = state.tensors
@@ -282,7 +282,7 @@ class QumodeCircuit(Operation):
                 # expand the Fock state if the photon number is not conserved
                 if any(nphoton < max_photon for nphoton in nphotons):
                     state = torch.cat([state, max_photon - nphotons], dim=-1)
-                    self._state_expand = state
+                    self._is_batch_expand = True
                 self._all_fock_basis = self._get_all_fock_basis(state[0])
         if data is None or data.ndim == 1:
             if self.basis:
@@ -320,7 +320,7 @@ class QumodeCircuit(Operation):
                         self.state = vmap(self._forward_helper_tensor, in_dims=(0, 0, None))(data, state, is_prob)
             # for plotting the last data
             self.encode(data[-1])
-        self._state = state
+        self._expand_state = state
         if self.basis and is_prob is not None:
             self.state = sort_dict_fock_basis(self.state)
         return self.state
@@ -341,7 +341,7 @@ class QumodeCircuit(Operation):
                 state = self.init_state.state
             out_dict = defaultdict(float)
             final_states = self._all_fock_basis
-            if self._state_expand is not None:
+            if self._is_batch_expand:
                 unitary = torch.block_diag(unitary, torch.eye(1, dtype=unitary.dtype, device=unitary.device))
             sub_mats = vmap(sub_matrix, in_dims=(None, None, 0))(unitary, state, final_states)
             per_norms = self._get_permanent_norms(state, final_states).to(unitary.dtype)
@@ -949,7 +949,7 @@ class QumodeCircuit(Operation):
         """
         if init_state is None:
             nmode = self.nmode + self._nloss
-            if self._state_expand is not None:
+            if self._is_batch_expand:
                 nmode += 1
             init_state = FockState(state=self._init_state, nmode=nmode, cutoff=self.cutoff, basis=self.basis)
         if unitary is None:
@@ -1168,12 +1168,12 @@ class QumodeCircuit(Operation):
         if self.state.ndim == 2:
             self.state = self.state.unsqueeze(0)
         batch = self.state.shape[0]
-        init_state = self._state
+        init_state = self._expand_state
         if init_state.ndim == 1:
             init_state = init_state.unsqueeze(0)
         batch_init = init_state.shape[0]
         unitary = self.state
-        if self._state_expand is not None:
+        if self._is_batch_expand:
             identity = torch.eye(1, dtype=self.state.dtype, device=self.state.device)
             unitary = vmap(torch.block_diag, in_dims=(0, None))(self.state, identity)
         all_results = []
