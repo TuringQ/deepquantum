@@ -96,7 +96,8 @@ class QumodeCircuit(Operation):
         self._bosonic_states = None # list of initial Bosonic states
         self._lossy = False
         self._nloss = 0
-        self._state_expand = None
+        self._is_batch_expand = False # whether batch states are expanded out of photons conservation
+        self._expand_state = None # expanded state (init_state + lossy + batch expand)
         self._all_fock_basis = None
         # TDM
         self._if_delayloop = False
@@ -261,7 +262,6 @@ class QumodeCircuit(Operation):
         else:
             if self.basis:
                 self.init_state = FockState(state, nmode=self.nmode, cutoff=self.cutoff, basis=self.basis)
-                self._state_expand = None
         if isinstance(state, MatrixProductState):
             assert not self.basis
             state = state.tensors
@@ -283,8 +283,10 @@ class QumodeCircuit(Operation):
                 # expand the Fock state if the photon number is not conserved
                 if any(nphoton < max_photon for nphoton in nphotons):
                     state = torch.cat([state, max_photon - nphotons], dim=-1)
-                    self._state_expand = state
+                    self._is_batch_expand = True
                 self._all_fock_basis = self._get_all_fock_basis(state[0])
+            if self._lossy or self._is_batch_expand:
+                self._expand_state = state
         if data is None or data.ndim == 1:
             if self.basis:
                 assert state.ndim in (1, 2)
@@ -341,7 +343,7 @@ class QumodeCircuit(Operation):
                 state = self.init_state.state
             out_dict = defaultdict(float)
             final_states = self._all_fock_basis
-            if self._state_expand is not None:
+            if self._is_batch_expand:
                 unitary = torch.block_diag(unitary, torch.eye(1, dtype=unitary.dtype, device=unitary.device))
             sub_mats = vmap(sub_matrix, in_dims=(None, None, 0))(unitary, state, final_states)
             per_norms = self._get_permanent_norms(state, final_states).to(unitary.dtype)
@@ -919,12 +921,38 @@ class QumodeCircuit(Operation):
             refer_state (Any, optional): The initial Fock basis state or the final Gaussian state. Default: ``None``
             unitary (torch.Tensor or None, optional): The unitary matrix. Default: ``None``
         """
+        if not isinstance(final_state, torch.Tensor):
+            final_state = torch.tensor(final_state, dtype=torch.long)
+        assert max(final_state) < self.cutoff, 'The number of photons in the final state must be less than cutoff'
         if self.backend == 'fock':
             if refer_state is None:
-                refer_state = self.init_state
+                refer_state = self.init_state.state if self._expand_state is None else self._expand_state
             if unitary is None:
                 unitary = self.get_unitary()
-            return self._get_prob_fock(final_state, refer_state, unitary)
+            if self._is_batch_expand:
+                identity = torch.eye(1, dtype=self.state.dtype, device=self.state.device)
+                if unitary.ndim == 2:
+                    unitary = torch.block_diag(unitary, identity)
+                else:
+                    unitary = vmap(torch.block_diag, in_dims=(0, None))(unitary, identity)
+            if final_state.shape[-1] == refer_state.shape[-1]:
+                return self._get_prob_fock(final_state, refer_state, unitary)
+            else:
+                nphotons_final = torch.sum(final_state, dim=-1)
+                nphotons_refer = torch.sum(refer_state, dim=-1, keepdim=True)
+                max_photon = torch.max(nphotons_refer).item()
+                expand_combinations = torch.tensor(fock_combinations(refer_state.shape[-1] - final_state.shape[-1],
+                                                    max_photon - nphotons_final))
+                final_states = torch.cat([final_state.expand(expand_combinations.shape[0], -1), expand_combinations], dim=-1)
+                if refer_state.ndim == 1 and unitary.ndim == 2:
+                    rst = self._measure_fock_unitary_helper(refer_state, \
+                                                            unitary, list(range(final_state.shape[-1])), final_states)
+                else:
+                    rst = vmap(self._measure_fock_unitary_helper, in_dims=(0 if refer_state.ndim==2 else None, \
+                                                                       0 if unitary.ndim==3 else None, None, None)) \
+                                            (refer_state, unitary, list(range(final_state.shape[-1])), final_states)
+                rst = list(rst.values())[0]
+            return rst
         elif self.backend == 'gaussian':
             if self._if_delayloop:
                 nmode = self._nmode_tdm
@@ -947,9 +975,10 @@ class QumodeCircuit(Operation):
             init_state (Any, optional): The initial Fock basis state. Default: ``None``
             unitary (torch.Tensor or None, optional): The unitary matrix. Default: ``None``
         """
-        if init_state is None:
-            init_state = FockState(state=self._init_state, nmode=self.nmode, cutoff=self.cutoff, basis=self.basis)
-        if unitary is None:
+        if init_state is None: # when mcmc
+            nmode = self.nmode + self._nloss + self._is_batch_expand
+            init_state = FockState(state=self._init_state, nmode=nmode, cutoff=self.cutoff, basis=self.basis)
+        if unitary is None: # when mcmc
             unitary = self._unitary
         amplitude = self.get_amplitude(final_state, init_state, unitary)
         prob = torch.abs(amplitude) ** 2
@@ -1165,39 +1194,49 @@ class QumodeCircuit(Operation):
         if self.state.ndim == 2:
             self.state = self.state.unsqueeze(0)
         batch = self.state.shape[0]
-        init_state = self.init_state.state
+        init_state = self._expand_state
         if init_state.ndim == 1:
             init_state = init_state.unsqueeze(0)
         batch_init = init_state.shape[0]
+        unitary = self.state
+        if self._is_batch_expand:
+            identity = torch.eye(1, dtype=self.state.dtype, device=self.state.device)
+            unitary = vmap(torch.block_diag, in_dims=(0, None))(self.state, identity)
         all_results = []
         if mcmc:
             for i in range(batch):
                 if batch_init == 1:
-                    samples_i = self._sample_mcmc_fock(shots=shots, init_state=init_state[0], unitary=self.state[i],
+                    samples_i = self._sample_mcmc_fock(shots=shots, init_state=init_state[0], unitary=unitary[i],
                                                        num_chain=5)
                 else:
-                    samples_i = self._sample_mcmc_fock(shots=shots, init_state=init_state[i], unitary=self.state[i],
+                    samples_i = self._sample_mcmc_fock(shots=shots, init_state=init_state[i], unitary=unitary[i],
                                                        num_chain=5)
-                keys = list(map(FockState, samples_i.keys()))
-                results = dict(zip(keys, samples_i.values()))
+                results = defaultdict(list)
                 if with_prob:
-                    for k in results:
-                        prob = self._get_prob_fock(k.state.to(init_state.device))
-                        results[k] = results[k], prob
+                    for k in samples_i:
+                        prob = self._get_prob_fock(k)
+                        samples_i[k] = samples_i[k], prob
+                for key in samples_i.keys():
+                    state_b = [key[wire] for wire in wires]
+                    state_b = FockState(state=state_b)
+                    results[state_b].append(samples_i[key])
+                if with_prob:
+                    results = {
+                        key: (
+                            sum(count for count, _ in results[key]),
+                            sum((prob for _, prob in results[key]))
+                        )
+                        for key in results
+                    }
+                else:
+                    results = {key: sum(value) for key, value in results.items()}
                 all_results.append(results)
         else:
             if batch_init == 1:
-                self._all_fock_basis = self._get_all_fock_basis(init_state[0])
                 prob_dict_batch = vmap(self._measure_fock_unitary_helper,
-                                       in_dims=(None, 0, None))(init_state[0], self.state, wires)
+                                       in_dims=(None, 0, None))(init_state[0], unitary, wires)
             else:
-                u = self.state
-                if self._state_expand is not None:
-                    init_state = self._state_expand
-                    identity = torch.eye(1, dtype=self.state.dtype, device=self.state.device)
-                    u = vmap(torch.block_diag, in_dims=(0, None))(self.state, identity)
-                self._all_fock_basis = self._get_all_fock_basis(init_state[0])
-                prob_dict_batch = vmap(self._measure_fock_unitary_helper, in_dims=(0, 0, None))(init_state, u, wires)
+                prob_dict_batch = vmap(self._measure_fock_unitary_helper, in_dims=(0, 0, None))(init_state, unitary, wires)
             for i in range(batch):
                 prob_dict = {key: value[i] for key, value in prob_dict_batch.items()}
                 results = self._prob_dict_to_measure_result(prob_dict, shots, with_prob)
@@ -1208,14 +1247,16 @@ class QumodeCircuit(Operation):
         self,
         init_state: torch.Tensor,
         unitary: torch.Tensor,
-        wires: Union[int, List[int], None] = None
+        wires: Union[int, List[int], None] = None,
+        final_states: torch.Tensor = None
     ) -> Dict:
         """VMAP helper for measuring the final state according to the unitary matrix for Fock backend.
 
         Returns:
             Dict: A dictionary of probabilities for final states.
         """
-        final_states = self._all_fock_basis
+        if final_states is None:
+            final_states = self._all_fock_basis
         sub_mats = vmap(sub_matrix, in_dims=(None, None, 0))(unitary, init_state, final_states)
         per_norms = self._get_permanent_norms(init_state, final_states).to(unitary.dtype)
         rst = vmap(self._get_prob_fock_vmap)(sub_mats, per_norms)
