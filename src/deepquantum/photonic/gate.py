@@ -1369,7 +1369,7 @@ class Displacement(SingleGate):
         cos = torch.cos(theta)
         sin = torch.sin(theta)
         matrix_xp = torch.eye(2, dtype=r.dtype, device=r.device)
-        vector_xp = torch.stack([r * cos, r * sin]).reshape(2, 1) * dqp.hbar ** 0.5 / dqp.kappa
+        vector_xp = torch.stack([r * cos, r * sin]).reshape(2, 1) * dqp.hbar**0.5 / dqp.kappa
         return matrix_xp, vector_xp
 
     def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -1458,10 +1458,11 @@ class DisplacementPosition(Displacement):
         """Initialize the parameters."""
         if inputs is None:
             inputs = torch.rand(1)[0] * 2 - 1
-        inputs = inputs * dqp.kappa / dqp.hbar ** 0.5
+        inputs = inputs * dqp.kappa / dqp.hbar**0.5
         noise = self.noise
         self.noise = False
         r, theta = self.inputs_to_tensor([inputs, 0])
+        theta = theta.to(r.dtype).to(r.device)
         self.noise = noise
         if self.requires_grad:
             self.r = nn.Parameter(r)
@@ -1532,10 +1533,11 @@ class DisplacementMomentum(Displacement):
         """Initialize the parameters."""
         if inputs is None:
             inputs = torch.rand(1)[0] * 2 - 1
-        inputs = inputs * dqp.kappa / dqp.hbar ** 0.5
+        inputs = inputs * dqp.kappa / dqp.hbar**0.5
         noise = self.noise
         self.noise = False
         r, theta = self.inputs_to_tensor([inputs, torch.pi / 2])
+        theta = theta.to(r.dtype).to(r.device)
         self.noise = noise
         if self.requires_grad:
             self.r = nn.Parameter(r)

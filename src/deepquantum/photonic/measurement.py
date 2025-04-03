@@ -2,17 +2,18 @@
 Photonic measurements
 """
 
-import numpy as np
-from copy import deepcopy
 from typing import Any, List, Optional, Union
 
+import numpy as np
 import torch
-from torch import nn
+from scipy.special import factorial
+from torch import nn, vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
 
-from .gate import PhaseShift
-from .operation import Operation
-from .qmath import sample_reject_bosonic
+import deepquantum.photonic as dqp
+from .gate import PhaseShift, Displacement
+from .operation import Operation, evolve_state, evolve_den_mat
+from .qmath import sample_homodyne_fock, sample_reject_bosonic
 
 
 class Generaldyne(Operation):
@@ -116,6 +117,7 @@ class Homodyne(Generaldyne):
         wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         eps (float, optional): The measurement accuracy. Default: 2e-4
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
@@ -130,6 +132,7 @@ class Homodyne(Generaldyne):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         eps: float = 2e-4,
         requires_grad: bool = False,
         noise: bool = False,
@@ -148,6 +151,7 @@ class Homodyne(Generaldyne):
         self.requires_grad = requires_grad
         self.init_para(inputs=phi)
         self.npara = 1
+        self.den_mat = den_mat
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
         """Convert inputs to torch.Tensor."""
@@ -169,13 +173,52 @@ class Homodyne(Generaldyne):
         else:
             self.register_buffer('phi', phi)
 
-    def forward(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
-        """Perform a forward pass for Gaussian states."""
-        cov, mean = x[:2]
+    def op_fock(self, x: torch.Tensor) -> torch.Tensor:
+        """Perform a forward pass for Fock state tensors."""
+        r = PhaseShift(inputs=-self.phi, nmode=self.nmode, wires=self.wires, cutoff=self.cutoff, den_mat=self.den_mat)
+        samples = sample_homodyne_fock(r(x), self.wires[0], self.nmode, self.cutoff, 1, self.den_mat) # (batch, 1, 1)
+        self.samples = samples.squeeze(-2) # with dimension \sqrt{m\omega\hbar}
+        # projection operator as single gate
+        vac_state = x.new_zeros(self.cutoff) # (cutoff)
+        vac_state[0] = 1
+        inf_sqz_vac = torch.zeros_like(vac_state) # (cutoff)
+        orders = torch.arange(np.ceil(self.cutoff / 2), dtype=x.real.dtype, device=x.device)
+        fac_2n = torch.tensor(factorial(2 * orders), dtype=orders.dtype, device=orders.device)
+        fac_n = torch.tensor(factorial(orders), dtype=orders.dtype, device=orders.device)
+        inf_sqz_vac[::2] = (-0.5)**orders * fac_2n**0.5 / fac_n # unnormalized
+        alpha = self.samples * dqp.kappa / dqp.hbar**0.5
+        d = Displacement(cutoff=self.cutoff)
+        d_mat = vmap(d.get_matrix_state, in_dims=(0, None))(alpha, 0) # (batch, cutoff, cutoff)
+        r = PhaseShift(inputs=self.phi, nmode=1, wires=0, cutoff=self.cutoff)
+        eigenstate = r(evolve_state(inf_sqz_vac.unsqueeze(0), d_mat, 1, [0], self.cutoff)) # (batch, cutoff)
+        project_op = vmap(torch.outer, in_dims=(None, 0))(vac_state, eigenstate.conj()) # (batch, cutoff, cutoff)
+        if self.den_mat: # (batch, 1, [cutoff] * 2 * nmode)
+            evolve = vmap(evolve_den_mat, in_dims=(0, 0, None, None, None))
+        else: # (batch, 1, [cutoff] * nmode)
+            evolve = vmap(evolve_state, in_dims=(0, 0, None, None, None))
+        x = evolve(x.unsqueeze(1), project_op, self.nmode, self.wires, self.cutoff).squeeze(1)
+        # normalization
+        if self.den_mat:
+            norm = vmap(torch.trace)(x.reshape(-1, self.cutoff ** self.nmode, self.cutoff ** self.nmode)) # (batch)
+            x = x / norm.reshape([-1] + [1] * 2 * self.nmode)
+        else:
+            norm = (abs(x.reshape(-1, self.cutoff ** self.nmode)) ** 2).sum(-1) ** 0.5 # (batch)
+            x = x / norm.reshape([-1] + [1] * self.nmode)
+        return x
+
+    def op_cv(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
+        """Perform a forward pass for Gaussian (Bosonic) states."""
         r = PhaseShift(inputs=-self.phi, nmode=self.nmode, wires=self.wires, cutoff=self.cutoff)
-        r.to(cov.dtype).to(cov.device)
+        cov, mean = x[:2]
         cov, mean = r([cov, mean])
         return super().forward([cov, mean] + x[2:])
+
+    def forward(self, x: Union[torch.Tensor, List[torch.Tensor]]) -> Union[torch.Tensor, List[torch.Tensor]]:
+        """Perform a forward pass."""
+        if isinstance(x, torch.Tensor):
+            return self.op_fock(x)
+        elif isinstance(x, list):
+            return self.op_cv(x)
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, phi={self.phi.item()}'
