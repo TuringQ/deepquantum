@@ -257,8 +257,6 @@ class QumodeCircuit(Operation):
         else:
             if self.basis:
                 self.init_state = FockState(state, nmode=self.nmode, cutoff=self.cutoff, basis=self.basis)
-                self._is_batch_expand = False # reset
-                self._expand_state = None # reset
         if isinstance(state, MatrixProductState):
             assert not self.basis
             state = state.tensors
@@ -268,7 +266,9 @@ class QumodeCircuit(Operation):
             state = FockState(state=state, nmode=self.nmode, cutoff=self.cutoff, basis=self.basis).state
         # preprocessing of batched initial states
         if self.basis:
-            state = self._expand_states(state, cal_all_fock_basis=True)
+            self._is_batch_expand = False # reset
+            self._expand_state = None # reset
+            state = self._prepare_expand_state(state, cal_all_fock_basis=True)
         if data is None or data.ndim == 1:
             if self.basis:
                 assert state.ndim in (1, 2)
@@ -728,8 +728,8 @@ class QumodeCircuit(Operation):
             op.init_para(data[count:count_up])
             count = count_up
 
-    def _expand_states(self, state: torch.Tensor, cal_all_fock_basis: bool = False,) -> torch.Tensor:
-        """Check and expand states if necessary."""
+    def _prepare_expand_state(self, state: torch.Tensor, cal_all_fock_basis: bool = False) -> torch.Tensor:
+        """Check and prepare expand_state if necessary."""
         if state.ndim == 1:
             if self._lossy:
                 state = torch.cat([state, state.new_zeros(self._nloss)], dim=-1)
@@ -875,8 +875,9 @@ class QumodeCircuit(Operation):
     ) -> torch.Tensor:
         """Get the transfer amplitude between the final state and the initial state.
 
-        When states are expanded due to photon loss or batched initial state,
-        amplitudes of reduced states can not be added, please try "get_prob()" instead.
+        Note:
+            When states are expanded due to photon loss or batched initial state,
+            amplitudes of reduced states can not be added, please try "get_prob()" instead.
 
         Args:
             final_state (Any): The final Fock basis state.
@@ -938,11 +939,11 @@ class QumodeCircuit(Operation):
                 if self._expand_state is not None:
                     refer_state = self._expand_state
                 else:
-                    refer_state = self._expand_states(self.init_state.state)
+                    refer_state = self._prepare_expand_state(self.init_state.state)
             if unitary is None:
                 unitary = self.get_unitary()
             else:
-                assert unitary.ndim == 2 , 'The unitary must be 2-dimensional without batch'
+                assert unitary.ndim == 2, 'The unitary must be 2-dimensional without batch'
             if self._is_batch_expand:
                 identity = torch.eye(1, dtype=unitary.dtype, device=unitary.device)
                 unitary = torch.block_diag(unitary, identity)
