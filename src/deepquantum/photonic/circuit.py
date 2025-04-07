@@ -257,6 +257,8 @@ class QumodeCircuit(Operation):
         else:
             if self.basis:
                 self.init_state = FockState(state, nmode=self.nmode, cutoff=self.cutoff, basis=self.basis)
+                self._is_batch_expand = False # reset
+                self._expand_state = None # reset
         if isinstance(state, MatrixProductState):
             assert not self.basis
             state = state.tensors
@@ -266,24 +268,7 @@ class QumodeCircuit(Operation):
             state = FockState(state=state, nmode=self.nmode, cutoff=self.cutoff, basis=self.basis).state
         # preprocessing of batched initial states
         if self.basis:
-            self._is_batch_expand = False
-            self._expand_state = None
-            if state.ndim == 1:
-                if self._lossy:
-                    state = torch.cat([state, state.new_zeros(self._nloss)], dim=-1)
-                self._all_fock_basis = self._get_all_fock_basis(state)
-            elif state.ndim == 2:
-                if self._lossy:
-                    state = torch.cat([state, state.new_zeros(state.shape[0], self._nloss)], dim=-1)
-                nphotons = torch.sum(state, dim=-1, keepdim=True)
-                max_photon = torch.max(nphotons).item()
-                # expand the Fock state if the photon number is not conserved
-                if any(nphoton < max_photon for nphoton in nphotons):
-                    state = torch.cat([state, max_photon - nphotons], dim=-1)
-                    self._is_batch_expand = True
-                self._all_fock_basis = self._get_all_fock_basis(state[0])
-            if self._lossy or self._is_batch_expand:
-                self._expand_state = state
+            state = self._expand_states(state, cal_all_fock_basis=True)
         if data is None or data.ndim == 1:
             if self.basis:
                 assert state.ndim in (1, 2)
@@ -743,6 +728,28 @@ class QumodeCircuit(Operation):
             op.init_para(data[count:count_up])
             count = count_up
 
+    def _expand_states(self, state: torch.Tensor, cal_all_fock_basis: bool = False,) -> torch.Tensor:
+        """Check and expand states if necessary."""
+        if state.ndim == 1:
+            if self._lossy:
+                state = torch.cat([state, state.new_zeros(self._nloss)], dim=-1)
+            if cal_all_fock_basis:
+                self._all_fock_basis = self._get_all_fock_basis(state)
+        elif state.ndim == 2:
+            if self._lossy:
+                state = torch.cat([state, state.new_zeros(state.shape[0], self._nloss)], dim=-1)
+            nphotons = torch.sum(state, dim=-1, keepdim=True)
+            max_photon = torch.max(nphotons).item()
+            # expand the Fock state if the photon number is not conserved
+            if any(nphoton < max_photon for nphoton in nphotons):
+                state = torch.cat([state, max_photon - nphotons], dim=-1)
+                self._is_batch_expand = True
+            if cal_all_fock_basis:
+                self._all_fock_basis = self._get_all_fock_basis(state[0])
+        if self._lossy or self._is_batch_expand:
+            self._expand_state = state
+        return state
+
     def get_unitary(self) -> torch.Tensor:
         """Get the unitary matrix of the photonic quantum circuit."""
         u = None
@@ -868,6 +875,9 @@ class QumodeCircuit(Operation):
     ) -> torch.Tensor:
         """Get the transfer amplitude between the final state and the initial state.
 
+        When states are expanded due to photon loss or batched initial state,
+        amplitudes of reduced states can not be added, please try "get_prob()" instead.
+
         Args:
             final_state (Any): The final Fock basis state.
             init_state (Any, optional): The initial Fock basis state. Default: ``None``
@@ -884,6 +894,8 @@ class QumodeCircuit(Operation):
         assert max(final_state) < self.cutoff, 'The number of photons in the final state must be less than cutoff'
         if unitary is None:
             unitary = self.get_unitary()
+        else:
+            assert unitary.ndim == 2 , 'The unitary must be 2-dimensional without batch'
         state = init_state.state
         if state.ndim == 1:
             sub_mat = sub_matrix(unitary, state, final_state)
@@ -923,65 +935,16 @@ class QumodeCircuit(Operation):
         assert max(final_state) < self.cutoff, 'The number of photons in the final state must be less than cutoff'
         if self.backend == 'fock':
             if refer_state is None:
-                refer_state = self.init_state.state if self._expand_state is None else self._expand_state
+                if self._expand_state is not None:
+                    refer_state = self._expand_state
+                else:
+                    refer_state = self._expand_states(self.init_state.state)
             if unitary is None:
                 unitary = self.get_unitary()
-            if self._is_batch_expand:
-                identity = torch.eye(1, dtype=self.state.dtype, device=self.state.device)
-                if unitary.ndim == 2:
-                    unitary = torch.block_diag(unitary, identity)
-                else:
-                    unitary = vmap(torch.block_diag, in_dims=(0, None))(unitary, identity)
-            if final_state.shape[-1] == refer_state.shape[-1]:
-                return self._get_prob_fock(final_state, refer_state, unitary)
             else:
-                nphotons_final = torch.sum(final_state, dim=-1)
-                nphotons_refer = torch.sum(refer_state, dim=-1, keepdim=True)
-                max_photon = torch.max(nphotons_refer).item()
-                expand_combinations = torch.tensor(fock_combinations(refer_state.shape[-1] - final_state.shape[-1],
-                                                    max_photon - nphotons_final))
-                final_states = torch.cat([final_state.expand(expand_combinations.shape[0], -1), expand_combinations], dim=-1)
-                if refer_state.ndim == 1 and unitary.ndim == 2:
-                    rst = self._measure_fock_unitary_helper(refer_state, \
-                                                            unitary, list(range(final_state.shape[-1])), final_states)
-                else:
-                    rst = vmap(self._measure_fock_unitary_helper, in_dims=(0 if refer_state.ndim==2 else None, \
-                                                                       0 if unitary.ndim==3 else None, None, None)) \
-                                            (refer_state, unitary, list(range(final_state.shape[-1])), final_states)
-                rst = list(rst.values())[0]
-            return rst
-        elif self.backend == 'gaussian':
-            if self._if_delayloop:
-                nmode = self._nmode_tdm
-            else:
-                nmode = self.nmode
-            if refer_state is None:
-                refer_state = GaussianState(self.state, nmode=nmode, cutoff=self.cutoff)
-            return self._get_prob_gaussian(final_state, refer_state)
-
-    def get_prob2(
-        self,
-        final_state: Any,
-        refer_state: Any = None,
-        unitary: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
-        """Get the probability of the final state related to the reference state.
-
-        Args:
-            final_state (Any): The final Fock basis state.
-            refer_state (Any, optional): The initial Fock basis state or the final Gaussian state. Default: ``None``
-            unitary (torch.Tensor or None, optional): The unitary matrix. Default: ``None``
-        """
-        if not isinstance(final_state, torch.Tensor):
-            final_state = torch.tensor(final_state, dtype=torch.long)
-        assert max(final_state) < self.cutoff, 'The number of photons in the final state must be less than cutoff'
-        if self.backend == 'fock':
-            if refer_state is None:
-                refer_state = self.init_state.state if self._expand_state is None else self._expand_state
-            if unitary is None:
-                unitary = self.get_unitary()
+                assert unitary.ndim == 2 , 'The unitary must be 2-dimensional without batch'
             if self._is_batch_expand:
-                identity = torch.eye(1, dtype=self.state.dtype, device=self.state.device)
+                identity = torch.eye(1, dtype=unitary.dtype, device=unitary.device)
                 unitary = torch.block_diag(unitary, identity)
             nmode = final_state.shape[-1]
             if refer_state.shape[-1] == nmode:
