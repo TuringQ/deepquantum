@@ -202,35 +202,21 @@ def shift_func(l: List, nstep: int) -> List:
 def xxpp_to_xpxp(matrix: torch.Tensor) -> torch.Tensor:
     """Transform the representation in ``xxpp`` ordering to the representation in ``xpxp`` ordering."""
     nmode = matrix.shape[-2] // 2
-    # transformation matrix
-    t = matrix.new_zeros([2 * nmode] * 2)
-    for i in range(2 * nmode):
-        if i % 2 == 0:
-            t[i][i // 2] = 1
-        else:
-            t[i][i // 2 + nmode] = 1
-    # new matrix in xpxp ordering
+    idx = torch.arange(2 * nmode).reshape(2, nmode).T.flatten()
     if matrix.shape[-1] == 2 * nmode:
-        return t @ matrix @ t.mT
+        return matrix[..., idx[:, None], idx]
     elif matrix.shape[-1] == 1:
-        return t @ matrix
+        return matrix[..., idx, :]
 
 
 def xpxp_to_xxpp(matrix: torch.Tensor) -> torch.Tensor:
     """Transform the representation in ``xpxp`` ordering to the representation in ``xxpp`` ordering."""
     nmode = matrix.shape[-2] // 2
-    # transformation matrix
-    t = matrix.new_zeros([2 * nmode] * 2)
-    for i in range(2 * nmode):
-        if i < nmode:
-            t[i][2 * i] = 1
-        else:
-            t[i][2 * (i - nmode) + 1] = 1
-    # new matrix in xxpp ordering
+    idx = torch.arange(2 * nmode).reshape(nmode, 2).T.flatten()
     if matrix.shape[-1] == 2 * nmode:
-        return t @ matrix @ t.mT
+        return matrix[..., idx[:, None], idx]
     elif matrix.shape[-1] == 1:
-        return t @ matrix
+        return matrix[..., idx, :]
 
 
 def quadrature_to_ladder(tensor: torch.Tensor, symplectic: bool = False) -> torch.Tensor:
