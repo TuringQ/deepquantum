@@ -1531,11 +1531,11 @@ class QumodeCircuit(Operation):
                 weights = weight
             else:
                 weights = torch.stack([weight] * nwire, dim=-2).reshape(batch * nwire, weight.shape[-1])
-        ncomb = weights.shape[-1]
-        if covs.shape[1] == 1:
-            covs = covs.expand(-1, ncomb, -1, -1)
-        if means.shape[1] == 1:
-            means = means.expand(-1, ncomb, -1, -1)
+            ncomb = weights.shape[-1]
+            if covs.shape[1] == 1:
+                covs = covs.expand(-1, ncomb, -1, -1)
+            if means.shape[1] == 1:
+                means = means.expand(-1, ncomb, -1, -1)
         exp, var = photon_number_mean_var(covs, means, weights)
         exp = exp.reshape(batch, nwire).squeeze()
         var = var.reshape(batch, nwire).squeeze()
