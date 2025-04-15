@@ -328,7 +328,8 @@ class BosonicState(nn.Module):
         gauss_b = MultivariateNormal(mean.squeeze(-1).real, cov) # mean shape: (batch, ncomb, 2)
         prob_g = gauss_b.log_prob(coords2).exp() # (npoints, batch, ncomb)
         exp_real = torch.exp(mean.imag.mT @ torch.linalg.solve(cov, mean.imag) / 2).squeeze() # (batch, ncomb)
-        # (batch, npoints, ncomb)
+        if exp_real.ndim == 0: # vacuum case
+            exp_real = exp_real.reshape(-1)
         exp_imag = torch.exp((coords3 - mean.real.unsqueeze(1)).mT @
                              torch.linalg.solve(cov, mean.imag).unsqueeze(1) * 1j).squeeze()
         wigner_vals = exp_real.unsqueeze(-2) * prob_g.permute(1, 0, 2) * exp_imag * self.weight.unsqueeze(-2)
