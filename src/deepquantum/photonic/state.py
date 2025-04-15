@@ -327,9 +327,7 @@ class BosonicState(nn.Module):
         mean = self.mean[..., idx, :]
         gauss_b = MultivariateNormal(mean.squeeze(-1).real, cov) # mean shape: (batch, ncomb, 2)
         prob_g = gauss_b.log_prob(coords2).exp() # (npoints, batch, ncomb)
-        exp_real = torch.exp(mean.imag.mT @ torch.linalg.solve(cov, mean.imag) / 2).squeeze() # (batch, ncomb)
-        if exp_real.ndim == 0: # vacuum case
-            exp_real = exp_real.reshape(-1)
+        exp_real = torch.exp(mean.imag.mT @ torch.linalg.solve(cov, mean.imag) / 2).squeeze(-2, -1) # (batch, ncomb)
         # (batch, npoints, ncomb)
         exp_imag = torch.exp((coords3 - mean.real.unsqueeze(1)).mT @
                              torch.linalg.solve(cov, mean.imag).unsqueeze(1) * 1j).squeeze()

@@ -369,7 +369,7 @@ def sample_homodyne_fock(
     h_terms = reduced_dm.unsqueeze(-1) * h_mat # (batch, cutoff, cutoff, nbin)
     probs = (h_terms.sum(dim=[-3, -2]) * torch.exp(-coef * xs**2)).real # (batch, nbin)
     probs = abs(probs)
-    probs[abs(probs) < 1e-10] = 0
+    probs[probs < 1e-10] = 0
     indices = torch.multinomial(probs.reshape(-1, nbin), num_samples=shots, replacement=True) # (batch, shots)
     samples = xs[indices]
     return samples.unsqueeze(-1) # (batch, shots, 1)
