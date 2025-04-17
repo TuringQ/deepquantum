@@ -22,9 +22,10 @@ class Generaldyne(Operation):
     Args:
         cov_m (Any): The covariance matrix for the general-dyne measurement.
         nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
-        wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         name (str, optional): The name of the measurement. Default: ``'Generaldyne'`
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
         mu (float, optional): The mean of Gaussian noise. Default: 0
@@ -36,6 +37,7 @@ class Generaldyne(Operation):
         nmode: int = 1,
         wires: Union[int, List[int], None] = None,
         cutoff: Optional[int] = None,
+        den_mat: bool = False,
         name: str = 'Generaldyne',
         noise: bool = False,
         mu: float = 0,
@@ -45,17 +47,19 @@ class Generaldyne(Operation):
         if wires is None:
             wires = list(range(nmode))
         wires = self._convert_indices(wires)
+        nwire = len(wires)
         if cutoff is None:
             cutoff = 2
-        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
+                         noise=noise, mu=mu, sigma=sigma)
         if not isinstance(cov_m, torch.Tensor):
-            cov_m = torch.tensor(cov_m, dtype=torch.float).reshape(-1, 2 * len(self.wires), 2 * len(self.wires))
-        assert cov_m.shape[-2] == cov_m.shape[-1] == 2 * len(self.wires), 'The size of cov_m does not match the wires'
+            cov_m = torch.tensor(cov_m, dtype=torch.float).reshape(2 * nwire, 2 * nwire)
+        assert cov_m.shape[-2] == cov_m.shape[-1] == 2 * nwire, 'The size of cov_m does not match the wires'
         self.register_buffer('cov_m', cov_m)
         self.samples = None
 
     def forward(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
-        """Perform a forward pass for Gaussian states.
+        """Perform a forward pass for Gaussian (Bosonic) states.
 
         See Quantum Continuous Variables: A Primer of Theoretical Methods (2024)
         by Alessio Serafini Eq.(5.143) and Eq.(5.144) in page 121
@@ -63,8 +67,8 @@ class Generaldyne(Operation):
         For Bosonic state, see https://arxiv.org/abs/2103.05530 Eq.(35-37)
         """
         cov, mean = x[:2]
-        wires = torch.tensor(self.wires)
         size = cov.size()
+        wires = torch.tensor(self.wires)
         idx = torch.cat([wires, wires + self.nmode]) # xxpp order
         idx_all = torch.arange(2 * self.nmode)
         mask = ~torch.isin(idx_all, idx)
@@ -78,7 +82,7 @@ class Generaldyne(Operation):
         cov_t = cov_b + self.cov_m
 
         cov_a = cov_a - cov_ab @ torch.linalg.solve(cov_t, cov_ab.mT) # update the unmeasured part
-        cov_out = cov.new_ones(size[:-1].numel()).reshape(*size[:-1]).diag_embed()
+        cov_out = cov.new_ones(size[:-1].numel()).reshape(size[:-1]).diag_embed()
         cov_out[..., idx_rest[:, None], idx_rest] = cov_a # update the total cov mat
 
         if len(x) == 2: # Gaussian
@@ -114,7 +118,7 @@ class Homodyne(Generaldyne):
     Args:
         phi (Any, optional): The homodyne measurement angle. Default: ``None``
         nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
-        wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
         den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
@@ -145,19 +149,18 @@ class Homodyne(Generaldyne):
             wires = [0]
         wires = self._convert_indices(wires)
         cov_m = torch.diag(torch.tensor([eps ** 2] * len(wires) + [1 / eps ** 2] * len(wires))) # xxpp
-        super().__init__(cov_m=cov_m, nmode=nmode, wires=wires, cutoff=cutoff, name=name,
+        super().__init__(cov_m=cov_m, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat, name=name,
                          noise=noise, mu=mu, sigma=sigma)
         assert len(self.wires) == 1, f'{self.name} must act on one mode'
         self.requires_grad = requires_grad
         self.init_para(inputs=phi)
         self.npara = 1
-        self.den_mat = den_mat
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
         """Convert inputs to torch.Tensor."""
         if inputs is None:
             inputs = torch.rand(len(self.wires)) * 2 * torch.pi
-        elif not isinstance(inputs, (torch.Tensor, nn.Parameter)):
+        elif not isinstance(inputs, torch.Tensor):
             inputs = torch.tensor(inputs, dtype=torch.float)
         inputs = inputs.reshape(-1)
         assert len(inputs) == len(self.wires)
@@ -202,7 +205,7 @@ class Homodyne(Generaldyne):
             norm = vmap(torch.trace)(x.reshape(-1, self.cutoff ** self.nmode, self.cutoff ** self.nmode)) # (batch)
             x = x / norm.reshape([-1] + [1] * 2 * self.nmode)
         else:
-            norm = (abs(x.reshape(-1, self.cutoff ** self.nmode)) ** 2).sum(-1) ** 0.5 # (batch)
+            norm = (x.reshape(-1, self.cutoff ** self.nmode).abs() ** 2).sum(-1) ** 0.5 # (batch)
             x = x / norm.reshape([-1] + [1] * self.nmode)
         return x
 
@@ -222,3 +225,110 @@ class Homodyne(Generaldyne):
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, phi={self.phi.item()}'
+
+
+class GeneralBosonic(Operation):
+    """General Bosonic measurement.
+
+    Args:
+        cov (Any): The covariance matrices for the general Bosonic measurement.
+        weight (Any): The weights for the general Bosonic measurement.
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        name (str, optional): The name of the measurement. Default: ``'GeneralBosonic'`
+        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
+        mu (float, optional): The mean of Gaussian noise. Default: 0
+        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+    """
+    def __init__(
+        self,
+        cov: Any,
+        weight: Any,
+        nmode: int = 1,
+        wires: Union[int, List[int], None] = None,
+        cutoff: Optional[int] = None,
+        name: str = 'GeneralBosonic'
+    ) -> None:
+        self.nmode = nmode
+        if wires is None:
+            wires = list(range(nmode))
+        wires = self._convert_indices(wires)
+        nwire = len(wires)
+        if cutoff is None:
+            cutoff = 2
+        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff)
+        if not isinstance(cov, torch.Tensor):
+            cov = torch.tensor(cov, dtype=torch.float)
+        if not isinstance(weight, torch.Tensor):
+            weight = torch.tensor(weight, dtype=torch.cfloat)
+        cov = cov.reshape(-1, 2 * nwire, 2 * nwire)
+        weight = weight.reshape(-1)
+        ncomb = weight.shape[-1]
+        assert cov.shape[-2] == cov.shape[-1] == 2 * nwire, 'The size does not match the wires'
+        assert cov.shape[0] in (1, ncomb)
+        self.register_buffer('cov', cov)
+        self.register_buffer('weight', weight)
+        self.samples = None
+
+    def forward(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
+        """Perform a forward pass for Gaussian (Bosonic) states.
+
+        See https://arxiv.org/abs/2103.05530 Eq.(30-31) and Eq.(35-37)
+        """
+        cov, mean = x[:2]
+        size = cov.size()
+        wires = torch.tensor(self.wires)
+        idx = torch.cat([wires, wires + self.nmode]) # xxpp order
+        idx_all = torch.arange(2 * self.nmode)
+        mask = ~torch.isin(idx_all, idx)
+        idx_rest = idx_all[mask]
+
+        # for ncomb_j of the measurement
+        if len(x) == 2: # Gaussian
+            cov = cov.unsqueeze(-3).unsqueeze(-3)
+            mean = mean.unsqueeze(-3).unsqueeze(-3) + 0j
+            weight = mean.new_ones(size[0], 1, 1)
+        elif len(x) == 3: # Bosonic
+            cov = cov.unsqueeze(-3)
+            mean = mean.unsqueeze(-3) + 0j
+            weight = x[2].unsqueeze(-1)
+        cov_a  = cov[..., idx_rest[:, None], idx_rest]
+        cov_b  = cov[..., idx[:, None], idx]
+        cov_ab = cov[..., idx_rest[:, None], idx]
+        mean_a = mean[..., idx_rest, :]
+        mean_b = mean[..., idx, :]
+
+        ncomb_j = self.weight.shape[-1]
+        if self.cov.shape[0] == 1:
+            cov_t = cov_b + self.cov.expand(ncomb_j, -1, -1) # (batch, ncomb, ncomb_j, 2 * nwire, 2 * nwire)
+        else:
+            cov_t = cov_b + self.cov
+        cov_new = cov_t.flatten(-4, -3) # (batch, ncomb_new, 2 * nwire, 2 * nwire)
+        mean_new = mean_b.expand(-1, -1, ncomb_j, -1, -1).flatten(-4, -3)
+        weight_new = (weight * self.weight).flatten(-2, -1)
+        size_out = cov_new.size()[:-2] + size[-2:] # (batch, ncomb_new, 2 * nmode, 2 * nmode)
+        # (batch, ncomb, ncomb_j, 2 * nwire_rest, 2 * nwire_rest)
+        cov_a = cov_a - cov_ab @ torch.linalg.solve(cov_t, cov_ab.mT) # update the unmeasured part
+        cov_out = cov.new_ones(size_out[:-1].numel()).reshape(size_out[:-1]).diag_embed()
+        cov_out[..., idx_rest[:, None], idx_rest] = cov_a.flatten(-4, -3) # update the total cov mat
+        # (batch, 2 * nwire)
+        mean_m = sample_reject_bosonic(cov_new, mean_new, weight_new, torch.zeros_like(cov_new), 1)[:, 0]
+        # (batch, ncomb_new)
+        exp_real = torch.exp(mean_new.imag.mT @ torch.linalg.solve(cov_new, mean_new.imag) / 2).squeeze()
+        gaus_b = MultivariateNormal(mean_new.squeeze(-1).real, cov_new) # (batch, ncomb_new, 2 * nwire)
+        prob_g = gaus_b.log_prob(mean_m.unsqueeze(-2)).exp() # (batch, ncomb_new, 2 * nwire) -> (batch, ncomb_new)
+        rm = mean_m.unsqueeze(-1).unsqueeze(-3) # (batch, 2 * nwire) -> (batch, 1, 2 * nwire, 1)
+        # (batch, ncomb_new)
+        exp_imag = torch.exp((rm - mean_new.real).mT @ torch.linalg.solve(cov_new, mean_new.imag) * 1j).squeeze()
+        weight_out = weight_new * exp_real * prob_g * exp_imag
+        norm_weight = self.weight.sum()
+        weight_out = weight_out / weight_out.sum(dim=-1, keepdim=True) * norm_weight
+        # (batch, ncomb, ncomb_j, 2 * nwire_rest, 1)
+        mean_a = mean_a + cov_ab.to(mean.dtype) @ torch.linalg.solve(cov_t.to(mean.dtype), rm.unsqueeze(-3) - mean_b)
+        mean_out = mean.new_zeros(size_out[:-1]).unsqueeze(-1)
+        mean_out[..., idx_rest, :] = mean_a.flatten(-4, -3)
+
+        self.samples = mean_m # xxpp order
+        return [cov_out, mean_out, weight_out]

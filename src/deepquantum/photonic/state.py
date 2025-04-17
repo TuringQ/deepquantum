@@ -383,21 +383,15 @@ class CatState(BosonicState):
     See https://arxiv.org/abs/2103.05530 Section IV B.
 
     Args:
-        r (float): Displacement magnitude :math:`|r|`
-        theta (float): Displacement angle :math:`\theta`
-        p (int): Parity, where :math:`\theta=p\pi`. ``p=0`` corresponds to an even
-            cat state, and ``p=1`` an odd cat state.
-        cutoff (int, optional): The Fock space truncation. Default: 5
+        r (Any, optional): Displacement magnitude :math:`|r|`. Default: ``None``
+        theta (Any, optional): Displacement angle :math:`\theta`. Default: ``None``
+        p (int, optional): Parity, where :math:`\theta=p\pi`. ``p=0`` corresponds to an even
+            cat state, and ``p=1`` an odd cat state. Default: 1
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
     """
-    def __init__(
-        self,
-        r: Optional[torch.Tensor] = None,
-        theta: Optional[torch.Tensor] = None,
-        p: int = 1,
-        cutoff: int = 5
-    ) -> None:
+    def __init__(self, r: Any = None, theta: Any = None, p: int = 1, cutoff: Optional[int] = None) -> None:
         nmode = 1
-        covs  = torch.eye(2) * dqp.hbar / (4 * dqp.kappa**2)
+        covs = torch.eye(2) * dqp.hbar / (4 * dqp.kappa**2)
         if r is None:
             r = torch.rand(1)[0]
         if theta is None:
@@ -410,11 +404,10 @@ class CatState(BosonicState):
             p = torch.tensor(p, dtype=torch.long)
         real_part = r * torch.cos(theta)
         imag_part = r * torch.sin(theta)
-        means = torch.sqrt(torch.tensor(dqp.hbar / dqp.kappa**2)) * \
-                torch.stack([torch.stack([real_part, imag_part]),
+        means = torch.stack([torch.stack([real_part, imag_part]),
                             -torch.stack([real_part, imag_part]),
                              torch.stack([imag_part, -real_part]) * 1j,
-                            -torch.stack([imag_part, -real_part]) * 1j])
+                            -torch.stack([imag_part, -real_part]) * 1j]) * dqp.hbar**0.5 / dqp.kappa
         temp = torch.exp(-2 * r**2)
         w0 = 0.5 / (1 + temp * torch.cos(p * torch.pi))
         w1 = w0
@@ -434,25 +427,29 @@ class GKPState(BosonicState):
     See https://arxiv.org/abs/2103.05530 Section IV A.
 
     Args:
-        theta (float): angle :math:`\theta` in Bloch sphere
-        phi (float): angle :math:`\phi` in Bloch sphere
-        amp_cutoff (float): amplitude threshold for keeping the terms. Default: 0.5
-        epsilon (float): finite energy damping parameter. Default: 0.1
-        cutoff (int, optional): the Fock space truncation. Default: 5
+        theta (Any, optional): angle :math:`\theta` in Bloch sphere. Default: ``None``
+        phi (Any, optional): angle :math:`\phi` in Bloch sphere. Default: ``None``
+        amp_cutoff (float, optional): The amplitude threshold for keeping the terms. Default: 0.1
+        epsilon (float, optional): The finite energy damping parameter. Default: 0.05
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
     """
     def __init__(
         self,
-        theta: Optional[torch.Tensor] = None,
-        phi: Optional[torch.Tensor] = None,
+        theta: Any = None,
+        phi: Any = None,
         amp_cutoff: float = 0.1,
         epsilon: float = 0.05,
-        cutoff: int = 5
+        cutoff: Optional[int] = None
     ) -> None:
         nmode = 1
         if theta is None:
             theta = torch.rand(1)[0] * 2 * torch.pi
         if phi is None:
             phi = torch.rand(1)[0] * 2 * torch.pi
+        if not isinstance(theta, torch.Tensor):
+            theta = torch.tensor(theta, dtype=torch.float)
+        if not isinstance(phi, torch.Tensor):
+            phi = torch.tensor(phi, dtype=torch.float)
         if not isinstance(epsilon, torch.Tensor):
             epsilon = torch.tensor(epsilon, dtype=torch.float)
         if not isinstance(amp_cutoff, torch.Tensor):
@@ -461,7 +458,7 @@ class GKPState(BosonicState):
         self.amp_cutoff = amp_cutoff
         exp_eps = torch.exp(-2 * epsilon)
         # gaussian envelope
-        z_max = torch.ceil(torch.sqrt(-4 / torch.pi * torch.log(amp_cutoff) * (1 + exp_eps) / (1-exp_eps)))
+        z_max = torch.ceil(torch.sqrt(-4 / torch.pi * torch.log(amp_cutoff) * (1 + exp_eps) / (1 - exp_eps)))
         coords = torch.arange(-z_max, z_max + 1)
         grid_x, grid_y = torch.meshgrid(coords, coords, indexing='ij')
         means = torch.stack([grid_x.reshape(-1), grid_y.reshape(-1)], dim=1)
@@ -476,10 +473,8 @@ class GKPState(BosonicState):
         weights = weights[filt] + 0j
         weights /= torch.sum(weights)
         means = means[filt]
-        means = means * 2 * torch.exp(-epsilon) / (1 + exp_eps)
-        means = means / 2 * torch.sqrt(torch.tensor(torch.pi * dqp.hbar / (2 * dqp.kappa**2))) + 0j # lattice spacing
-        covs = torch.eye(2)
-        covs = covs * dqp.hbar / (4 * dqp.kappa**2) * (1 - exp_eps) / (1 + exp_eps)
+        means = means * torch.exp(-epsilon) / (1 + exp_eps) * (torch.pi * dqp.hbar / 2)**0.5 / dqp.kappa + 0j
+        covs = torch.eye(2) * dqp.hbar / (4 * dqp.kappa**2) * (1 - exp_eps) / (1 + exp_eps)
         state = [covs, means, weights]
         super().__init__(state, nmode, cutoff)
 
