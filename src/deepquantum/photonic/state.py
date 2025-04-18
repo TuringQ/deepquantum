@@ -359,7 +359,7 @@ class BosonicState(nn.Module):
         idx = torch.cat([wire, wire + self.nmode]) # xxpp order
         cov  = self.cov[..., idx[:, None], idx]
         mean = self.mean[..., idx, :]
-        r = PhaseShift(inputs=-phi, nmode=1, wires=wire.tolist(), cutoff=self.cutoff)
+        r = PhaseShift(inputs=-phi, nmode=1, wires=[0], cutoff=self.cutoff)
         r.to(cov.dtype).to(cov.device)
         cov, mean = r([cov, mean]) # (batch, ncomb, 2, 2)
         cov = cov[..., 0, 0].unsqueeze(1)
