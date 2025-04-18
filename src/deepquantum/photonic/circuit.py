@@ -1657,8 +1657,10 @@ class QumodeCircuit(Operation):
                     samples = MultivariateNormal(mean_sub.squeeze(-1), cov_sub).sample([shots])
                     samples = samples.permute(1, 0, 2)
                 elif len(self.state) == 3:
-                    weight = self.state[2]
-                    samples = sample_reject_bosonic(cov_sub, mean_sub, weight, torch.zeros_like(cov_sub), shots)
+                    cov_sub, mean_sub, weight = align_shape(cov_sub, mean_sub, self.state[2])
+                    samples = sample_reject_bosonic(cov_sub, mean_sub, weight,
+                                                    torch.zeros_like(cov_sub[0,0,:,:]),
+                                                    shots)
             return samples.squeeze()
 
     @property
