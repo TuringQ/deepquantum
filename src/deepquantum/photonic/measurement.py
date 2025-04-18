@@ -14,6 +14,7 @@ import deepquantum.photonic as dqp
 from .gate import PhaseShift, Displacement
 from .operation import Operation, evolve_state, evolve_den_mat
 from .qmath import sample_homodyne_fock, sample_reject_bosonic
+from .state import FockStateBosonic
 
 
 class Generaldyne(Operation):
@@ -58,7 +59,7 @@ class Generaldyne(Operation):
         self.register_buffer('cov_m', cov_m)
         self.samples = None
 
-    def forward(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
+    def forward(self, x: List[torch.Tensor], samples: Any = None) -> List[torch.Tensor]:
         """Perform a forward pass for Gaussian (Bosonic) states.
 
         See Quantum Continuous Variables: A Primer of Theoretical Methods (2024)
@@ -86,11 +87,21 @@ class Generaldyne(Operation):
         cov_out[..., idx_rest[:, None], idx_rest] = cov_a # update the total cov mat
 
         if len(x) == 2: # Gaussian
-            mean_m = MultivariateNormal(mean_b.squeeze(-1), cov_t).sample([1])[0] # (batch, 2 * nwire)
+            if samples is None:
+                mean_m = MultivariateNormal(mean_b.squeeze(-1), cov_t).sample([1])[0] # (batch, 2 * nwire)
+            else:
+                if not isinstance(samples, torch.Tensor):
+                    samples = torch.tensor(samples, dtype=cov.dtype, device=cov.device)
+                mean_m = samples.reshape(-1, 2 * len(self.wires))
             mean_a = mean_a + cov_ab @ torch.linalg.solve(cov_t, mean_m.unsqueeze(-1) - mean_b)
         elif len(x) == 3: # Bosonic
             weight = x[2]
-            mean_m = sample_reject_bosonic(cov_b, mean_b, weight, self.cov_m, 1)[:, 0] # (batch, 2 * nwire)
+            if samples is None:
+                mean_m = sample_reject_bosonic(cov_b, mean_b, weight, self.cov_m, 1)[:, 0] # (batch, 2 * nwire)
+            else:
+                if not isinstance(samples, torch.Tensor):
+                    samples = torch.tensor(samples, dtype=cov.dtype, device=cov.device)
+                mean_m = samples.reshape(-1, 2 * len(self.wires))
             # (batch, ncomb)
             exp_real = torch.exp(mean_b.imag.mT @ torch.linalg.solve(cov_t, mean_b.imag) / 2).squeeze()
             gaus_b = MultivariateNormal(mean_b.squeeze(-1).real, cov_t) # (batch, ncomb, 2 * nwire)
@@ -125,10 +136,10 @@ class Homodyne(Generaldyne):
         eps (float, optional): The measurement accuracy. Default: 2e-4
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        name (str, optional): The name of the gate. Default: ``'Homodyne'``
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        name (str, optional): The name of the measurement. Default: ``'Homodyne'``
     """
     def __init__(
         self,
@@ -176,10 +187,16 @@ class Homodyne(Generaldyne):
         else:
             self.register_buffer('phi', phi)
 
-    def op_fock(self, x: torch.Tensor) -> torch.Tensor:
+    def op_fock(self, x: torch.Tensor, samples: Any = None) -> torch.Tensor:
         """Perform a forward pass for Fock state tensors."""
         r = PhaseShift(inputs=-self.phi, nmode=self.nmode, wires=self.wires, cutoff=self.cutoff, den_mat=self.den_mat)
-        samples = sample_homodyne_fock(r(x), self.wires[0], self.nmode, self.cutoff, 1, self.den_mat) # (batch, 1, 1)
+        if samples is None:
+            # (batch, 1, 1)
+            samples = sample_homodyne_fock(r(x), self.wires[0], self.nmode, self.cutoff, 1, self.den_mat)
+        else:
+            if not isinstance(samples, torch.Tensor):
+                samples = torch.tensor(samples, dtype=x.real.dtype, device=x.device)
+            samples = samples.reshape(-1, 1, 1)
         self.samples = samples.squeeze(-2) # with dimension \sqrt{m\omega\hbar}
         # projection operator as single gate
         vac_state = x.new_zeros(self.cutoff) # (cutoff)
@@ -209,19 +226,23 @@ class Homodyne(Generaldyne):
             x = x / norm.reshape([-1] + [1] * self.nmode)
         return x
 
-    def op_cv(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
+    def op_cv(self, x: List[torch.Tensor], samples: Any = None) -> List[torch.Tensor]:
         """Perform a forward pass for Gaussian (Bosonic) states."""
         r = PhaseShift(inputs=-self.phi, nmode=self.nmode, wires=self.wires, cutoff=self.cutoff)
         cov, mean = x[:2]
         cov, mean = r([cov, mean])
-        return super().forward([cov, mean] + x[2:])
+        return super().forward([cov, mean] + x[2:], samples)
 
-    def forward(self, x: Union[torch.Tensor, List[torch.Tensor]]) -> Union[torch.Tensor, List[torch.Tensor]]:
+    def forward(
+        self,
+        x: Union[torch.Tensor, List[torch.Tensor]],
+        samples: Any = None
+    ) -> Union[torch.Tensor, List[torch.Tensor]]:
         """Perform a forward pass."""
         if isinstance(x, torch.Tensor):
-            return self.op_fock(x)
+            return self.op_fock(x, samples)
         elif isinstance(x, list):
-            return self.op_cv(x)
+            return self.op_cv(x, samples)
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, phi={self.phi.item()}'
@@ -238,9 +259,6 @@ class GeneralBosonic(Operation):
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
         name (str, optional): The name of the measurement. Default: ``'GeneralBosonic'`
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
     def __init__(
         self,
@@ -272,7 +290,7 @@ class GeneralBosonic(Operation):
         self.register_buffer('weight', weight)
         self.samples = None
 
-    def forward(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
+    def forward(self, x: List[torch.Tensor], samples: Any = None) -> List[torch.Tensor]:
         """Perform a forward pass for Gaussian (Bosonic) states.
 
         See https://arxiv.org/abs/2103.05530 Eq.(30-31) and Eq.(35-37)
@@ -313,8 +331,13 @@ class GeneralBosonic(Operation):
         cov_a = cov_a - cov_ab @ torch.linalg.solve(cov_t, cov_ab.mT) # update the unmeasured part
         cov_out = cov.new_ones(size_out[:-1].numel()).reshape(size_out[:-1]).diag_embed()
         cov_out[..., idx_rest[:, None], idx_rest] = cov_a.flatten(-4, -3) # update the total cov mat
-        # (batch, 2 * nwire)
-        mean_m = sample_reject_bosonic(cov_new, mean_new, weight_new, torch.zeros_like(cov_new), 1)[:, 0]
+        if samples is None:
+            # (batch, 2 * nwire)
+            mean_m = sample_reject_bosonic(cov_new, mean_new, weight_new, torch.zeros_like(cov_new), 1)[:, 0]
+        else:
+            if not isinstance(samples, torch.Tensor):
+                samples = torch.tensor(samples, dtype=cov.dtype, device=cov.device)
+            mean_m = samples.reshape(-1, 2 * len(self.wires))
         # (batch, ncomb_new)
         exp_real = torch.exp(mean_new.imag.mT @ torch.linalg.solve(cov_new, mean_new.imag) / 2).squeeze()
         gaus_b = MultivariateNormal(mean_new.squeeze(-1).real, cov_new) # (batch, ncomb_new, 2 * nwire)
@@ -323,8 +346,7 @@ class GeneralBosonic(Operation):
         # (batch, ncomb_new)
         exp_imag = torch.exp((rm - mean_new.real).mT @ torch.linalg.solve(cov_new, mean_new.imag) * 1j).squeeze()
         weight_out = weight_new * exp_real * prob_g * exp_imag
-        norm_weight = self.weight.sum()
-        weight_out = weight_out / weight_out.sum(dim=-1, keepdim=True) * norm_weight
+        weight_out /= weight_out.sum(dim=-1, keepdim=True)
         # (batch, ncomb, ncomb_j, 2 * nwire_rest, 1)
         mean_a = mean_a + cov_ab.to(mean.dtype) @ torch.linalg.solve(cov_t.to(mean.dtype), rm.unsqueeze(-3) - mean_b)
         mean_out = mean.new_zeros(size_out[:-1]).unsqueeze(-1)
@@ -332,3 +354,36 @@ class GeneralBosonic(Operation):
 
         self.samples = mean_m # xxpp order
         return [cov_out, mean_out, weight_out]
+
+
+class PhotonNumberResolvingBosonic(GeneralBosonic):
+    """Photon-number-resolving measurement for Bosonic state.
+
+    Args:
+        n (int): Photon number.
+        r (Any, optional): The quality parameter for the approximation. Default: 0.05
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        name (str, optional): The name of the measurement. Default: ``'GeneralBosonic'`
+    """
+    def __init__(
+        self,
+        n: int,
+        r: Any = 0.05,
+        nmode: int = 1,
+        wires: Union[int, List[int], None] = None,
+        cutoff: Optional[int] = None,
+        name: str = 'PhotonNumberResolvingBosonic'
+    ) -> None:
+        self.nmode = nmode
+        if wires is None:
+            wires = [0]
+        state = FockStateBosonic(n, r, cutoff)
+        cov = state.cov
+        weight = state.weight
+        if cutoff is None:
+            cutoff = state.cutoff
+        super().__init__(cov=cov, weight=weight, nmode=nmode, wires=wires, cutoff=cutoff, name=name)
+        assert len(self.wires) == 1, f'{self.name} must act on one mode'

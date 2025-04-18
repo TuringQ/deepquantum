@@ -5,10 +5,12 @@ Quantum states
 from typing import Any, List, Optional, Union
 
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
-from torch.distributions.multivariate_normal import MultivariateNormal
 from matplotlib import cm
+from scipy.special import comb
 from torch import nn, vmap
+from torch.distributions.multivariate_normal import MultivariateNormal
 
 import deepquantum.photonic as dqp
 from ..qmath import multi_kron
@@ -543,6 +545,33 @@ class GKPState(BosonicState):
 
         weight = result * prefactor # update coefficient
         return weight
+
+
+class FockStateBosonic(BosonicState):
+    """Single-mode Fock state, representing by a linear combination of Gaussian states.
+
+    See https://arxiv.org/abs/2103.05530 Section IV C.
+
+    Args:
+        n (int): Particle number.
+        r (Any, optional): The quality parameter for the approximation. Default: 0.05
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+    """
+    def __init__(self, n: int, r: Any = 0.05, cutoff: Optional[int] = None) -> None:
+        if not isinstance(r, torch.Tensor):
+            r = torch.tensor(r, dtype=torch.float)
+        assert r ** 2 < 1 / n, 'NOT a physical state'
+        nmode = 1
+        m = np.arange(n + 1)
+        combs = torch.tensor(comb(n, m))
+        cov = torch.eye(2) * dqp.hbar / (4 * dqp.kappa**2) * (1 + (n - m) * r**2) / (1 - (n - m) * r**2)
+        mean = torch.zeros([n + 1, 2]) + 0j
+        weight = (-1)**(n - m) * combs * (1 - n * r**2) / (1 - (n - m) * r**2)
+        weight = weight / weight.sum(-1, keepdims=True) + 0j
+        state = [cov, mean, weight]
+        if cutoff is None:
+            cutoff = n + 1
+        super().__init__(state, nmode, cutoff)
 
 
 def combine_tensors(tensors: List[torch.Tensor], ndim_ds: int = 2) -> torch.Tensor:
