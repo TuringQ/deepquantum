@@ -1648,7 +1648,7 @@ class QumodeCircuit(Operation):
                         epsilon = 1e-8
                     else:
                         raise ValueError('Unsupported dtype.')
-                    cov += epsilon * cov.new_ones(size[:-1].numel()).reshape(*size[:-1]).diag_embed()
+                    cov += epsilon * cov.new_ones(size[:-1].numel()).reshape(size[:-1]).diag_embed()
                 idx = torch.cat([wires, wires + self.nmode])
                 cov_sub = cov[..., idx[:, None], idx]
                 mean_sub = mean[..., idx, :]
@@ -1658,9 +1658,7 @@ class QumodeCircuit(Operation):
                     samples = samples.permute(1, 0, 2)
                 elif len(self.state) == 3:
                     cov_sub, mean_sub, weight = align_shape(cov_sub, mean_sub, self.state[2])
-                    samples = sample_reject_bosonic(cov_sub, mean_sub, weight,
-                                                    torch.zeros_like(cov_sub[0,0,:,:]),
-                                                    shots)
+                    samples = sample_reject_bosonic(cov_sub, mean_sub, weight, cov_sub.new_zeros(1), shots)
             return samples.squeeze()
 
     @property
