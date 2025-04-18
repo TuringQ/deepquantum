@@ -333,7 +333,7 @@ class GeneralBosonic(Operation):
         cov_out[..., idx_rest[:, None], idx_rest] = cov_a.flatten(-4, -3) # update the total cov mat
         if samples is None:
             # (batch, 2 * nwire)
-            mean_m = sample_reject_bosonic(cov_new, mean_new, weight_new, torch.zeros_like(cov_new), 1)[:, 0]
+            mean_m = sample_reject_bosonic(cov_new, mean_new, weight_new, cov_new.new_zeros(1), 1)[:, 0]
         else:
             if not isinstance(samples, torch.Tensor):
                 samples = torch.tensor(samples, dtype=cov.dtype, device=cov.device)

@@ -564,10 +564,12 @@ class FockStateBosonic(BosonicState):
         nmode = 1
         m = np.arange(n + 1)
         combs = torch.tensor(comb(n, m))
-        cov = torch.eye(2) * dqp.hbar / (4 * dqp.kappa**2) * (1 + (n - m) * r**2) / (1 - (n - m) * r**2)
-        mean = torch.zeros([n + 1, 2]) + 0j
+        m = torch.tensor(m)
         weight = (-1)**(n - m) * combs * (1 - n * r**2) / (1 - (n - m) * r**2)
         weight = weight / weight.sum(-1, keepdims=True) + 0j
+        mean = torch.zeros([n + 1, 2]) + 0j
+        m = m.reshape(-1, 1, 1)
+        cov = torch.eye(2) * dqp.hbar / (4 * dqp.kappa**2) * (1 + (n - m) * r**2) / (1 - (n - m) * r**2)
         state = [cov, mean, weight]
         if cutoff is None:
             cutoff = n + 1
