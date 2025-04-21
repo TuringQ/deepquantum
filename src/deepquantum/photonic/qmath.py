@@ -400,7 +400,7 @@ def sample_reject_bosonic(
     count_shots = [0] * batch
     shots_tmp = shots
     mask = (weight.real > 0) | (abs(weight.imag) > 1e-8) | (abs(mean.imag) > 1e-8).any(-2).squeeze(-1)
-    exp_real = torch.exp(mean.imag.mT @ torch.linalg.solve(cov_m + cov, mean.imag) / 2).squeeze()
+    exp_real = torch.exp(mean.imag.mT @ torch.linalg.solve(cov_m + cov, mean.imag) / 2).squeeze(-2, -1)
     c_tilde = mask * abs(weight) * exp_real
     while len(batches) > 0:
         cov_rest = cov[batches]
