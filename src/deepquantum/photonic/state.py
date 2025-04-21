@@ -334,7 +334,7 @@ class BosonicState(nn.Module):
         exp_imag = torch.exp((coords3 - mean.real.unsqueeze(1)).mT @
                              torch.linalg.solve(cov, mean.imag).unsqueeze(1) * 1j).squeeze()
         wigner_vals = exp_real.unsqueeze(-2) * prob_g.permute(1, 0, 2) * exp_imag * self.weight.unsqueeze(-2)
-        wigner_vals = wigner_vals.sum(dim=2).reshape(-1, len(qvec), len(pvec))
+        wigner_vals = wigner_vals.sum(dim=2).reshape(-1, len(qvec), len(pvec)).real
         if plot:
             plt.subplots(1, 1, figsize=(12, 10))
             plt.xlabel('Quadrature q')
@@ -367,7 +367,7 @@ class BosonicState(nn.Module):
         prefactor = 1 / (torch.sqrt(2 * torch.pi * cov)) # (batch, 1, ncomb)
         # (batch, npoints, ncomb)
         marginal_vals = self.weight.unsqueeze(1) * prefactor * torch.exp(-0.5 * (qvec.reshape(-1, 1) - mean)**2 / cov)
-        marginal_vals = marginal_vals.sum(2) # (batch, npoints)
+        marginal_vals = marginal_vals.sum(2).real # (batch, npoints)
         if plot:
             plt.subplots(1, 1, figsize=(12, 10))
             plt.xlabel('Quadrature q')
