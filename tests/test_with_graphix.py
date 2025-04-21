@@ -4,6 +4,7 @@ import torch
 from graphix import Pattern, command
 from graphix.fundamentals import Plane
 
+
 def test_random_with_graphix():
     n = np.random.randint(4, 10)
     results_1 = 0
@@ -35,6 +36,7 @@ def test_random_with_graphix():
         state = pat_dq().full_state
         results_2 = pat_dq.state.measure_dict
     assert torch.allclose(torch.abs(torch.tensor(out_state.flatten(), dtype=torch.complex64)), torch.abs(state.flatten()), atol=1e-6)
+
 
 def test_batch_init_state():
     n = np.random.randint(4, 10)
@@ -75,6 +77,7 @@ def test_batch_init_state():
             print(out_state.flatten())
             print(state[0].flatten())
         assert torch.allclose(torch.abs(torch.tensor(out_state.flatten(), dtype=torch.complex64)), torch.abs(state[i].flatten()), atol=1e-6)
+
 
 def test_standardize():
     alpha = np.random.rand(100)
@@ -118,6 +121,7 @@ def test_standardize():
         state2 = pat_dq().full_state
         results_2 = pat_dq.state.measure_dict
     assert torch.allclose(torch.abs(torch.tensor(state.flatten(), dtype=torch.complex64)), torch.abs(state2.flatten()))
+
 
 def test_signal_shifting():
     alpha = np.random.rand(100)
@@ -164,6 +168,7 @@ def test_signal_shifting():
         results_2 = pat_dq.state.measure_dict
     assert torch.allclose(torch.abs(torch.tensor(state.flatten(), dtype=torch.complex64)), torch.abs(state2.flatten()))
 
+
 def test_signal_shifting_plane_yz():
     alpha = np.random.rand(100)
     results_1 = 0
@@ -208,6 +213,7 @@ def test_signal_shifting_plane_yz():
         state2 = pat_dq().full_state
         results_2 = pat_dq.state.measure_dict
     assert torch.allclose(torch.abs(torch.tensor(state.flatten(), dtype=torch.complex64)), torch.abs(state2.flatten()))
+
 
 def test_signal_shifting_plane_xz():
     alpha = np.random.rand(100)

@@ -146,7 +146,7 @@ def test_non_adjacent_bs_fock():
     result = eng.run(prog)
 
     nmode = n
-    cir = dq.QumodeCircuit(nmode=nmode, init_state=[1,1,1], cutoff=3, backend='fock', basis=True)
+    cir = dq.QumodeCircuit(nmode=nmode, init_state=[1,1,1], cutoff=4, backend='fock', basis=True)
     cir.ps(0, angles[0])
     cir.ps(1, angles[1])
     cir.bs([0,2], [angles[2], angles[3]])

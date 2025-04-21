@@ -261,11 +261,20 @@ class BosonicState(nn.Module):
             if nmode is None:
                 nmode = cov.shape[-1] // 2
         ncomb = weight.shape[-1]
-        cov = cov.reshape(-1, ncomb, 2 * nmode, 2 * nmode)
-        mean = mean.reshape(-1, ncomb, 2 * nmode, 1)
+        if cov.ndim == 2:
+            cov = cov.reshape(1, 1, 2 * nmode, 2 * nmode)
+        elif cov.ndim == 3:
+            cov = cov.reshape(-1, ncomb, 2 * nmode, 2 * nmode)
+        if mean.ndim == 2:
+            if mean.shape[-1] == 1:
+                mean = mean.reshape(1, 1, 2 * nmode, 1)
+            elif mean.shape[0] == ncomb:
+                mean = mean.reshape(1, ncomb, 2 * nmode, 1)
+        elif mean.ndim == 3:
+            mean = mean.reshape(-1, ncomb, 2 * nmode, 1)
         weight = weight.reshape(-1, ncomb)
         assert cov.ndim == mean.ndim == 4
-        assert cov.shape[0] == mean.shape[0] == weight.shape[0]
+        assert cov.shape[0] == mean.shape[0]
         assert cov.shape[-2] == cov.shape[-1] == 2 * nmode, (
             'The shape of the covariance matrix should be (2*nmode, 2*nmode)')
         assert mean.shape[-2] == 2 * nmode, 'The length of the mean vector should be 2*nmode'
@@ -318,7 +327,7 @@ class BosonicState(nn.Module):
         mean = self.mean[..., idx, :]
         gauss_b = MultivariateNormal(mean.squeeze(-1).real, cov) # mean shape: (batch, ncomb, 2)
         prob_g = gauss_b.log_prob(coords2).exp() # (npoints, batch, ncomb)
-        exp_real = torch.exp(mean.imag.mT @ torch.linalg.solve(cov, mean.imag) / 2).squeeze() # (batch, ncomb)
+        exp_real = torch.exp(mean.imag.mT @ torch.linalg.solve(cov, mean.imag) / 2).squeeze(-2, -1) # (batch, ncomb)
         # (batch, npoints, ncomb)
         exp_imag = torch.exp((coords3 - mean.real.unsqueeze(1)).mT @
                              torch.linalg.solve(cov, mean.imag).unsqueeze(1) * 1j).squeeze()
@@ -348,13 +357,14 @@ class BosonicState(nn.Module):
         idx = torch.cat([wire, wire + self.nmode]) # xxpp order
         cov  = self.cov[..., idx[:, None], idx]
         mean = self.mean[..., idx, :]
-        r = PhaseShift(inputs=-phi, nmode=1, wires=wire.tolist(), cutoff=self.cutoff)
-        r.to(cov.device, cov.dtype)
-        cov_out, mean_out = r([cov, mean]) # (batch, ncomb, 2, 2)
-        prefactor = 1 / (torch.sqrt(2 * torch.pi * cov_out[..., 0, 0])) # (batch, ncomb)
+        r = PhaseShift(inputs=-phi, nmode=1, wires=[0], cutoff=self.cutoff)
+        r.to(cov.dtype).to(cov.device)
+        cov, mean = r([cov, mean]) # (batch, ncomb, 2, 2)
+        cov = cov[..., 0, 0].unsqueeze(1)
+        mean = mean[..., 0, 0].unsqueeze(1)
+        prefactor = 1 / (torch.sqrt(2 * torch.pi * cov)) # (batch, 1, ncomb)
         # (batch, npoints, ncomb)
-        marginal_vals = self.weight.unsqueeze(1) * prefactor.unsqueeze(1) * torch.exp(-0.5 * (qvec.reshape(-1, 1) -
-                                                            mean_out[..., 0, 0].unsqueeze(1))**2 / cov_out[..., 0, 0].unsqueeze(1))
+        marginal_vals = self.weight.unsqueeze(1) * prefactor * torch.exp(-0.5 * (qvec.reshape(-1, 1) - mean)**2 / cov)
         marginal_vals = marginal_vals.sum(2) # (batch, npoints)
         if plot:
             plt.subplots(1, 1, figsize=(12, 10))
@@ -387,7 +397,7 @@ class CatState(BosonicState):
         cutoff: int = 5
     ) -> None:
         nmode = 1
-        covs  = torch.stack([torch.eye(2)] * 4)
+        covs  = torch.eye(2) * dqp.hbar / (4 * dqp.kappa**2)
         if r is None:
             r = torch.rand(1)[0]
         if theta is None:
@@ -463,15 +473,13 @@ class GKPState(BosonicState):
         weights = self._update_weight(k, l, thetas, phis)
 
         filt = abs(weights) > amp_cutoff
-        weights = weights[filt]
+        weights = weights[filt] + 0j
         weights /= torch.sum(weights)
         means = means[filt]
         means = means * 2 * torch.exp(-epsilon) / (1 + exp_eps)
-        means = means * 0.5 * torch.sqrt(torch.tensor(torch.pi * dqp.hbar / (2 * dqp.kappa**2)))   # lattice spacing
-        covs = torch.stack([torch.eye(2)] * len(means))
+        means = means / 2 * torch.sqrt(torch.tensor(torch.pi * dqp.hbar / (2 * dqp.kappa**2))) + 0j # lattice spacing
+        covs = torch.eye(2)
         covs = covs * dqp.hbar / (4 * dqp.kappa**2) * (1 - exp_eps) / (1 + exp_eps)
-        means = means.to(torch.cfloat)
-        weights = weights.to(torch.cfloat)
         state = [covs, means, weights]
         super().__init__(state, nmode, cutoff)
 

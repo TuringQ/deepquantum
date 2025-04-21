@@ -4,18 +4,14 @@ Common functions
 
 import itertools
 import warnings
-from collections import defaultdict
-from copy import deepcopy
-from typing import Callable, Dict, Generator, List, Optional, Tuple
+from typing import Dict, Generator, List, Optional, Tuple
 
-import numpy as np
 import torch
 from torch import vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
-from tqdm import tqdm
 
 import deepquantum.photonic as dqp
-from ..qmath import is_unitary
+from ..qmath import is_unitary, partial_trace
 from .utils import mem_to_chunksize
 
 
@@ -184,6 +180,14 @@ def fock_combinations(nmode: int, nphoton: int, cutoff: Optional[int] = None, na
     return result
 
 
+def ladder_ops(cutoff: int, dtype = torch.cfloat, device = 'cpu') -> Tuple[torch.Tensor, torch.Tensor]:
+    """Get the matrix representation of the annihilation and creation operators."""
+    sqrt = torch.arange(1, cutoff).to(dtype=dtype, device=device) ** 0.5
+    a = torch.diag(sqrt, diagonal=1)
+    ad = a.mH # share the memory
+    return a, ad
+
+
 def shift_func(l: List, nstep: int) -> List:
     """Shift a list by a number of steps.
 
@@ -198,61 +202,65 @@ def shift_func(l: List, nstep: int) -> List:
 def xxpp_to_xpxp(matrix: torch.Tensor) -> torch.Tensor:
     """Transform the representation in ``xxpp`` ordering to the representation in ``xpxp`` ordering."""
     nmode = matrix.shape[-2] // 2
-    # transformation matrix
-    t = torch.zeros([2 * nmode] * 2, dtype=matrix.dtype, device=matrix.device)
-    for i in range(2 * nmode):
-        if i % 2 == 0:
-            t[i][i // 2] = 1
-        else:
-            t[i][i // 2 + nmode] = 1
-    # new matrix in xpxp ordering
+    idx = torch.arange(2 * nmode).reshape(2, nmode).T.flatten()
     if matrix.shape[-1] == 2 * nmode:
-        return t @ matrix @ t.mT
+        return matrix[..., idx[:, None], idx]
     elif matrix.shape[-1] == 1:
-        return t @ matrix
+        return matrix[..., idx, :]
 
 
 def xpxp_to_xxpp(matrix: torch.Tensor) -> torch.Tensor:
     """Transform the representation in ``xpxp`` ordering to the representation in ``xxpp`` ordering."""
     nmode = matrix.shape[-2] // 2
-    # transformation matrix
-    t = torch.zeros([2 * nmode] * 2, dtype=matrix.dtype, device=matrix.device)
-    for i in range(2 * nmode):
-        if i < nmode:
-            t[i][2 * i] = 1
-        else:
-            t[i][2 * (i - nmode) + 1] = 1
-    # new matrix in xxpp ordering
+    idx = torch.arange(2 * nmode).reshape(nmode, 2).T.flatten()
     if matrix.shape[-1] == 2 * nmode:
-        return t @ matrix @ t.mT
+        return matrix[..., idx[:, None], idx]
     elif matrix.shape[-1] == 1:
-        return t @ matrix
+        return matrix[..., idx, :]
 
 
-def quadrature_to_ladder(matrix: torch.Tensor) -> torch.Tensor:
-    """Transform the representation in ``xxpp`` ordering to the representation in ``aa^+`` ordering."""
-    nmode = matrix.shape[-2] // 2
-    matrix = matrix + 0j
-    identity = torch.eye(nmode, dtype=matrix.dtype, device=matrix.device)
+def quadrature_to_ladder(tensor: torch.Tensor, symplectic: bool = False) -> torch.Tensor:
+    """Transform the representation in ``xxpp`` ordering to the representation in ``aaa^+a^+`` ordering.
+
+    Args:
+        tensor (torch.Tensor): The input tensor in ``xxpp`` ordering.
+        symplectic (bool, optional): Whether the transformation is applied for symplectic matrix or Gaussian state.
+            Default: ``False`` (which means covariance matrix or displacement vector)
+    """
+    nmode = tensor.shape[-2] // 2
+    tensor = tensor + 0j
+    identity = torch.eye(nmode, dtype=tensor.dtype, device=tensor.device)
     omega = torch.cat([torch.cat([identity, identity * 1j], dim=-1),
-                       torch.cat([identity, identity * -1j], dim=-1)]) * dqp.kappa / dqp.hbar ** 0.5
-    if matrix.shape[-1] == 2 * nmode:
-        return omega @ matrix @ omega.mH
-    elif matrix.shape[-1] == 1:
-        return omega @ matrix
+                       torch.cat([identity, identity * -1j], dim=-1)])
+    if tensor.shape[-1] == 2 * nmode:
+        if symplectic:
+            return omega @ tensor @ omega.mH / 2 # inversed omega
+        else:
+            return omega @ tensor @ omega.mH * dqp.kappa**2 / dqp.hbar
+    elif tensor.shape[-1] == 1:
+        return omega @ tensor * dqp.kappa / dqp.hbar**0.5
 
 
-def ladder_to_quadrature(matrix: torch.Tensor) -> torch.Tensor:
-    """Transform the representation in ``aa^+`` ordering to the representation in ``xxpp`` ordering."""
-    nmode = matrix.shape[-2] // 2
-    matrix = matrix + 0j
-    identity = torch.eye(nmode, dtype=matrix.dtype, device=matrix.device)
+def ladder_to_quadrature(tensor: torch.Tensor, symplectic: bool = False) -> torch.Tensor:
+    """Transform the representation in ``aaa^+a^+`` ordering to the representation in ``xxpp`` ordering.
+
+    Args:
+        tensor (torch.Tensor): The input tensor in ``aaa^+a^+`` ordering.
+        symplectic (bool, optional): Whether the transformation is applied for symplectic matrix or Gaussian state.
+            Default: ``False`` (which means covariance matrix or displacement vector)
+    """
+    nmode = tensor.shape[-2] // 2
+    tensor = tensor + 0j
+    identity = torch.eye(nmode, dtype=tensor.dtype, device=tensor.device)
     omega = torch.cat([torch.cat([identity, identity], dim=-1),
-                       torch.cat([identity * -1j, identity * 1j], dim=-1)]) * dqp.hbar ** 0.5 / (2 * dqp.kappa)
-    if matrix.shape[-1] == 2 * nmode:
-        return (omega @ matrix @ omega.mH).real
-    elif matrix.shape[-1] == 1:
-        return (omega @ matrix).real
+                       torch.cat([identity * -1j, identity * 1j], dim=-1)])
+    if tensor.shape[-1] == 2 * nmode:
+        if symplectic:
+            return (omega @ tensor @ omega.mH).real / 2 # inversed omega
+        else:
+            return (omega @ tensor @ omega.mH).real * dqp.hbar / (4 * dqp.kappa**2)
+    elif tensor.shape[-1] == 1:
+        return (omega @ tensor).real * dqp.hbar**0.5 / (2 * dqp.kappa)
 
 
 def _photon_number_mean_var_gaussian(cov: torch.Tensor, mean: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -332,74 +340,39 @@ def takagi(a: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
                     return v, diag
 
 
-def sample_sc_mcmc(
-    prob_func: Callable,
-    proposal_sampler: Callable,
-    shots: int = 1024,
-    num_chain: int = 5
-) -> defaultdict:
-    """Get the samples of the probability distribution function via SC-MCMC method."""
-    samples_chain = []
-    merged_samples = defaultdict(int)
-    cache_prob = {}
-    shots_lst = [shots // num_chain] * num_chain
-    shots_lst[-1] += shots % num_chain
-    for trial in range(num_chain):
-        cache = []
-        len_cache = min(shots_lst)
-        if shots_lst[trial] > 1e5:
-            len_cache = 4000
-        samples = []
-        # random start
-        sample_0 = proposal_sampler()
-        if prob_func(sample_0) < 1e-12: # avoid the samples with almost-zero probability
-            sample_0 = torch.zeros_like(sample_0)
-        while prob_func(sample_0) < 1e-9:
-            sample_0 = proposal_sampler()
-        cache.append(sample_0)
-        sample_max = sample_0
-        if tuple(sample_max.tolist()) in cache_prob:
-            prob_max = cache_prob[tuple(sample_max.tolist())]
-        else:
-            prob_max = prob_func(sample_0)
-            cache_prob[tuple(sample_max.tolist())] = prob_max
-        dict_sample = defaultdict(int)
-        for i in tqdm(range(1, shots_lst[trial]), desc=f'chain {trial+1}', ncols=80, colour='green'):
-            sample_i = proposal_sampler()
-            if tuple(sample_i.tolist()) in cache_prob:
-                prob_i = cache_prob[tuple(sample_i.tolist())]
-            else:
-                prob_i = prob_func(sample_i)
-                cache_prob[tuple(sample_i.tolist())] = prob_i
-            rand_num = torch.rand(1, device= prob_i.device)
-            samples.append(sample_i)
-            # MCMC transfer to new state
-            if prob_i / prob_max > rand_num:
-                sample_max = sample_i
-                prob_max = prob_i
-            if i < len_cache: # cache not full
-                cache.append(sample_max)
-            else: # full
-                idx = np.random.randint(0, len_cache)
-                out_sample = deepcopy(cache[idx])
-                cache[idx] = sample_max
-                out_sample_key = tuple(out_sample.tolist())
-                if out_sample_key in dict_sample:
-                    dict_sample[out_sample_key] = dict_sample[out_sample_key] + 1
-                else:
-                    dict_sample[out_sample_key] = 1
-        # clear the cache
-        for i in range(len_cache):
-            out_sample = cache[i]
-            out_sample_key = tuple(out_sample.tolist())
-            if out_sample_key in dict_sample:
-                dict_sample[out_sample_key] = dict_sample[out_sample_key] + 1
-            else:
-                dict_sample[out_sample_key] = 1
-        samples_chain.append(dict_sample)
-        for key, value in dict_sample.items():
-            merged_samples[key] += value
-    return merged_samples
+def sample_homodyne_fock(
+    state: torch.Tensor,
+    wire: int,
+    nmode: int,
+    cutoff: int,
+    shots: int = 1,
+    den_mat: bool = False
+) -> torch.Tensor:
+    """Get the samples of homodyne measurement for batched Fock state tensors on one mode."""
+    x_range = 10
+    nbin = 100000
+    coef = 2 * dqp.kappa**2 / dqp.hbar
+    if den_mat:
+        state = state.reshape(-1, cutoff ** nmode, cutoff ** nmode)
+    else:
+        state = state.reshape(-1, cutoff ** nmode, 1)
+        state = state @ state.mH
+    trace_lst = [i for i in range(nmode) if i != wire]
+    reduced_dm = partial_trace(state, nmode, trace_lst, cutoff) # (batch, cutoff, cutoff)
+    orders = torch.arange(cutoff, dtype=state.real.dtype, device=state.device).reshape(-1, 1) # (cutoff, 1)
+    # with dimension \sqrt{m\omega\hbar}
+    xs = torch.linspace(-x_range, x_range, nbin, dtype=state.real.dtype, device=state.device) # (nbin)
+    h_vals = torch.special.hermite_polynomial_h(coef**0.5 * xs, orders) #（cutoff, nbin)
+    # H_n / \sqrt{2^n * n!}
+    h_vals = h_vals / torch.sqrt(2**orders * torch.exp(torch.lgamma(orders.double() + 1))).to(orders.dtype)
+    h_mat = h_vals.reshape(1, cutoff, nbin) * h_vals.reshape(cutoff, 1, nbin) # (cutoff, cutoff, nbin)
+    h_terms = reduced_dm.unsqueeze(-1) * h_mat # (batch, cutoff, cutoff, nbin)
+    probs = (h_terms.sum(dim=[-3, -2]) * torch.exp(-coef * xs**2)).real # (batch, nbin)
+    probs = abs(probs)
+    probs[probs < 1e-10] = 0
+    indices = torch.multinomial(probs.reshape(-1, nbin), num_samples=shots, replacement=True) # (batch, shots)
+    samples = xs[indices]
+    return samples.unsqueeze(-1) # (batch, shots, 1)
 
 
 def sample_reject_bosonic(
@@ -427,7 +400,7 @@ def sample_reject_bosonic(
     count_shots = [0] * batch
     shots_tmp = shots
     mask = (weight.real > 0) | (abs(weight.imag) > 1e-8) | (abs(mean.imag) > 1e-8).any(-2).squeeze(-1)
-    exp_real = torch.exp(mean.imag.mT @ torch.linalg.solve(cov_m + cov, mean.imag) / 2).squeeze()
+    exp_real = torch.exp(mean.imag.mT @ torch.linalg.solve(cov_m + cov, mean.imag) / 2).squeeze(-2, -1)
     c_tilde = mask * abs(weight) * exp_real
     while len(batches) > 0:
         cov_rest = cov[batches]
@@ -460,3 +433,17 @@ def sample_reject_bosonic(
             batches.remove(i)
         shots_tmp = shots - min(count_shots)
     return torch.stack(rst) # (batch, shots, 2 * nmode)
+
+
+def align_shape(cov: torch.Tensor, mean: torch.Tensor, weight: torch.Tensor) -> List[torch.Tensor]:
+    """Align the shape for Bosonic state."""
+    assert cov.ndim == mean.ndim == 4
+    assert weight.ndim == 2
+    ncomb = weight.shape[-1]
+    if cov.shape[1] == 1:
+        cov = cov.expand(-1, ncomb, -1, -1)
+    if mean.shape[1] == 1:
+        mean = mean.expand(-1, ncomb, -1, -1)
+    if weight.shape[0] == 1:
+        weight = weight.expand(cov.shape[0], -1)
+    return [cov, mean, weight]

@@ -119,8 +119,14 @@ class QubitCircuit(Operation):
     def to(self, arg: Any) -> 'QubitCircuit':
         """Set dtype or device of the ``QubitCircuit``."""
         self.init_state.to(arg)
-        self.operators.to(arg)
-        self.observables.to(arg)
+        if arg in (torch.float, torch.double):
+            for op in self.operators:
+                op.to(arg)
+            for ob in self.observables:
+                ob.to(arg)
+        else:
+            self.operators.to(arg)
+            self.observables.to(arg)
         return self
 
     # pylint: disable=arguments-renamed
@@ -431,6 +437,8 @@ class QubitCircuit(Operation):
 
         Args:
             bits (str): A bit string.
+            wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
+                integers specifying the indices of the wires.
         """
         if wires is not None:
             wires = self._convert_indices(wires)

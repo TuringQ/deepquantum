@@ -322,7 +322,7 @@ class Channel(Operation):
         mat_y = local_y.new_zeros(2 * self.nmode, 2 * self.nmode)
         mat_y[np.ix_(wires, wires)] = local_y
         cov = mat_x @ cov @ mat_x.mT + mat_y
-        mean = mat_x @ mean
+        mean = mat_x.to(mean.dtype) @ mean
         return [cov, mean] + x[2:]
 
     def forward(self, x: Union[torch.Tensor, List[torch.Tensor]]) -> Union[torch.Tensor, List[torch.Tensor]]:
@@ -371,6 +371,12 @@ class Delay(Operation):
         assert len(self.wires) == 1, f'{self.name} must act on one mode'
         self.ntau = ntau
         self.gates = nn.Sequential()
+
+    def to(self, arg: Any) -> 'Delay':
+        """Set dtype or device of the ``Delay``."""
+        for gate in self.gates:
+            gate.to(arg)
+        return self
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""

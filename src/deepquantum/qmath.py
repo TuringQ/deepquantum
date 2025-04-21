@@ -344,14 +344,15 @@ def multi_kron(lst: List[torch.Tensor]) -> torch.Tensor:
         return rst.contiguous()
 
 
-def partial_trace(rho: torch.Tensor, nqubit: int, trace_lst: List[int]) -> torch.Tensor:
+def partial_trace(rho: torch.Tensor, nqudit: int, trace_lst: List[int], qudit: int = 2) -> torch.Tensor:
     r"""Calculate the partial trace for a batch of density matrices.
 
     Args:
         rho (torch.Tensor): Density matrices with the shape of
-            :math:`(\text{batch}, 2^{\text{nqubit}}, 2^{\text{nqubit}})`.
-        nqubit (int): Total number of qubits.
-        trace_lst (List[int]): A list of qubits to be traced.
+            :math:`(\text{batch}, \text{qudit}^{\text{nqudit}}, \text{qudit}^{\text{nqudit}})`.
+        nqudit (int): Total number of qudits.
+        trace_lst (List[int]): A list of qudits to be traced.
+        qudit (int, optional): The dimension of the qudits. Default: 2
 
     Returns:
         torch.Tensor: Reduced density matrices.
@@ -359,19 +360,19 @@ def partial_trace(rho: torch.Tensor, nqubit: int, trace_lst: List[int]) -> torch
     if rho.ndim == 2:
         rho = rho.unsqueeze(0)
     assert rho.ndim == 3
-    assert rho.shape[1] == rho.shape[2] == 2 ** nqubit
+    assert rho.shape[1] == rho.shape[2] == qudit ** nqudit
     b = rho.shape[0]
     n = len(trace_lst)
     trace_lst = [i + 1 for i in trace_lst]
-    trace_lst2 = [i + nqubit for i in trace_lst]
+    trace_lst2 = [i + nqudit for i in trace_lst]
     trace_lst += trace_lst2
-    permute_shape = list(range(2 * nqubit + 1))
+    permute_shape = list(range(2 * nqudit + 1))
     for i in trace_lst:
         permute_shape.remove(i)
     permute_shape += trace_lst
-    rho = rho.reshape([b] + [2] * 2 * nqubit).permute(permute_shape).reshape(-1, 2 ** n, 2 ** n)
+    rho = rho.reshape([b] + [qudit] * 2 * nqudit).permute(permute_shape).reshape(-1, qudit ** n, qudit ** n)
     rho = rho.diagonal(dim1=-2, dim2=-1).sum(-1)
-    return rho.reshape(b, 2 ** (nqubit - n), 2 ** (nqubit - n)).squeeze(0)
+    return rho.reshape(b, qudit ** (nqudit - n), qudit ** (nqudit - n)).squeeze(0)
 
 
 def amplitude_encoding(data: Any, nqubit: int) -> torch.Tensor:
@@ -612,7 +613,7 @@ def sample_sc_mcmc(
         sample_0 = proposal_sampler()
         if not isinstance(sample_0, str):
             if prob_func(sample_0) < 1e-12: # avoid the samples with almost-zero probability
-                sample_0 = torch.zeros_like(sample_0)
+                sample_0 = tuple([0] * len(sample_0))
             while prob_func(sample_0) < 1e-9:
                 sample_0 = proposal_sampler()
         cache.append(sample_0)
@@ -720,7 +721,7 @@ def get_prob_mps(mps_lst: List[torch.Tensor], wire: int) -> torch.Tensor:
 
     # Extract probabilities from diagonal elements
     probabilities = final_tensor.diagonal().real
-    return probabilities  # Returns [P(|0⟩), P(|1⟩)]
+    return torch.clamp(probabilities, min=0)  # Returns [P(|0⟩), P(|1⟩)]
 
 
 def inner_product_mps(
