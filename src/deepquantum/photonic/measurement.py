@@ -27,7 +27,7 @@ class Generaldyne(Operation):
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
         den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        name (str, optional): The name of the measurement. Default: ``'Generaldyne'`
+        name (str, optional): The name of the measurement. Default: ``'Generaldyne'``
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
@@ -258,7 +258,7 @@ class GeneralBosonic(Operation):
         wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        name (str, optional): The name of the measurement. Default: ``'GeneralBosonic'`
+        name (str, optional): The name of the measurement. Default: ``'GeneralBosonic'``
     """
     def __init__(
         self,
@@ -366,7 +366,7 @@ class PhotonNumberResolvingBosonic(GeneralBosonic):
         wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        name (str, optional): The name of the measurement. Default: ``'PhotonNumberResolvingBosonic'`
+        name (str, optional): The name of the measurement. Default: ``'PhotonNumberResolvingBosonic'``
     """
     def __init__(
         self,
