@@ -1153,6 +1153,7 @@ class QumodeCircuit(Operation):
 
         See https://arxiv.org/pdf/2108.01622 for MCMC.
         """
+        assert self.backend in ('fock', 'gaussian')
         if self.state is None:
             return
         if wires is None:

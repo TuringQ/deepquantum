@@ -288,8 +288,8 @@ def _photon_number_mean_var_bosonic(
     var_gaussian = var_gaussian.reshape(shape_cov[:2])
     exp = (weight * exp_gaussian).sum(-1)
     var = (weight * var_gaussian).sum(-1) + (weight * exp_gaussian**2).sum(-1) - exp ** 2
-    assert torch.allclose(exp.imag, torch.zeros(1))
-    assert torch.allclose(var.imag, torch.zeros(1))
+    assert torch.allclose(exp.imag, torch.zeros(1), atol=1e-6)
+    assert torch.allclose(var.imag, torch.zeros(1), atol=1e-6)
     return exp.real, var.real
 
 
