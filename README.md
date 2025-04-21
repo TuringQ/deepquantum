@@ -27,7 +27,7 @@ DeepQuantum is a platform that integrates artificial intelligence (AI) and quant
 - **User-Friendly API Design**: The API is designed to be simple and intuitive, making it easy to initialize quantum neural networks and providing flexibility in data encoding.
 - **Photonic Quantum Computing Simulation**: The Photonic module includes Fock, Gaussian and Bosonic backends, catering to different simulation needs in photonic quantum computing. It comes with built-in optimizers to support on-chip training of photonic quantum circuits.
 - **Large-Scale Quantum Circuit Simulation**: Based on tensor networks, it enables the simulation of 100+ qubits on a laptop, leading the industry in both simulation efficiency and scale.
-- **Advanced Architecture for Cutting-Edge Algorithm Exploration**: The first framework to support algorithm design and mapping for time-domain-multiplexed photonic quantum circuits, and the first to realize closed-loop integration of quantum circuit, photonic quantum circuit, and MBQC, enabling robust support for both specialized and universal photonic quantum algorithm design.
+- **Advanced Architecture for Cutting-Edge Algorithm Exploration**: The first framework to support algorithm design and mapping for time-domain-multiplexed photonic quantum circuits, and the first to realize closed-loop integration of quantum circuits, photonic quantum circuits, and MBQC, enabling robust support for both specialized and universal photonic quantum algorithm design.
 
 # Installation
 
