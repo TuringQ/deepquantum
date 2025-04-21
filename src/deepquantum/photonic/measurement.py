@@ -339,12 +339,12 @@ class GeneralBosonic(Operation):
                 samples = torch.tensor(samples, dtype=cov.dtype, device=cov.device)
             mean_m = samples.reshape(-1, 2 * len(self.wires))
         # (batch, ncomb_new)
-        exp_real = torch.exp(mean_new.imag.mT @ torch.linalg.solve(cov_new, mean_new.imag) / 2).squeeze()
+        exp_real = torch.exp(mean_new.imag.mT @ torch.linalg.solve(cov_new, mean_new.imag) / 2).squeeze(-2, -1)
         gaus_b = MultivariateNormal(mean_new.squeeze(-1).real, cov_new) # (batch, ncomb_new, 2 * nwire)
         prob_g = gaus_b.log_prob(mean_m.unsqueeze(-2)).exp() # (batch, ncomb_new, 2 * nwire) -> (batch, ncomb_new)
         rm = mean_m.unsqueeze(-1).unsqueeze(-3) # (batch, 2 * nwire) -> (batch, 1, 2 * nwire, 1)
         # (batch, ncomb_new)
-        exp_imag = torch.exp((rm - mean_new.real).mT @ torch.linalg.solve(cov_new, mean_new.imag) * 1j).squeeze()
+        exp_imag = torch.exp((rm - mean_new.real).mT @ torch.linalg.solve(cov_new, mean_new.imag) * 1j).squeeze(-2, -1)
         weight_out = weight_new * exp_real * prob_g * exp_imag
         weight_out /= weight_out.sum(dim=-1, keepdim=True)
         # (batch, ncomb, ncomb_j, 2 * nwire_rest, 1)
@@ -389,8 +389,6 @@ class PhotonNumberResolvingBosonic(GeneralBosonic):
         assert len(self.wires) == 1, f'{self.name} must act on one mode'
 
     def forward(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
-        _, mean = x[:2]
-        wires = torch.tensor(self.wires)
-        idx = torch.cat([wires, wires + self.nmode]) # xxpp order
-        mean_b = mean[..., idx, :]
-        return super().forward(x, mean_b)
+        cov = x[0]
+        batch = cov.shape[0]
+        return super().forward(x, cov.new_zeros(batch, 2))
