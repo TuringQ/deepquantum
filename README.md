@@ -17,10 +17,17 @@ DeepQuantum is a platform that integrates artificial intelligence (AI) and quant
 
 # Key Features
 
+<p align="center">
+  <a href="https://github.com/TuringQ/deepquantum">
+    <img width=90% src="docs/assets/deepquantum_architecture.png" alt="DeepQuantum architecture"/>
+  </a>
+</p>
+
 - **AI-Enhanced Quantum Computing Framework**: Seamlessly integrated with PyTorch, it utilizes technologies such as automatic differentiation, vectorized parallelism, and GPU acceleration for efficiency. It facilitates the easy construction of hybrid quantum-classical models, enabling end-to-end training and inference.
 - **User-Friendly API Design**: The API is designed to be simple and intuitive, making it easy to initialize quantum neural networks and providing flexibility in data encoding.
-- **Photonic Quantum Computing Simulation**: The Photonic module includes both Fock and Gaussian backends, catering to different simulation needs in photonic quantum computing. It comes with built-in optimizers to support on-chip training of photonic quantum circuits.
+- **Photonic Quantum Computing Simulation**: The Photonic module includes Fock, Gaussian and Bosonic backends, catering to different simulation needs in photonic quantum computing. It comes with built-in optimizers to support on-chip training of photonic quantum circuits.
 - **Large-Scale Quantum Circuit Simulation**: Based on tensor networks, it enables the simulation of 100+ qubits on a laptop, leading the industry in both simulation efficiency and scale.
+- **Advanced Architecture for Cutting-Edge Algorithm Exploration**: The first framework to support algorithm design and mapping for time-domain-multiplexed photonic quantum circuits, and the first to realize closed-loop integration of quantum circuits, photonic quantum circuits, and MBQC, enabling robust support for both specialized and universal photonic quantum algorithm design.
 
 # Installation
 
@@ -119,6 +126,18 @@ cir.d(1, 0.1)
 cir.bs([0,1], [0.2,0.3])
 print(cir())
 print(cir.measure())
+print(cir.photon_number_mean_var(wires=0))
+print(cir.measure_homodyne(wires=1))
+```
+
+- Photonic quantum circuit with the Bosonic backend
+
+```python
+cir = dq.QumodeCircuit(2, 'vac', backend='bosonic')
+cir.cat(0, 0.5, 0.0)
+cir.gkp(1, 0.5, 0.5)
+cir.bs([0,1], [0.2,0.3])
+print(cir())
 print(cir.photon_number_mean_var(wires=0))
 print(cir.measure_homodyne(wires=1))
 ```
