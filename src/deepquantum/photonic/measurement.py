@@ -366,7 +366,7 @@ class PhotonNumberResolvingBosonic(GeneralBosonic):
         wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        name (str, optional): The name of the measurement. Default: ``'GeneralBosonic'`
+        name (str, optional): The name of the measurement. Default: ``'PhotonNumberResolvingBosonic'`
     """
     def __init__(
         self,
@@ -387,3 +387,10 @@ class PhotonNumberResolvingBosonic(GeneralBosonic):
             cutoff = state.cutoff
         super().__init__(cov=cov, weight=weight, nmode=nmode, wires=wires, cutoff=cutoff, name=name)
         assert len(self.wires) == 1, f'{self.name} must act on one mode'
+
+    def forward(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
+        _, mean = x[:2]
+        wires = torch.tensor(self.wires)
+        idx = torch.cat([wires, wires + self.nmode]) # xxpp order
+        mean_b = mean[..., idx, :]
+        return super().forward(x, mean_b)

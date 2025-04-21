@@ -554,21 +554,18 @@ class FockStateBosonic(BosonicState):
 
     Args:
         n (int): Particle number.
-        r (Any, optional): The quality parameter for the approximation. Default: 0.05
+        r (float, optional): The quality parameter for the approximation. Default: 0.05
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
     """
     def __init__(self, n: int, r: Any = 0.05, cutoff: Optional[int] = None) -> None:
-        if not isinstance(r, torch.Tensor):
-            r = torch.tensor(r, dtype=torch.float)
         assert r ** 2 < 1 / n, 'NOT a physical state'
         nmode = 1
         m = np.arange(n + 1)
-        combs = torch.tensor(comb(n, m))
-        m = torch.tensor(m)
-        weight = (-1)**(n - m) * combs * (1 - n * r**2) / (1 - (n - m) * r**2)
-        weight = weight / weight.sum(-1, keepdims=True) + 0j
-        mean = torch.zeros([n + 1, 2]) + 0j
-        m = m.reshape(-1, 1, 1)
+        combs = comb(n, m)
+        weight = (1 - n * r**2) / (1 - (n - m) * r**2) * combs * (-1)**(n - m)
+        weight = torch.tensor(weight / weight.sum(), dtype=torch.float) + 0j
+        mean = torch.zeros([n + 1, 2, 1]) + 0j
+        m = torch.tensor(m).reshape(-1, 1, 1)
         cov = torch.eye(2) * dqp.hbar / (4 * dqp.kappa**2) * (1 + (n - m) * r**2) / (1 - (n - m) * r**2)
         state = [cov, mean, weight]
         if cutoff is None:
