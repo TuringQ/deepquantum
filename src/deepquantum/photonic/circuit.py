@@ -217,7 +217,7 @@ class QumodeCircuit(Operation):
             data (torch.Tensor or None, optional): The input data for the ``encoders``. Default: ``None``
             state (Any, optional): The initial state for the photonic quantum circuit. Default: ``None``
             is_prob (bool or None, optional): For Fock backend, whether to return probabilities or amplitudes.
-                For Gaussian backend, whether to return probabilities or the final Gaussian state.
+                For Gaussian (Bosonic) backend, whether to return probabilities or the final Gaussian (Bosonic) state.
                 For Fock backend with ``basis=True``, set ``None`` to return the unitary matrix. Default: ``None``
             detector (str or None, optional): For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving
                 detector or ``'threshold'`` for the threshold detector. Default: ``None``
@@ -1153,6 +1153,7 @@ class QumodeCircuit(Operation):
 
         See https://arxiv.org/pdf/2108.01622 for MCMC.
         """
+        assert self.backend in ('fock', 'gaussian')
         if self.state is None:
             return
         if wires is None:
@@ -1504,6 +1505,7 @@ class QumodeCircuit(Operation):
         assert self.backend in ('gaussian', 'bosonic')
         if self.state is None:
             return
+        assert isinstance(self.state, list), 'NOT valid when "is_prob" is True'
         if self.backend == 'gaussian':
             cov, mean = self.state
         elif self.backend == 'bosonic':
@@ -1604,6 +1606,7 @@ class QumodeCircuit(Operation):
         """
         if self.state is None:
             return
+        assert isinstance(self.state, (list, torch.Tensor)), 'NOT valid when "is_prob" is True'
         if len(self.measurements) > 0:
             if self._if_delayloop:
                 measurements = self._measurements_tdm
@@ -1611,6 +1614,7 @@ class QumodeCircuit(Operation):
                 measurements = self.measurements
             samples = []
             if self.backend == 'fock':
+                assert not self.basis
                 assert not self.mps, 'Currently NOT supported.'
                 shape = self.state.shape
                 batch = shape[0]
@@ -1635,6 +1639,7 @@ class QumodeCircuit(Operation):
                 wires = self.wires
             wires = torch.tensor(sorted(self._convert_indices(wires)))
             if self.backend == 'fock':
+                assert not self.basis
                 assert len(wires) == 1
                 # (batch, shots, 1)
                 samples = sample_homodyne_fock(self.state, wires[0], self.nmode, self.cutoff, shots, self.den_mat)
@@ -1648,7 +1653,7 @@ class QumodeCircuit(Operation):
                         epsilon = 1e-8
                     else:
                         raise ValueError('Unsupported dtype.')
-                    cov += epsilon * cov.new_ones(size[:-1].numel()).reshape(*size[:-1]).diag_embed()
+                    cov += epsilon * cov.new_ones(size[:-1].numel()).reshape(size[:-1]).diag_embed()
                 idx = torch.cat([wires, wires + self.nmode])
                 cov_sub = cov[..., idx[:, None], idx]
                 mean_sub = mean[..., idx, :]
@@ -1658,9 +1663,7 @@ class QumodeCircuit(Operation):
                     samples = samples.permute(1, 0, 2)
                 elif len(self.state) == 3:
                     cov_sub, mean_sub, weight = align_shape(cov_sub, mean_sub, self.state[2])
-                    samples = sample_reject_bosonic(cov_sub, mean_sub, weight,
-                                                    torch.zeros_like(cov_sub[0,0,:,:]),
-                                                    shots)
+                    samples = sample_reject_bosonic(cov_sub, mean_sub, weight, cov_sub.new_zeros(1), shots)
             return samples.squeeze()
 
     @property

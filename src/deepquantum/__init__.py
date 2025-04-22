@@ -3,7 +3,7 @@ This is the top level module from which all basic functions and classes of
 DeepQuantum can be directly imported.
 """
 
-__version__ = '4.1.0'
+__version__ = '4.2.0'
 
 
 from . import ansatz
@@ -53,6 +53,6 @@ from .mbqc import SubGraphState, GraphState
 from .mbqc import Pattern
 
 from .photonic import permanent, takagi, hafnian, torontonian
-from .photonic import FockState, GaussianState, BosonicState, CatState, GKPState
+from .photonic import FockState, GaussianState, BosonicState, CatState, GKPState, FockStateBosonic
 from .photonic import QumodeCircuit, QumodeCircuitTDM, Clements, GaussianBosonSampling
 from .photonic import UnitaryMapper, UnitaryDecomposer, DrawClements

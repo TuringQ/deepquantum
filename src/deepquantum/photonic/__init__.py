@@ -28,9 +28,9 @@ from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, Dis
 from .gate import QuadraticPhase, ControlledX, ControlledZ, CubicPhase, Kerr, CrossKerr, DelayBS, DelayMZI
 from .hafnian_ import hafnian
 from .mapper import UnitaryMapper
-from .measurement import Generaldyne, Homodyne
+from .measurement import Generaldyne, Homodyne, GeneralBosonic, PhotonNumberResolvingBosonic
 from .qmath import permanent, takagi, xxpp_to_xpxp, xpxp_to_xxpp, quadrature_to_ladder, ladder_to_quadrature
-from .state import FockState, GaussianState, BosonicState, CatState, GKPState
+from .state import FockState, GaussianState, BosonicState, CatState, GKPState, FockStateBosonic
 from .tdm import QumodeCircuitTDM
 from .torontonian_ import torontonian
 from .utils import set_hbar, set_kappa, set_perm_chunksize

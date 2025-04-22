@@ -284,12 +284,12 @@ def _photon_number_mean_var_bosonic(
     cov = cov.reshape(*shape_cov[:2], 2, 2).reshape(-1, 2, 2)
     mean = mean.reshape(*shape_mean[:2], 2, 1).reshape(-1, 2, 1)
     exp_gaussian, var_gaussian = _photon_number_mean_var_gaussian(cov, mean)
-    exp_gaussian = exp_gaussian.reshape(*shape_cov[:2])
-    var_gaussian = var_gaussian.reshape(*shape_cov[:2])
+    exp_gaussian = exp_gaussian.reshape(shape_cov[:2])
+    var_gaussian = var_gaussian.reshape(shape_cov[:2])
     exp = (weight * exp_gaussian).sum(-1)
     var = (weight * var_gaussian).sum(-1) + (weight * exp_gaussian**2).sum(-1) - exp ** 2
-    assert torch.allclose(exp.imag, torch.zeros(1))
-    assert torch.allclose(var.imag, torch.zeros(1))
+    assert torch.allclose(exp.imag, torch.zeros(1), atol=1e-6)
+    assert torch.allclose(var.imag, torch.zeros(1), atol=1e-6)
     return exp.real, var.real
 
 
@@ -437,13 +437,17 @@ def sample_reject_bosonic(
 
 def align_shape(cov: torch.Tensor, mean: torch.Tensor, weight: torch.Tensor) -> List[torch.Tensor]:
     """Align the shape for Bosonic state."""
-    assert cov.ndim == mean.ndim == 4
-    assert weight.ndim == 2
     ncomb = weight.shape[-1]
-    if cov.shape[1] == 1:
-        cov = cov.expand(-1, ncomb, -1, -1)
-    if mean.shape[1] == 1:
-        mean = mean.expand(-1, ncomb, -1, -1)
-    if weight.shape[0] == 1:
-        weight = weight.expand(cov.shape[0], -1)
+    if cov.ndim == mean.ndim == 4 and weight.ndim == 2:
+        if cov.shape[1] == 1:
+            cov = cov.expand(-1, ncomb, -1, -1)
+        if mean.shape[1] == 1:
+            mean = mean.expand(-1, ncomb, -1, -1)
+        if weight.shape[0] == 1:
+            weight = weight.expand(cov.shape[0], -1)
+    elif cov.ndim == mean.ndim == 3 and weight.ndim == 1:
+        if cov.shape[0] == 1:
+            cov = cov.expand(ncomb, -1, -1)
+        if mean.shape[0] == 1:
+            mean = mean.expand(ncomb, -1, -1)
     return [cov, mean, weight]
