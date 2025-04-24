@@ -308,16 +308,18 @@ class BosonicState(nn.Module):
         """Get the tensor product of two Bosonic states."""
         return combine_bosonic_states([self, state])
 
-    def wigner(self, wire: int, qvec: torch.Tensor, pvec: torch.Tensor, plot: bool = False, k: int = 0):
+    def wigner(self, wire: int, qlist: list, plist: list, plot: bool = False, k: int = 0):
         r"""Get the discretized Wigner function of the specified mode.
 
         Args:
             wire (int): The wigner function for given wire.
-            qvec (torch.Tensor): The discrete values for quadrature q.
-            pvec (torch.Tensor): The discrete values for quadrature p.
+            qlist (torch.Tensor): Discretization for quadrature q given as [q_min, q_max, npoints].
+            plist (torch.Tensor): Discretization for quadrature p given as [p_min, p_max, npoints].
             plot (bool, optional): Whether to plot the wigner function. Default: ``False``
             k (int, optional): The wigner function of kth batch to plot. Default: 0
         """
+        qvec = torch.linspace(*qlist)
+        pvec = torch.linspace(*plist)
         grid_x, grid_y = torch.meshgrid(qvec, pvec, indexing='ij')
         coords = torch.stack([grid_x.reshape(-1), grid_y.reshape(-1)]).mT
         coords2 = coords.unsqueeze(1).unsqueeze(2) # (npoints, 1, 1, 2)
@@ -336,24 +338,32 @@ class BosonicState(nn.Module):
         wigner_vals = exp_real.unsqueeze(-2) * prob_g.permute(1, 0, 2) * exp_imag * self.weight.unsqueeze(-2)
         wigner_vals = wigner_vals.sum(dim=2).reshape(-1, len(qvec), len(pvec)).real
         if plot:
-            plt.subplots(1, 1, figsize=(12, 10))
+            fig, axes = plt.subplots(1, 2, figsize=(16, 8))
+            ax1 = plt.subplot(121)
             plt.xlabel('Quadrature q')
             plt.ylabel('Quadrature p')
             plt.contourf(grid_x.cpu(), grid_y.cpu(), wigner_vals[k].cpu(), 60, cmap=cm.RdBu)
-            plt.colorbar()
+            plt.colorbar(shrink=0.5)
+            ax2 = plt.subplot(122, projection='3d')
+            surf = ax2.plot_surface(grid_x.cpu(), grid_y.cpu(), wigner_vals[k].cpu(), cmap=cm.RdBu, alpha=0.8)
+            ax2.set_xlabel('Quadrature q')
+            ax2.set_ylabel('Quadrature p')
+            ax2.set_zlabel('W(q,p)')
+            plt.tight_layout()
             plt.show()
         return wigner_vals
 
-    def marginal(self, wire: int, qvec: torch.Tensor, phi: float = 0., plot: bool = False, k: int = 0):
+    def marginal(self, wire: int, qlist: list, phi: float = 0., plot: bool = False, k: int = 0):
         r"""Get the discretized marginal distribution of the specified mode along :math:`x\cos\phi + p\sin\phi`.
 
         Args:
             wire (int): The marginal function for given wire.
-            qvec (torch.Tensor): The discrete values for quadrature q.
+            qlist (list): Discretization for quadrature given as [q_min, q_max, npoints].
             phi (float): The angle used to compute the linear combination of quadratures.
             plot (bool, optional): Whether to plot the marginal function. Default: ``False``
             k (int, optional): The marginal function of kth batch to plot. Default: 0
         """
+        qvec = torch.linspace(*qlist)
         if not isinstance(wire, torch.Tensor):
             wire = torch.tensor(wire).reshape(1)
         idx = torch.cat([wire, wire + self.nmode]) # xxpp order
