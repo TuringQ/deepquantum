@@ -382,7 +382,7 @@ class BosonicState(nn.Module):
         wire: int,
         phi: float = 0.,
         qrange: Union[int, List] = 10,
-        npoints: Union[int, List] = 200,
+        npoints: int = 200,
         plot: bool = True,
         k: int = 0
     ):
@@ -390,9 +390,9 @@ class BosonicState(nn.Module):
 
         Args:
             wire (int): The marginal function for given wire.
-            phi (float): The angle used to compute the linear combination of quadratures.
+            phi (float, optional): The angle used to compute the linear combination of quadratures. Default: 0
             qrange (int or List, optional): The range of quadrature. Default: 10
-            npoints(int or List, optional): The number of discretization points for quadrature. Default: 200
+            npoints(int, optional): The number of discretization points for quadrature. Default: 200
             plot (bool, optional): Whether to plot the marginal function. Default: ``True``
             k (int, optional): The marginal function of kth batch to plot. Default: 0
         """
@@ -400,10 +400,7 @@ class BosonicState(nn.Module):
             qlist = [-qrange, qrange]
         else:
             qlist = qrange
-        if isinstance(npoints, int):
-            qlist.append(npoints)
-        else:
-            qlist.append(npoints[0])
+        qlist.append(npoints)
         assert len(qlist) == 3
         qvec = torch.linspace(*qlist)
         if not isinstance(wire, torch.Tensor):
