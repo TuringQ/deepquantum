@@ -346,11 +346,11 @@ def sample_homodyne_fock(
     nmode: int,
     cutoff: int,
     shots: int = 1,
-    den_mat: bool = False
+    den_mat: bool = False,
+    x_range: float = 15,
+    nbin: int = 100000
 ) -> torch.Tensor:
     """Get the samples of homodyne measurement for batched Fock state tensors on one mode."""
-    x_range = 10
-    nbin = 100000
     coef = 2 * dqp.kappa**2 / dqp.hbar
     if den_mat:
         state = state.reshape(-1, cutoff ** nmode, cutoff ** nmode)

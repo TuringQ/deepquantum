@@ -308,16 +308,42 @@ class BosonicState(nn.Module):
         """Get the tensor product of two Bosonic states."""
         return combine_bosonic_states([self, state])
 
-    def wigner(self, wire: int, qvec: torch.Tensor, pvec: torch.Tensor, plot: bool = False, k: int = 0):
-        r"""Get the discretized Wigner function of the specified mode.
+    def wigner(
+        self,
+        wire: int,
+        qrange: Union[int, List] = 10,
+        prange: Union[int, List] = 10,
+        npoints: Union[int, List] = 200,
+        plot: bool = True,
+        k: int = 0
+    ):
+        """Get the discretized Wigner function of the specified mode.
 
         Args:
             wire (int): The wigner function for given wire.
-            qvec (torch.Tensor): The discrete values for quadrature q.
-            pvec (torch.Tensor): The discrete values for quadrature p.
-            plot (bool, optional): Whether to plot the wigner function. Default: ``False``
+            qrange (int or List, optional): The range of quadrature q. Default: 10
+            prange (int or List, optional): The range of quadrature p. Default: 10
+            npoints(int or List, optional): The number of discretization points for quadratures. Default: 200
+            plot (bool, optional): Whether to plot the wigner function. Default: ``True``
             k (int, optional): The wigner function of kth batch to plot. Default: 0
         """
+        if isinstance(qrange, int):
+            qlist = [-qrange, qrange]
+        else:
+            qlist = qrange
+        if isinstance(prange, int):
+            plist = [-prange, prange]
+        else:
+            plist = prange
+        if isinstance(npoints, int):
+            qlist.append(npoints)
+            plist.append(npoints)
+        else:
+            qlist.append(npoints[0])
+            plist.append(npoints[1])
+        assert len(qlist) == len(plist) == 3
+        qvec = torch.linspace(*qlist)
+        pvec = torch.linspace(*plist)
         grid_x, grid_y = torch.meshgrid(qvec, pvec, indexing='ij')
         coords = torch.stack([grid_x.reshape(-1), grid_y.reshape(-1)]).mT
         coords2 = coords.unsqueeze(1).unsqueeze(2) # (npoints, 1, 1, 2)
@@ -336,24 +362,47 @@ class BosonicState(nn.Module):
         wigner_vals = exp_real.unsqueeze(-2) * prob_g.permute(1, 0, 2) * exp_imag * self.weight.unsqueeze(-2)
         wigner_vals = wigner_vals.sum(dim=2).reshape(-1, len(qvec), len(pvec)).real
         if plot:
-            plt.subplots(1, 1, figsize=(12, 10))
+            fig, axes = plt.subplots(1, 2, figsize=(16, 8))
+            ax1 = plt.subplot(121)
             plt.xlabel('Quadrature q')
             plt.ylabel('Quadrature p')
             plt.contourf(grid_x.cpu(), grid_y.cpu(), wigner_vals[k].cpu(), 60, cmap=cm.RdBu)
-            plt.colorbar()
+            plt.colorbar(shrink=0.5)
+            ax2 = plt.subplot(122, projection='3d')
+            surf = ax2.plot_surface(grid_x.cpu(), grid_y.cpu(), wigner_vals[k].cpu(), cmap=cm.RdBu, alpha=0.8)
+            ax2.set_xlabel('Quadrature q')
+            ax2.set_ylabel('Quadrature p')
+            ax2.set_zlabel('W(q,p)')
+            plt.tight_layout()
             plt.show()
         return wigner_vals
 
-    def marginal(self, wire: int, qvec: torch.Tensor, phi: float = 0., plot: bool = False, k: int = 0):
+    def marginal(
+        self,
+        wire: int,
+        phi: float = 0.,
+        qrange: Union[int, List] = 10,
+        npoints: int = 200,
+        plot: bool = True,
+        k: int = 0
+    ):
         r"""Get the discretized marginal distribution of the specified mode along :math:`x\cos\phi + p\sin\phi`.
 
         Args:
             wire (int): The marginal function for given wire.
-            qvec (torch.Tensor): The discrete values for quadrature q.
-            phi (float): The angle used to compute the linear combination of quadratures.
-            plot (bool, optional): Whether to plot the marginal function. Default: ``False``
+            phi (float, optional): The angle used to compute the linear combination of quadratures. Default: 0
+            qrange (int or List, optional): The range of quadrature. Default: 10
+            npoints(int, optional): The number of discretization points for quadrature. Default: 200
+            plot (bool, optional): Whether to plot the marginal function. Default: ``True``
             k (int, optional): The marginal function of kth batch to plot. Default: 0
         """
+        if isinstance(qrange, int):
+            qlist = [-qrange, qrange]
+        else:
+            qlist = qrange
+        qlist.append(npoints)
+        assert len(qlist) == 3
+        qvec = torch.linspace(*qlist)
         if not isinstance(wire, torch.Tensor):
             wire = torch.tensor(wire).reshape(1)
         idx = torch.cat([wire, wire + self.nmode]) # xxpp order
@@ -366,8 +415,8 @@ class BosonicState(nn.Module):
         mean = mean[..., 0, 0].unsqueeze(1)
         prefactor = 1 / (torch.sqrt(2 * torch.pi * cov)) # (batch, 1, ncomb)
         # (batch, npoints, ncomb)
-        marginal_vals = self.weight.unsqueeze(1) * prefactor * torch.exp(-0.5 * (qvec.reshape(-1, 1) - mean)**2 / cov)
-        marginal_vals = marginal_vals.sum(2).real # (batch, npoints)
+        log_marg_vals = torch.log(self.weight.unsqueeze(1) * prefactor) - 0.5 * (qvec.reshape(-1, 1) - mean)**2 / cov
+        marginal_vals = torch.exp(log_marg_vals).sum(2).real
         if plot:
             plt.subplots(1, 1, figsize=(12, 10))
             plt.xlabel('Quadrature q')
