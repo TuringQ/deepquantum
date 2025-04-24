@@ -3,7 +3,6 @@ Common functions
 """
 
 import itertools
-import numpy as np
 import warnings
 from typing import Dict, Generator, List, Optional, Tuple
 
