@@ -366,8 +366,8 @@ class BosonicState(nn.Module):
         mean = mean[..., 0, 0].unsqueeze(1)
         prefactor = 1 / (torch.sqrt(2 * torch.pi * cov)) # (batch, 1, ncomb)
         # (batch, npoints, ncomb)
-        marginal_vals = self.weight.unsqueeze(1) * prefactor * torch.exp(-0.5 * (qvec.reshape(-1, 1) - mean)**2 / cov)
-        marginal_vals = marginal_vals.sum(2).real # (batch, npoints)
+        log_marginal_vals = torch.log(self.weight.unsqueeze(1)) + torch.log(prefactor) - 0.5 * (qvec.reshape(-1, 1) - mean)**2 / cov
+        marginal_vals = torch.exp(log_marginal_vals).sum(2).real
         if plot:
             plt.subplots(1, 1, figsize=(12, 10))
             plt.xlabel('Quadrature q')

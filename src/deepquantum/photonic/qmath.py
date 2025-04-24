@@ -3,6 +3,7 @@ Common functions
 """
 
 import itertools
+import numpy as np
 import warnings
 from typing import Dict, Generator, List, Optional, Tuple
 
@@ -346,10 +347,10 @@ def sample_homodyne_fock(
     nmode: int,
     cutoff: int,
     shots: int = 1,
-    den_mat: bool = False
+    den_mat: bool = False,
+    x_range: float = 15
 ) -> torch.Tensor:
     """Get the samples of homodyne measurement for batched Fock state tensors on one mode."""
-    x_range = 10
     nbin = 100000
     coef = 2 * dqp.kappa**2 / dqp.hbar
     if den_mat:
@@ -359,9 +360,9 @@ def sample_homodyne_fock(
         state = state @ state.mH
     trace_lst = [i for i in range(nmode) if i != wire]
     reduced_dm = partial_trace(state, nmode, trace_lst, cutoff) # (batch, cutoff, cutoff)
-    orders = torch.arange(cutoff, dtype=state.real.dtype, device=state.device).reshape(-1, 1) # (cutoff, 1)
+    orders = torch.arange(cutoff, dtype=torch.double, device=state.device).reshape(-1, 1) # (cutoff, 1)
     # with dimension \sqrt{m\omega\hbar}
-    xs = torch.linspace(-x_range, x_range, nbin, dtype=state.real.dtype, device=state.device) # (nbin)
+    xs = torch.linspace(-x_range, x_range, nbin, dtype=torch.double, device=state.device) # (nbin)
     h_vals = torch.special.hermite_polynomial_h(coef**0.5 * xs, orders) #（cutoff, nbin)
     # H_n / \sqrt{2^n * n!}
     h_vals = h_vals / torch.sqrt(2**orders * torch.exp(torch.lgamma(orders.double() + 1))).to(orders.dtype)
