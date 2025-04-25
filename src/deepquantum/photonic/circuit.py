@@ -1704,7 +1704,11 @@ class QumodeCircuit(Operation):
         theta: Any = None,
         p: int = 1
     ) -> None:
-        """Prepare a cat state."""
+        """Prepare a cat state.
+
+        ``r`` and ``theta`` are the displacement magnitude and angle respectively.
+        ``p`` is the parity, corresponding to an even or odd cat state when ``p=0`` or ``p=1`` respectively.
+        """
         if self._bosonic_states is None:
             self._bosonic_states = [BosonicState(state='vac', nmode=1, cutoff=self.cutoff)] * self.nmode
         cat = CatState(r=r, theta=theta, p=p, cutoff=self.cutoff)
@@ -1718,7 +1722,12 @@ class QumodeCircuit(Operation):
         amp_cutoff: float = 0.1,
         epsilon: float = 0.05
     ) -> None:
-        """Prepare a GKP state."""
+        """Prepare a GKP state.
+
+        ``theta`` and ``phi`` are angles in Bloch sphere.
+        ``amp_cutoff`` is the amplitude threshold for keeping the terms.
+        ``epsilon`` is the finite energy damping parameter.
+        """
         if self._bosonic_states is None:
             self._bosonic_states = [BosonicState(state='vac', nmode=1, cutoff=self.cutoff)] * self.nmode
         gkp = GKPState(theta=theta, phi=phi, amp_cutoff=amp_cutoff, epsilon=epsilon, cutoff=self.cutoff)
