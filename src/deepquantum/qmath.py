@@ -429,7 +429,8 @@ def evolve_state(
     matrix: torch.Tensor,
     nqudit: int,
     wires: List[int],
-    qudit: int = 2) -> torch.Tensor:
+    qudit: int = 2
+) -> torch.Tensor:
     """Perform the evolution of quantum states.
 
     Args:
@@ -456,7 +457,8 @@ def evolve_den_mat(
     matrix: torch.Tensor,
     nqudit: int,
     wires: List[int],
-    qudit: int = 2) -> torch.Tensor:
+    qudit: int = 2
+) -> torch.Tensor:
     """Perform the evolution of density matrices.
 
     Args:

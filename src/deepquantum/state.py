@@ -7,6 +7,7 @@ from typing import Any, List, Optional, Union
 import torch
 from torch import nn
 
+from .bitmath import power_of_2, is_power_of_2, log_base2
 from .qmath import is_density_matrix, amplitude_encoding, inner_product_mps, svd, qr
 
 
@@ -343,3 +344,60 @@ class MatrixProductState(nn.Module):
     def forward(self) -> None:
         """Pass."""
         pass
+
+
+class DistributedQubitState(nn.Module):
+    """A quantum state of n qubits distributed between w nodes, including both pure states and density matrices.
+
+    Args:
+        nqubit (int, optional): The number of qubits in the state.
+        world_size (int): The total number of processes (GPUs).
+        rank (int): The rank of the current process.
+        gpu_id (int): The CUDA device ID for this process.
+        den_mat (bool, optional): Whether the state is a density matrix or not. Default: ``False``
+    """
+    def __init__(self, nqubit: int, world_size: int, rank: int, gpu_id: int, den_mat: bool = False) -> None:
+        super().__init__()
+        assert is_power_of_2(world_size)
+        assert power_of_2(nqubit) >= world_size
+        assert 0 <= rank < world_size
+        self.nqubit = nqubit
+        self.world_size = world_size
+        self.rank = rank
+        self.gpu_id = gpu_id
+        self.den_mat = den_mat
+
+        self.log_num_nodes = log_base2(world_size)
+        self.log_num_amps_per_node = nqubit - self.log_num_nodes
+        self.num_amps_per_node = power_of_2(self.log_num_amps_per_node)
+
+        # print(f"Rank {rank}: nqubit={nqubit}, log_nodes={self.log_num_nodes}, "
+        #       f"log_local_amps={self.log_num_amps_per_node}, local_amps={self.num_amps_per_node}")
+
+        amps = torch.zeros(self.num_amps_per_node, device=f'cuda:{gpu_id}') + 0j
+        if rank == 0:
+            amps[0] = 1.0
+        buffer = torch.zeros_like(amps)
+        self.register_buffer('amps', amps)
+        self.register_buffer('buffer', buffer)
+
+    # def get_global_qubit_range(self):
+    #     """Returns the range of global qubit indices this rank 'controls'."""
+    #     # Qubits >= log_num_amps_per_node influence the rank
+    #     return range(self.log_num_amps_per_node, self.nqubit)
+
+    # def get_local_qubit_range(self):
+    #     """Returns the range of qubit indices local to this rank."""
+    #     # Qubits < log_num_amps_per_node are local
+    #     return range(0, self.log_num_amps_per_node)
+
+    # def global_to_local(self, global_indices):
+    #     """Converts global indices to local indices for this rank (placeholder)."""
+    #     # Actual implementation depends on how global indices are handled.
+    #     # For a single index: local_idx = global_idx & (self.num_amps_per_node - 1)
+    #     # We'll mostly work with local indices directly or generate masks.
+    #     raise NotImplementedError
+
+    def local_to_global(self, local_indices: torch.Tensor) -> torch.Tensor:
+        """Convert local indices to global indices for this rank."""
+        return (self.rank << self.log_num_amps_per_node) | local_indices
