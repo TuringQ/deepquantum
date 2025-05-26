@@ -7,8 +7,11 @@ __version__ = '4.2.0'
 
 
 from . import ansatz
+from . import bitmath
 from . import channel
 from . import circuit
+from . import communication
+from . import distributed
 from . import gate
 from . import layer
 from . import operation

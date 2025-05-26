@@ -8,8 +8,10 @@ from typing import Optional, Tuple
 import torch
 import torch.distributed as dist
 
+
 # Generally, NCCL backend doesn't use tags, but keep for interface compatibility
 NULL_TAG = 0
+
 
 def setup_distributed(port = '29500', backend = 'nccl') -> Tuple[int, int, int]:
     """Initialize torch.distributed."""
@@ -38,25 +40,30 @@ def setup_distributed(port = '29500', backend = 'nccl') -> Tuple[int, int, int]:
     print(f'Rank {rank} initialized, using GPU {local_rank}.')
     return rank, world_size, local_rank
 
+
 def cleanup_distributed() -> None:
     """Clean up the distributed environment."""
     dist.destroy_process_group()
     print('Distributed environment cleaned up.')
+
 
 def comm_get_rank() -> int:
     if not dist.is_initialized():
         return 0
     return dist.get_rank()
 
+
 def comm_get_world_size() -> int:
     if not dist.is_initialized():
         return 1
     return dist.get_world_size()
 
+
 def comm_barrier() -> None:
     """Block until all processes have reached this point."""
     if dist.is_initialized() and dist.get_world_size() > 1:
         dist.barrier()
+
 
 def comm_exchange_arrays(send_data: torch.Tensor, recv_data: torch.Tensor, pair_rank: Optional[int]) -> None:
     """Simulate a point-to-point exchange using dist.all_to_all_single
@@ -74,8 +81,6 @@ def comm_exchange_arrays(send_data: torch.Tensor, recv_data: torch.Tensor, pair_
     """
     world_size = comm_get_world_size()
     rank = comm_get_rank()
-    send_data = send_data.reshape(-1)
-    recv_data = recv_data.reshape(-1)
 
     if not dist.is_initialized() or world_size <= 1:
         return
@@ -87,7 +92,6 @@ def comm_exchange_arrays(send_data: torch.Tensor, recv_data: torch.Tensor, pair_
     is_valid = (pair_rank is not None) and (0 <= pair_rank < world_size)
     io_sizes = [0] * world_size
     if is_valid:
-        assert send_data.is_cuda and recv_data.is_cuda, 'NCCL requires CUDA tensors for active P2P'
         assert send_data.shape == recv_data.shape, 'Send/Recv shape must match for active P2P'
         assert send_data.dtype == recv_data.dtype, 'Send/Recv dtype must match for active P2P'
         io_sizes[pair_rank] = send_data.numel()
@@ -96,6 +100,7 @@ def comm_exchange_arrays(send_data: torch.Tensor, recv_data: torch.Tensor, pair_
         recv_data = recv_data.new_empty(0)
 
     dist.all_to_all_single(output=recv_data, input=send_data, output_split_sizes=io_sizes, input_split_sizes=io_sizes)
+
 
 def comm_reduce_tensor(tensor: torch.Tensor, op = dist.ReduceOp.SUM):
     """Perform an all-reduce operation (SUM by default) on the input tensor across all processes.
