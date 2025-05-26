@@ -8,9 +8,10 @@ from typing import Any, List, Optional, Tuple, Union
 import torch
 from torch import nn
 
+from .distributed import dist_one_targ_gate, dist_many_ctrl_one_targ_gate
 from .operation import Gate
 from .qmath import multi_kron, is_unitary, svd
-
+from .state import DistributedQubitState
 
 class SingleGate(Gate):
     r"""A base class for single-qubit gates.
@@ -62,6 +63,18 @@ class SingleGate(Gate):
                 lst3[i] = oneone
             lst3[self.wires[0]] = matrix
             return multi_kron(lst1) - multi_kron(lst2) + multi_kron(lst3)
+
+    def op_dist_state(self, x: DistributedQubitState) -> DistributedQubitState:
+        """Perform a forward pass of a gate for a distributed state vector."""
+        targets = []
+        for wire in self.wires:
+            target = self.nqubit - wire - 1
+            targets.append(target)
+        matrix = self.update_matrix()
+        if len(self.controls) > 0:
+            return dist_many_ctrl_one_targ_gate(x, targets, matrix)
+        else:
+            return dist_one_targ_gate(x, targets, matrix)
 
 
 class DoubleGate(Gate):

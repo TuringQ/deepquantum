@@ -11,8 +11,9 @@ import numpy as np
 import torch
 from torch import nn, vmap
 
+from .distributed import dist_many_targ_gate
 from .qmath import inverse_permutation, state_to_tensors, evolve_state, evolve_den_mat
-from .state import MatrixProductState
+from .state import MatrixProductState, DistributedQubitState
 
 
 class Operation(nn.Module):
@@ -251,10 +252,27 @@ class Gate(Operation):
         x = x.permute(inverse_permutation(pm_shape))
         return x
 
-    def forward(self, x: Union[torch.Tensor, MatrixProductState]) -> Union[torch.Tensor, MatrixProductState]:
+    def op_dist_state(self, x: DistributedQubitState) -> DistributedQubitState:
+        """Perform a forward pass of a gate for a distributed state vector."""
+        wires = self.controls + self.wires
+        matrix = self.update_matrix()
+        identity = matrix.new_ones(2 ** len(wires) - 2 ** len(self.wires)).diag_embed()
+        unitary = torch.block_diag(identity, matrix)
+        targets = []
+        for wire in wires:
+            target = self.nqubit - wire - 1
+            targets.append(target)
+        return dist_many_targ_gate(x, targets, unitary)
+
+    def forward(
+        self,
+        x: Union[torch.Tensor, MatrixProductState, DistributedQubitState]
+    ) -> Union[torch.Tensor, MatrixProductState, DistributedQubitState]:
         """Perform a forward pass."""
         if isinstance(x, MatrixProductState):
             return self.op_mps(x)
+        elif isinstance(x, DistributedQubitState):
+            return self.op_dist_state(x)
         if not self.tsr_mode:
             x = self.tensor_rep(x)
         if self.den_mat:
