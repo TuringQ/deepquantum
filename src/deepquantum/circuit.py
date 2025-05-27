@@ -1340,10 +1340,8 @@ class DistritubutedQubitCircuit(QubitCircuit):
 
     def cnot(self, control: int, target: int) -> None:
         """Add a CNOT gate."""
-        cx = PauliX(nqubit=self.nqubit, wires=[target], controls=[control], den_mat=self.den_mat)
-        self.add(cx)
+        super().cx(control, target)
 
     def toffoli(self, control1: int, control2: int, target: int) -> None:
         """Add a Toffoli gate."""
-        ccx = PauliX(nqubit=self.nqubit, wires=[target], controls=[control1, control2], den_mat=self.den_mat)
-        self.add(ccx)
+        super().ccx(control1, control2, target)
