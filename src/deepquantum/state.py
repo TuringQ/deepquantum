@@ -8,6 +8,7 @@ import torch
 from torch import nn
 
 from .bitmath import power_of_2, is_power_of_2, log_base2
+from .communication import comm_get_rank, comm_get_world_size
 from .qmath import is_density_matrix, amplitude_encoding, inner_product_mps, svd, qr
 
 
@@ -351,19 +352,17 @@ class DistributedQubitState(nn.Module):
 
     Args:
         nqubit (int, optional): The number of qubits in the state.
-        world_size (int): The total number of processes (GPUs).
-        rank (int): The rank of the current process.
     """
-    def __init__(self, nqubit: int, world_size: int, rank: int) -> None:
+    def __init__(self, nqubit: int) -> None:
         super().__init__()
-        assert is_power_of_2(world_size)
-        assert power_of_2(nqubit) >= world_size
-        assert 0 <= rank < world_size
+        self.world_size = comm_get_world_size()
+        self.rank = comm_get_rank()
+        assert is_power_of_2(self.world_size)
+        assert power_of_2(nqubit) >= self.world_size
+        assert 0 <= self.rank < self.world_size
         self.nqubit = nqubit
-        self.world_size = world_size
-        self.rank = rank
 
-        self.log_num_nodes = log_base2(world_size)
+        self.log_num_nodes = log_base2(self.world_size)
         self.log_num_amps_per_node = nqubit - self.log_num_nodes
         self.num_amps_per_node = power_of_2(self.log_num_amps_per_node)
 
@@ -371,11 +370,30 @@ class DistributedQubitState(nn.Module):
         #       f"log_local_amps={self.log_num_amps_per_node}, local_amps={self.num_amps_per_node}")
 
         amps = torch.zeros(self.num_amps_per_node) + 0j
-        if rank == 0:
+        if self.rank == 0:
             amps[0] = 1.0
         buffer = torch.zeros_like(amps)
         self.register_buffer('amps', amps)
         self.register_buffer('buffer', buffer)
+
+    def to(self, arg: Any) -> 'DistributedQubitState':
+        """Set dtype or device of the ``DistributedQubitState``."""
+        if arg == torch.float:
+            self.amps = self.amps.to(torch.cfloat)
+            self.buffer = self.buffer.to(torch.cfloat)
+        elif arg == torch.double:
+            self.amps = self.amps.to(torch.cdouble)
+            self.buffer = self.buffer.to(torch.cdouble)
+        else:
+            self.amps = self.amps.to(arg)
+            self.buffer = self.buffer.to(arg)
+        return self
+
+    def reset(self):
+        self.amps.zero_()
+        if self.rank == 0:
+            self.amps[0] = 1.0
+        self.buffer.zero_()
 
     # def get_global_qubit_range(self):
     #     """Returns the range of global qubit indices this rank 'controls'."""

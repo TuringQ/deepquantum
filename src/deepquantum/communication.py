@@ -9,10 +9,6 @@ import torch
 import torch.distributed as dist
 
 
-# Generally, NCCL backend doesn't use tags, but keep for interface compatibility
-NULL_TAG = 0
-
-
 def setup_distributed(port = '29500', backend = 'nccl') -> Tuple[int, int, int]:
     """Initialize torch.distributed."""
     try:

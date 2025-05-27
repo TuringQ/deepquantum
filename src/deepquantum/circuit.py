@@ -22,7 +22,7 @@ from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer,
 from .operation import Operation, Gate, Layer, Channel
 from .qmath import amplitude_encoding, measure, expectation, sample_sc_mcmc, sample2expval
 from .qmath import slice_state_vector, inner_product_mps, get_prob_mps
-from .state import QubitState, MatrixProductState
+from .state import QubitState, MatrixProductState, DistributedQubitState
 
 if TYPE_CHECKING:
     from .mbqc import Pattern
@@ -1298,3 +1298,52 @@ class QubitCircuit(Operation):
         """Add a barrier."""
         br = Barrier(nqubit=self.nqubit, wires=wires)
         self.add(br)
+
+
+class DistritubutedQubitCircuit(QubitCircuit):
+    def __init__(self, nqubit, name = None, reupload = False, shots = 1024):
+        super().__init__(nqubit=nqubit, init_state='zeros', name=name, den_mat=False,
+                         reupload=reupload, mps=False, chi=None, shots=shots)
+
+    def set_init_state(self, init_state: Union[str, DistributedQubitState] = 'zeros'):
+        """Set the initial state of the circuit."""
+        if init_state == 'zeros':
+            self.init_state = DistributedQubitState(self.nqubit)
+        elif isinstance(init_state, DistributedQubitState):
+            self.init_state = init_state
+
+    # pylint: disable=arguments-renamed
+    @torch.no_grad()
+    def forward(
+        self,
+        data: Optional[torch.Tensor] = None,
+        state: Optional[DistributedQubitState] = None
+    ) -> DistributedQubitState:
+        """Perform a forward pass of the quantum circuit and return the final state.
+
+        This method applies the ``operators`` of the quantum circuit to the initial state or the given state
+        and returns the resulting state. If ``data`` is given, it is used as the input for the ``encoders``.
+        The ``data`` must be a 1D tensor.
+
+        Args:
+            data (torch.Tensor or None, optional): The input data for the ``encoders``. Default: ``None``
+            state (DistributedQubitState or None, optional): The initial state for the quantum circuit.
+                Default: ``None``
+        """
+        if state is None:
+            self.init_state.reset()
+        else:
+            self.init_state = state
+        self.encode(data)
+        self.state = self.operators(self.init_state)
+        return self.state
+
+    def cnot(self, control: int, target: int) -> None:
+        """Add a CNOT gate."""
+        cx = PauliX(nqubit=self.nqubit, wires=[target], controls=[control], den_mat=self.den_mat)
+        self.add(cx)
+
+    def toffoli(self, control1: int, control2: int, target: int) -> None:
+        """Add a Toffoli gate."""
+        ccx = PauliX(nqubit=self.nqubit, wires=[target], controls=[control1, control2], den_mat=self.den_mat)
+        self.add(ccx)

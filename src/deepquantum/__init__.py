@@ -40,7 +40,7 @@ from .ansatz import (
 )
 from .channel import BitFlip, PhaseFlip, Depolarizing, Pauli, AmplitudeDamping, PhaseDamping
 from .channel import GeneralizedAmplitudeDamping
-from .circuit import QubitCircuit
+from .circuit import QubitCircuit, DistritubutedQubitCircuit
 from .gate import U3Gate, PhaseShift, Identity, PauliX, PauliY, PauliZ, Hadamard
 from .gate import SGate, SDaggerGate, TGate, TDaggerGate
 from .gate import Rx, Ry, Rz, ProjectionJ, CombinedSingleGate
@@ -50,7 +50,7 @@ from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer,
 from .layer import CnotLayer, CnotRing
 from .qmath import multi_kron, partial_trace, amplitude_encoding, measure, expectation
 from .qmath import meyer_wallach_measure
-from .state import QubitState, MatrixProductState
+from .state import QubitState, MatrixProductState, DistributedQubitState
 
 from .mbqc import SubGraphState, GraphState
 from .mbqc import Pattern
