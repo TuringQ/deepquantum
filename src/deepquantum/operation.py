@@ -258,10 +258,7 @@ class Gate(Operation):
         matrix = self.update_matrix()
         identity = matrix.new_ones(2 ** len(wires) - 2 ** len(self.wires)).diag_embed()
         unitary = torch.block_diag(identity, matrix)
-        targets = []
-        for wire in wires:
-            target = self.nqubit - wire - 1
-            targets.append(target)
+        targets = [self.nqubit - wire - 1 for wire in wires]
         return dist_many_targ_gate(x, targets, unitary)
 
     def forward(

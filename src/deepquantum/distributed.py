@@ -64,14 +64,15 @@ def local_swap_gate(state: torch.Tensor, qb1: int, qb2: int) -> torch.Tensor:
     return state
 
 
-def local_many_targ_gate(state: torch.Tensor, wires: List[int], matrix: torch.Tensor) -> torch.Tensor:
+def local_many_targ_gate(state: torch.Tensor, targets: List[int], matrix: torch.Tensor) -> torch.Tensor:
     """Apply a multi-qubit gate to a state vector locally.
 
     See https://arxiv.org/abs/2311.01512 Alg.4
     """
     nqubit = log_base2(len(state))
-    state = state.reshape([1] + [2] * nqubit)
-    return evolve_state(state, matrix, nqubit, wires, 2).reshape(-1)
+    wires = [nqubit - target - 1 for target in targets]
+    state[:] = evolve_state(state.reshape([1] + [2] * nqubit), matrix, nqubit, wires, 2).reshape(-1)
+    return state
 
 
 def dist_one_targ_gate(state: DistributedQubitState, target: int, matrix: torch.Tensor) -> DistributedQubitState:
@@ -193,29 +194,28 @@ def dist_many_targ_gate(
     nqubit_local = state.log_num_amps_per_node
     nt = len(targets)
     assert nt <= nqubit_local
-    mask = get_bit_mask(targets)
-    min_non_targ = 0
-    while get_bit(mask, min_non_targ):
-        min_non_targ += 1
-    targets_new = []
-    for target in targets:
-        if target < nqubit_local:
-            targets_new.append(target)
-        else:
-            targets_new.append(min_non_targ)
+    if max(targets) < nqubit_local:
+        state.amps = local_many_targ_gate(state.amps, targets, matrix)
+    else:
+        mask = get_bit_mask(targets)
+        min_non_targ = 0
+        while get_bit(mask, min_non_targ):
             min_non_targ += 1
-            while get_bit(mask, min_non_targ):
+        targets_new = []
+        for target in targets:
+            if target < nqubit_local:
+                targets_new.append(target)
+            else:
+                targets_new.append(min_non_targ)
                 min_non_targ += 1
-    for i in range(nqubit_local):
-        if targets_new[i] != targets[i]:
-            dist_swap_gate(state, targets_new[i], targets[i])
-    wires = []
-    for target in targets_new:
-        wire = nqubit_local - target - 1
-        wires.append(wire)
-    state.amps = local_many_targ_gate(state.amps, wires, matrix)
-    comm_barrier()
-    for i in range(nqubit_local):
-        if targets_new[i] != targets[i]:
-            dist_swap_gate(state, targets_new[i], targets[i])
+                while get_bit(mask, min_non_targ):
+                    min_non_targ += 1
+        for i in range(nt):
+            if targets_new[i] != targets[i]:
+                dist_swap_gate(state, targets_new[i], targets[i])
+        state.amps = local_many_targ_gate(state.amps, targets_new, matrix)
+        comm_barrier()
+        for i in range(nt):
+            if targets_new[i] != targets[i]:
+                dist_swap_gate(state, targets_new[i], targets[i])
     return state
