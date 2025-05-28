@@ -69,7 +69,8 @@ class SingleGate(Gate):
         target = self.nqubit - self.wires[0] - 1
         matrix = self.update_matrix()
         if len(self.controls) > 0:
-            return dist_many_ctrl_one_targ_gate(x, self.controls, target, matrix)
+            controls = [self.nqubit - control - 1 for control in self.controls]
+            return dist_many_ctrl_one_targ_gate(x, controls, target, matrix)
         else:
             return dist_one_targ_gate(x, target, matrix)
 
