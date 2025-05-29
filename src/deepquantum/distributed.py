@@ -201,23 +201,6 @@ def _get_local_targets(targets: List[int], nqubit_local: int) -> List[int]:
     return targets_new
 
 
-def _get_global_targets(targets: List[int], nqubit: int, nqubit_local: int) -> List[int]:
-    mask = get_bit_mask(targets)
-    max_non_targ = nqubit - 1
-    while get_bit(mask, max_non_targ):
-        max_non_targ -= 1
-    targets_new = []
-    for target in targets:
-        if target >= nqubit_local:
-            targets_new.append(target)
-        else:
-            targets_new.append(max_non_targ)
-            max_non_targ -= 1
-            while get_bit(mask, max_non_targ):
-                max_non_targ -= 1
-    return targets_new
-
-
 def dist_many_targ_gate(
     state: DistributedQubitState,
     targets: List[int],

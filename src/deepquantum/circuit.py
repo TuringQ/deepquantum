@@ -14,6 +14,7 @@ from torch import nn, vmap
 
 from .channel import BitFlip, PhaseFlip, Depolarizing, Pauli, AmplitudeDamping, PhaseDamping
 from .channel import GeneralizedAmplitudeDamping
+from .distributed import measure_dist
 from .gate import ParametricSingleGate
 from .gate import U3Gate, PhaseShift, PauliX, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, TGate, TDaggerGate
 from .gate import Rx, Ry, Rz, ProjectionJ, CNOT, Swap, Rxx, Ryy, Rzz, Rxy, ReconfigurableBeamSplitter, Toffoli, Fredkin
@@ -1337,6 +1338,35 @@ class DistritubutedQubitCircuit(QubitCircuit):
         self.encode(data)
         self.state = self.operators(self.init_state)
         return self.state
+
+    def measure(
+        self,
+        shots: Optional[int] = None,
+        with_prob: bool = False,
+        wires: Union[int, List[int], None] = None,
+        block_size: int = 2 ** 24
+    ) -> Union[Dict, List[Dict], None]:
+        """Measure the final state.
+
+        Args:
+            shots (int or None, optional): The number of shots for the measurement. Default: ``None`` (which means
+                ``self.shots``)
+            with_prob (bool, optional): Whether to show the true probability of the measurement. Default: ``False``
+            wires (int, List[int] or None, optional): The wires to measure. Default: ``None`` (which means all wires)
+            block_size (int, optional): The block size for sampling. Default: 2 ** 24
+        """
+        if shots is None:
+            shots = self.shots
+        else:
+            self.shots = shots
+        if wires is None:
+            wires = list(range(self.nqubit))
+        self.wires_measure = self._convert_indices(wires)
+        if self.state is None:
+            return
+        else:
+            return measure_dist(self.state, shots=shots, with_prob=with_prob, wires=self.wires_measure,
+                                block_size=block_size)
 
     def cnot(self, control: int, target: int) -> None:
         """Add a CNOT gate."""
