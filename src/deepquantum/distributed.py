@@ -2,13 +2,15 @@
 Distributed opearations
 """
 
-from typing import List
+from collections import Counter
+from typing import Dict, List, Union
 
 import torch
+import torch.distributed as dist
 
 from .bitmath import log_base2, get_bit, flip_bit, flip_bits, all_bits_are_one, get_bit_mask
-from .communication import comm_barrier, comm_exchange_arrays
-from .qmath import evolve_state
+from .communication import comm_exchange_arrays, comm_reduce_tensor
+from .qmath import evolve_state, block_sample, measure
 from .state import DistributedQubitState
 
 
@@ -182,6 +184,40 @@ def dist_swap_gate(state: DistributedQubitState, qb1: int, qb2: int):
     return state
 
 
+def _get_local_targets(targets: List[int], nqubit_local: int) -> List[int]:
+    mask = get_bit_mask(targets)
+    min_non_targ = 0
+    while get_bit(mask, min_non_targ):
+        min_non_targ += 1
+    targets_new = []
+    for target in targets:
+        if target < nqubit_local:
+            targets_new.append(target)
+        else:
+            targets_new.append(min_non_targ)
+            min_non_targ += 1
+            while get_bit(mask, min_non_targ):
+                min_non_targ += 1
+    return targets_new
+
+
+def _get_global_targets(targets: List[int], nqubit: int, nqubit_local: int) -> List[int]:
+    mask = get_bit_mask(targets)
+    max_non_targ = nqubit - 1
+    while get_bit(mask, max_non_targ):
+        max_non_targ -= 1
+    targets_new = []
+    for target in targets:
+        if target >= nqubit_local:
+            targets_new.append(target)
+        else:
+            targets_new.append(max_non_targ)
+            max_non_targ -= 1
+            while get_bit(mask, max_non_targ):
+                max_non_targ -= 1
+    return targets_new
+
+
 def dist_many_targ_gate(
     state: DistributedQubitState,
     targets: List[int],
@@ -196,26 +232,102 @@ def dist_many_targ_gate(
     assert nt <= nqubit_local
     if max(targets) < nqubit_local:
         state.amps = local_many_targ_gate(state.amps, targets, matrix)
+        comm_exchange_arrays(state.amps, state.buffer, None)
     else:
-        mask = get_bit_mask(targets)
-        min_non_targ = 0
-        while get_bit(mask, min_non_targ):
-            min_non_targ += 1
-        targets_new = []
-        for target in targets:
-            if target < nqubit_local:
-                targets_new.append(target)
-            else:
-                targets_new.append(min_non_targ)
-                min_non_targ += 1
-                while get_bit(mask, min_non_targ):
-                    min_non_targ += 1
+        targets_new = _get_local_targets(targets, nqubit_local)
         for i in range(nt):
             if targets_new[i] != targets[i]:
                 dist_swap_gate(state, targets_new[i], targets[i])
         state.amps = local_many_targ_gate(state.amps, targets_new, matrix)
-        comm_barrier()
         for i in range(nt):
             if targets_new[i] != targets[i]:
                 dist_swap_gate(state, targets_new[i], targets[i])
     return state
+
+
+def measure_dist(
+    state: DistributedQubitState,
+    shots: int = 1024,
+    with_prob: bool = False,
+    wires: Union[int, List[int], None] = None,
+    block_size: int = 2 ** 24
+) -> Dict:
+    """Measure a distributed state vector."""
+    if state.world_size == 1:
+        return measure(state.amps, shots, with_prob, wires, False, block_size)
+    else:
+        nqubit_local = state.log_num_amps_per_node
+        nqubit_global = state.log_num_nodes
+        if isinstance(wires, int):
+            wires = [wires]
+        num_bits = len(wires) if wires else state.nqubit
+        if wires is not None:
+            targets = [state.nqubit - wire - 1 for wire in wires]
+            # Assume nqubit_global < nqubit_local
+            if num_bits <= nqubit_local: # All targets move to local qubits
+                if max(targets) >= nqubit_local:
+                    targets_new = _get_local_targets(targets, nqubit_local)
+                    for i in range(num_bits):
+                        if targets_new[i] != targets[i]:
+                            dist_swap_gate(state, targets_new[i], targets[i])
+                    wires_local = sorted([nqubit_local - target - 1 for target in targets_new])
+                else:
+                    wires_local = sorted([nqubit_local - target - 1 for target in targets])
+                pm_shape = list(range(nqubit_local))
+                for w in wires_local:
+                    pm_shape.remove(w)
+                pm_shape = wires_local + pm_shape
+                probs = (torch.abs(state.amps) ** 2).reshape([2] * nqubit_local)
+                probs = probs.permute(pm_shape).reshape([2] * num_bits + [-1]).sum(-1).reshape(-1)
+                comm_reduce_tensor(probs)
+                if state.rank == 0:
+                    samples = Counter(block_sample(probs, shots, block_size))
+                    results = {bin(key)[2:].zfill(num_bits): value for key, value in samples.items()}
+                    if with_prob:
+                        for k in results:
+                            index = int(k, 2)
+                            results[k] = results[k], probs[index]
+                    return results
+                return {}
+            else: # All targets are sorted, then move to global qubits
+                targets_sort = sorted(targets, reverse=True)
+                wires_local = []
+                for i, target in enumerate(targets_sort):
+                    if i < nqubit_global:
+                        target_new = state.nqubit - i - 1
+                        if target_new != target:
+                            dist_swap_gate(state, target, target_new)
+                    else:
+                        wires_local.append(nqubit_local - target - 1)
+                pm_shape = list(range(nqubit_local))
+                for w in wires_local:
+                    pm_shape.remove(w)
+                pm_shape = wires_local + pm_shape
+                probs = (torch.abs(state.amps) ** 2).reshape([2] * nqubit_local)
+                probs = probs.permute(pm_shape).reshape([2] * len(wires_local) + [-1]).sum(-1).reshape(-1)
+        else:
+            probs = torch.abs(state.amps) ** 2
+        probs_rank = probs.new_empty(state.world_size)
+        dist.all_gather_into_tensor(probs_rank, probs.sum())
+        blocks = torch.multinomial(probs_rank, shots, replacement=True)
+        dist.broadcast(blocks, src=0)
+        block_dict = Counter(blocks.cpu().numpy())
+        key_offset = state.rank << (num_bits - nqubit_global)
+        if state.rank in block_dict:
+            samples = Counter(block_sample(probs, block_dict[state.rank], block_size))
+            results = {bin(key + key_offset)[2:].zfill(num_bits): value for key, value in samples.items()}
+        else:
+            results = {}
+        if with_prob:
+            for k in results:
+                index = int(k, 2) - key_offset
+                results[k] = results[k], probs[index]
+        results_lst = [None] * state.world_size
+        dist.all_gather_object(results_lst, results)
+        if state.rank == 0:
+            results = {}
+            for r in results_lst:
+                results.update(r)
+            return results
+        else:
+            return {}

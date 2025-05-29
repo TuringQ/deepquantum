@@ -8,7 +8,7 @@ from typing import Any, List, Optional, Tuple, Union
 import torch
 from torch import nn
 
-from .distributed import dist_one_targ_gate, dist_many_ctrl_one_targ_gate, dist_swap_gate, dist_many_targ_gate
+from .distributed import dist_one_targ_gate, dist_many_ctrl_one_targ_gate, dist_swap_gate
 from .operation import Gate
 from .qmath import multi_kron, is_unitary, svd
 from .state import DistributedQubitState
