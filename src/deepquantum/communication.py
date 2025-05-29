@@ -55,12 +55,6 @@ def comm_get_world_size() -> int:
     return dist.get_world_size()
 
 
-def comm_barrier() -> None:
-    """Block until all processes have reached this point."""
-    if dist.is_initialized() and dist.get_world_size() > 1:
-        dist.barrier()
-
-
 def comm_exchange_arrays(send_data: torch.Tensor, recv_data: torch.Tensor, pair_rank: Optional[int]) -> None:
     """Simulate a point-to-point exchange using dist.all_to_all_single
     with output_split_sizes and input_split_sizes to minimize memory.
@@ -96,12 +90,3 @@ def comm_exchange_arrays(send_data: torch.Tensor, recv_data: torch.Tensor, pair_
         recv_data = recv_data.new_empty(0)
 
     dist.all_to_all_single(output=recv_data, input=send_data, output_split_sizes=io_sizes, input_split_sizes=io_sizes)
-
-
-def comm_reduce_tensor(tensor: torch.Tensor, op = dist.ReduceOp.SUM):
-    """Perform an all-reduce operation (SUM by default) on the input tensor across all processes.
-    Update the tensor in-place.
-    """
-    if not dist.is_initialized() or comm_get_world_size() <= 1:
-        return
-    dist.all_reduce(tensor, op=op)

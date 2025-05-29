@@ -458,9 +458,12 @@ class Layer(Operation):
         for gate in self.gates:
             self.npara += gate.npara
 
-    def forward(self, x: Union[torch.Tensor, MatrixProductState]) -> Union[torch.Tensor, MatrixProductState]:
+    def forward(
+        self,
+        x: Union[torch.Tensor, MatrixProductState, DistributedQubitState]
+    ) -> Union[torch.Tensor, MatrixProductState, DistributedQubitState]:
         """Perform a forward pass."""
-        if isinstance(x, MatrixProductState):
+        if isinstance(x, (MatrixProductState, DistributedQubitState)):
             return self.gates(x)
         if not self.tsr_mode:
             x = self.tensor_rep(x)
