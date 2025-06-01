@@ -172,6 +172,14 @@ class Gate(Operation):
         """Update the local unitary matrix."""
         return self.matrix
 
+    def _real_wrapper(self, x: Any) -> torch.Tensor:
+        mat = self.get_matrix(x)
+        return torch.view_as_real(mat)
+
+    def get_derivative(self, inputs: Any) -> torch.Tensor:
+        """Get the derivative of the local unitary matrix."""
+        return torch.zeros_like(self.matrix)
+
     def op_state(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass for state vectors."""
         matrix = self.update_matrix()

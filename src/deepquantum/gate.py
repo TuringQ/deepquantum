@@ -7,6 +7,7 @@ from typing import Any, List, Optional, Tuple, Union
 
 import torch
 from torch import nn
+from torch.autograd.functional import jacobian
 
 from .distributed import dist_one_targ_gate, dist_many_ctrl_one_targ_gate, dist_swap_gate
 from .operation import Gate
@@ -368,6 +369,12 @@ class ParametricSingleGate(SingleGate):
         self.matrix = matrix.detach()
         return matrix
 
+    def get_derivative(self, theta: Any) -> torch.Tensor:
+        """Get the derivative of the local unitary matrix."""
+        theta = self.inputs_to_tensor(theta).squeeze()
+        du_dx = jacobian(self._real_wrapper, theta)
+        return du_dx[..., 0] + du_dx[..., 1] * 1j
+
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
         theta = self.inputs_to_tensor(inputs)
@@ -452,6 +459,12 @@ class ParametricDoubleGate(DoubleGate):
         matrix = self.get_matrix(theta)
         self.matrix = matrix.detach()
         return matrix
+
+    def get_derivative(self, theta: Any) -> torch.Tensor:
+        """Get the derivative of the local unitary matrix."""
+        theta = self.inputs_to_tensor(theta).squeeze()
+        du_dx = jacobian(self._real_wrapper, theta)
+        return du_dx[..., 0] + du_dx[..., 1] * 1j
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
@@ -567,6 +580,14 @@ class U3Gate(ParametricSingleGate):
         matrix = self.get_matrix(theta, phi, lambd)
         self.matrix = matrix.detach()
         return matrix
+
+    def get_derivative(self, inputs: Any) -> torch.Tensor:
+        """Get the derivatives of the local unitary matrix."""
+        if not isinstance(inputs, torch.Tensor):
+            inputs = torch.tensor(inputs, dtype=torch.float)
+        inputs = inputs.reshape(self.npara)
+        du_dx = jacobian(self._real_wrapper, inputs).permute(3, 0, 1, 2)
+        return du_dx[..., 0] + du_dx[..., 1] * 1j
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
@@ -1690,6 +1711,21 @@ class CombinedSingleGate(SingleGate):
         self.matrix = matrix.detach()
         return matrix
 
+    def get_derivative(self, inputs: Any) -> torch.Tensor:
+        """Get the derivatives of the local unitary matrix."""
+        if not isinstance(inputs, torch.Tensor):
+            inputs = torch.tensor(inputs, dtype=torch.float)
+        inputs = inputs.reshape(self.npara)
+        derivatives = []
+        count = 0
+        for gate in self.gates:
+            du_dx = gate.get_derivative(inputs[count:count+gate.npara])
+            if du_dx.ndim == 2:
+                du_dx = du_dx.unsqueeze(0)
+            derivatives.append(du_dx)
+            count += gate.npara
+        return torch.cat(derivatives)
+
     def update_npara(self) -> None:
         """Update the number of parameters."""
         self.npara = 0
@@ -2544,6 +2580,12 @@ class LatentGate(ArbitraryGate):
         self.matrix = matrix.detach()
         return matrix
 
+    def get_derivative(self, latent: Any) -> torch.Tensor:
+        """Get the derivatives of the local unitary matrix."""
+        latent = self.inputs_to_tensor(latent).reshape(2 ** len(self.wires), 2 ** len(self.wires))
+        du_dx = jacobian(self._real_wrapper, latent).permute(3, 4, 0, 1, 2)
+        return du_dx[..., 0] + du_dx[..., 1] * 1j
+
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
         latent = self.inputs_to_tensor(inputs)
@@ -2702,6 +2744,18 @@ class HamiltonianGate(ArbitraryGate):
         assert matrix.shape[-1] == matrix.shape[-2] == 2 ** len(self.wires)
         self.matrix = matrix.detach()
         return matrix
+
+    def _real_wrapper(self, x: Any) -> torch.Tensor:
+        mat = self.get_matrix(self.ham_tsr, x)
+        return torch.view_as_real(mat)
+
+    def get_derivative(self, t: Any) -> torch.Tensor:
+        """Get the derivative of the local unitary matrix."""
+        if not isinstance(t, torch.Tensor):
+            t = torch.tensor(t, dtype=torch.float)
+        t = t.squeeze()
+        du_dx = jacobian(self._real_wrapper, t)
+        return du_dx[..., 0] + du_dx[..., 1] * 1j
 
     def init_para(self, inputs: Optional[List] = None) -> None:
         """Initialize the parameters."""

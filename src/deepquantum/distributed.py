@@ -34,7 +34,8 @@ def local_many_ctrl_one_targ_gate(
     state: torch.Tensor,
     controls: List[int],
     target: int,
-    matrix: torch.Tensor
+    matrix: torch.Tensor,
+    derivative: bool = False
 ) -> torch.Tensor:
     """Apply a multi-control single-qubit gate to a state vector locally.
 
@@ -51,6 +52,8 @@ def local_many_ctrl_one_targ_gate(
     indices_1 = flip_bit(indices_0, target)
     amps_0 = state[indices_0]
     amps_1 = state[indices_1]
+    if derivative:
+        state.zero_()
     state[indices_0] = matrix[0, 0] * amps_0 + matrix[0, 1] * amps_1
     state[indices_1] = matrix[1, 0] * amps_0 + matrix[1, 1] * amps_1
     return state
@@ -98,9 +101,10 @@ def dist_many_ctrl_one_targ_gate(
     state: DistributedQubitState,
     controls: List[int],
     target: int,
-    matrix: torch.Tensor
+    matrix: torch.Tensor,
+    derivative: bool = False
 ) -> DistributedQubitState:
-    """Apply a multi-control single-qubit gate to a distributed state vector.
+    """Apply a multi-control single-qubit gate or its derivative to a distributed state vector.
 
     See https://arxiv.org/abs/2311.01512 Alg.7
     """
@@ -113,16 +117,18 @@ def dist_many_ctrl_one_targ_gate(
         else:
             suffix_ctrls.append(q)
     if not all_bits_are_one(state.rank, prefix_ctrls):
+        if derivative:
+            state.amps.zero_()
         comm_exchange_arrays(state.amps, state.buffer, None)
         return state
     if target < nqubit_local:
-        state.amps = local_many_ctrl_one_targ_gate(state.amps, suffix_ctrls, target, matrix)
+        state.amps = local_many_ctrl_one_targ_gate(state.amps, suffix_ctrls, target, matrix, derivative)
         comm_exchange_arrays(state.amps, state.buffer, None)
     else:
         if not suffix_ctrls:
             state = dist_one_targ_gate(state, target, matrix)
         else:
-            state = dist_ctrl_sub(state, suffix_ctrls, target, matrix)
+            state = dist_ctrl_sub(state, suffix_ctrls, target, matrix, derivative)
     return state
 
 
@@ -130,7 +136,8 @@ def dist_ctrl_sub(
     state: DistributedQubitState,
     controls: List[int],
     target: int,
-    matrix: torch.Tensor
+    matrix: torch.Tensor,
+    derivative: bool = False
 ) -> DistributedQubitState:
     """"A subroutine of `dist_many_ctrl_one_targ_gate`.
 
@@ -147,6 +154,8 @@ def dist_ctrl_sub(
     send = state.amps[indices].contiguous()
     recv = state.buffer[:len(send)]
     comm_exchange_arrays(send, recv, pair_rank)
+    if derivative:
+        state.amps.zero_()
     bit = get_bit(state.rank, rank_target)
     state.amps[indices] = matrix[bit, bit] * send + matrix[bit, 1 - bit] * recv
     return state

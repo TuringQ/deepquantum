@@ -6,6 +6,7 @@ DeepQuantum can be directly imported.
 __version__ = '4.2.0'
 
 
+from . import adjoint
 from . import ansatz
 from . import bitmath
 from . import channel
