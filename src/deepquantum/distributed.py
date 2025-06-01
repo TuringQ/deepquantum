@@ -9,7 +9,7 @@ import torch
 import torch.distributed as dist
 
 from .bitmath import log_base2, get_bit, flip_bit, flip_bits, all_bits_are_one, get_bit_mask
-from .communication import comm_exchange_arrays
+from .communication import comm_get_world_size, comm_exchange_arrays
 from .qmath import evolve_state, block_sample, measure
 from .state import DistributedQubitState
 
@@ -327,6 +327,8 @@ def measure_dist(
 
 def inner_product_dist(bra: DistributedQubitState, ket: DistributedQubitState) -> torch.Tensor:
     """Get the inner product of two distributed state vectors."""
+    world_size = comm_get_world_size()
     value = bra.amps.conj() @ ket.amps
-    dist.all_reduce(value, dist.ReduceOp.SUM)
+    if world_size > 1:
+        dist.all_reduce(value, dist.ReduceOp.SUM)
     return value
