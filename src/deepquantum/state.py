@@ -366,9 +366,6 @@ class DistributedQubitState(nn.Module):
         self.log_num_amps_per_node = nqubit - self.log_num_nodes
         self.num_amps_per_node = power_of_2(self.log_num_amps_per_node)
 
-        # print(f"Rank {rank}: nqubit={nqubit}, log_nodes={self.log_num_nodes}, "
-        #       f"log_local_amps={self.log_num_amps_per_node}, local_amps={self.num_amps_per_node}")
-
         amps = torch.zeros(self.num_amps_per_node) + 0j
         if self.rank == 0:
             amps[0] = 1.0
@@ -394,24 +391,3 @@ class DistributedQubitState(nn.Module):
         if self.rank == 0:
             self.amps[0] = 1.0
         self.buffer.zero_()
-
-    # def get_global_qubit_range(self):
-    #     """Returns the range of global qubit indices this rank 'controls'."""
-    #     # Qubits >= log_num_amps_per_node influence the rank
-    #     return range(self.log_num_amps_per_node, self.nqubit)
-
-    # def get_local_qubit_range(self):
-    #     """Returns the range of qubit indices local to this rank."""
-    #     # Qubits < log_num_amps_per_node are local
-    #     return range(0, self.log_num_amps_per_node)
-
-    # def global_to_local(self, global_indices):
-    #     """Converts global indices to local indices for this rank (placeholder)."""
-    #     # Actual implementation depends on how global indices are handled.
-    #     # For a single index: local_idx = global_idx & (self.num_amps_per_node - 1)
-    #     # We'll mostly work with local indices directly or generate masks.
-    #     raise NotImplementedError
-
-    def local_to_global(self, local_indices: torch.Tensor) -> torch.Tensor:
-        """Convert local indices to global indices for this rank."""
-        return (self.rank << self.log_num_amps_per_node) | local_indices
