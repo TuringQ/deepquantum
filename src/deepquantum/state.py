@@ -348,7 +348,7 @@ class MatrixProductState(nn.Module):
 
 
 class DistributedQubitState(nn.Module):
-    """A quantum state of n qubits distributed between w nodes, including both pure states and density matrices.
+    """A quantum state of n qubits distributed between w nodes.
 
     Args:
         nqubit (int, optional): The number of qubits in the state.
