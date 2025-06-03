@@ -581,6 +581,10 @@ class U3Gate(ParametricSingleGate):
         self.matrix = matrix.detach()
         return matrix
 
+    def _real_wrapper(self, x: torch.Tensor) -> torch.Tensor:
+        mat = self.get_matrix(x[0], x[1], x[2])
+        return torch.view_as_real(mat)
+
     def get_derivative(self, inputs: Any) -> torch.Tensor:
         """Get the derivatives of the local unitary matrix."""
         if not isinstance(inputs, torch.Tensor):
@@ -2561,7 +2565,7 @@ class LatentGate(ArbitraryGate):
             inputs = torch.randn(2 ** len(self.wires), 2 ** len(self.wires))
         elif not isinstance(inputs, (torch.Tensor, nn.Parameter)):
             inputs = torch.tensor(inputs, dtype=torch.float)
-        return inputs
+        return inputs.reshape(2 ** len(self.wires), 2 ** len(self.wires))
 
     def get_matrix(self, inputs: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
@@ -2582,7 +2586,7 @@ class LatentGate(ArbitraryGate):
 
     def get_derivative(self, latent: Any) -> torch.Tensor:
         """Get the derivatives of the local unitary matrix."""
-        latent = self.inputs_to_tensor(latent).reshape(2 ** len(self.wires), 2 ** len(self.wires))
+        latent = self.inputs_to_tensor(latent)
         du_dx = jacobian(self._real_wrapper, latent).permute(3, 4, 0, 1, 2)
         return du_dx[..., 0] + du_dx[..., 1] * 1j
 
