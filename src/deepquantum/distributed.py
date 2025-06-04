@@ -20,15 +20,10 @@ def local_one_targ_gate(state: torch.Tensor, target: int, matrix: torch.Tensor) 
 
     See https://arxiv.org/abs/2311.01512 Alg.2
     """
-    indices = torch.arange(len(state))
-    indices_0 = indices[get_bit(indices, target) == 0]
-    indices_1 = flip_bit(indices_0, target)
-    amps_0 = state[indices_0]
-    amps_1 = state[indices_1]
-    state[indices_0] = matrix[0, 0] * amps_0 + matrix[0, 1] * amps_1
-    state[indices_1] = matrix[1, 0] * amps_0 + matrix[1, 1] * amps_1
+    nqubit = log_base2(len(state))
+    wires = nqubit - target - 1
+    state[:] = evolve_state(state.reshape([1] + [2] * nqubit), matrix, nqubit, [wires], 2).reshape(-1)
     return state
-
 
 def local_many_ctrl_one_targ_gate(
     state: torch.Tensor,
@@ -41,7 +36,7 @@ def local_many_ctrl_one_targ_gate(
 
     See https://arxiv.org/abs/2311.01512 Alg.3
     """
-    indices = torch.arange(len(state))
+    indices = torch.arange(len(state), device=state.device)
     control_mask = torch.ones_like(indices, dtype=torch.bool)
     for control in controls:
         control_mask &= (get_bit(indices, control) == 1)
@@ -61,7 +56,7 @@ def local_many_ctrl_one_targ_gate(
 
 def local_swap_gate(state: torch.Tensor, qb1: int, qb2: int) -> torch.Tensor:
     """Apply a SWAP gate to a state vector locally."""
-    indices = torch.arange(len(state))
+    indices = torch.arange(len(state), device=state.device)
     mask01 = (get_bit(indices, qb1) == 0) & (get_bit(indices, qb2) == 1)
     indices_01 = indices[mask01]
     indices_10 = flip_bits(indices_01, [qb1, qb2])
@@ -145,7 +140,7 @@ def dist_ctrl_sub(
     """
     rank_target = target - state.log_num_amps_per_node
     pair_rank = flip_bit(state.rank, rank_target)
-    indices = torch.arange(state.num_amps_per_node)
+    indices = torch.arange(state.num_amps_per_node, device=state.amps.device)
     control_mask = torch.ones_like(indices, dtype=torch.bool)
     for control in controls:
         control_mask &= (get_bit(indices, control) == 1)
@@ -183,7 +178,7 @@ def dist_swap_gate(state: DistributedQubitState, qb1: int, qb2: int):
         qb2_rank = qb2 - nqubit_local
         bit = 1 - get_bit(state.rank, qb2_rank)
         pair_rank = flip_bit(state.rank, qb2_rank)
-        indices = torch.arange(state.num_amps_per_node)
+        indices = torch.arange(state.num_amps_per_node, device=state.amps.device)
         mask = (get_bit(indices, qb1) == bit)
         indices = indices[mask]
         send = state.amps[indices].contiguous()
