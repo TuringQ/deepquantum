@@ -2,7 +2,7 @@
 Quantum circuit
 """
 
-from copy import copy
+from copy import copy, deepcopy
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple, Union
 from typing import TYPE_CHECKING
@@ -12,17 +12,19 @@ import torch
 from qiskit import QuantumCircuit
 from torch import nn, vmap
 
+from .adjoint import AdjointExpectation
 from .channel import BitFlip, PhaseFlip, Depolarizing, Pauli, AmplitudeDamping, PhaseDamping
 from .channel import GeneralizedAmplitudeDamping
+from .distributed import measure_dist
 from .gate import ParametricSingleGate
 from .gate import U3Gate, PhaseShift, PauliX, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, TGate, TDaggerGate
 from .gate import Rx, Ry, Rz, ProjectionJ, CNOT, Swap, Rxx, Ryy, Rzz, Rxy, ReconfigurableBeamSplitter, Toffoli, Fredkin
-from .gate import UAnyGate, LatentGate, HamiltonianGate, Barrier
+from .gate import CombinedSingleGate, UAnyGate, LatentGate, HamiltonianGate, Barrier
 from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer, RyLayer, RzLayer, CnotLayer, CnotRing
 from .operation import Operation, Gate, Layer, Channel
 from .qmath import amplitude_encoding, measure, expectation, sample_sc_mcmc, sample2expval
 from .qmath import slice_state_vector, inner_product_mps, get_prob_mps
-from .state import QubitState, MatrixProductState
+from .state import QubitState, MatrixProductState, DistributedQubitState
 
 if TYPE_CHECKING:
     from .mbqc import Pattern
@@ -306,7 +308,11 @@ class QubitCircuit(Operation):
                                      proposal_sampler=self._proposal_sampler,
                                      shots=shots,
                                      num_chain=5)
-            return dict(samples)
+            result = dict(samples)
+            if with_prob:
+                for k in result:
+                    result[k] = result[k], self._get_prob(k)
+            return result
         if self.state is None:
             return
         else:
@@ -345,9 +351,9 @@ class QubitCircuit(Operation):
                         cir_basis.sdg(wire)
                         cir_basis.h(wire)
                 cir_basis.to(dtype).to(device)
-                state = cir_basis(state=self.state)
+                cir_basis(state=self.state)
                 wires = sum(observable.wires, [])
-                samples = measure(state=state, shots=shots, wires=wires, den_mat=self.den_mat)
+                samples = cir_basis.measure(shots=shots, wires=wires)
                 if isinstance(samples, list):
                     expval = []
                     for sample in samples:
@@ -356,7 +362,7 @@ class QubitCircuit(Operation):
                     expval = torch.cat(expval)
                 elif isinstance(samples, dict):
                     expval = sample2expval(sample=samples).to(dtype).to(device)
-                    if self.state.ndim == 2:
+                    if (not self.mps and self.state.ndim == 2) or (self.mps and self.state[0].ndim == 3):
                         expval = expval.squeeze(0)
                 out.append(expval)
         out = torch.stack(out, dim=-1)
@@ -1298,3 +1304,135 @@ class QubitCircuit(Operation):
         """Add a barrier."""
         br = Barrier(nqubit=self.nqubit, wires=wires)
         self.add(br)
+
+
+class DistritubutedQubitCircuit(QubitCircuit):
+    def __init__(self, nqubit, name = None, reupload = False, shots = 1024):
+        super().__init__(nqubit=nqubit, init_state='zeros', name=name, den_mat=False,
+                         reupload=reupload, mps=False, chi=None, shots=shots)
+
+    def set_init_state(self, init_state: Union[str, DistributedQubitState] = 'zeros'):
+        """Set the initial state of the circuit."""
+        if init_state == 'zeros':
+            self.init_state = DistributedQubitState(self.nqubit)
+        elif isinstance(init_state, DistributedQubitState):
+            self.init_state = init_state
+
+    # pylint: disable=arguments-renamed
+    @torch.no_grad()
+    def forward(
+        self,
+        data: Optional[torch.Tensor] = None,
+        state: Optional[DistributedQubitState] = None
+    ) -> DistributedQubitState:
+        """Perform a forward pass of the quantum circuit and return the final state.
+
+        This method applies the ``operators`` of the quantum circuit to the initial state or the given state
+        and returns the resulting state. If ``data`` is given, it is used as the input for the ``encoders``.
+        The ``data`` must be a 1D tensor.
+
+        Args:
+            data (torch.Tensor or None, optional): The input data for the ``encoders``. Default: ``None``
+            state (DistributedQubitState or None, optional): The initial state for the quantum circuit.
+                Default: ``None``
+        """
+        if state is None:
+            self.init_state.reset()
+        else:
+            self.init_state = state
+        with torch.enable_grad():
+            self.encode(data)
+        self.state = self.operators(self.init_state)
+        return self.state
+
+    def measure(
+        self,
+        shots: Optional[int] = None,
+        with_prob: bool = False,
+        wires: Union[int, List[int], None] = None,
+        block_size: int = 2 ** 24
+    ) -> Union[Dict, List[Dict], None]:
+        """Measure the final state.
+
+        Args:
+            shots (int or None, optional): The number of shots for the measurement. Default: ``None`` (which means
+                ``self.shots``)
+            with_prob (bool, optional): Whether to show the true probability of the measurement. Default: ``False``
+            wires (int, List[int] or None, optional): The wires to measure. Default: ``None`` (which means all wires)
+            block_size (int, optional): The block size for sampling. Default: 2 ** 24
+        """
+        if shots is None:
+            shots = self.shots
+        else:
+            self.shots = shots
+        if wires is None:
+            wires = list(range(self.nqubit))
+        self.wires_measure = self._convert_indices(wires)
+        if self.state is None:
+            return
+        else:
+            return measure_dist(self.state, shots=shots, with_prob=with_prob, wires=self.wires_measure,
+                                block_size=block_size)
+
+    def expectation(self, shots: Optional[int] = None) -> torch.Tensor:
+        """Get the expectation value according to the final state and ``observables``.
+
+        Args:
+            shots (int or None, optional): The number of shots for the expectation value.
+                Default: ``None`` (which means the exact and differentiable expectation value).
+        """
+        assert len(self.observables) > 0, 'There is no observable'
+        assert isinstance(self.state, DistributedQubitState), 'There is no final state'
+        assert self.wires_condition == [], 'Expectation with conditional measurement is NOT supported'
+        out = []
+        if shots is None:
+            parameters = []
+            for op in self.operators:
+                if isinstance(op, (Layer, CombinedSingleGate)):
+                    gates = op.gates
+                elif isinstance(op, Gate):
+                    gates = [op]
+                for gate in gates:
+                    if gate.npara > 0:
+                        tmp = []
+                        if gate.requires_grad:
+                            for p in gate.parameters():
+                                tmp.append(p)
+                        else:
+                            for p in gate.buffers():
+                                tmp.append(p)
+                        parameters.append(torch.stack(tmp).squeeze(0))
+            expectation = AdjointExpectation.apply
+            for observable in self.observables:
+                state = deepcopy(self.state)
+                expval = expectation(state, self.operators, observable, *parameters)
+                out.append(expval)
+        else:
+            self.shots = shots
+            dtype = self.state.amps.real.dtype
+            device = self.state.amps.device
+            for observable in self.observables:
+                cir_basis = DistritubutedQubitCircuit(self.nqubit)
+                for wire, basis in zip(observable.wires, observable.basis):
+                    if basis == 'x':
+                        cir_basis.h(wire)
+                    elif basis == 'y':
+                        cir_basis.sdg(wire)
+                        cir_basis.h(wire)
+                cir_basis.to(dtype).to(device)
+                state = deepcopy(self.state)
+                state = cir_basis(state=state)
+                wires = sum(observable.wires, [])
+                samples = measure_dist(state=state, shots=shots, wires=wires)
+                expval = sample2expval(sample=samples).to(dtype).to(device).squeeze(0)
+                out.append(expval)
+        out = torch.stack(out, dim=-1)
+        return out
+
+    def cnot(self, control: int, target: int) -> None:
+        """Add a CNOT gate."""
+        super().cx(control, target)
+
+    def toffoli(self, control1: int, control2: int, target: int) -> None:
+        """Add a Toffoli gate."""
+        super().ccx(control1, control2, target)

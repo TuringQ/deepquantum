@@ -5,11 +5,15 @@ Common functions
 import copy
 from collections import Counter, defaultdict
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
 from torch import nn, vmap
 from tqdm import tqdm
+
+if TYPE_CHECKING:
+    from .layer import Observable
 
 
 def is_power_of_two(n: int) -> bool:
@@ -429,7 +433,8 @@ def evolve_state(
     matrix: torch.Tensor,
     nqudit: int,
     wires: List[int],
-    qudit: int = 2) -> torch.Tensor:
+    qudit: int = 2
+) -> torch.Tensor:
     """Perform the evolution of quantum states.
 
     Args:
@@ -456,7 +461,8 @@ def evolve_den_mat(
     matrix: torch.Tensor,
     nqudit: int,
     wires: List[int],
-    qudit: int = 2) -> torch.Tensor:
+    qudit: int = 2
+) -> torch.Tensor:
     """Perform the evolution of density matrices.
 
     Args:
@@ -780,12 +786,9 @@ def inner_product_mps(
     return norm
 
 
-# pylint: disable=wrong-import-position
-from .layer import Observable
-
 def expectation(
     state: Union[torch.Tensor, List[torch.Tensor]],
-    observable: Observable,
+    observable: 'Observable',
     den_mat: bool = False,
     chi: Optional[int] = None
 ) -> torch.Tensor:
