@@ -23,7 +23,7 @@ def setup_distributed(port = '29500', backend = 'nccl') -> Tuple[int, int, int]:
         world_size = 1
         local_rank = 0
         os.environ['MASTER_ADDR'] = 'localhost'
-        os.environ['MASTER_PORT'] =  port
+        os.environ['MASTER_PORT'] = port
 
     print(f'Initializing distributed setup: Rank {rank}/{world_size}, Local Rank (GPU): {local_rank}')
 

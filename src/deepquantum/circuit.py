@@ -1306,7 +1306,7 @@ class QubitCircuit(Operation):
         self.add(br)
 
 
-class DistritubutedQubitCircuit(QubitCircuit):
+class DistributedQubitCircuit(QubitCircuit):
     def __init__(self, nqubit, name = None, reupload = False, shots = 1024):
         super().__init__(nqubit=nqubit, init_state='zeros', name=name, den_mat=False,
                          reupload=reupload, mps=False, chi=None, shots=shots)
@@ -1412,7 +1412,7 @@ class DistritubutedQubitCircuit(QubitCircuit):
             dtype = self.state.amps.real.dtype
             device = self.state.amps.device
             for observable in self.observables:
-                cir_basis = DistritubutedQubitCircuit(self.nqubit)
+                cir_basis = DistributedQubitCircuit(self.nqubit)
                 for wire, basis in zip(observable.wires, observable.basis):
                     if basis == 'x':
                         cir_basis.h(wire)
