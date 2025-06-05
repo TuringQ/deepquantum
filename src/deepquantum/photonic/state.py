@@ -13,7 +13,8 @@ from torch import nn, vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 import deepquantum.photonic as dqp
-from ..qmath import multi_kron
+from ..communication import comm_get_rank, comm_get_world_size
+from ..qmath import is_power, list_to_decimal, multi_kron
 from .gate import PhaseShift
 from .qmath import dirac_ket, xpxp_to_xxpp, xxpp_to_xpxp
 
@@ -84,7 +85,10 @@ class FockState(nn.Module):
                 state_ts = state
             else:
                 # Process Fock state tensor from Fock basis states
-                assert isinstance(state, list) and all(isinstance(i, tuple) for i in state)
+                assert isinstance(state, list)
+                if all(isinstance(i, int) for i in state):
+                    state = [(1., state)]
+                assert all(isinstance(i, tuple) for i in state)
                 nphoton = 0
                 # Determine the number of photons and modes
                 for s in state:
@@ -620,6 +624,73 @@ class FockStateBosonic(BosonicState):
         if cutoff is None:
             cutoff = n + 1
         super().__init__(state, nmode, cutoff)
+
+
+class DistributedFockState(nn.Module):
+    """A Fock state of n modes distributed between w nodes.
+
+    Args:
+        state (Any): The Fock state. It can be a vacuum state with ``'vac'`` or ``'zeros'``.
+            It can be a Fock basis state, e.g., ``[1,0,0]``, or a Fock state tensor,
+            e.g., ``[(1/2**0.5, [1,0]), (1/2**0.5, [0,1])]``.
+        nmode (int or None, optional): The number of modes in the state. Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+    """
+    def __init__(self, state: Any, nmode: Optional[int] = None, cutoff: Optional[int] = None) -> None:
+        super().__init__()
+        self.world_size = comm_get_world_size()
+        self.rank = comm_get_rank()
+        assert 0 <= self.rank < self.world_size
+        if state in ('vac', 'zeros'):
+            state = [(1, [0] * nmode)]
+        assert isinstance(state, list)
+        if all(isinstance(i, int) for i in state):
+            state = [(1., state)]
+        assert all(isinstance(i, tuple) for i in state)
+        nphoton = 0
+        for s in state:
+            nphoton = max(nphoton, sum(s[1]))
+            if nmode is None:
+                nmode = len(s[1])
+        if cutoff is None:
+            cutoff = nphoton + 1
+        self.state = state # list of tuples
+        self.nmode = nmode
+        self.cutoff = cutoff
+        assert is_power(self.world_size, self.cutoff)
+        assert cutoff ** nmode >= self.world_size
+        self.nmode_global = int(np.round(np.emath.logn(self.cutoff, self.world_size)))
+        self.nmode_local = self.nmode - self.nmode_global
+        self.num_amps_per_node = self.cutoff ** self.nmode_local
+        amps = torch.zeros([self.cutoff] * self.nmode_local, dtype=torch.cfloat)
+        buffer = torch.zeros_like(amps)
+        self.register_buffer('amps', amps)
+        self.register_buffer('buffer', buffer)
+        self.reset()
+
+    def to(self, arg: Any) -> 'DistributedFockState':
+        """Set dtype or device of the DistributedFockState."""
+        if arg == torch.float:
+            self.amps = self.amps.to(torch.cfloat)
+            self.buffer = self.buffer.to(torch.cfloat)
+        elif arg == torch.double:
+            self.amps = self.amps.to(torch.cdouble)
+            self.buffer = self.buffer.to(torch.cdouble)
+        else:
+            self.amps = self.amps.to(arg)
+            self.buffer = self.buffer.to(arg)
+        return self
+
+    def reset(self):
+        """Reset the state."""
+        self.amps.zero_()
+        self.buffer.zero_()
+        for s in self.state:
+            amp = s[0]
+            rank = list_to_decimal(s[1][:self.nmode_global])
+            if self.rank == rank:
+                fock_basis = tuple(s[1][self.nmode_global:])
+                self.amps[fock_basis] = amp
 
 
 def combine_tensors(tensors: List[torch.Tensor], ndim_ds: int = 2) -> torch.Tensor:
