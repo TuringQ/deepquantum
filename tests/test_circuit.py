@@ -137,3 +137,30 @@ def test_qubit_expectation_and_differentiation_dist():
 
     assert torch.allclose(exp1, exp2)
     assert torch.allclose(data1.grad, data2.grad)
+
+
+def test_qumode_dist():
+    nmode = 5
+    cutoff = 6
+    data = torch.randn(20, dtype=torch.float)
+    shots = 10000
+    key = dq.FockState([0])
+
+    cir = dq.DistributedQumodeCircuit(nmode, [0] * nmode, cutoff)
+    for i in range(nmode):
+        cir.s(i, encode=True)
+    for i in range(nmode - 1):
+        cir.bs([i, i + 1], encode=True)
+    state1 = cir(data).amps
+    rst1 = cir.measure(shots=shots, with_prob=True, wires=[0])
+
+    cir = dq.QumodeCircuit(nmode, [0] * nmode, cutoff, basis=False)
+    for i in range(nmode):
+        cir.s(i, encode=True)
+    for i in range(nmode - 1):
+        cir.bs([i, i + 1], encode=True)
+    state2 = cir(data)
+    rst2 = cir.measure(shots=shots, with_prob=True, wires=[0])
+
+    assert torch.allclose(state1, state2)
+    assert torch.allclose(rst1[key][1], rst2[key][1])
