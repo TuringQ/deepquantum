@@ -142,8 +142,8 @@ def test_qubit_expectation_and_differentiation_dist():
 def test_qumode_dist():
     nmode = 5
     cutoff = 6
-    data = torch.randn(20, dtype=torch.float)
     shots = 10000
+    data = torch.randn(20)
     key = dq.FockState([0])
 
     cir = dq.DistributedQumodeCircuit(nmode, [0] * nmode, cutoff)
