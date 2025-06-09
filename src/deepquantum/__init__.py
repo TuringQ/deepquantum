@@ -60,3 +60,4 @@ from .photonic import permanent, takagi, hafnian, torontonian
 from .photonic import FockState, GaussianState, BosonicState, CatState, GKPState, FockStateBosonic
 from .photonic import QumodeCircuit, QumodeCircuitTDM, Clements, GaussianBosonSampling
 from .photonic import UnitaryMapper, UnitaryDecomposer, DrawClements
+from .photonic import DistributedFockState, DistributedQumodeCircuit

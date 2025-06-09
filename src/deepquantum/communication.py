@@ -84,7 +84,7 @@ def comm_exchange_arrays(send_data: torch.Tensor, recv_data: torch.Tensor, pair_
     if is_valid:
         assert send_data.shape == recv_data.shape, 'Send/Recv shape must match for active P2P'
         assert send_data.dtype == recv_data.dtype, 'Send/Recv dtype must match for active P2P'
-        io_sizes[pair_rank] = send_data.numel()
+        io_sizes[pair_rank] = len(send_data)
     else:
         send_data = send_data.new_empty(0)
         recv_data = recv_data.new_empty(0)

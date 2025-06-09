@@ -18,6 +18,7 @@ from ..qmath import get_prob_mps, inner_product_mps, is_positive_definite, sampl
 from ..state import MatrixProductState
 from .channel import PhotonLoss
 from .decompose import UnitaryDecomposer
+from .distributed import measure_dist
 from .draw import DrawCircuit
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
 from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum
@@ -26,9 +27,10 @@ from .hafnian_ import hafnian
 from .measurement import Homodyne
 from .operation import Operation, Gate, Channel, Delay
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
-from .qmath import photon_number_mean_var, sample_homodyne_fock, sample_reject_bosonic
+from .qmath import photon_number_mean_var, measure_fock_tensor, sample_homodyne_fock, sample_reject_bosonic
 from .qmath import quadrature_to_ladder, shift_func, align_shape
-from .state import FockState, GaussianState, BosonicState, CatState, GKPState, combine_bosonic_states
+from .state import FockState, GaussianState, BosonicState, CatState, GKPState, DistributedFockState
+from .state import combine_bosonic_states
 from .torontonian_ import torontonian
 
 
@@ -37,7 +39,7 @@ class QumodeCircuit(Operation):
 
     Args:
         nmode (int): The number of modes in the circuit.
-        init_state (Any): The initial state of the circuit. It can be a vacuum state with ``'vac'``.
+        init_state (Any): The initial state of the circuit. It can be a vacuum state with ``'vac'`` or ``'zeros'``.
             For Fock backend, it can be a Fock basis state, e.g., ``[1,0,0]``, or a Fock state tensor,
             e.g., ``[(1/2**0.5, [1,0]), (1/2**0.5, [0,1])]``. Alternatively, it can be a tensor representation.
             For Gaussian backend, it can be arbitrary Gaussian states with ``[cov, mean]``.
@@ -1579,7 +1581,7 @@ class QumodeCircuit(Operation):
             nmode = self.nmode
         for wire in wires:
             indices.append([wire] + [wire + nmode])
-        indices = torch.tensor(indices)
+        indices = torch.tensor(indices, device=cov.device)
         covs = extract_blocks(cov, indices).reshape(-1, 2, 2) # batch * nwire
         means = extract_blocks(mean, indices).reshape(-1, 2, 1)
         return covs, means
@@ -2472,3 +2474,81 @@ class QumodeCircuit(Operation):
         loss = PhotonLoss(inputs=theta, nmode=self.nmode, wires=wires, cutoff=self.cutoff,
                           requires_grad=requires_grad)
         self.add(loss, encode=encode)
+
+
+class DistributedQumodeCircuit(QumodeCircuit):
+    """Photonic quantum circuit for a distributed Fock state.
+
+    Args:
+        nmode (int): The number of modes in the circuit.
+        init_state (Any): The initial state of the circuit. It can be a vacuum state with ``'vac'`` or ``'zeros'``.
+            It can be a Fock basis state, e.g., ``[1,0,0]``, or a Fock state tensor,
+            e.g., ``[(1/2**0.5, [1,0]), (1/2**0.5, [0,1])]``.
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        name (str or None, optional): The name of the circuit. Default: ``None``
+    """
+    def __init__(self, nmode: int, init_state: Any, cutoff: Optional[int] = None, name: Optional[str] = None) -> None:
+        super().__init__(nmode, init_state, cutoff, backend='fock', basis=False, den_mat=False,
+                         detector='pnrd', name=name, mps=False, chi=None, noise=False, mu=0, sigma=0.1)
+
+    def set_init_state(self, init_state: Any = None) -> None:
+        """Set the initial state of the circuit."""
+        if isinstance(init_state, DistributedFockState):
+            self.init_state = init_state
+        else:
+            self.init_state = DistributedFockState(init_state, self.nmode, self.cutoff)
+            self.cutoff = self.init_state.cutoff
+
+    # pylint: disable=arguments-renamed
+    @torch.no_grad()
+    def forward(
+        self,
+        data: Optional[torch.Tensor] = None,
+        state: Optional[DistributedFockState] = None
+    ) -> DistributedFockState:
+        """Perform a forward pass of the photonic quantum circuit and return the final state.
+
+        This method applies the ``operators`` of the photonic quantum circuit to the initial state or the given state
+        and returns the resulting state. If ``data`` is given, it is used as the input for the ``encoders``.
+        The ``data`` must be a 1D tensor.
+
+        Args:
+            data (torch.Tensor or None, optional): The input data for the ``encoders``. Default: ``None``
+            state (DistributedFockState or None, optional): The initial state for the photonic quantum circuit.
+                Default: ``None``
+        """
+        if state is None:
+            self.init_state.reset()
+        else:
+            self.init_state = state
+        self.encode(data)
+        self.state = self.operators(self.init_state)
+        return self.state
+
+    def measure(
+        self,
+        shots: int = 1024,
+        with_prob: bool = False,
+        wires: Union[int, List[int], None] = None,
+        block_size: int = 2 ** 24
+    ) -> Union[Dict, None]:
+        """Measure the final state.
+
+        Args:
+            shots (int, optional): The number of times to sample from the quantum state. Default: 1024
+            with_prob (bool, optional): A flag that indicates whether to return the probabilities along with
+                the number of occurrences. Default: ``False``
+            wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
+                integers specifying the indices of the wires. Default: ``None`` (which means all wires are measured)
+            block_size (int, optional): The block size for sampling. Default: 2 ** 24
+        """
+        if wires is None:
+            wires = list(range(self.nmode))
+        wires = sorted(self._convert_indices(wires))
+        if self.state is None:
+            return
+        else:
+            if self.state.world_size == 1:
+                return measure_fock_tensor(self.state.amps.unsqueeze(0), shots, with_prob, wires, block_size)
+            else:
+                return measure_dist(self.state, shots, with_prob, wires, block_size)

@@ -15,7 +15,6 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 import deepquantum.photonic as dqp
 from ..communication import comm_get_rank, comm_get_world_size
 from ..qmath import is_power, list_to_decimal, multi_kron
-from .gate import PhaseShift
 from .qmath import dirac_ket, xpxp_to_xxpp, xxpp_to_xpxp
 
 
@@ -400,6 +399,8 @@ class BosonicState(nn.Module):
             plot (bool, optional): Whether to plot the marginal function. Default: ``True``
             k (int, optional): The marginal function of kth batch to plot. Default: 0
         """
+        # pylint: disable=import-outside-toplevel
+        from .gate import PhaseShift
         if isinstance(qrange, int):
             qlist = [-qrange, qrange]
         else:
@@ -687,7 +688,7 @@ class DistributedFockState(nn.Module):
         self.buffer.zero_()
         for s in self.state:
             amp = s[0]
-            rank = list_to_decimal(s[1][:self.nmode_global])
+            rank = list_to_decimal(s[1][:self.nmode_global], self.cutoff)
             if self.rank == rank:
                 fock_basis = tuple(s[1][self.nmode_global:])
                 self.amps[fock_basis] = amp

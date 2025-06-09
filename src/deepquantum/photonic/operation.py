@@ -10,6 +10,8 @@ from torch import nn, vmap
 
 from ..qmath import state_to_tensors, evolve_state, evolve_den_mat
 from ..state import MatrixProductState
+from .distributed import dist_gate
+from .state import DistributedFockState
 
 
 class Operation(nn.Module):
@@ -246,14 +248,23 @@ class Gate(Operation):
         out.center_orthogonalization(end1, dc=out.chi, normalize=out.normalize)
         return out
 
+    def op_dist_state(self, x: DistributedFockState) -> DistributedFockState:
+        """Perform a forward pass for a distributed Fock state tensor."""
+        nt = len(self.wires)
+        matrix = self.update_matrix_state().reshape(self.cutoff ** nt, self.cutoff ** nt)
+        targets = [self.nmode - wire - 1 for wire in self.wires]
+        return dist_gate(x, targets, matrix)
+
     def forward(
         self,
-        x: Union[torch.Tensor, List[torch.Tensor], MatrixProductState]
-    ) -> Union[torch.Tensor, List[torch.Tensor], MatrixProductState]:
+        x: Union[torch.Tensor, List[torch.Tensor], MatrixProductState, DistributedFockState]
+    ) -> Union[torch.Tensor, List[torch.Tensor], MatrixProductState, DistributedFockState]:
         """Perform a forward pass."""
-        if isinstance(x, MatrixProductState):
+        if isinstance(x, DistributedFockState):
+            return self.op_dist_state(x)
+        elif isinstance(x, MatrixProductState):
             return self.op_mps(x)
-        if isinstance(x, torch.Tensor):
+        elif isinstance(x, torch.Tensor):
             if self.den_mat:
                 return self.op_den_mat(x)
             else:
@@ -390,8 +401,8 @@ class Delay(Operation):
 
     def forward(
         self,
-        x: Union[torch.Tensor, List[torch.Tensor], MatrixProductState]
-    ) -> Union[torch.Tensor, List[torch.Tensor], MatrixProductState]:
+        x: Union[torch.Tensor, List[torch.Tensor], MatrixProductState, DistributedFockState]
+    ) -> Union[torch.Tensor, List[torch.Tensor], MatrixProductState, DistributedFockState]:
         """Perform a forward pass."""
         return self.gates(x)
 

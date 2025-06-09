@@ -64,6 +64,24 @@ def list_to_decimal(digits: List[int], base: int) -> int:
     return result
 
 
+def decimal_to_list(n: int, base: int, ndigit: Optional[int] = None) -> List[int]:
+    """Convert from decimal integer to list of digits."""
+    assert base >= 2, 'Base must be at least 2'
+    if n == 0:
+        if isinstance(ndigit, int):
+            return [0] * ndigit
+        else:
+            return [0]
+    digits = []
+    num = abs(n)
+    while num > 0:
+        num, remainder = divmod(num, base)
+        digits.insert(0, remainder)
+    if ndigit is not None:
+        digits = [0] * (ndigit - len(digits)) + digits
+    return digits
+
+
 def inverse_permutation(permute_shape: List[int]) -> List[int]:
     """Calculate the inversed permutation.
 

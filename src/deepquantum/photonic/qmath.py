@@ -4,14 +4,15 @@ Common functions
 
 import itertools
 import warnings
-from typing import Dict, Generator, List, Optional, Tuple
+from collections import Counter
+from typing import Dict, Generator, List, Optional, Tuple, Union
 
 import torch
 from torch import vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 import deepquantum.photonic as dqp
-from ..qmath import is_unitary, partial_trace
+from ..qmath import list_to_decimal, decimal_to_list, is_unitary, partial_trace, block_sample
 from .utils import mem_to_chunksize
 
 
@@ -338,6 +339,62 @@ def takagi(a: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
                 v = u_half[size:] + 1j * u_half[:size]
                 if is_unitary(v):
                     return v, diag
+
+
+def measure_fock_tensor(
+    state: torch.Tensor,
+    shots: int = 1024,
+    with_prob: bool = False,
+    wires: Union[int, List[int], None] = None,
+    block_size: int = 2 ** 24
+) -> Union[Dict, List[Dict]]:
+    r"""Measure the batched Fock state tensors.
+
+    Args:
+        state (torch.Tensor): The quantum state to measure. It should be a tensor of shape
+            :math:`(\text{batch}, \text{cutoff}, ..., \text{cutoff})`.
+        shots (int, optional): The number of times to sample from the quantum state. Default: 1024
+        with_prob (bool, optional): A flag that indicates whether to return the probabilities along with
+            the number of occurrences. Default: ``False``
+        wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
+            integers specifying the indices of the wires. Default: ``None`` (which means all wires are
+            measured)
+        block_size (int, optional): The block size for sampling. Default: 2 ** 24
+    """
+    # pylint: disable=import-outside-toplevel
+    from .state import FockState
+    shape = state.shape
+    batch = shape[0]
+    cutoff = shape[-1]
+    nmode = len(shape) - 1
+    if wires is not None:
+        if isinstance(wires, int):
+            wires = [wires]
+        assert isinstance(wires, list)
+        wires = sorted(wires)
+        pm_shape = list(range(nmode))
+        for w in wires:
+            pm_shape.remove(w)
+        pm_shape = wires + pm_shape
+    nwires = len(wires) if wires else nmode
+    results_tot = []
+    for i in range(batch):
+        probs = torch.abs(state[i]) ** 2
+        if wires is not None:
+            probs = probs.permute(pm_shape).reshape([cutoff] * nwires + [-1]).sum(-1)
+        probs = probs.reshape(-1)
+        # Perform block sampling to reduce memory consumption
+        samples = Counter(block_sample(probs, shots, block_size))
+        results = {FockState(decimal_to_list(key, cutoff, nwires)): value for key, value in samples.items()}
+        if with_prob:
+            for k in results:
+                index = list_to_decimal(k.state, cutoff)
+                results[k] = results[k], probs[index]
+        results_tot.append(results)
+    if batch == 1:
+        return results_tot[0]
+    else:
+        return results_tot
 
 
 def sample_homodyne_fock(
