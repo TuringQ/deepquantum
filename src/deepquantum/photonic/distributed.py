@@ -115,7 +115,6 @@ def measure_dist(
     if isinstance(wires, int):
         wires = [wires]
     nwires = len(wires) if wires else state.nmode
-    probs = torch.abs(state.amps) ** 2
     if wires is not None:
         targets = [state.nmode - wire - 1 for wire in wires]
         pm_shape = list(range(state.nmode_local))
@@ -132,6 +131,7 @@ def measure_dist(
             for w in wires_local:
                 pm_shape.remove(w)
             pm_shape = wires_local + pm_shape
+            probs = torch.abs(state.amps) ** 2
             probs = probs.permute(pm_shape).reshape([state.cutoff] * nwires + [-1]).sum(-1).reshape(-1)
             dist.all_reduce(probs, dist.ReduceOp.SUM)
             if state.rank == 0:
@@ -156,10 +156,12 @@ def measure_dist(
             for w in wires_local:
                 pm_shape.remove(w)
             pm_shape = wires_local + pm_shape
-            probs = probs.permute(pm_shape).reshape([state.cutoff] * len(wires_local) + [-1]).sum(-1)
-    probs = probs.reshape(-1)
+            probs = torch.abs(state.amps) ** 2
+            probs = probs.permute(pm_shape).reshape([state.cutoff] * len(wires_local) + [-1]).sum(-1).reshape(-1)
+    else:
+        probs = (torch.abs(state.amps) ** 2).reshape(-1)
     probs_rank = probs.new_empty(state.world_size)
-    dist.all_gather_into_tensor(probs_rank, probs.sum())
+    dist.all_gather_into_tensor(probs_rank, probs.sum().unsqueeze(0))
     blocks = torch.multinomial(probs_rank, shots, replacement=True)
     dist.broadcast(blocks, src=0)
     block_dict = Counter(blocks.cpu().numpy())

@@ -40,7 +40,6 @@ def setup_distributed(port = '29500', backend = 'nccl') -> Tuple[int, int, int]:
 def cleanup_distributed() -> None:
     """Clean up the distributed environment."""
     dist.destroy_process_group()
-    print('Distributed environment cleaned up.')
 
 
 def comm_get_rank() -> int:

@@ -278,7 +278,7 @@ def measure_dist(
                 pm_shape = wires_local + pm_shape
                 probs = probs.permute(pm_shape).reshape([2] * len(wires_local) + [-1]).sum(-1).reshape(-1)
         probs_rank = probs.new_empty(state.world_size)
-        dist.all_gather_into_tensor(probs_rank, probs.sum())
+        dist.all_gather_into_tensor(probs_rank, probs.sum().unsqueeze(0))
         blocks = torch.multinomial(probs_rank, shots, replacement=True)
         dist.broadcast(blocks, src=0)
         block_dict = Counter(blocks.cpu().numpy())
