@@ -177,6 +177,63 @@ print(pattern().full_state)
 print(cir() / pattern().full_state)
 ```
 
+- Distributed simulation of quantum circuit
+
+```python
+import torch
+# OMP_NUM_THREADS=2 torchrun --nproc_per_node=4 main.py
+backend = 'gloo' # for CPU
+# torchrun --nproc_per_node=4 main.py
+backend = 'nccl' # for GPU
+rank, world_size, local_rank = dq.setup_distributed(backend)
+data = torch.arange(4, dtype=torch.float, requires_grad=True)
+cir = dq.DistributedQubitCircuit(4)
+cir.rylayer(encode=True)
+cir.cnot_ring()
+cir.observable(0)
+cir.observable(1, 'x')
+if backend == 'nccl':
+    data = data.to(f'cuda:{local_rank}')
+    cir.to(f'cuda:{local_rank}')
+state = cir(data).amps
+result = cir.measure(with_prob=True)
+exp = cir.expectation().sum()
+exp.backward()
+if rank == 0:
+    print(state)
+    print(result)
+    print(exp)
+    print(data.grad)
+dq.cleanup_distributed()
+```
+
+- Distributed simulation of photonic quantum circuit
+
+```python
+# OMP_NUM_THREADS=2 torchrun --nproc_per_node=4 main.py
+backend = 'gloo' # for CPU
+# torchrun --nproc_per_node=4 main.py
+backend = 'nccl' # for GPU
+rank, world_size, local_rank = dq.setup_distributed(backend)
+nmode = 4
+cutoff = 4
+data = torch.arange(14, dtype=torch.float) / 10
+cir = dq.DistributedQumodeCircuit(nmode, [0] * nmode, cutoff)
+for i in range(nmode):
+    cir.s(i, encode=True)
+for i in range(nmode - 1):
+    cir.bs([i, i + 1], encode=True)
+if backend == 'nccl':
+    data = data.to(f'cuda:{local_rank}')
+    cir.to(f'cuda:{local_rank}')
+state = cir(data).amps
+result = cir.measure(with_prob=True)
+if rank == 0:
+    print(state)
+    print(result)
+dq.cleanup_distributed()
+```
+
 # License
 
 DeepQuantum is open source, released under the Apache License, Version 2.0.

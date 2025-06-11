@@ -9,7 +9,7 @@ import torch
 import torch.distributed as dist
 
 
-def setup_distributed(port = '29500', backend = 'nccl') -> Tuple[int, int, int]:
+def setup_distributed(backend: str = 'nccl', port: str = '29500') -> Tuple[int, int, int]:
     """Initialize torch.distributed."""
     try:
         # These should be set by the launch script (e.g., torchrun)
@@ -24,16 +24,18 @@ def setup_distributed(port = '29500', backend = 'nccl') -> Tuple[int, int, int]:
         local_rank = 0
         os.environ['MASTER_ADDR'] = 'localhost'
         os.environ['MASTER_PORT'] = port
-
-    print(f'Initializing distributed setup: Rank {rank}/{world_size}, Local Rank (GPU): {local_rank}')
-
+    if backend == 'nccl':
+        print(f'Initializing distributed setup: Rank {rank}/{world_size}, Local Rank (GPU): {local_rank}')
+    elif backend == 'gloo':
+        print(f'Initializing distributed setup: Rank {rank}/{world_size}, Local Rank (CPU): {local_rank}')
     # Initialize the process group
     dist.init_process_group(backend, world_size=world_size, rank=rank)
-
-    # Pin the current process to a specific GPU
-    torch.cuda.set_device(local_rank)
-
-    print(f'Rank {rank} initialized, using GPU {local_rank}.')
+    if backend == 'nccl':
+        # Pin the current process to a specific GPU
+        torch.cuda.set_device(local_rank)
+        print(f'Rank {rank} initialized, using GPU {local_rank}.')
+    elif backend == 'gloo':
+        print(f'Rank {rank} initialized.')
     return rank, world_size, local_rank
 
 

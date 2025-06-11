@@ -3,7 +3,7 @@ This is the top level module from which all basic functions and classes of
 DeepQuantum can be directly imported.
 """
 
-__version__ = '4.2.0'
+__version__ = '4.3.0'
 
 
 from . import adjoint
@@ -42,6 +42,7 @@ from .ansatz import (
 from .channel import BitFlip, PhaseFlip, Depolarizing, Pauli, AmplitudeDamping, PhaseDamping
 from .channel import GeneralizedAmplitudeDamping
 from .circuit import QubitCircuit, DistributedQubitCircuit
+from .communication import setup_distributed, cleanup_distributed
 from .gate import U3Gate, PhaseShift, Identity, PauliX, PauliY, PauliZ, Hadamard
 from .gate import SGate, SDaggerGate, TGate, TDaggerGate
 from .gate import Rx, Ry, Rz, ProjectionJ, CombinedSingleGate
