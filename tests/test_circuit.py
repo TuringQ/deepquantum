@@ -44,7 +44,7 @@ def test_fock_mps():
 
 def test_qubit_dist():
     data = torch.randn(10)
-    cir = dq.DistritubutedQubitCircuit(4, reupload=True)
+    cir = dq.DistributedQubitCircuit(4, reupload=True)
     cir.rxlayer(encode=True)
     cir.rylayer(encode=True)
     cir.rzlayer(encode=True)
@@ -53,6 +53,7 @@ def test_qubit_dist():
     cir.cnot_ring()
     cir.toffoli(0,1,2)
     cir.fredkin(2,1,0)
+    cir.swap([2,3])
     cir.rx(0, controls=[1,2,3], encode=True)
     cir.ry(1, controls=[0,2,3], encode=True)
     cir.rz(2, controls=[0,1,3], encode=True)
@@ -71,6 +72,7 @@ def test_qubit_dist():
     cir.cnot_ring()
     cir.toffoli(0,1,2)
     cir.fredkin(2,1,0)
+    cir.swap([2,3])
     cir.rx(0, controls=[1,2,3], encode=True)
     cir.ry(1, controls=[0,2,3], encode=True)
     cir.rz(2, controls=[0,1,3], encode=True)
@@ -84,7 +86,7 @@ def test_qubit_dist():
 
 def test_qubit_expectation_and_differentiation_dist():
     data1 = torch.arange(10, dtype=torch.float, requires_grad=True)
-    cir1 = dq.DistritubutedQubitCircuit(4, reupload=True)
+    cir1 = dq.DistributedQubitCircuit(4, reupload=True)
     cir1.rxlayer(encode=True)
     cir1.rylayer(encode=True)
     cir1.rzlayer(encode=True)
@@ -93,6 +95,7 @@ def test_qubit_expectation_and_differentiation_dist():
     cir1.cnot_ring()
     cir1.toffoli(0,1,2)
     cir1.fredkin(2,1,0)
+    cir1.swap([2,3])
     cir1.rx(0, controls=[1,2,3], encode=True)
     cir1.ry(1, controls=[0,2,3], encode=True)
     cir1.rz(2, controls=[0,1,3], encode=True)
@@ -117,6 +120,7 @@ def test_qubit_expectation_and_differentiation_dist():
     cir2.cnot_ring()
     cir2.toffoli(0,1,2)
     cir2.fredkin(2,1,0)
+    cir2.swap([2,3])
     cir2.rx(0, controls=[1,2,3], encode=True)
     cir2.ry(1, controls=[0,2,3], encode=True)
     cir2.rz(2, controls=[0,1,3], encode=True)
@@ -133,3 +137,30 @@ def test_qubit_expectation_and_differentiation_dist():
 
     assert torch.allclose(exp1, exp2)
     assert torch.allclose(data1.grad, data2.grad)
+
+
+def test_qumode_dist():
+    nmode = 5
+    cutoff = 6
+    shots = 10000
+    data = torch.randn(20)
+    key = dq.FockState([0])
+
+    cir = dq.DistributedQumodeCircuit(nmode, [0] * nmode, cutoff)
+    for i in range(nmode):
+        cir.s(i, encode=True)
+    for i in range(nmode - 1):
+        cir.bs([i, i + 1], encode=True)
+    state1 = cir(data).amps
+    rst1 = cir.measure(shots=shots, with_prob=True, wires=[0])
+
+    cir = dq.QumodeCircuit(nmode, [0] * nmode, cutoff, basis=False)
+    for i in range(nmode):
+        cir.s(i, encode=True)
+    for i in range(nmode - 1):
+        cir.bs([i, i + 1], encode=True)
+    state2 = cir(data)
+    rst2 = cir.measure(shots=shots, with_prob=True, wires=[0])
+
+    assert torch.allclose(state1, state2)
+    assert torch.allclose(rst1[key][1], rst2[key][1])

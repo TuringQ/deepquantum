@@ -41,7 +41,7 @@ from .ansatz import (
 )
 from .channel import BitFlip, PhaseFlip, Depolarizing, Pauli, AmplitudeDamping, PhaseDamping
 from .channel import GeneralizedAmplitudeDamping
-from .circuit import QubitCircuit, DistritubutedQubitCircuit
+from .circuit import QubitCircuit, DistributedQubitCircuit
 from .gate import U3Gate, PhaseShift, Identity, PauliX, PauliY, PauliZ, Hadamard
 from .gate import SGate, SDaggerGate, TGate, TDaggerGate
 from .gate import Rx, Ry, Rz, ProjectionJ, CombinedSingleGate
@@ -60,3 +60,4 @@ from .photonic import permanent, takagi, hafnian, torontonian
 from .photonic import FockState, GaussianState, BosonicState, CatState, GKPState, FockStateBosonic
 from .photonic import QumodeCircuit, QumodeCircuitTDM, Clements, GaussianBosonSampling
 from .photonic import UnitaryMapper, UnitaryDecomposer, DrawClements
+from .photonic import DistributedFockState, DistributedQumodeCircuit

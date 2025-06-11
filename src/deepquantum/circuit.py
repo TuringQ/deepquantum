@@ -45,7 +45,7 @@ class QubitCircuit(Operation):
         mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
         chi (int or None, optional): The bond dimension for matrix product state representation.
             Default: ``None``
-        shots (int, optional): The number of shots for the measurement. Default: ``1024``
+        shots (int, optional): The number of shots for the measurement. Default: 1024
 
     Raises:
         AssertionError: If the type or dimension of ``init_state`` does not match ``nqubit`` or ``den_mat``.
@@ -1306,12 +1306,20 @@ class QubitCircuit(Operation):
         self.add(br)
 
 
-class DistritubutedQubitCircuit(QubitCircuit):
-    def __init__(self, nqubit, name = None, reupload = False, shots = 1024):
+class DistributedQubitCircuit(QubitCircuit):
+    """Quantum circuit for a distributed state vector.
+
+    Args:
+        nqubit (int): The number of qubits in the circuit.
+        name (str or None, optional): The name of the circuit. Default: ``None``
+        reupload (bool, optional): Whether to use data re-uploading. Default: ``False``
+        shots (int, optional): The number of shots for the measurement. Default: 1024
+    """
+    def __init__(self, nqubit, name = None, reupload = False, shots = 1024) -> None:
         super().__init__(nqubit=nqubit, init_state='zeros', name=name, den_mat=False,
                          reupload=reupload, mps=False, chi=None, shots=shots)
 
-    def set_init_state(self, init_state: Union[str, DistributedQubitState] = 'zeros'):
+    def set_init_state(self, init_state: Union[str, DistributedQubitState] = 'zeros') -> None:
         """Set the initial state of the circuit."""
         if init_state == 'zeros':
             self.init_state = DistributedQubitState(self.nqubit)
@@ -1351,7 +1359,7 @@ class DistritubutedQubitCircuit(QubitCircuit):
         with_prob: bool = False,
         wires: Union[int, List[int], None] = None,
         block_size: int = 2 ** 24
-    ) -> Union[Dict, List[Dict], None]:
+    ) -> Union[Dict, None]:
         """Measure the final state.
 
         Args:
@@ -1412,7 +1420,7 @@ class DistritubutedQubitCircuit(QubitCircuit):
             dtype = self.state.amps.real.dtype
             device = self.state.amps.device
             for observable in self.observables:
-                cir_basis = DistritubutedQubitCircuit(self.nqubit)
+                cir_basis = DistributedQubitCircuit(self.nqubit)
                 for wire, basis in zip(observable.wires, observable.basis):
                     if basis == 'x':
                         cir_basis.h(wire)

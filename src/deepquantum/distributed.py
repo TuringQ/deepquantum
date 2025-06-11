@@ -1,5 +1,5 @@
 """
-Distributed opearations
+Distributed operations
 """
 
 from collections import Counter
@@ -15,15 +15,13 @@ from .state import DistributedQubitState
 
 
 # The 0-th qubit is the rightmost in a ket for the `target`
-def local_one_targ_gate(state: torch.Tensor, target: int, matrix: torch.Tensor) -> torch.Tensor:
-    """Apply a single-qubit gate to a state vector locally.
-
-    See https://arxiv.org/abs/2311.01512 Alg.2
-    """
+def local_gate(state: torch.Tensor, targets: List[int], matrix: torch.Tensor) -> torch.Tensor:
+    """Apply a gate to a state vector locally."""
     nqubit = log_base2(len(state))
-    wires = nqubit - target - 1
-    state[:] = evolve_state(state.reshape([1] + [2] * nqubit), matrix, nqubit, [wires], 2).reshape(-1)
+    wires = [nqubit - target - 1 for target in targets]
+    state[:] = evolve_state(state.reshape([1] + [2] * nqubit), matrix, nqubit, wires, 2).reshape(-1)
     return state
+
 
 def local_many_ctrl_one_targ_gate(
     state: torch.Tensor,
@@ -54,24 +52,12 @@ def local_many_ctrl_one_targ_gate(
     return state
 
 
-def local_swap_gate(state: torch.Tensor, qb1: int, qb2: int) -> torch.Tensor:
+def local_swap_gate(state: torch.Tensor, target1: int, target2: int) -> torch.Tensor:
     """Apply a SWAP gate to a state vector locally."""
-    indices = torch.arange(len(state), device=state.device)
-    mask01 = (get_bit(indices, qb1) == 0) & (get_bit(indices, qb2) == 1)
-    indices_01 = indices[mask01]
-    indices_10 = flip_bits(indices_01, [qb1, qb2])
-    state[indices_01], state[indices_10] = state[indices_10], state[indices_01]
-    return state
-
-
-def local_many_targ_gate(state: torch.Tensor, targets: List[int], matrix: torch.Tensor) -> torch.Tensor:
-    """Apply a multi-qubit gate to a state vector locally.
-
-    See https://arxiv.org/abs/2311.01512 Alg.4
-    """
     nqubit = log_base2(len(state))
-    wires = [nqubit - target - 1 for target in targets]
-    state[:] = evolve_state(state.reshape([1] + [2] * nqubit), matrix, nqubit, wires, 2).reshape(-1)
+    wire1 = nqubit - target1 - 1
+    wire2 = nqubit - target2 - 1
+    state[:] = state.reshape([2] * nqubit).transpose(wire1, wire2).reshape(-1)
     return state
 
 
@@ -82,7 +68,7 @@ def dist_one_targ_gate(state: DistributedQubitState, target: int, matrix: torch.
     """
     nqubit_local = state.log_num_amps_per_node
     if target < nqubit_local:
-        state.amps = local_one_targ_gate(state.amps, target, matrix)
+        state.amps = local_gate(state.amps, [target], matrix)
     else:
         rank_target = target - nqubit_local
         pair_rank = flip_bit(state.rank, rank_target)
@@ -166,7 +152,7 @@ def dist_swap_gate(state: DistributedQubitState, qb1: int, qb2: int):
     nqubit_local = state.log_num_amps_per_node
     if qb2 < nqubit_local:
         state.amps = local_swap_gate(state.amps, qb1, qb2)
-        comm_exchange_arrays(state.amps, state.buffer, None)
+        # comm_exchange_arrays(state.amps, state.buffer, None)
     elif qb1 >= nqubit_local:
         qb1_rank = qb1 - nqubit_local
         qb2_rank = qb2 - nqubit_local
@@ -188,7 +174,7 @@ def dist_swap_gate(state: DistributedQubitState, qb1: int, qb2: int):
     return state
 
 
-def _get_local_targets(targets: List[int], nqubit_local: int) -> List[int]:
+def get_local_targets(targets: List[int], nqubit_local: int) -> List[int]:
     mask = get_bit_mask(targets)
     min_non_targ = 0
     while get_bit(mask, min_non_targ):
@@ -218,14 +204,14 @@ def dist_many_targ_gate(
     nt = len(targets)
     assert nt <= nqubit_local
     if max(targets) < nqubit_local:
-        state.amps = local_many_targ_gate(state.amps, targets, matrix)
-        comm_exchange_arrays(state.amps, state.buffer, None)
+        state.amps = local_gate(state.amps, targets, matrix)
+        # comm_exchange_arrays(state.amps, state.buffer, None)
     else:
-        targets_new = _get_local_targets(targets, nqubit_local)
+        targets_new = get_local_targets(targets, nqubit_local)
         for i in range(nt):
             if targets_new[i] != targets[i]:
                 dist_swap_gate(state, targets_new[i], targets[i])
-        state.amps = local_many_targ_gate(state.amps, targets_new, matrix)
+        state.amps = local_gate(state.amps, targets_new, matrix)
         for i in range(nt):
             if targets_new[i] != targets[i]:
                 dist_swap_gate(state, targets_new[i], targets[i])
@@ -250,17 +236,17 @@ def measure_dist(
         num_bits = len(wires) if wires else state.nqubit
         if wires is not None:
             targets = [state.nqubit - wire - 1 for wire in wires]
+            pm_shape = list(range(nqubit_local))
             # Assume nqubit_global < nqubit_local
             if num_bits <= nqubit_local: # All targets move to local qubits
                 if max(targets) >= nqubit_local:
-                    targets_new = _get_local_targets(targets, nqubit_local)
+                    targets_new = get_local_targets(targets, nqubit_local)
                     for i in range(num_bits):
                         if targets_new[i] != targets[i]:
                             dist_swap_gate(state, targets_new[i], targets[i])
                     wires_local = sorted([nqubit_local - target - 1 for target in targets_new])
                 else:
                     wires_local = sorted([nqubit_local - target - 1 for target in targets])
-                pm_shape = list(range(nqubit_local))
                 for w in wires_local:
                     pm_shape.remove(w)
                 pm_shape = wires_local + pm_shape
@@ -286,7 +272,6 @@ def measure_dist(
                             dist_swap_gate(state, target, target_new)
                     else:
                         wires_local.append(nqubit_local - target - 1)
-                pm_shape = list(range(nqubit_local))
                 for w in wires_local:
                     pm_shape.remove(w)
                 pm_shape = wires_local + pm_shape
@@ -295,7 +280,7 @@ def measure_dist(
         else:
             probs = torch.abs(state.amps) ** 2
         probs_rank = probs.new_empty(state.world_size)
-        dist.all_gather_into_tensor(probs_rank, probs.sum())
+        dist.all_gather_into_tensor(probs_rank, probs.sum().unsqueeze(0))
         blocks = torch.multinomial(probs_rank, shots, replacement=True)
         dist.broadcast(blocks, src=0)
         block_dict = Counter(blocks.cpu().numpy())

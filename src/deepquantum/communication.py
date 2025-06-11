@@ -23,7 +23,7 @@ def setup_distributed(port = '29500', backend = 'nccl') -> Tuple[int, int, int]:
         world_size = 1
         local_rank = 0
         os.environ['MASTER_ADDR'] = 'localhost'
-        os.environ['MASTER_PORT'] =  port
+        os.environ['MASTER_PORT'] = port
 
     print(f'Initializing distributed setup: Rank {rank}/{world_size}, Local Rank (GPU): {local_rank}')
 
@@ -40,7 +40,6 @@ def setup_distributed(port = '29500', backend = 'nccl') -> Tuple[int, int, int]:
 def cleanup_distributed() -> None:
     """Clean up the distributed environment."""
     dist.destroy_process_group()
-    print('Distributed environment cleaned up.')
 
 
 def comm_get_rank() -> int:
@@ -84,7 +83,7 @@ def comm_exchange_arrays(send_data: torch.Tensor, recv_data: torch.Tensor, pair_
     if is_valid:
         assert send_data.shape == recv_data.shape, 'Send/Recv shape must match for active P2P'
         assert send_data.dtype == recv_data.dtype, 'Send/Recv dtype must match for active P2P'
-        io_sizes[pair_rank] = send_data.numel()
+        io_sizes[pair_rank] = len(send_data)
     else:
         send_data = send_data.new_empty(0)
         recv_data = recv_data.new_empty(0)

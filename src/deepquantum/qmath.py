@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 def is_power_of_two(n: int) -> bool:
-    """Check if an integer is power of two."""
+    """Check if an integer is a power of two."""
     def f(x):
         if x < 2:
             return False
@@ -26,6 +26,17 @@ def is_power_of_two(n: int) -> bool:
         return False
 
     return np.vectorize(f)(n)
+
+
+def is_power(n: int, base: int) -> bool:
+    """Check if an integer is a power of the given base."""
+    if n <= 0 or base <= 0 or base == 1:
+        return False
+    if n == 1:
+        return True
+    while n % base == 0:
+        n //= base
+    return n == 1
 
 
 def int_to_bitstring(x: int, n: int, debug: bool = False) -> str:
@@ -42,6 +53,33 @@ def int_to_bitstring(x: int, n: int, debug: bool = False) -> str:
             print(f'Quantum register ({n}) overflowed for {x}.')
         s = bin(x)[-n:]
     return s
+
+
+def list_to_decimal(digits: List[int], base: int) -> int:
+    """Convert from list of digits to decimal integer."""
+    result = 0
+    for digit in digits:
+        assert 0 <= digit < base, 'Invalid digit for the given base'
+        result = result * base + digit
+    return result
+
+
+def decimal_to_list(n: int, base: int, ndigit: Optional[int] = None) -> List[int]:
+    """Convert from decimal integer to list of digits."""
+    assert base >= 2, 'Base must be at least 2'
+    if n == 0:
+        if isinstance(ndigit, int):
+            return [0] * ndigit
+        else:
+            return [0]
+    digits = []
+    num = abs(n)
+    while num > 0:
+        num, remainder = divmod(num, base)
+        digits.insert(0, remainder)
+    if ndigit is not None:
+        digits = [0] * (ndigit - len(digits)) + digits
+    return digits
 
 
 def inverse_permutation(permute_shape: List[int]) -> List[int]:

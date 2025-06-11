@@ -205,7 +205,6 @@ class MatrixProductState(nn.Module):
 
     def full_tensor(self) -> torch.Tensor:
         """Get the full tensor product of the state."""
-        assert self.nsite < 30
         tensors = self.tensors
         psi = tensors[0]
         for i in range(1, self.nsite):
@@ -351,7 +350,7 @@ class DistributedQubitState(nn.Module):
     """A quantum state of n qubits distributed between w nodes.
 
     Args:
-        nqubit (int, optional): The number of qubits in the state.
+        nqubit (int): The number of qubits in the state.
     """
     def __init__(self, nqubit: int) -> None:
         super().__init__()
@@ -367,11 +366,10 @@ class DistributedQubitState(nn.Module):
         self.num_amps_per_node = power_of_2(self.log_num_amps_per_node)
 
         amps = torch.zeros(self.num_amps_per_node) + 0j
-        if self.rank == 0:
-            amps[0] = 1.0
         buffer = torch.zeros_like(amps)
         self.register_buffer('amps', amps)
         self.register_buffer('buffer', buffer)
+        self.reset()
 
     def to(self, arg: Any) -> 'DistributedQubitState':
         """Set dtype or device of the ``DistributedQubitState``."""
@@ -387,7 +385,8 @@ class DistributedQubitState(nn.Module):
         return self
 
     def reset(self):
+        """Reset the state to the vacuum state."""
         self.amps.zero_()
+        self.buffer.zero_()
         if self.rank == 0:
             self.amps[0] = 1.0
-        self.buffer.zero_()
