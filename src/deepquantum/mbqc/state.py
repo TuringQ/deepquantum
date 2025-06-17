@@ -161,6 +161,8 @@ class SubGraphState(nn.Module):
         for i in other.nodes_state:
             assert i not in self.nodes_state, 'Do NOT use repeated nodes for states'
         nodes_state = self.nodes_state + other.nodes_state
+        if self.state.device != other.state.device:
+            other.state = other.state.to(self.state.device)
         if self.state.ndim == other.state.ndim == 3:
             if self.state.shape[0] == 1 or other.state.shape[0] == 1:
                 state = torch.kron(self.state, other.state)
