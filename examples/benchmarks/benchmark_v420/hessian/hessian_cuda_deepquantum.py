@@ -50,7 +50,6 @@ n_list = [22]
 # n_list = [2, 6, 10, 14, 18]
 l_list = [1, 5, 10]
 
-# 生成一个 n 量子比特的量子线路，深度为 l
 for n in tqdm(n_list):
     for l in tqdm(l_list):
         _, ts = hessian_dq(n, l)
