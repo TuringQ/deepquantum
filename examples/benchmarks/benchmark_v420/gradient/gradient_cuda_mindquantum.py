@@ -1,4 +1,15 @@
+import json
 import time
+
+import mindquantum as mq
+import numpy as np
+from mindquantum.core import Circuit, RX, RZ, X
+from mindquantum.simulator import Simulator
+from tqdm import tqdm
+
+# Print version
+print(mq.__version__)
+
 def benchmark(f, *args, trials=10):
     r = f(*args)
     time0 = time.time()
@@ -9,19 +20,6 @@ def benchmark(f, *args, trials=10):
     ts = (time1 - time0) / trials
 
     return r, ts
-
-import numpy as np
-import json
-from tqdm import tqdm
-
-import mindquantum as mq
-import numpy as np
-from mindquantum.core import Circuit, RX, RZ, X
-from mindquantum.simulator import Simulator
-
-# print version
-print(mq.__version__)
-
 
 def grad_mindquantum(n, l):
     sim = Simulator('mqvector_gpu', n)  # 选择 MindQuantum 矢量模拟器
@@ -52,15 +50,10 @@ def grad_mindquantum(n, l):
 
     return benchmark(compute_grad, np.ones(3 * n * l, dtype=np.float32))
 
-
 results = {}
 platform = 'mindquantum_gpu'
-# n_list = [2, 4, 6, 8, 10]
-# n_list = [15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
-# # l_list = [5, 10, 15, 20, 25, 30]
-# l_list = [5]
-n_list = [2, 6, 10, 14, 18, 22]
 
+n_list = [2, 6, 10, 14, 18, 22]
 l_list = [1, 5, 10]
 
 for n in tqdm(n_list):

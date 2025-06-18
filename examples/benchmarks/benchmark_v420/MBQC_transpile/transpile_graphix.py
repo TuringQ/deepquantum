@@ -1,4 +1,10 @@
+import json
+import random
 import time
+
+import graphix
+from tqdm import tqdm
+
 def benchmark(f, *args, trials=100):
     r = f(*args)
     time0 = time.time()
@@ -9,10 +15,6 @@ def benchmark(f, *args, trials=100):
     ts = (time1 - time0) / trials
 
     return r, ts
-
-import graphix
-
-import random
 
 def random_circuit_transpilation(n_qubits, n_gates):
 
@@ -52,9 +54,6 @@ def random_circuit_transpilation(n_qubits, n_gates):
     # Transpile circuit to measurement pattern
     return benchmark(transpile)
 
-import json
-from tqdm import tqdm
-
 results = {}
 
 platform = 'graphix'
@@ -62,7 +61,6 @@ n_list = [2, 5, 10, 20]
 
 l_list = [5, 10, 100]
 
-# 生成一个 n 量子比特的量子线路，深度为 l
 for n in tqdm(n_list):
     for l in tqdm(l_list):
         _, ts = random_circuit_transpilation(n, l)

@@ -1,4 +1,15 @@
+import json
 import time
+from functools import reduce
+
+import numpy as np
+import pennylane as qml
+import pennylane.numpy as pnp
+from tqdm import tqdm
+
+# Print version
+print(qml.__version__)
+
 def benchmark(f, *args, trials=1):
     # r = f(*args)
     time0 = time.time()
@@ -9,18 +20,6 @@ def benchmark(f, *args, trials=1):
     ts = (time1 - time0) / trials
 
     return r, ts
-
-import pennylane as qml
-# print version
-print(qml.__version__)
-
-import pennylane.numpy as pnp
-import pennylane as qml
-import numpy as np
-import json
-from functools import reduce
-from tqdm import tqdm
-
 
 def hessian_pennylane(n, l):
     dev = qml.device("default.qubit", wires=n)

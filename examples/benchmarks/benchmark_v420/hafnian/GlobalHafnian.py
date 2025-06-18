@@ -1,6 +1,6 @@
-import torch
-
 import json
+
+import torch
 from tqdm import tqdm
 
 n_list = [2, 6, 10, 14]

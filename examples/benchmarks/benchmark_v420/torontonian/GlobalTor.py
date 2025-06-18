@@ -1,21 +1,16 @@
+import numpy as np
 import torch
-
+from thewalrus.random import random_covariance
+from thewalrus.quantum.conversions import Amat, Xmat
 from tqdm import tqdm
 
 n_list = [2, 6, 10, 14, 18]
-
 number_of_sequence = 1000
-
 device = 'cpu'
-
-import numpy as np
-from thewalrus.random import random_covariance
-from thewalrus.quantum.conversions import Amat, Xmat
 
 np.random.seed(42)
 
 def generate_psd_matrix(n):
-
     cov = random_covariance(n)
     O = Xmat(n) @ Amat(cov)
     return O

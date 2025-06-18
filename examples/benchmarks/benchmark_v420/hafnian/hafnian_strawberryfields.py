@@ -1,16 +1,15 @@
-import strawberryfields as sf
-# print version
-print(sf.__version__)
-
-import time
 import json
-import numpy as np
+import time
 
+import numpy as np
+import strawberryfields as sf
 from thewalrus import hafnian
 from tqdm import tqdm
 
 from GlobalHafnian import *
 
+# Print version
+print(sf.__version__)
 
 def hafnian_sf(n, l):
     """Generate a random hafnian matrix and calculate its hafnian using DeepQuantum."""

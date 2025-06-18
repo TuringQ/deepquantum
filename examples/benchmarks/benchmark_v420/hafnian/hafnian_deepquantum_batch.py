@@ -1,15 +1,17 @@
+import os
 import time
 
 import deepquantum as dq
-# print version
-print(dq.__version__)
-
-import deepquantum as dq
 from deepquantum.photonic.hafnian_ import hafnian_batch
+from tqdm import tqdm
+
 from GlobalHafnian import *
 
-import os
+# Set CUDA device
 os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+
+# Print version
+print(dq.__version__)
 
 def hafnian_batch_dq(n, l): # n modes 的数量 ， l batchsize
     """Generate a random hafnian matrix and calculate its hafnian using DeepQuantum."""

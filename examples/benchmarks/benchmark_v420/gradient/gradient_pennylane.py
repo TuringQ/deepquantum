@@ -1,4 +1,15 @@
+import json
 import time
+from functools import reduce
+
+import numpy as np
+import pennylane as qml
+import pennylane.numpy as pnp
+from tqdm import tqdm
+
+# Print version
+print(qml.__version__)
+
 def benchmark(f, *args, trials=10):
     r = f(*args)
     time0 = time.time()
@@ -9,18 +20,6 @@ def benchmark(f, *args, trials=10):
     ts = (time1 - time0) / trials
 
     return r, ts
-
-import pennylane as qml
-# print version
-print(qml.__version__)
-
-import pennylane as qml
-import numpy as np
-import json
-from tqdm import tqdm
-from functools import reduce
-import pennylane.numpy as pnp  # 代替普通 numpy
-
 
 def grad_pennylane(n, l):
     dev = qml.device("default.qubit", wires=n)
@@ -47,11 +46,8 @@ def grad_pennylane(n, l):
 
 results = {}
 platform = 'pennylane'
-# n_list = [2, 4, 6, 8, 10]
-# n_list = [15, 20, 25, 30]
-# l_list = [5, 10, 15, 20, 25, 30]
-n_list = [2, 6, 10, 14, 18, 22]
 
+n_list = [2, 6, 10, 14, 18, 22]
 l_list = [1, 5, 10]
 
 for n in tqdm(n_list):

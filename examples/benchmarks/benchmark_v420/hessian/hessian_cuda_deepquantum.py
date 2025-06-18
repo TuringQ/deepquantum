@@ -1,4 +1,18 @@
+import json
+import os
 import time
+
+import deepquantum as dq
+import torch
+from torch.autograd.functional import hessian
+from tqdm import tqdm
+
+# Print version
+print(dq.__version__)
+
+# Set CUDA device
+os.environ["CUDA_VISIBLE_DEVICES"] = "5"
+
 def benchmark(f, *args, trials=1):
     # r = f(*args)
     time0 = time.time()
@@ -9,17 +23,6 @@ def benchmark(f, *args, trials=1):
     ts = (time1 - time0) / trials
 
     return r, ts
-
-import deepquantum as dq
-# print version
-print(dq.__version__)
-
-import torch
-from torch.autograd.functional import hessian
-import deepquantum as dq
-
-import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "5"
 
 def hessian_dq(n, l):
     def f(params):
@@ -40,14 +43,11 @@ def hessian_dq(n, l):
 
     return benchmark(get_hs_dq, torch.ones([3 * n * l], device='cuda'))
 
-import json
-from tqdm import tqdm
-
 results = {}
 
-platform = 'deepquantum_gpu_22'
-n_list = [22]
-# n_list = [2, 6, 10, 14, 18]
+platform = 'deepquantum_gpu'
+
+n_list = [2, 6, 10, 14, 18]
 l_list = [1, 5, 10]
 
 for n in tqdm(n_list):

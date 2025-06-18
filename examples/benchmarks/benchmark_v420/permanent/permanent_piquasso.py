@@ -1,16 +1,14 @@
-import time
-
-import piquasso
-# print version
-print(piquasso.__version__)
-
-import time
 import json
-import numpy as np
-import torch
+import time
 
+import numpy as np
+import piquasso
+import torch
 from piquasso._math.permanent import permanent
 from tqdm import tqdm
+
+# Print version
+print(piquasso.__version__)
 
 
 def _perm_pq(mat):
@@ -34,10 +32,6 @@ def perm_pq(n, l):
 
     return get_perm_pq(A)
 
-
-import json
-from tqdm import tqdm
-
 results = {}
 
 platform = 'piquasso'
@@ -45,8 +39,6 @@ platform = 'piquasso'
 l_list = [1, 10, 100]
 n_list = [2, 6, 10, 14, 18, 22, 26, 30]
 
-
-# 生成一个 n 量子比特的量子线路，深度为 l
 for n in tqdm(n_list):
     for l in tqdm(l_list):
         print(n,l)

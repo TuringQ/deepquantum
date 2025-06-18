@@ -1,17 +1,14 @@
-import time
-
-import strawberryfields as sf
-# print version
-print(sf.__version__)
-
-import time
 import json
-import numpy as np
-import torch
+import time
 
+import numpy as np
+import strawberryfields as sf
+import torch
 from thewalrus import tor
 from tqdm import tqdm
 
+# Print version
+print(sf.__version__)
 
 def torontonian_sf(n, l):
     A = torch.load(f"tor_matrix_{n}_{1000}.pt").numpy()
@@ -30,10 +27,6 @@ def torontonian_sf(n, l):
 
     return get_torontonian_dq(A)
 
-
-import json
-from tqdm import tqdm
-
 results = {}
 
 platform = 'strawberryfields'
@@ -41,7 +34,6 @@ platform = 'strawberryfields'
 n_list = [2, 6, 10, 14]
 l_list = [1, 10, 100, 1000]
 
-# 生成一个 n 量子比特的量子线路，深度为 l
 for n in tqdm(n_list):
     for l in tqdm(l_list):
         print(n,l)

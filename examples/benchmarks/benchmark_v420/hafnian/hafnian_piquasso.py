@@ -1,7 +1,7 @@
-import time
 import json
-import numpy as np
+import time
 
+import numpy as np
 from piquasso._math.hafnian import hafnian_with_reduction
 from tqdm import tqdm
 

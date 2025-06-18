@@ -1,14 +1,15 @@
+import json
 import time
 
 import deepquantum as dq
-# print version
+import torch
+from deepquantum.photonic.qmath import permanent
+from tqdm import tqdm
+
+# Print version
 print(dq.__version__)
 
-import torch
-import deepquantum as dq
-from deepquantum.photonic.qmath import permanent
-
-device='cpu'
+device = 'cpu'
 
 def permanent_dq(n, l):
     A = torch.load(f"u_matrix_{n}_{1000}.pt").to(device)
@@ -30,10 +31,6 @@ def permanent_dq(n, l):
 
     return get_perm_dq(A)
 
-
-import json
-from tqdm import tqdm
-
 results = {}
 
 platform = 'deepquantum'
@@ -41,7 +38,6 @@ platform = 'deepquantum'
 n_list = [2, 6, 10, 14, 18, 22]
 l_list = [1, 10, 100, 1000]
 
-# 生成一个 n 量子比特的量子线路，深度为 l
 for n in tqdm(n_list):
     for l in tqdm(l_list):
         print(n,l)
