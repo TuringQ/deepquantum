@@ -1,4 +1,3 @@
-import os
 import time
 
 import deepquantum as dq
@@ -6,9 +5,6 @@ from deepquantum.photonic.hafnian_ import hafnian_batch
 from tqdm import tqdm
 
 from GlobalHafnian import *
-
-# Set CUDA device
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 
 # Print version
 print(dq.__version__)

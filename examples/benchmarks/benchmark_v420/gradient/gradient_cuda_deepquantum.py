@@ -1,5 +1,4 @@
 import json
-import os
 import time
 
 import deepquantum as dq
@@ -8,9 +7,6 @@ from tqdm import tqdm
 
 # Print version
 print(dq.__version__)
-
-# Set CUDA device
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 def benchmark(f, *args, trials=10):
     r = f(*args)
