@@ -35,7 +35,6 @@ def hafnian_batch_dq(n, l): # n modes 的数量 ， l batchsize
 results = {}
 platform = 'deepquantum_gpu'
 
-# 生成一个 n 量子比特的量子线路，深度为 l
 for n in tqdm(n_list):
     for l in l_list:
         print('n =', n, 'l =', l)
