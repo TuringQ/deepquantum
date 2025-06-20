@@ -7,11 +7,11 @@ name = 'deepquantum'
 dynamic = ['version']
 dependencies = [
     'torch>=2.4.0',
-    'numpy<2',
+    'numpy',
     'matplotlib',
     'qiskit',
     'pylatexenc',
-    'scipy==1.13.1',
+    'scipy',
     'sympy',
     'svgwrite',
     'bayesian-optimization<2',
@@ -46,7 +46,11 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-dev = ['pytest', 'perceval-quandela', 'strawberryfields', 'thewalrus', 'graphix']
+dev = ['pytest',
+       'perceval-quandela',
+       'strawberryfields @ git+https://github.com/XanaduAI/strawberryfields.git@master',
+       'thewalrus @ git+https://github.com/XanaduAI/thewalrus.git@master',
+       'graphix']
 
 [project.urls]
 Homepage = 'https://deepquantum.turingq.com/'
