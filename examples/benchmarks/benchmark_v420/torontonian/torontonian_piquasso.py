@@ -13,7 +13,7 @@ print(piquasso.__version__)
 def torontonian_pq(n, l):
     A = torch.load(f"tor_matrix_{n}_{1000}.pt").numpy()
 
-    def get_torontonian_dq(matrix):
+    def get_torontonian_pq(matrix):
         trials = 10
         if l == 100 or l == 1000:
             trials = 1
@@ -25,7 +25,7 @@ def torontonian_pq(n, l):
         ts = (time1 - time0) / trials
         return ts
 
-    return get_torontonian_dq(A)
+    return get_torontonian_pq(A)
 
 results = {}
 
