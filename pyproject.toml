@@ -1,17 +1,17 @@
 [build-system]
-requires = ['setuptools >= 69.0', 'wheel']
+requires = ['setuptools >= 80.0', 'wheel']
 build-backend = 'setuptools.build_meta'
 
 [project]
 name = 'deepquantum'
 dynamic = ['version']
 dependencies = [
-    'torch>=2.0.0',
-    'numpy<2',
+    'torch>=2.4.0',
+    'numpy',
     'matplotlib',
     'qiskit',
     'pylatexenc',
-    'scipy==1.13.1',
+    'scipy',
     'sympy',
     'svgwrite',
     'bayesian-optimization<2',
@@ -19,7 +19,7 @@ dependencies = [
     'tqdm',
     'psutil'
 ]
-requires-python = '>=3.8'
+requires-python = '>=3.9'
 authors = [
     {name = 'TuringQ', email = 'Algorithms-Applications@turingq.com'},
     {name = 'Junjie He', email = 'hejunjie@turingq.com'},
@@ -37,16 +37,20 @@ classifiers = [
     'Intended Audience :: Developers',
     'Intended Audience :: Science/Research',
     'Programming Language :: Python :: 3',
-    'Programming Language :: Python :: 3.8',
     'Programming Language :: Python :: 3.9',
     'Programming Language :: Python :: 3.10',
     'Programming Language :: Python :: 3.11',
+    'Programming Language :: Python :: 3.12',
     'License :: OSI Approved :: Apache Software License',
     'Operating System :: OS Independent'
 ]
 
 [project.optional-dependencies]
-dev = ['pytest', 'perceval-quandela', 'strawberryfields', 'thewalrus']
+dev = ['pytest',
+       'perceval-quandela',
+       'strawberryfields @ git+https://github.com/XanaduAI/strawberryfields.git@master',
+       'thewalrus @ git+https://github.com/XanaduAI/thewalrus.git@master',
+       'graphix']
 
 [project.urls]
 Homepage = 'https://deepquantum.turingq.com/'

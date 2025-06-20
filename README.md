@@ -36,9 +36,9 @@ If the latest version of PyTorch is not compatible with your CUDA version, manua
 
 The PyTorch installation instructions currently recommend:
 1. Install [Miniconda](https://docs.anaconda.com/miniconda/) or [Anaconda](https://www.anaconda.com/download).
-2. Setup conda environment. For example, run `conda create -n <ENV_NAME> python=3.10` and `conda activate <ENV_NAME>`.
+2. Setup conda environment. For example, run `conda create -n <ENV_NAME> python=3.12` and `conda activate <ENV_NAME>`.
 3. Install PyTorch following the [PyTorch installation instructions](https://pytorch.org/get-started/locally/).
-Currently, this suggests running `conda install pytorch -c pytorch`.
+Currently, this suggests running `pip install torch`.
 
 If you want to customize your installation, please follow the [PyTorch installation instructions](https://pytorch.org/get-started/locally/) to build from source.
 
@@ -186,14 +186,17 @@ backend = 'gloo' # for CPU
 # torchrun --nproc_per_node=4 main.py
 backend = 'nccl' # for GPU
 rank, world_size, local_rank = dq.setup_distributed(backend)
-data = torch.arange(4, dtype=torch.float, requires_grad=True)
+if backend == 'nccl':
+    device = f'cuda:{local_rank}'
+elif backend == 'gloo':
+    device = 'cpu'
+data = torch.arange(4, dtype=torch.float, device=device, requires_grad=True)
 cir = dq.DistributedQubitCircuit(4)
 cir.rylayer(encode=True)
 cir.cnot_ring()
 cir.observable(0)
 cir.observable(1, 'x')
 if backend == 'nccl':
-    data = data.to(f'cuda:{local_rank}')
     cir.to(f'cuda:{local_rank}')
 state = cir(data).amps
 result = cir.measure(with_prob=True)
