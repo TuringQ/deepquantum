@@ -25,18 +25,22 @@ class SubGraphState(nn.Module):
             could be ``'plus'``, ``'minus'``, ``'zero'``, and ``'one'``. Default: ``'plus'``
         edges (List or None, optional): Additional edges connecting the nodes in the subgraph state. Default: ``None``
         nodes (int, List[int] or None, optional): Additional nodes to include in the subgraph state. Default: ``None``
+        device (torch.device, optional): The device to create the state on. Default: ``None``
+        dtype (torch.dtype, optional): The data type for the state. Default: ``None``
     """
     def __init__(
         self,
         nodes_state: Union[int, List[int], None] = None,
         state: Any = 'plus',
         edges: Optional[List] = None,
-        nodes: Union[int, List[int], None] = None # primarily, for the single-node case
+        nodes: Union[int, List[int], None] = None, # primarily, for the single-node case
+        device: Optional[torch.device] = None,
+        dtype: Optional[torch.dtype] = None
     ) -> None:
         super().__init__()
         self.nodes_out_seq = None
         self.set_graph(nodes_state, edges, nodes)
-        self.set_state(state)
+        self.set_state(state, device=device, dtype=dtype)
         self.measure_dict = defaultdict(list) # record the measurement results: {node: batched_bit}
 
     @property
@@ -96,26 +100,30 @@ class SubGraphState(nn.Module):
         self.nodes_state = nodes_state
         self.update_node2wire_dict()
 
-    def set_state(self, state: Any = 'plus') -> None:
+    def set_state(self, state: Any = 'plus', device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None) -> None:
         """Set the input state of the subgraph state."""
         nqubit = len(self.nodes_state)
+        if dtype is None:
+            dtype = torch.cfloat
         if isinstance(state, str):
             if state == 'plus':
-                state = torch.tensor([1, 1]) / 2 ** 0.5 + 0j
+                state = torch.tensor([1, 1], device=device, dtype=dtype) / 2 ** 0.5
             elif state == 'minus':
-                state = torch.tensor([1, -1]) / 2 ** 0.5 + 0j
+                state = torch.tensor([1, -1], device=device, dtype=dtype) / 2 ** 0.5
             elif state == 'zero':
-                state = torch.tensor([1, 0]) + 0j
+                state = torch.tensor([1, 0], device=device, dtype=dtype)
             elif state == 'one':
-                state = torch.tensor([0, 1]) + 0j
+                state = torch.tensor([0, 1], device=device, dtype=dtype)
             if nqubit > 0:
                 state = multi_kron([state] * nqubit)
         elif not isinstance(state, torch.Tensor):
-            state = torch.tensor(state, dtype=torch.cfloat)
+            state = torch.tensor(state, dtype=dtype, device=device)
+        else:
+            state = state.to(device=device, dtype=dtype)
         if nqubit > 0:
             self.register_buffer('state', QubitState(nqubit, state).state)
         else:
-            self.register_buffer('state', torch.tensor(1))
+            self.register_buffer('state', torch.tensor(1, device=device, dtype=dtype))
 
     def set_nodes_out_seq(self, nodes: Optional[List[int]] = None) -> None:
         """Set the output sequence of the nodes."""
@@ -161,8 +169,6 @@ class SubGraphState(nn.Module):
         for i in other.nodes_state:
             assert i not in self.nodes_state, 'Do NOT use repeated nodes for states'
         nodes_state = self.nodes_state + other.nodes_state
-        if self.state.device != other.state.device:
-            other.state = other.state.to(self.state.device)
         if self.state.ndim == other.state.ndim == 3:
             if self.state.shape[0] == 1 or other.state.shape[0] == 1:
                 state = torch.kron(self.state, other.state)
@@ -170,7 +176,8 @@ class SubGraphState(nn.Module):
                 state = vmap(torch.kron)(self.state, other.state)
         else:
             state = torch.kron(self.state, other.state)
-        sgs = SubGraphState(nodes_state, state, graph.edges(data=True), graph.nodes)
+        sgs = SubGraphState(nodes_state, state, graph.edges(data=True), graph.nodes,
+                            self.state.device, self.state.dtype)
         sgs.measure_dict = defaultdict(list)
         sgs.measure_dict.update(self.measure_dict)
         sgs.measure_dict.update(other.measure_dict)
@@ -224,6 +231,17 @@ class GraphState(nn.Module):
             sgs = SubGraphState(nodes_state, state, edges, nodes)
             self.subgraphs = nn.ModuleList([sgs])
         self.nodes_out_seq = None
+        self._device: Optional[torch.device] = None
+        self._dtype: Optional[torch.dtype] = None
+
+    def to(self, arg: Any) -> 'GraphState':
+        """Set dtype or device of the ``GraphState``."""
+        super().to(arg)
+        if isinstance(arg, torch.dtype):
+            self._dtype = arg
+        else:
+            self._device = arg
+        return self
 
     def add_subgraph(
         self,
@@ -248,7 +266,8 @@ class GraphState(nn.Module):
             measure_dict (Dict or None, optional): A dictionary containing all measurement results. Default: ``None``
             index (int or None, optional): The index where to insert the subgraph state. Default: ``None``
         """
-        sgs = SubGraphState(nodes_state, state, edges, nodes)
+        # Create the new subgraph on the same device and dtype as the parent GraphState
+        sgs = SubGraphState(nodes_state, state, edges, nodes, device=self._device, dtype=self._dtype)
         if measure_dict is not None:
             sgs.measure_dict = measure_dict
         if index is None:
@@ -266,7 +285,7 @@ class GraphState(nn.Module):
             else:
                 graph = graph.compose(subgraph, relabel=True)
         if graph is None:
-            return SubGraphState()
+            return SubGraphState(device=self._device, dtype=self._dtype)
         else:
             graph.set_nodes_out_seq(self.nodes_out_seq)
             return graph

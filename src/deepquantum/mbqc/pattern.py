@@ -55,6 +55,12 @@ class Pattern(Operation):
         self.ndata = 0
         self.nodes_out_seq = None
 
+    def to(self, arg: Any) -> 'Pattern':
+        """Set dtype or device of the ``Pattern``."""
+        super().to(arg)
+        self.init_state.to(arg)
+        return self
+
     def forward(self, data: Optional[torch.Tensor] = None, state: Optional[GraphState] = None) -> GraphState:
         """Perform a forward pass of the MBQC pattern and return the final graph state.
 
