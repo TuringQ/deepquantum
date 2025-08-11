@@ -1,9 +1,7 @@
 import deepquantum as dq
-import pytest
 import torch
 import numpy as np
-import sys
-import sys
+
 
 def test_fock():
     nmode = np.random.randint(2, 11)
