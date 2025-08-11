@@ -12,7 +12,7 @@ from matplotlib import patches
 from torch import nn
 
 from .channel import PhotonLoss
-from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate, Squeezing, Squeezing2, Displacement
+from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate, Squeezing, Squeezing2, Displacement, Barrier
 from .gate import QuadraticPhase, ControlledX, ControlledZ, CubicPhase, Kerr, CrossKerr
 from .measurement import Homodyne
 from .operation import Delay
@@ -47,7 +47,9 @@ class DrawCircuit():
         circuit_nmode: int,
         circuit_operators: nn.Sequential,
         measurements: nn.ModuleList,
-        nstep: Optional[int] = None
+        nstep: Optional[int] = None,
+        ops_per_step: Optional[int] = None,
+        meas_per_step: Optional[int] = None
     ) -> None:
         if circuit_name is None:
             circuit_name = 'circuit'
@@ -60,6 +62,8 @@ class DrawCircuit():
         self.ops = circuit_operators
         self.mea = measurements
         self.nstep = nstep
+        self.ops_per_step = ops_per_step
+        self.meas_per_step = meas_per_step
 
     def draw(self):
         """Draw circuit"""
@@ -70,17 +74,20 @@ class DrawCircuit():
 
     def draw_nstep(self):
         """Draw unroll circuit with given step."""
-        assert len(self.ops) % self.nstep == 0
-        assert len(self.mea) % self.nstep == 0
-        k1 = len(self.ops) // self.nstep
-        k2 = len(self.mea) // self.nstep
+        k1 = self.ops_per_step
+        k2 = self.meas_per_step
         depth = [0] * self.nmode
         for i in range(self.nstep):
             ops = self.ops[k1 * i: k1 * (i + 1)]
             meas = self.mea[k2 * i: k2 * (i + 1)]
             self.draw_normal(depth=depth, ops=ops, measurements=meas)
             depth = [max(self.depth)] * self.nmode
-            self.barrier(order=depth[0])
+            self.barrier(order=depth[0], wires=range(self.nmode), cl='blue')
+        rest_ops = self.ops[self.nstep * k1:]
+        rest_meas = self.mea[self.nstep * k2:]
+        self.draw_normal(depth=depth, ops=rest_ops, measurements=rest_meas)
+        depth = [max(self.depth)] * self.nmode
+
 
     def draw_normal(self, depth=None, ops=None, measurements=None):
         """Draw normal circuit."""
@@ -163,6 +170,9 @@ class DrawCircuit():
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = depth[i]+1
+            elif isinstance(op, Barrier):
+                wires = op.wires
+                self.barrier(order=int(max(np.array(depth)[wires])), wires=wires)
             elif isinstance(op, (QuadraticPhase, ControlledX, ControlledZ, CubicPhase, Kerr, CrossKerr)):
                 if isinstance(op, (QuadraticPhase, CubicPhase, Kerr)):
                     order = depth[op.wires[0]]
@@ -405,12 +415,14 @@ class DrawCircuit():
         for k in wires:
             self.draw_.add(self.draw_.polyline(points=[(x, k*30+30),(x+90, k*30+30)],
                                                fill='none', stroke='black', stroke_width=2))
-    def barrier(self, order):
+    def barrier(self, order, wires, cl='black'):
         x = 90 * order + 40
         y_min = 15
         y_max = self.nmode * 30 + 25
-        self.draw_.add(self.draw_.polyline(points=[(x, y_min),(x, y_max)],
-                                           fill='none', stroke_dasharray='5,5', stroke='black', stroke_width=2))
+        y_up = wires[0] * (y_max-y_min)/self.nmode + y_min
+        y_down = (1 + wires[-1]) * (y_max-y_min)/self.nmode + y_min
+        self.draw_.add(self.draw_.polyline(points=[(x, y_up),(x, y_down)],
+                                           fill='none', stroke_dasharray='5,5', stroke=cl, stroke_width=2))
 
 
 class DrawClements():

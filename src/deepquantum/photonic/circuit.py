@@ -22,7 +22,7 @@ from .distributed import measure_dist
 from .draw import DrawCircuit
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
 from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum
-from .gate import QuadraticPhase, ControlledX, ControlledZ, CubicPhase, Kerr, CrossKerr, DelayBS, DelayMZI
+from .gate import QuadraticPhase, ControlledX, ControlledZ, CubicPhase, Kerr, CrossKerr, DelayBS, DelayMZI, Barrier
 from .hafnian_ import hafnian
 from .measurement import Homodyne
 from .operation import Operation, Gate, Channel, Delay
@@ -714,6 +714,8 @@ class QumodeCircuit(Operation):
                 else:
                     op_m_tdm.wires = [self._nmode_tdm + self.nmode * (i - 1) + wire for wire in op_m.wires]
                 cir.add(op_m_tdm)
+            cir.ops_per_step = len(cir.operators) // nstep
+            cir.meas_per_step = len(cir.measurements) // nstep
         return cir
 
     def _shift_state(self, state: List[torch.Tensor], nstep: int = 1, reverse: bool = False) -> List[torch.Tensor]:
@@ -762,6 +764,8 @@ class QumodeCircuit(Operation):
             operators = self.operators
         nloss = 0
         for op in operators:
+            if isinstance(op, Barrier):
+                continue
             if isinstance(op, PhotonLoss):
                 nloss += 1
                 op.gate.wires = [op.wires[0], op.nmode + nloss - 1]
@@ -791,10 +795,13 @@ class QumodeCircuit(Operation):
             operators = self.operators
             nmode = self.nmode
         for op in operators:
-            if s is None:
-                s = op.get_symplectic()
+            if isinstance(op, Barrier):
+                continue
             else:
-                s = op.get_symplectic() @ s
+                if s is None:
+                    s = op.get_symplectic()
+                else:
+                    s = op.get_symplectic() @ s
         if s is None:
             return torch.eye(2 * nmode, dtype=torch.float)
         return s
@@ -822,7 +829,10 @@ class QumodeCircuit(Operation):
                     mean = mean.unsqueeze(-1)
             assert mean.ndim == 4
         for op in operators:
-            mean = op.get_symplectic().to(mean.dtype) @ mean + op.get_displacement()
+            if isinstance(op, Barrier):
+                continue
+            else:
+                mean = op.get_symplectic().to(mean.dtype) @ mean + op.get_displacement()
         return mean
 
     def _get_all_fock_basis(self, init_state: torch.Tensor) -> torch.Tensor:
@@ -1690,7 +1700,11 @@ class QumodeCircuit(Operation):
             nmode = self.nmode
             operators = self.operators
             measurements = self.measurements
-        self.draw_circuit = DrawCircuit(self.name, nmode, operators, measurements, self._draw_nstep)
+        if self._draw_nstep is not None:
+            self.draw_circuit = DrawCircuit(self.name, nmode, operators, measurements,
+                                            self._draw_nstep, self.ops_per_step, self.meas_per_step)
+        else:
+            self.draw_circuit = DrawCircuit(self.name, nmode, operators, measurements)
         self.draw_circuit.draw()
         if filename is not None:
             self.draw_circuit.save(filename)
@@ -2475,6 +2489,10 @@ class QumodeCircuit(Operation):
                           requires_grad=requires_grad)
         self.add(loss, encode=encode)
 
+    def barrier(self, wires: Union[int, List[int], None] = None) -> None:
+        """Add a barrier."""
+        br = Barrier(nmode=self.nmode, wires=wires, cutoff=self.cutoff)
+        self.add(br)
 
 class DistributedQumodeCircuit(QumodeCircuit):
     """Photonic quantum circuit for a distributed Fock state.
