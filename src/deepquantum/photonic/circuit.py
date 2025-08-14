@@ -714,8 +714,7 @@ class QumodeCircuit(Operation):
                 else:
                     op_m_tdm.wires = [self._nmode_tdm + self.nmode * (i - 1) + wire for wire in op_m.wires]
                 cir.add(op_m_tdm)
-            cir.ops_per_step = len(cir.operators) // nstep
-            cir.meas_per_step = len(cir.measurements) // nstep
+            cir.add(Barrier(nmode=nmode, wires=list(range(nmode)), cutoff=self.cutoff))
         return cir
 
     def _shift_state(self, state: List[torch.Tensor], nstep: int = 1, reverse: bool = False) -> List[torch.Tensor]:
@@ -1700,11 +1699,7 @@ class QumodeCircuit(Operation):
             nmode = self.nmode
             operators = self.operators
             measurements = self.measurements
-        if self._draw_nstep is not None:
-            self.draw_circuit = DrawCircuit(self.name, nmode, operators, measurements,
-                                            self._draw_nstep, self.ops_per_step, self.meas_per_step)
-        else:
-            self.draw_circuit = DrawCircuit(self.name, nmode, operators, measurements)
+        self.draw_circuit = DrawCircuit(self.name, nmode, operators, measurements)
         self.draw_circuit.draw()
         if filename is not None:
             self.draw_circuit.save(filename)

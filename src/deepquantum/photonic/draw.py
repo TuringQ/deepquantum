@@ -47,9 +47,7 @@ class DrawCircuit():
         circuit_nmode: int,
         circuit_operators: nn.Sequential,
         measurements: nn.ModuleList,
-        nstep: Optional[int] = None,
-        ops_per_step: Optional[int] = None,
-        meas_per_step: Optional[int] = None
+        nstep: Optional[int] = None
     ) -> None:
         if circuit_name is None:
             circuit_name = 'circuit'
@@ -62,35 +60,9 @@ class DrawCircuit():
         self.ops = circuit_operators
         self.mea = measurements
         self.nstep = nstep
-        self.ops_per_step = ops_per_step
-        self.meas_per_step = meas_per_step
 
-    def draw(self):
-        """Draw circuit"""
-        if self.nstep is None:
-            self.draw_normal()
-        else:
-            self.draw_nstep()
-
-    def draw_nstep(self):
-        """Draw unroll circuit with given step."""
-        k1 = self.ops_per_step
-        k2 = self.meas_per_step
-        depth = [0] * self.nmode
-        for i in range(self.nstep):
-            ops = self.ops[k1 * i: k1 * (i + 1)]
-            meas = self.mea[k2 * i: k2 * (i + 1)]
-            self.draw_normal(depth=depth, ops=ops, measurements=meas)
-            depth = [max(self.depth)] * self.nmode
-            self.barrier(order=depth[0], wires=range(self.nmode), cl='blue')
-        rest_ops = self.ops[self.nstep * k1:]
-        rest_meas = self.mea[self.nstep * k2:]
-        self.draw_normal(depth=depth, ops=rest_ops, measurements=rest_meas)
-        depth = [max(self.depth)] * self.nmode
-
-
-    def draw_normal(self, depth=None, ops=None, measurements=None):
-        """Draw normal circuit."""
+    def draw(self, depth=None, ops=None, measurements=None):
+        """Draw circuit."""
         order_dic = defaultdict(list) # 当key不存在时对应的value是[]
         nmode = self.nmode
         if depth is None:
@@ -172,7 +144,10 @@ class DrawCircuit():
                     depth[i] = depth[i]+1
             elif isinstance(op, Barrier):
                 wires = op.wires
-                self.barrier(order=int(max(np.array(depth)[wires])), wires=wires)
+                order = int(max(np.array(depth)[wires]))
+                self.barrier(order=order, wires=wires)
+                for i in wires:
+                    depth[i] = order
             elif isinstance(op, (QuadraticPhase, ControlledX, ControlledZ, CubicPhase, Kerr, CrossKerr)):
                 if isinstance(op, (QuadraticPhase, CubicPhase, Kerr)):
                     order = depth[op.wires[0]]
