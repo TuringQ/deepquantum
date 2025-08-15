@@ -26,7 +26,7 @@ from .decompose import UnitaryDecomposer
 from .draw import DrawClements
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
 from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum
-from .gate import QuadraticPhase, ControlledX, ControlledZ, CubicPhase, Kerr, CrossKerr, DelayBS, DelayMZI
+from .gate import QuadraticPhase, ControlledX, ControlledZ, CubicPhase, Kerr, CrossKerr, DelayBS, DelayMZI, Barrier
 from .hafnian_ import hafnian
 from .mapper import UnitaryMapper
 from .measurement import Generaldyne, Homodyne, GeneralBosonic, PhotonNumberResolvingBosonic

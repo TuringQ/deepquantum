@@ -2432,3 +2432,29 @@ class DelayMZI(Delay):
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, ntau={self.ntau}, theta={self.theta.item()}, phi={self.phi.item()}'
+
+class Barrier(Gate):
+    """Barrier.
+
+    Args:
+        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+            Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+    """
+    def __init__(
+        self,
+        nmode: int = 1,
+        wires: Union[int, List[int], None] = None,
+        cutoff: Optional[int] = None
+    ) -> None:
+        if wires is None:
+            wires = list(range(nmode))
+        super().__init__(name='Barrier', nmode=nmode, wires=wires, cutoff=cutoff)
+
+    def forward(self, x: Any) -> Any:
+        """Perform a forward pass."""
+        return x
+
+    def extra_repr(self) -> str:
+        return f'wires={self.wires}'

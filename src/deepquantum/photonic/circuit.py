@@ -22,7 +22,7 @@ from .distributed import measure_dist
 from .draw import DrawCircuit
 from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
 from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum
-from .gate import QuadraticPhase, ControlledX, ControlledZ, CubicPhase, Kerr, CrossKerr, DelayBS, DelayMZI
+from .gate import QuadraticPhase, ControlledX, ControlledZ, CubicPhase, Kerr, CrossKerr, DelayBS, DelayMZI, Barrier
 from .hafnian_ import hafnian
 from .measurement import Homodyne
 from .operation import Operation, Gate, Channel, Delay
@@ -109,7 +109,6 @@ class QumodeCircuit(Operation):
         self._operators_tdm = None
         self._measurements_tdm = None
         self.wires_homodyne = []
-        self._draw_nstep = None
 
     def set_init_state(self, init_state: Any) -> None:
         """Set the initial state of the circuit."""
@@ -659,7 +658,6 @@ class QumodeCircuit(Operation):
         cir = QumodeCircuit(nmode, init_state='vac', cutoff=self.cutoff, backend=self.backend, basis=self.basis,
                             den_mat=self.den_mat, detector=self.detector, name=self.name, mps=self.mps, chi=self.chi,
                             noise=self.noise, mu=self.mu, sigma=self.sigma)
-        cir._draw_nstep = nstep
         for i in range(nstep):
             ndelay = np.array([0] * self.nmode) # counter of delay loops for each mode
             for op in self.operators:
@@ -714,6 +712,7 @@ class QumodeCircuit(Operation):
                 else:
                     op_m_tdm.wires = [self._nmode_tdm + self.nmode * (i - 1) + wire for wire in op_m.wires]
                 cir.add(op_m_tdm)
+            cir.barrier()
         return cir
 
     def _shift_state(self, state: List[torch.Tensor], nstep: int = 1, reverse: bool = False) -> List[torch.Tensor]:
@@ -762,6 +761,8 @@ class QumodeCircuit(Operation):
             operators = self.operators
         nloss = 0
         for op in operators:
+            if isinstance(op, Barrier):
+                continue
             if isinstance(op, PhotonLoss):
                 nloss += 1
                 op.gate.wires = [op.wires[0], op.nmode + nloss - 1]
@@ -791,6 +792,8 @@ class QumodeCircuit(Operation):
             operators = self.operators
             nmode = self.nmode
         for op in operators:
+            if isinstance(op, Barrier):
+                continue
             if s is None:
                 s = op.get_symplectic()
             else:
@@ -822,6 +825,8 @@ class QumodeCircuit(Operation):
                     mean = mean.unsqueeze(-1)
             assert mean.ndim == 4
         for op in operators:
+            if isinstance(op, Barrier):
+                continue
             mean = op.get_symplectic().to(mean.dtype) @ mean + op.get_displacement()
         return mean
 
@@ -1690,7 +1695,7 @@ class QumodeCircuit(Operation):
             nmode = self.nmode
             operators = self.operators
             measurements = self.measurements
-        self.draw_circuit = DrawCircuit(self.name, nmode, operators, measurements, self._draw_nstep)
+        self.draw_circuit = DrawCircuit(self.name, nmode, operators, measurements)
         self.draw_circuit.draw()
         if filename is not None:
             self.draw_circuit.save(filename)
@@ -1783,7 +1788,6 @@ class QumodeCircuit(Operation):
             self._operators_tdm = None
             self._measurements_tdm = None
             self.wires_homodyne = op.wires_homodyne
-            self._draw_nstep = None
         elif isinstance(op, (Gate, Channel, Delay)):
             self.operators.append(op)
             for i in op.wires:
@@ -2475,6 +2479,10 @@ class QumodeCircuit(Operation):
                           requires_grad=requires_grad)
         self.add(loss, encode=encode)
 
+    def barrier(self, wires: Union[int, List[int], None] = None) -> None:
+        """Add a barrier."""
+        br = Barrier(nmode=self.nmode, wires=wires, cutoff=self.cutoff)
+        self.add(br)
 
 class DistributedQumodeCircuit(QumodeCircuit):
     """Photonic quantum circuit for a distributed Fock state.
