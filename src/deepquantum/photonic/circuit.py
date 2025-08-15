@@ -714,7 +714,7 @@ class QumodeCircuit(Operation):
                 else:
                     op_m_tdm.wires = [self._nmode_tdm + self.nmode * (i - 1) + wire for wire in op_m.wires]
                 cir.add(op_m_tdm)
-            cir.add(Barrier(nmode=nmode, wires=list(range(nmode)), cutoff=self.cutoff))
+            cir.barrier()
         return cir
 
     def _shift_state(self, state: List[torch.Tensor], nstep: int = 1, reverse: bool = False) -> List[torch.Tensor]:
@@ -796,11 +796,10 @@ class QumodeCircuit(Operation):
         for op in operators:
             if isinstance(op, Barrier):
                 continue
+            if s is None:
+                s = op.get_symplectic()
             else:
-                if s is None:
-                    s = op.get_symplectic()
-                else:
-                    s = op.get_symplectic() @ s
+                s = op.get_symplectic() @ s
         if s is None:
             return torch.eye(2 * nmode, dtype=torch.float)
         return s
@@ -830,8 +829,7 @@ class QumodeCircuit(Operation):
         for op in operators:
             if isinstance(op, Barrier):
                 continue
-            else:
-                mean = op.get_symplectic().to(mean.dtype) @ mean + op.get_displacement()
+            mean = op.get_symplectic().to(mean.dtype) @ mean + op.get_displacement()
         return mean
 
     def _get_all_fock_basis(self, init_state: torch.Tensor) -> torch.Tensor:
