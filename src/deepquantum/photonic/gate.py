@@ -2435,10 +2435,12 @@ class DelayMZI(Delay):
 
 class Barrier(Gate):
     """Barrier.
+
     Args:
         nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the mode that the quantum operation acts on.
+        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
             Default: ``None``
+        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
     """
     def __init__(
         self,
