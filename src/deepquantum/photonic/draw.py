@@ -12,8 +12,8 @@ from matplotlib import patches
 from torch import nn
 
 from .channel import PhotonLoss
-from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate, Squeezing, Squeezing2, Displacement, Barrier
-from .gate import QuadraticPhase, ControlledX, ControlledZ, CubicPhase, Kerr, CrossKerr
+from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate, Squeezing, Squeezing2, Displacement
+from .gate import QuadraticPhase, ControlledX, ControlledZ, CubicPhase, Kerr, CrossKerr, Barrier
 from .measurement import Homodyne
 from .operation import Delay
 
@@ -39,15 +39,13 @@ class DrawCircuit():
         circuit_nmode (int): The number of modes in the circuit.
         circuit_operators (nn.Sequential): The operators of the circuit.
         measurements (nn.ModuleList): The measurements of the circuit.
-        nstep (int or None, optional): The number of time steps for the TDM circuit. Default: ``None``
     """
     def __init__(
         self,
         circuit_name: str,
         circuit_nmode: int,
         circuit_operators: nn.Sequential,
-        measurements: nn.ModuleList,
-        nstep: Optional[int] = None
+        measurements: nn.ModuleList
     ) -> None:
         if circuit_name is None:
             circuit_name = 'circuit'
@@ -59,7 +57,6 @@ class DrawCircuit():
         self.name = name
         self.ops = circuit_operators
         self.mea = measurements
-        self.nstep = nstep
 
     def draw(self, depth=None, ops=None, measurements=None):
         """Draw circuit."""
