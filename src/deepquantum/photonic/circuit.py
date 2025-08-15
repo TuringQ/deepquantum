@@ -109,7 +109,6 @@ class QumodeCircuit(Operation):
         self._operators_tdm = None
         self._measurements_tdm = None
         self.wires_homodyne = []
-        self._draw_nstep = None
 
     def set_init_state(self, init_state: Any) -> None:
         """Set the initial state of the circuit."""
@@ -659,7 +658,6 @@ class QumodeCircuit(Operation):
         cir = QumodeCircuit(nmode, init_state='vac', cutoff=self.cutoff, backend=self.backend, basis=self.basis,
                             den_mat=self.den_mat, detector=self.detector, name=self.name, mps=self.mps, chi=self.chi,
                             noise=self.noise, mu=self.mu, sigma=self.sigma)
-        cir._draw_nstep = nstep
         for i in range(nstep):
             ndelay = np.array([0] * self.nmode) # counter of delay loops for each mode
             for op in self.operators:
@@ -1790,7 +1788,6 @@ class QumodeCircuit(Operation):
             self._operators_tdm = None
             self._measurements_tdm = None
             self.wires_homodyne = op.wires_homodyne
-            self._draw_nstep = None
         elif isinstance(op, (Gate, Channel, Delay)):
             self.operators.append(op)
             for i in op.wires:
