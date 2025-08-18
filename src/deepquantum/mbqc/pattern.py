@@ -58,7 +58,12 @@ class Pattern(Operation):
     def to(self, arg: Any) -> 'Pattern':
         """Set dtype or device of the ``Pattern``."""
         super().to(arg)
-        self.init_state.to(arg)
+        if arg == torch.float:
+            self.init_state.to(torch.cfloat)
+        elif arg == torch.double:
+            self.init_state.to(torch.cdouble)
+        else:
+            self.init_state.to(arg)
         return self
 
     def forward(self, data: Optional[torch.Tensor] = None, state: Optional[GraphState] = None) -> GraphState:

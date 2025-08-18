@@ -112,6 +112,8 @@ class Measurement(Command):
             inputs = torch.rand(1)[0] * 2 * torch.pi
         elif not isinstance(inputs, torch.Tensor):
             inputs = torch.tensor(inputs, dtype=torch.float)
+        if inputs.ndim == 0:
+            inputs = inputs.unsqueeze(0)
         return inputs
 
     def forward(self, x: GraphState) -> GraphState:
@@ -154,7 +156,7 @@ class Measurement(Command):
             # M^{YZ,α} X^s Z^t = M^{YZ,(-1)^t·α+(s+t)π)}
         cir = QubitCircuit(nqubit=nqubit)
         cir.j(wires=wire, plane=self.plane, encode=True)
-        final_state = cir(data=alpha.to(self.angle.dtype), state=init_state.squeeze(0))
+        final_state = cir(data=alpha, state=init_state.squeeze(0))
         rst = cir.measure(shots=1, wires=wire)
         state = []
         if isinstance(rst, list):
