@@ -43,6 +43,16 @@ class SubGraphState(nn.Module):
         self.set_state(state, device=device, dtype=dtype)
         self.measure_dict = defaultdict(list) # record the measurement results: {node: batched_bit}
 
+    def to(self, arg: Any) -> 'GraphState':
+        """Set dtype or device of the ``GraphState``."""
+        if arg == torch.float:
+            self.state = self.state.to(torch.cfloat)
+        elif arg == torch.double:
+            self.state = self.state.to(torch.cdouble)
+        else:
+            self.state = self.state.to(arg)
+        return self
+
     @property
     def nodes(self, **kwargs):
         """Nodes of the graph."""
@@ -225,24 +235,15 @@ class GraphState(nn.Module):
         nodes: Union[int, List[int], None] = None
     ) -> None:
         super().__init__()
-        if nodes_state is None and edges is None and nodes is None:
-            self.subgraphs = nn.ModuleList()
-        else:
-            sgs = SubGraphState(nodes_state, state, edges, nodes)
-            self.subgraphs = nn.ModuleList([sgs])
+        sgs = SubGraphState(nodes_state, state, edges, nodes)
+        self.subgraphs = nn.ModuleList([sgs])
         self.nodes_out_seq = None
-        self._device: Optional[torch.device] = None
-        self._dtype: Optional[torch.dtype] = None
 
     def to(self, arg: Any) -> 'GraphState':
         """Set dtype or device of the ``GraphState``."""
         super().to(arg)
-        if arg == torch.float:
-            self._dtype = torch.cfloat
-        elif arg == torch.double:
-            self._dtype = torch.cdouble
-        else:
-            self._device = arg
+        for sgs in self.subgraphs:
+            sgs.to(arg)
         return self
 
     def add_subgraph(
@@ -269,7 +270,11 @@ class GraphState(nn.Module):
             index (int or None, optional): The index where to insert the subgraph state. Default: ``None``
         """
         # Create the new subgraph on the same device and dtype as the parent GraphState
-        sgs = SubGraphState(nodes_state, state, edges, nodes, device=self._device, dtype=self._dtype)
+        if index is None:
+            sgs = SubGraphState(nodes_state, state, edges, nodes,
+                                device=self.subgraphs[0].state.device, dtype=self.subgraphs[0].state.dtype)
+        else:
+            sgs = SubGraphState(nodes_state, state, edges, nodes, device=state.device, dtype=state.dtype)
         if measure_dict is not None:
             sgs.measure_dict = measure_dict
         if index is None:
