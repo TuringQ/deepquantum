@@ -241,7 +241,6 @@ class GraphState(nn.Module):
 
     def to(self, arg: Any) -> 'GraphState':
         """Set dtype or device of the ``GraphState``."""
-        super().to(arg)
         for sgs in self.subgraphs:
             sgs.to(arg)
         return self

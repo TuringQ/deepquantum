@@ -57,7 +57,9 @@ class Pattern(Operation):
 
     def to(self, arg: Any) -> 'Pattern':
         """Set dtype or device of the ``Pattern``."""
-        super().to(arg)
+        for op in self.commands:
+            if isinstance(op, Measurement):
+                op.angle = op.angle.to(arg)
         self.init_state.to(arg)
         return self
 
