@@ -237,8 +237,10 @@ class GraphState(nn.Module):
     def to(self, arg: Any) -> 'GraphState':
         """Set dtype or device of the ``GraphState``."""
         super().to(arg)
-        if isinstance(arg, torch.dtype):
-            self._dtype = arg
+        if arg == torch.float:
+            self._dtype = torch.cfloat
+        elif arg == torch.double:
+            self._dtype = torch.cdouble
         else:
             self._device = arg
         return self
