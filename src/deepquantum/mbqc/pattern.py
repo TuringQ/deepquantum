@@ -59,7 +59,7 @@ class Pattern(Operation):
         """Set dtype or device of the ``Pattern``."""
         for op in self.commands:
             if isinstance(op, Measurement):
-                op.angle = op.angle.to(arg)
+                op.to(arg)
         self.init_state.to(arg)
         return self
 

@@ -112,8 +112,6 @@ class Measurement(Command):
             inputs = torch.rand(1)[0] * 2 * torch.pi
         elif not isinstance(inputs, torch.Tensor):
             inputs = torch.tensor(inputs, dtype=torch.float)
-        if inputs.ndim == 0:
-            inputs = inputs.unsqueeze(0)
         return inputs
 
     def forward(self, x: GraphState) -> GraphState:
@@ -132,26 +130,30 @@ class Measurement(Command):
         if init_state.ndim == 2:
             init_state = init_state.unsqueeze(0)
         wire = sgs.node2wire_dict[self.nodes[0]]
+        if self.angle.ndim == 0:
+            angle = self.angle.unsqueeze(0)
+        else:
+            angle = self.angle
         if len(self.s_domain) != 0:
-            qs = sum(map(lambda s: torch.tensor(sgs.measure_dict[s], device=self.angle.device), self.s_domain))
+            qs = sum(map(lambda s: torch.tensor(sgs.measure_dict[s], device=angle.device), self.s_domain))
             qs = qs.reshape(-1, 1)
         else:
-            qs = torch.zeros(init_state.shape[0], device=self.angle.device).reshape(-1, 1)
+            qs = torch.zeros(init_state.shape[0], device=angle.device).reshape(-1, 1)
         if len(self.t_domain) != 0:
-            qt = sum(map(lambda t: torch.tensor(sgs.measure_dict[t], device=self.angle.device), self.t_domain))
+            qt = sum(map(lambda t: torch.tensor(sgs.measure_dict[t], device=angle.device), self.t_domain))
             qt = qt.reshape(-1, 1)
         else:
-            qt = torch.zeros(init_state.shape[0], device=self.angle.device).reshape(-1, 1)
+            qt = torch.zeros(init_state.shape[0], device=angle.device).reshape(-1, 1)
         if self.plane in ['xy', 'yx']:
-            alpha = (-1)**qs * self.angle + torch.pi * qt
+            alpha = (-1)**qs * angle + torch.pi * qt
             # M^{XY,α} X^s Z^t = M^{XY,(-1)^s·α+tπ}
         elif self.plane in ['zx', 'xz']:
-            alpha = (-1)**(qs + qt) * self.angle + torch.pi * qs
+            alpha = (-1)**(qs + qt) * angle + torch.pi * qs
             # M^{XZ,α} X^s Z^t = M^{XZ,(-1)^t((-1)^s·α+sπ)}
             #                  = M^{XZ,(-1)^{s+t}·α+(-1)^t·sπ}
             #                  = M^{XZ,(-1)^{s+t}·α+sπ}  (since (-1)^t·π ≡ π (mod 2π))
         elif self.plane in ['yz', 'zy']:
-            alpha = (-1)**qt * self.angle + torch.pi * (qs + qt)
+            alpha = (-1)**qt * angle + torch.pi * (qs + qt)
             # positive Y axis as 0 angle
             # M^{YZ,α} X^s Z^t = M^{YZ,(-1)^t·α+(s+t)π)}
         cir = QubitCircuit(nqubit=nqubit)
