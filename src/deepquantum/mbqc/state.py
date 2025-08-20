@@ -25,8 +25,6 @@ class SubGraphState(nn.Module):
             could be ``'plus'``, ``'minus'``, ``'zero'``, and ``'one'``. Default: ``'plus'``
         edges (List or None, optional): Additional edges connecting the nodes in the subgraph state. Default: ``None``
         nodes (int, List[int] or None, optional): Additional nodes to include in the subgraph state. Default: ``None``
-        device (torch.device, optional): The device to create the state on. Default: ``None``
-        dtype (torch.dtype, optional): The data type for the state. Default: ``None``
     """
     def __init__(
         self,
@@ -113,9 +111,9 @@ class SubGraphState(nn.Module):
         nqubit = len(self.nodes_state)
         if isinstance(state, str):
             if state == 'plus':
-                state = torch.tensor([1, 1]) + 0j / 2 ** 0.5
+                state = torch.tensor([1, 1]) / 2 ** 0.5 + 0j
             elif state == 'minus':
-                state = torch.tensor([1, -1]) + 0j / 2 ** 0.5
+                state = torch.tensor([1, -1]) / 2 ** 0.5 + 0j
             elif state == 'zero':
                 state = torch.tensor([1, 0]) + 0j
             elif state == 'one':
@@ -261,7 +259,6 @@ class GraphState(nn.Module):
             measure_dict (Dict or None, optional): A dictionary containing all measurement results. Default: ``None``
             index (int or None, optional): The index where to insert the subgraph state. Default: ``None``
         """
-        # Create the new subgraph on the same device and dtype as the parent GraphState
         sgs = SubGraphState(nodes_state, state, edges, nodes)
         if index is None:
             dtype = self.subgraphs[0].state.real.dtype
