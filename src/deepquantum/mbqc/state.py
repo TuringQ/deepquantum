@@ -39,6 +39,16 @@ class SubGraphState(nn.Module):
         self.set_state(state)
         self.measure_dict = defaultdict(list) # record the measurement results: {node: batched_bit}
 
+    def to(self, arg: Any) -> 'SubGraphState':
+        """Set dtype or device of the ``SubGraphState``."""
+        if arg == torch.float:
+            self.state = self.state.to(torch.cfloat)
+        elif arg == torch.double:
+            self.state = self.state.to(torch.cdouble)
+        else:
+            self.state = self.state.to(arg)
+        return self
+
     @property
     def nodes(self, **kwargs):
         """Nodes of the graph."""
@@ -115,7 +125,7 @@ class SubGraphState(nn.Module):
         if nqubit > 0:
             self.register_buffer('state', QubitState(nqubit, state).state)
         else:
-            self.register_buffer('state', torch.tensor(1))
+            self.register_buffer('state', torch.tensor(1, dtype=state.dtype, device=state.device))
 
     def set_nodes_out_seq(self, nodes: Optional[List[int]] = None) -> None:
         """Set the output sequence of the nodes."""
@@ -216,12 +226,15 @@ class GraphState(nn.Module):
         nodes: Union[int, List[int], None] = None
     ) -> None:
         super().__init__()
-        if nodes_state is None and edges is None and nodes is None:
-            self.subgraphs = nn.ModuleList()
-        else:
-            sgs = SubGraphState(nodes_state, state, edges, nodes)
-            self.subgraphs = nn.ModuleList([sgs])
+        sgs = SubGraphState(nodes_state, state, edges, nodes)
+        self.subgraphs = nn.ModuleList([sgs])
         self.nodes_out_seq = None
+
+    def to(self, arg: Any) -> 'GraphState':
+        """Set dtype or device of the ``GraphState``."""
+        for sgs in self.subgraphs:
+            sgs.to(arg)
+        return self
 
     def add_subgraph(
         self,
@@ -247,6 +260,10 @@ class GraphState(nn.Module):
             index (int or None, optional): The index where to insert the subgraph state. Default: ``None``
         """
         sgs = SubGraphState(nodes_state, state, edges, nodes)
+        if index is None:
+            dtype = self.subgraphs[0].state.real.dtype
+            device = self.subgraphs[0].state.device
+            sgs.to(dtype).to(device)
         if measure_dict is not None:
             sgs.measure_dict = measure_dict
         if index is None:
@@ -263,11 +280,8 @@ class GraphState(nn.Module):
                 graph = subgraph
             else:
                 graph = graph.compose(subgraph, relabel=True)
-        if graph is None:
-            return SubGraphState()
-        else:
-            graph.set_nodes_out_seq(self.nodes_out_seq)
-            return graph
+        graph.set_nodes_out_seq(self.nodes_out_seq)
+        return graph
 
     @property
     def full_state(self) -> torch.Tensor:
