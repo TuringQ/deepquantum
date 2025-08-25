@@ -2779,11 +2779,12 @@ class Barrier(Gate):
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
+        name (str, optional): The name of the gate. Default: ``'Barrier'``
     """
-    def __init__(self, nqubit: int = 1, wires: Union[int, List[int], None] = None) -> None:
+    def __init__(self, nqubit: int = 1, wires: Union[int, List[int], None] = None, name: str = 'Barrier') -> None:
         if wires is None:
             wires = list(range(nqubit))
-        super().__init__(name='Barrier', nqubit=nqubit, wires=wires)
+        super().__init__(name=name, nqubit=nqubit, wires=wires)
         self.nancilla = 0
 
     def forward(self, x: Any) -> Any:
@@ -2801,3 +2802,14 @@ class Barrier(Gate):
         assert len(ancilla) == self.nancilla
         self.nodes = nodes
         return nn.Sequential()
+
+
+class WireCut(Barrier):
+    """Wire Cut.
+
+    Args:
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int or List[int], optional): The indices of the qubits that the quantum operation acts on. Default: 0
+    """
+    def __init__(self, nqubit: int = 1, wires: Union[int, List[int]] = 0) -> None:
+        super().__init__(name='WireCut', nqubit=nqubit, wires=wires)
