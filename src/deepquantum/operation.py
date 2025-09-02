@@ -317,12 +317,12 @@ class Gate(Operation):
         else:
             name = 'c' * len(self.controls) + name
         # warnings.warn(f'{name} is an empty gate and should be only used to draw circuit.')
-        qasm_lst1 = [f'gate {name} ']
+        qasm_lst1 = [f'opaque {name} ']
         qasm_lst2 = [f'{name} ']
         for i, wire in enumerate(self.controls + self.wires):
             qasm_lst1.append(f'q{i},')
             qasm_lst2.append(f'q[{wire}],')
-        qasm_str1 = ''.join(qasm_lst1)[:-1] + ' { }\n'
+        qasm_str1 = ''.join(qasm_lst1)[:-1] + ';\n'
         qasm_str2 = ''.join(qasm_lst2)[:-1] + ';\n'
         if name not in Gate._qasm_new_gate:
             Gate._qasm_new_gate.append(name)
@@ -608,12 +608,12 @@ class Channel(Operation):
         """Get QASM for channels."""
         name = name.lower()
         # warnings.warn(f'{name} is an empty gate and should be only used to draw circuit.')
-        qasm_lst1 = [f'gate {name} ']
+        qasm_lst1 = [f'opaque {name} ']
         qasm_lst2 = [f'{name} ']
         for i, wire in enumerate(self.wires):
             qasm_lst1.append(f'q{i},')
             qasm_lst2.append(f'q[{wire}],')
-        qasm_str1 = ''.join(qasm_lst1)[:-1] + ' { }\n'
+        qasm_str1 = ''.join(qasm_lst1)[:-1] + ';\n'
         qasm_str2 = ''.join(qasm_lst2)[:-1] + ';\n'
         if name not in Channel._qasm_new_gate:
             Channel._qasm_new_gate.append(name)

@@ -11,7 +11,7 @@ from torch.autograd.functional import jacobian
 
 from .distributed import dist_one_targ_gate, dist_many_ctrl_one_targ_gate, dist_swap_gate
 from .operation import Gate
-from .qmath import multi_kron, is_unitary, svd
+from .qmath import multi_kron, is_unitary, evolve_state, svd
 from .state import DistributedQubitState
 
 class SingleGate(Gate):
@@ -1642,12 +1642,12 @@ class ProjectionJ(ParametricSingleGate):
     def _qasm(self) -> str:
         if self.condition:
             name = 'j'
-            qasm_lst1 = [f'gate {name} ']
+            qasm_lst1 = [f'opaque {name} ']
             qasm_lst2 = [f'{name} ']
             for i, wire in enumerate(self.wires):
                 qasm_lst1.append(f'q{i},')
                 qasm_lst2.append(f'q[{wire}],')
-            qasm_str1 = ''.join(qasm_lst1)[:-1] + ' { }\n'
+            qasm_str1 = ''.join(qasm_lst1)[:-1] + ';\n'
             qasm_str2 = ''.join(qasm_lst2)[:-1] + ';\n'
             # pylint: disable=protected-access
             if name not in Gate._qasm_new_gate:
@@ -2156,12 +2156,12 @@ class Rxy(ParametricDoubleGate):
     def _qasm(self) -> str:
         if self.condition:
             name = 'rxy'
-            qasm_lst1 = [f'gate {name} ']
+            qasm_lst1 = [f'opaque {name} ']
             qasm_lst2 = [f'{name} ']
             for i, wire in enumerate(self.wires):
                 qasm_lst1.append(f'q{i},')
                 qasm_lst2.append(f'q[{wire}],')
-            qasm_str1 = ''.join(qasm_lst1)[:-1] + ' { }\n'
+            qasm_str1 = ''.join(qasm_lst1)[:-1] + ';\n'
             qasm_str2 = ''.join(qasm_lst2)[:-1] + ';\n'
             # pylint: disable=protected-access
             if name not in Gate._qasm_new_gate:
@@ -2239,12 +2239,12 @@ class ReconfigurableBeamSplitter(ParametricDoubleGate):
     def _qasm(self) -> str:
         if self.condition:
             name = 'rbs'
-            qasm_lst1 = [f'gate {name} ']
+            qasm_lst1 = [f'opaque {name} ']
             qasm_lst2 = [f'{name} ']
             for i, wire in enumerate(self.wires):
                 qasm_lst1.append(f'q{i},')
                 qasm_lst2.append(f'q[{wire}],')
-            qasm_str1 = ''.join(qasm_lst1)[:-1] + ' { }\n'
+            qasm_str1 = ''.join(qasm_lst1)[:-1] + ';\n'
             qasm_str2 = ''.join(qasm_lst2)[:-1] + ';\n'
             # pylint: disable=protected-access
             if name not in Gate._qasm_new_gate:
@@ -2770,6 +2770,59 @@ class HamiltonianGate(ArbitraryGate):
         else:
             self.register_buffer('t', t)
         self.update_matrix()
+
+
+class Reset(Gate):
+    r"""Reset.
+
+    Args:
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
+            Default: ``False``
+    """
+    def __init__(self, nqubit: int = 1, wires: Union[int, List[int], None] = None, tsr_mode: bool = False) -> None:
+        if wires is None:
+            wires = list(range(nqubit))
+        super().__init__(name='Reset', nqubit=nqubit, wires=wires, tsr_mode=tsr_mode)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if len(self.wires) == self.nqubit:
+            shape = x.shape
+            x = torch.zeros_like(self.vector_rep(x))
+            x[:, 0] = 1
+            return x.reshape(shape)
+        if not self.tsr_mode:
+            x = self.tensor_rep(x)
+        wires = sorted(self.wires)
+        idx_sum = list(range(1, self.nqubit + 1))
+        for i in wires:
+            idx_sum.remove(i + 1)
+        probs = (x.abs() ** 2).sum(idx_sum)
+        out = []
+        for i, prob in enumerate(probs):
+            prob = prob.reshape(-1)
+            sample = torch.multinomial(prob, 1)[0]
+            proj = torch.zeros_like(prob)
+            proj[sample] = 1 / prob[sample] ** 0.5
+            reset = torch.ones_like(prob).diag_embed()
+            reset[0, 0] = 0
+            reset[sample, sample] = 0
+            reset[0, sample] = 1
+            mat = reset @ proj.diag_embed() + 0j
+            out.append(evolve_state(x[i:i+1], mat, self.nqubit, wires))
+        out = torch.cat(out)
+        if not self.tsr_mode:
+            out = self.vector_rep(out).squeeze(0)
+        return out
+
+    def _qasm(self) -> str:
+        qasm_lst = []
+        for wire in self.wires:
+            qasm_lst.append(f'reset q[{wire}];\n')
+        return ''.join(qasm_lst)
 
 
 class Barrier(Gate):

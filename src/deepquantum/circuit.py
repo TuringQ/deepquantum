@@ -19,7 +19,7 @@ from .distributed import measure_dist
 from .gate import ParametricSingleGate
 from .gate import U3Gate, PhaseShift, PauliX, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, TGate, TDaggerGate
 from .gate import Rx, Ry, Rz, ProjectionJ, CNOT, Swap, Rxx, Ryy, Rzz, Rxy, ReconfigurableBeamSplitter, Toffoli, Fredkin
-from .gate import CombinedSingleGate, UAnyGate, LatentGate, HamiltonianGate, Barrier
+from .gate import CombinedSingleGate, UAnyGate, LatentGate, HamiltonianGate, Reset, Barrier, WireCut
 from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer, RyLayer, RzLayer, CnotLayer, CnotRing
 from .operation import Operation, Gate, Layer, Channel
 from .qmath import amplitude_encoding, measure, expectation, sample_sc_mcmc, sample2expval
@@ -171,15 +171,15 @@ class QubitCircuit(Operation):
             if self.mps:
                 assert state[0].ndim in (3, 4)
                 if state[0].ndim == 3:
-                    self.state = vmap(self._forward_helper, in_dims=(0, None))(data, state)
+                    self.state = vmap(self._forward_helper, in_dims=(0, None), randomness='different')(data, state)
                 elif state[0].ndim == 4:
-                    self.state = vmap(self._forward_helper)(data, state)
+                    self.state = vmap(self._forward_helper, randomness='different')(data, state)
             else:
                 assert state.ndim in (2, 3)
                 if state.ndim == 2:
-                    self.state = vmap(self._forward_helper, in_dims=(0, None))(data, state)
+                    self.state = vmap(self._forward_helper, in_dims=(0, None), randomness='different')(data, state)
                 elif state.ndim == 3:
-                    self.state = vmap(self._forward_helper)(data, state)
+                    self.state = vmap(self._forward_helper, randomness='different')(data, state)
             self.encode(data[-1])
         return self.state
 
@@ -246,7 +246,7 @@ class QubitCircuit(Operation):
         for op in self.encoders:
             op.init_para()
 
-    def reset(self, init_state: Any = 'zeros') -> None:
+    def reset_circuit(self, init_state: Any = 'zeros') -> None:
         """Reset the ``QubitCircuit`` according to ``init_state``."""
         self.set_init_state(init_state)
         self.operators = nn.Sequential()
@@ -1299,6 +1299,11 @@ class QubitCircuit(Operation):
             requires_grad = False
         gad = GeneralizedAmplitudeDamping(inputs=inputs, nqubit=self.nqubit, wires=wires, requires_grad=requires_grad)
         self.add(gad, encode=encode)
+
+    def reset(self, wires: Union[int, List[int], None] = None) -> None:
+        """Add a reset operation."""
+        rs = Reset(nqubit=self.nqubit, wires=wires)
+        self.add(rs)
 
     def barrier(self, wires: Union[int, List[int], None] = None) -> None:
         """Add a barrier."""
