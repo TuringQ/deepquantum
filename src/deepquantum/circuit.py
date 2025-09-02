@@ -171,15 +171,15 @@ class QubitCircuit(Operation):
             if self.mps:
                 assert state[0].ndim in (3, 4)
                 if state[0].ndim == 3:
-                    self.state = vmap(self._forward_helper, in_dims=(0, None), randomness='different')(data, state)
+                    self.state = vmap(self._forward_helper, in_dims=(0, None))(data, state)
                 elif state[0].ndim == 4:
-                    self.state = vmap(self._forward_helper, randomness='different')(data, state)
+                    self.state = vmap(self._forward_helper)(data, state)
             else:
                 assert state.ndim in (2, 3)
                 if state.ndim == 2:
-                    self.state = vmap(self._forward_helper, in_dims=(0, None), randomness='different')(data, state)
+                    self.state = vmap(self._forward_helper, in_dims=(0, None))(data, state)
                 elif state.ndim == 3:
-                    self.state = vmap(self._forward_helper, randomness='different')(data, state)
+                    self.state = vmap(self._forward_helper)(data, state)
             self.encode(data[-1])
         return self.state
 
@@ -1302,6 +1302,7 @@ class QubitCircuit(Operation):
 
     def reset(self, wires: Union[int, List[int], None] = None) -> None:
         """Add a reset operation."""
+        assert not self.den_mat and not self.mps, 'Currently NOT supported'
         rs = Reset(nqubit=self.nqubit, wires=wires)
         self.add(rs)
 

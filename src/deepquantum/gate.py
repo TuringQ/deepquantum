@@ -11,7 +11,7 @@ from torch.autograd.functional import jacobian
 
 from .distributed import dist_one_targ_gate, dist_many_ctrl_one_targ_gate, dist_swap_gate
 from .operation import Gate
-from .qmath import multi_kron, is_unitary, evolve_state, svd
+from .qmath import multi_kron, is_unitary, inverse_permutation, svd
 from .state import DistributedQubitState
 
 class SingleGate(Gate):
@@ -2788,35 +2788,32 @@ class Reset(Gate):
             wires = list(range(nqubit))
         super().__init__(name='Reset', nqubit=nqubit, wires=wires, tsr_mode=tsr_mode)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def to(self, arg: Any) -> 'Reset':
+        """Set dtype or device of the ``Reset``."""
+        return self
+
+    def op_state(self, x: torch.Tensor) -> torch.Tensor:
+        """Perform a forward pass for state vectors."""
         if len(self.wires) == self.nqubit:
-            shape = x.shape
             x = torch.zeros_like(self.vector_rep(x))
             x[:, 0] = 1
-            return x.reshape(shape)
-        if not self.tsr_mode:
             x = self.tensor_rep(x)
-        wires = sorted(self.wires)
-        idx_sum = list(range(1, self.nqubit + 1))
-        for i in wires:
-            idx_sum.remove(i + 1)
-        probs = (x.abs() ** 2).sum(idx_sum)
-        out = []
-        for i, prob in enumerate(probs):
-            prob = prob.reshape(-1)
-            sample = torch.multinomial(prob, 1)[0]
-            proj = torch.zeros_like(prob)
-            proj[sample] = 1 / prob[sample] ** 0.5
-            reset = torch.ones_like(prob).diag_embed()
-            reset[0, 0] = 0
-            reset[sample, sample] = 0
-            reset[0, sample] = 1
-            mat = reset @ proj.diag_embed() + 0j
-            out.append(evolve_state(x[i:i+1], mat, self.nqubit, wires))
-        out = torch.cat(out)
+        else:
+            for wire in self.wires:
+                pm_shape = list(range(1, self.nqubit + 1))
+                pm_shape.remove(wire + 1)
+                pm_shape = [wire + 1] + pm_shape + [0]
+                x = x.permute(pm_shape) # (2, ..., 2, batch)
+                probs = (x.abs() ** 2).sum(list(range(1, self.nqubit))) # (2, batch)
+                mask = 1 - torch.sign(probs[0]) # (batch)
+                norm = torch.sqrt(probs[0] + mask)
+                state0 = ((1 - mask) * x[0] + mask * x[1]) / norm
+                state1 = torch.zeros_like(state0)
+                x = torch.stack([state0, state1])
+                x = x.permute(inverse_permutation(pm_shape))
         if not self.tsr_mode:
-            out = self.vector_rep(out).squeeze(0)
-        return out
+            x = self.vector_rep(x).squeeze(0)
+        return x
 
     def _qasm(self) -> str:
         qasm_lst = []
@@ -2839,6 +2836,10 @@ class Barrier(Gate):
             wires = list(range(nqubit))
         super().__init__(name=name, nqubit=nqubit, wires=wires)
         self.nancilla = 0
+
+    def to(self, arg: Any) -> 'Barrier':
+        """Set dtype or device of the ``Barrier``."""
+        return self
 
     def forward(self, x: Any) -> Any:
         """Perform a forward pass."""
