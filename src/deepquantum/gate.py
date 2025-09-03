@@ -11,7 +11,7 @@ from torch.autograd.functional import jacobian
 
 from .distributed import dist_one_targ_gate, dist_many_ctrl_one_targ_gate, dist_swap_gate
 from .operation import Gate
-from .qmath import multi_kron, is_unitary, inverse_permutation, svd
+from .qmath import multi_kron, is_unitary, inverse_permutation, evolve_state, svd
 from .state import DistributedQubitState
 
 class SingleGate(Gate):
@@ -2779,14 +2779,23 @@ class Reset(Gate):
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
+        postselect (int or None, optional): The postselected value. Default: 0 (``None`` means no postselection,
+            which is not compatible with vmap)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
-    def __init__(self, nqubit: int = 1, wires: Union[int, List[int], None] = None, tsr_mode: bool = False) -> None:
+    def __init__(
+        self,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        postselect: Optional[int] = 0,
+        tsr_mode: bool = False
+    ) -> None:
         if wires is None:
             wires = list(range(nqubit))
         super().__init__(name='Reset', nqubit=nqubit, wires=wires, tsr_mode=tsr_mode)
+        self.postselect = postselect
 
     def to(self, arg: Any) -> 'Reset':
         """Set dtype or device of the ``Reset``."""
@@ -2799,18 +2808,38 @@ class Reset(Gate):
             x[:, 0] = 1
             x = self.tensor_rep(x)
         else:
-            for wire in self.wires:
-                pm_shape = list(range(1, self.nqubit + 1))
-                pm_shape.remove(wire + 1)
-                pm_shape = [wire + 1] + pm_shape + [0]
-                x = x.permute(pm_shape) # (2, ..., 2, batch)
-                probs = (x.abs() ** 2).sum(list(range(1, self.nqubit))) # (2, batch)
-                mask = 1 - torch.sign(probs[0]) # (batch)
-                norm = torch.sqrt(probs[0] + mask)
-                state0 = ((1 - mask) * x[0] + mask * x[1]) / norm
-                state1 = torch.zeros_like(state0)
-                x = torch.stack([state0, state1])
-                x = x.permute(inverse_permutation(pm_shape))
+            if self.postselect in (0, 1): # compatible with vmap
+                for wire in self.wires:
+                    pm_shape = list(range(1, self.nqubit + 1))
+                    pm_shape.remove(wire + 1)
+                    pm_shape = [wire + 1] + pm_shape + [0]
+                    x = x.permute(pm_shape) # (2, ..., 2, batch)
+                    probs = (x.abs() ** 2).sum(list(range(1, self.nqubit))) # (2, batch)
+                    mask = 1 - torch.sign(probs[self.postselect]) # (batch)
+                    norm = torch.sqrt(probs[self.postselect] + mask)
+                    state0 = ((1 - mask) * x[self.postselect] + mask * x[1 - self.postselect]) / norm
+                    state1 = torch.zeros_like(state0)
+                    x = torch.stack([state0, state1])
+                    x = x.permute(inverse_permutation(pm_shape))
+            elif self.postselect is None: # NOT compatible with vmap
+                wires = sorted(self.wires)
+                idx_sum = list(range(1, self.nqubit + 1))
+                for i in wires:
+                    idx_sum.remove(i + 1)
+                probs = (x.abs() ** 2).sum(idx_sum)
+                out = []
+                for i, prob in enumerate(probs):
+                    prob = prob.reshape(-1)
+                    sample = torch.multinomial(prob, 1)[0]
+                    proj = torch.zeros_like(prob)
+                    proj[sample] = 1 / prob[sample] ** 0.5
+                    reset = torch.ones_like(prob).diag_embed()
+                    reset[0, 0] = 0
+                    reset[sample, sample] = 0
+                    reset[0, sample] = 1
+                    mat = reset @ proj.diag_embed() + 0j
+                    out.append(evolve_state(x[i:i+1], mat, self.nqubit, wires))
+                x = torch.cat(out)
         if not self.tsr_mode:
             x = self.vector_rep(x).squeeze(0)
         return x

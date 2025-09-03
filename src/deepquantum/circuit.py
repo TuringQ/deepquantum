@@ -1300,10 +1300,10 @@ class QubitCircuit(Operation):
         gad = GeneralizedAmplitudeDamping(inputs=inputs, nqubit=self.nqubit, wires=wires, requires_grad=requires_grad)
         self.add(gad, encode=encode)
 
-    def reset(self, wires: Union[int, List[int], None] = None) -> None:
+    def reset(self, wires: Union[int, List[int], None] = None, postselect: Optional[int] = 0) -> None:
         """Add a reset operation."""
         assert not self.den_mat and not self.mps, 'Currently NOT supported'
-        rs = Reset(nqubit=self.nqubit, wires=wires)
+        rs = Reset(nqubit=self.nqubit, wires=wires, postselect=postselect)
         self.add(rs)
 
     def barrier(self, wires: Union[int, List[int], None] = None) -> None:
