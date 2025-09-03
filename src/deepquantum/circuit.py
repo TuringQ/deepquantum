@@ -19,7 +19,7 @@ from .distributed import measure_dist
 from .gate import ParametricSingleGate
 from .gate import U3Gate, PhaseShift, PauliX, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, TGate, TDaggerGate
 from .gate import Rx, Ry, Rz, ProjectionJ, CNOT, Swap, Rxx, Ryy, Rzz, Rxy, ReconfigurableBeamSplitter, Toffoli, Fredkin
-from .gate import CombinedSingleGate, UAnyGate, LatentGate, HamiltonianGate, Reset, Barrier, WireCut
+from .gate import CombinedSingleGate, UAnyGate, LatentGate, HamiltonianGate, Reset, Barrier, WireCut, Move
 from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer, RyLayer, RzLayer, CnotLayer, CnotRing
 from .operation import Operation, Gate, Layer, Channel
 from .qmath import amplitude_encoding, measure, expectation, sample_sc_mcmc, sample2expval
@@ -1310,6 +1310,16 @@ class QubitCircuit(Operation):
         """Add a barrier."""
         br = Barrier(nqubit=self.nqubit, wires=wires)
         self.add(br)
+
+    def cut(self, wires: Union[int, List[int]]) -> None:
+        """Add a wire-cut operation."""
+        wc = WireCut(nqubit=self.nqubit, wires=wires)
+        self.add(wc)
+
+    def move(self, wire1: int, wire2: int, postselect: Optional[int] = 0) -> None:
+        """Add a move operation."""
+        mv = Move(nqubit=self.nqubit, wires=[wire1, wire2], postselect=postselect)
+        self.add(mv)
 
 
 class DistributedQubitCircuit(QubitCircuit):

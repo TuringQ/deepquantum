@@ -588,13 +588,17 @@ class Channel(Operation):
 
     def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass for density matrices."""
-        nt = len(self.wires)
-        matrix = self.update_matrix().reshape(-1, 2 ** nt, 2 ** nt)
-        x = vmap(evolve_den_mat, in_dims=(None, 0, None, None))(x, matrix, self.nqubit, self.wires)
-        return x.sum(0)
+        matrix = self.update_matrix()
+        x = vmap(evolve_den_mat, in_dims=(None, 0, None, None))(x, matrix, self.nqubit, self.wires).sum(0)
+        if not self.tsr_mode:
+            x = self.matrix_rep(x).squeeze(0)
+        return x
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass."""
+        if not self.tsr_mode:
+            x = self.tensor_rep(x)
+        assert x.ndim == 2 * self.nqubit + 1
         return self.op_den_mat(x)
 
     def extra_repr(self) -> str:

@@ -2896,3 +2896,47 @@ class WireCut(Barrier):
     """
     def __init__(self, nqubit: int = 1, wires: Union[int, List[int]] = 0) -> None:
         super().__init__(name='WireCut', nqubit=nqubit, wires=wires)
+
+
+class Move(DoubleGate):
+    """Move, a two-qubit operation representing a reset of the second qubit followed by a swap.
+
+    Args:
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        postselect (int or None, optional): The postselected value. Default: 0 (``None`` means no postselection,
+            which is not compatible with vmap)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
+            Default: ``False``
+    """
+    def __init__(
+        self,
+        nqubit: int = 2,
+        wires: Optional[List[int]] = None,
+        postselect: Optional[int] = 0,
+        tsr_mode: bool = False
+    ) -> None:
+        super().__init__(name='Move', nqubit=nqubit, wires=wires, tsr_mode=tsr_mode)
+        reset = Reset(nqubit=nqubit, wires=self.wires[1], postselect=postselect, tsr_mode=True)
+        swap = Swap(nqubit=nqubit, wires=self.wires, tsr_mode=True)
+        self.gates = nn.Sequential(reset, swap)
+
+    def to(self, arg: Any) -> 'Move':
+        """Set dtype or device of the ``Move``."""
+        for gate in self.gates:
+            gate.to(arg)
+        return self
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Perform a forward pass."""
+        if not self.tsr_mode:
+            x = self.tensor_rep(x)
+        x = self.gates(x)
+        if not self.tsr_mode:
+            return self.vector_rep(x).squeeze(0)
+        return x
+
+    def _qasm(self) -> str:
+        return self._qasm_customized(self.name)
