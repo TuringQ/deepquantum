@@ -4,6 +4,7 @@ Quantum gates
 
 from copy import copy
 from typing import Any, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING
 
 import torch
 from torch import nn
@@ -13,6 +14,10 @@ from .distributed import dist_one_targ_gate, dist_many_ctrl_one_targ_gate, dist_
 from .operation import Gate
 from .qmath import multi_kron, is_unitary, inverse_permutation, evolve_state, svd
 from .state import DistributedQubitState
+
+if TYPE_CHECKING:
+    from .qpd import MoveQPD
+
 
 class SingleGate(Gate):
     r"""A base class for single-qubit gates.
@@ -2899,7 +2904,7 @@ class WireCut(Barrier):
 
 
 class Move(DoubleGate):
-    """Move, a two-qubit operation representing a reset of the second qubit followed by a swap.
+    r"""Move, a two-qubit operation representing a reset of the second qubit followed by a swap.
 
     Args:
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
@@ -2940,3 +2945,7 @@ class Move(DoubleGate):
 
     def _qasm(self) -> str:
         return self._qasm_customized(self.name)
+
+    def qpd(self) -> 'MoveQPD':
+        from .qpd import MoveQPD
+        return MoveQPD(nqubit=self.nqubit, wires=self.wires, tsr_mode=self.tsr_mode)

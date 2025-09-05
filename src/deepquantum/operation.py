@@ -22,7 +22,7 @@ class Operation(nn.Module):
     Args:
         name (str or None, optional): The name of the quantum operation. Default: ``None``
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (int, List or None, optional): The indices of the qubits that the quantum operation acts on.
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
@@ -33,7 +33,7 @@ class Operation(nn.Module):
         self,
         name: Optional[str] = None,
         nqubit: int = 1,
-        wires: Union[int, List, None] = None,
+        wires: Union[int, List[int], None] = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -411,7 +411,7 @@ class Layer(Operation):
     Args:
         name (str, optional): The name of the layer. Default: ``None``
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (int, List or None, optional): The indices of the qubits that the quantum operation acts on.
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
@@ -422,7 +422,7 @@ class Layer(Operation):
         self,
         name: Optional[str] = None,
         nqubit: int = 1,
-        wires: Union[int, List, None] = None,
+        wires: Union[int, List[int], None] = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -484,7 +484,7 @@ class Layer(Operation):
         return x
 
     def inverse(self) -> 'Layer':
-        """Get the inversed gate."""
+        """Get the inversed layer."""
         return self
 
     def _convert_indices(self, indices: Union[int, List]) -> List[List[int]]:
@@ -627,3 +627,88 @@ class Channel(Operation):
 
     def _qasm(self) -> str:
         return self._qasm_customized(self.name)
+
+
+class GateQPD(Operation):
+    r"""A base class for quasiprobability decomposition gates.
+
+    Args:
+        bases (List[Tuple[nn.Sequential, ...]]): A list of tuples describing the operations probabilistically used to
+            simulate an ideal quantum operation.
+        coeffs (List[float]): The coefficients for quasiprobability representation.
+        name (str or None, optional): The name of the quantum operation. Default: ``None``
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+    """
+    def __init__(
+        self,
+        bases: List[Tuple[nn.Sequential, ...]],
+        coeffs: List[float],
+        name: Optional[str] = None,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
+        self.nqubit = nqubit
+        if wires is None:
+            wires = [0]
+        wires = self._convert_indices(wires)
+        super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
+        self.bases = bases
+        self.coeffs = coeffs
+        self.idx = 0
+
+    def to(self, arg: Any) -> 'GateQPD':
+        """Set dtype or device of the ``GateQPD``."""
+        for basis in self.bases:
+            for ops in basis:
+                for op in ops:
+                    op.to(arg)
+        return self
+
+    def forward(self, x: torch.Tensor, idx: Optional[int] = None) -> torch.Tensor:
+        """Perform a forward pass.
+
+        Args:
+            x (torch.Tensor): The input tensor.
+            idx (int, optional): The index of the operation to be applied. Default: 0
+        """
+        if idx is not None:
+            self.idx = idx
+        if not self.tsr_mode:
+            x = self.tensor_rep(x)
+        for ops in self.bases[self.idx]:
+            for i in range(len(self.wires)):
+                x = ops[i](x)
+        if not self.tsr_mode:
+            if self.den_mat:
+                x = self.matrix_rep(x).squeeze(0)
+            else:
+                x = self.vector_rep(x).squeeze(0)
+        return x
+
+
+class MeasureQPD(Operation):
+    """A operation for denoting a QPD measurement location.
+
+    Args:
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+    """
+    def __init__(self, nqubit: int = 1, wires: Union[int, List[int], None] = None) -> None:
+        self.nqubit = nqubit
+        if wires is None:
+            wires = [0]
+        wires = self._convert_indices(wires)
+        super().__init__(name='MeasureQPD', nqubit=nqubit, wires=wires)
+
+    def forward(self, x: Any) -> Any:
+        """Perform a forward pass."""
+        return x
