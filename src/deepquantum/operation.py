@@ -2,8 +2,6 @@
 Base classes
 """
 
-# pylint: disable=unused-import
-import warnings
 from copy import copy
 from typing import Any, List, Optional, Tuple, Union
 
@@ -291,6 +289,10 @@ class Gate(Operation):
         """Get the inversed gate."""
         return self
 
+    def qpd(self, label: Optional[int] = None) -> 'Gate':
+        """Get the quasiprobability-decomposition representation."""
+        return self
+
     def extra_repr(self) -> str:
         s = f'wires={self.wires}'
         if self.controls == []:
@@ -316,7 +318,6 @@ class Gate(Operation):
             name = f'c{len(self.controls)}' + name
         else:
             name = 'c' * len(self.controls) + name
-        # warnings.warn(f'{name} is an empty gate and should be only used to draw circuit.')
         qasm_lst1 = [f'opaque {name} ']
         qasm_lst2 = [f'{name} ']
         for i, wire in enumerate(self.controls + self.wires):
@@ -329,6 +330,9 @@ class Gate(Operation):
             return qasm_str1 + qasm_str2
         else:
             return qasm_str2
+
+    def _qasm(self) -> str:
+        return self._qasm_customized(self.name)
 
     def get_mpo(self) -> Tuple[List[torch.Tensor], int]:
         r"""Convert gate to MPO form with identities at empty sites.
@@ -611,7 +615,6 @@ class Channel(Operation):
     def _qasm_customized(self, name: str) -> str:
         """Get QASM for channels."""
         name = name.lower()
-        # warnings.warn(f'{name} is an empty gate and should be only used to draw circuit.')
         qasm_lst1 = [f'opaque {name} ']
         qasm_lst2 = [f'{name} ']
         for i, wire in enumerate(self.wires):
@@ -629,13 +632,14 @@ class Channel(Operation):
         return self._qasm_customized(self.name)
 
 
-class GateQPD(Operation):
-    r"""A base class for quasiprobability decomposition gates.
+class GateQPD(Gate):
+    r"""A base class for quasiprobability-decomposition gates.
 
     Args:
         bases (List[Tuple[nn.Sequential, ...]]): A list of tuples describing the operations probabilistically used to
             simulate an ideal quantum operation.
         coeffs (List[float]): The coefficients for quasiprobability representation.
+        label (int or None, optional): The label of the gate. Default: ``None``
         name (str or None, optional): The name of the quantum operation. Default: ``None``
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
@@ -649,6 +653,7 @@ class GateQPD(Operation):
         self,
         bases: List[Tuple[nn.Sequential, ...]],
         coeffs: List[float],
+        label: Optional[int] = None,
         name: Optional[str] = None,
         nqubit: int = 1,
         wires: Union[int, List[int], None] = None,
@@ -662,6 +667,7 @@ class GateQPD(Operation):
         super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         self.bases = bases
         self.coeffs = coeffs
+        self.label = label
         self.idx = 0
 
     def to(self, arg: Any) -> 'GateQPD':

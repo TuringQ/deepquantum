@@ -312,9 +312,6 @@ class ArbitraryGate(Gate):
         gate.name = name
         return gate
 
-    def _qasm(self) -> str:
-        return self._qasm_customized(self.name)
-
 
 class ParametricSingleGate(SingleGate):
     r"""A base class for single-qubit gates with parameters.
@@ -2943,9 +2940,7 @@ class Move(DoubleGate):
             return self.vector_rep(x).squeeze(0)
         return x
 
-    def _qasm(self) -> str:
-        return self._qasm_customized(self.name)
-
-    def qpd(self) -> 'MoveQPD':
+    def qpd(self, label: Optional[int] = None) -> 'MoveQPD':
+        """Get the quasiprobability-decomposition representation."""
         from .qpd import MoveQPD
-        return MoveQPD(nqubit=self.nqubit, wires=self.wires, tsr_mode=self.tsr_mode)
+        return MoveQPD(nqubit=self.nqubit, wires=self.wires, label=label, tsr_mode=self.tsr_mode)

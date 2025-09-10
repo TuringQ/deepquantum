@@ -15,6 +15,7 @@ from torch import nn, vmap
 from .adjoint import AdjointExpectation
 from .channel import BitFlip, PhaseFlip, Depolarizing, Pauli, AmplitudeDamping, PhaseDamping
 from .channel import GeneralizedAmplitudeDamping
+from .cutting import transform_cut2move
 from .distributed import measure_dist
 from .gate import ParametricSingleGate
 from .gate import U3Gate, PhaseShift, PauliX, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, TGate, TDaggerGate
@@ -73,6 +74,7 @@ class QubitCircuit(Operation):
         self.state = None
         self.ndata = 0
         self.depth = np.array([0] * nqubit)
+        self._cut_lst = [] # [(index of cutting, wire of cutting), ...]
         self.wires_measure = []
         self.wires_condition = []
         # MBQC
@@ -107,12 +109,15 @@ class QubitCircuit(Operation):
         assert self.nqubit == rhs.nqubit
         cir = QubitCircuit(nqubit=self.nqubit, init_state=self.init_state, name=self.name, den_mat=self.den_mat,
                            reupload=self.reupload, mps=self.mps, chi=self.chi)
+        shift = len(self.operators)
         cir.operators = self.operators + rhs.operators
         cir.encoders = self.encoders + rhs.encoders
         cir.observables = rhs.observables
         cir.npara = self.npara + rhs.npara
         cir.ndata = self.ndata + rhs.ndata
         cir.depth = self.depth + rhs.depth
+        for idx, wire in rhs._cut_lst:
+            cir._cut_lst.append((idx + shift, wire))
         cir.wires_measure = rhs.wires_measure
         cir.wires_condition += rhs.wires_condition
         cir.wires_condition = list(set(cir.wires_condition))
@@ -256,6 +261,7 @@ class QubitCircuit(Operation):
         self.npara = 0
         self.ndata = 0
         self.depth = np.array([0] * self.nqubit)
+        self._cut_lst = []
         self.wires_measure = []
         self.wires_condition = []
 
@@ -492,15 +498,15 @@ class QubitCircuit(Operation):
                 op_inv = op
             else:
                 op_inv = op.inverse()
-            cir.operators.append(op_inv)
+            cir.add(op_inv)
             if encode and op in self.encoders:
                 cir.encoders.append(op_inv)
-        cir.depth = self.depth
-        cir.npara = self.npara
         cir.wires_condition = self.wires_condition
         if encode:
+            cir.npara = self.npara
             cir.ndata = self.ndata
         else:
+            cir.npara = self.npara + self.ndata
             cir.ndata = 0
         return cir
 
@@ -686,29 +692,36 @@ class QubitCircuit(Operation):
             op.controls = controls
         if isinstance(op, QubitCircuit):
             assert self.nqubit == op.nqubit
+            shift = len(self.operators)
             self.operators += op.operators
             self.encoders  += op.encoders
             self.observables = op.observables
             self.npara += op.npara
             self.ndata += op.ndata
             self.depth += op.depth
+            for idx, wire in op._cut_lst:
+                self._cut_lst.append((idx + shift, wire))
             self.wires_measure = op.wires_measure
             self.wires_condition += op.wires_condition
             self.wires_condition = list(set(self.wires_condition))
         else:
             op.tsr_mode = True
-            self.operators.append(op)
             if isinstance(op, Gate):
+                if isinstance(op, WireCut):
+                    self._cut_lst.append((len(self.operators), op.wires[0]))
+                self.operators.append(op)
                 for i in op.wires + op.controls:
                     self.depth[i] += 1
                 if op.condition:
                     self.wires_condition += op.controls
                     self.wires_condition = list(set(self.wires_condition))
             elif isinstance(op, Layer):
+                self.operators.extend(op.gates)
                 for wire in op.wires:
                     for i in wire:
                         self.depth[i] += 1
-            # elif isinstance(op, Channel):
+            elif isinstance(op, Channel):
+                self.operators.append(op)
             #     for i in op.wires:
             #         self.depth[i] += 1
             if encode:
@@ -1202,12 +1215,7 @@ class QubitCircuit(Operation):
         cxr = CnotRing(nqubit=self.nqubit, minmax=minmax, step=step, reverse=reverse, den_mat=self.den_mat)
         self.add(cxr)
 
-    def bit_flip(
-        self,
-        wires: int,
-        inputs: Any = None,
-        encode: bool = False
-    ) -> None:
+    def bit_flip(self, wires: int, inputs: Any = None, encode: bool = False) -> None:
         """Add a bit-flip channel."""
         assert self.den_mat
         requires_grad = not encode
@@ -1216,12 +1224,7 @@ class QubitCircuit(Operation):
         bf = BitFlip(inputs=inputs, nqubit=self.nqubit, wires=wires, requires_grad=requires_grad)
         self.add(bf, encode=encode)
 
-    def phase_flip(
-        self,
-        wires: int,
-        inputs: Any = None,
-        encode: bool = False
-    ) -> None:
+    def phase_flip(self, wires: int, inputs: Any = None, encode: bool = False) -> None:
         """Add a phase-flip channel."""
         assert self.den_mat
         requires_grad = not encode
@@ -1230,12 +1233,7 @@ class QubitCircuit(Operation):
         pf = PhaseFlip(inputs=inputs, nqubit=self.nqubit, wires=wires, requires_grad=requires_grad)
         self.add(pf, encode=encode)
 
-    def depolarizing(
-        self,
-        wires: int,
-        inputs: Any = None,
-        encode: bool = False
-    ) -> None:
+    def depolarizing(self, wires: int, inputs: Any = None, encode: bool = False) -> None:
         """Add a depolarizing channel."""
         assert self.den_mat
         requires_grad = not encode
@@ -1244,12 +1242,7 @@ class QubitCircuit(Operation):
         dp = Depolarizing(inputs=inputs, nqubit=self.nqubit, wires=wires, requires_grad=requires_grad)
         self.add(dp, encode=encode)
 
-    def pauli(
-        self,
-        wires: int,
-        inputs: Any = None,
-        encode: bool = False
-    ) -> None:
+    def pauli(self, wires: int, inputs: Any = None, encode: bool = False) -> None:
         """Add a Pauli channel."""
         assert self.den_mat
         requires_grad = not encode
@@ -1258,12 +1251,7 @@ class QubitCircuit(Operation):
         p = Pauli(inputs=inputs, nqubit=self.nqubit, wires=wires, requires_grad=requires_grad)
         self.add(p, encode=encode)
 
-    def amp_damp(
-        self,
-        wires: int,
-        inputs: Any = None,
-        encode: bool = False
-    ) -> None:
+    def amp_damp(self, wires: int, inputs: Any = None, encode: bool = False) -> None:
         """Add an amplitude-damping channel."""
         assert self.den_mat
         requires_grad = not encode
@@ -1272,12 +1260,7 @@ class QubitCircuit(Operation):
         ad = AmplitudeDamping(inputs=inputs, nqubit=self.nqubit, wires=wires, requires_grad=requires_grad)
         self.add(ad, encode=encode)
 
-    def phase_damp(
-        self,
-        wires: int,
-        inputs: Any = None,
-        encode: bool = False
-    ) -> None:
+    def phase_damp(self, wires: int, inputs: Any = None, encode: bool = False) -> None:
         """Add a phase-damping channel."""
         assert self.den_mat
         requires_grad = not encode
@@ -1286,12 +1269,7 @@ class QubitCircuit(Operation):
         pd = PhaseDamping(inputs=inputs, nqubit=self.nqubit, wires=wires, requires_grad=requires_grad)
         self.add(pd, encode=encode)
 
-    def gen_amp_damp(
-        self,
-        wires: int,
-        inputs: Any = None,
-        encode: bool = False
-    ) -> None:
+    def gen_amp_damp(self, wires: int, inputs: Any = None, encode: bool = False) -> None:
         """Add a generalized amplitude-damping channel."""
         assert self.den_mat
         requires_grad = not encode
