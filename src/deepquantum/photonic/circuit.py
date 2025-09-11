@@ -496,12 +496,14 @@ class QumodeCircuit(Operation):
             mean = mean.expand(-1, shape_cov[1], -1, -1)
         cov = cov.reshape(-1, *shape_cov[-2:])
         mean = mean.reshape(-1, *shape_mean[-2:])
-        batch_forward = vmap(self._forward_gaussian_prob_helper, in_dims=(0, 0, None, None, None, None, None))
+        purity = GaussianState([cov, mean]).is_pure
+        batch_forward = vmap(self._forward_gaussian_prob_helper, in_dims=(0, 0, None, None, None, None))
         if detector is None:
             detector = self.detector
         else:
             detector = detector.lower()
             self.detector = detector
+        basis = self._get_odd_even_fock_basis(detector=detector)
         if detector == 'pnrd':
             idx_loop = torch.all(mean==0, dim=1)
             idx_loop = idx_loop.squeeze(1)
@@ -509,17 +511,15 @@ class QumodeCircuit(Operation):
             mean_0 = mean[idx_loop]
             cov_1 = cov[~idx_loop]
             mean_1 = mean[~idx_loop]
-            odd_basis, even_basis = self._get_odd_even_fock_basis(detector=detector)
-            basis = [] # threshold case
-            final_states = torch.cat([torch.cat(even_basis), torch.cat(odd_basis)])
+            final_states = torch.cat([torch.cat(basis[1]), torch.cat(basis[0])])
             probs = []
             if len(cov_0) > 0:
                 loop = False
-                probs_0 = batch_forward(cov_0, mean_0, even_basis, odd_basis, basis, detector, loop)
+                probs_0 = batch_forward(cov_0, mean_0, basis, detector, loop, purity)
                 probs.append(probs_0)
             if len(cov_1) > 0:
                 loop = True
-                probs_1 = batch_forward(cov_1, mean_1, even_basis, odd_basis, basis, detector, loop)
+                probs_1 = batch_forward(cov_1, mean_1, basis, detector, loop, purity)
                 probs.append(probs_1)
             probs = torch.cat(probs) # reorder the result here
             if len(cov_0) * len(cov_1) > 0:
@@ -527,25 +527,24 @@ class QumodeCircuit(Operation):
                 idx1 = torch.where(~idx_loop==1)[0]
                 probs = probs[torch.argsort(torch.cat([idx0, idx1]))]
         elif detector == 'threshold':
-            even_basis = [] # pnrd case
-            odd_basis= [] # pnrd case
-            basis = self._get_odd_even_fock_basis(detector=detector)
             final_states = torch.cat(basis)
             loop = True
-            probs = batch_forward(cov, mean, even_basis, odd_basis, basis, detector, loop)
+            probs = batch_forward(cov, mean, basis, detector, loop, purity)
         keys = list(map(FockState, final_states.tolist()))
         probs = probs.reshape(*shape_cov[:-2], -1)
         if weight is not None:
             probs = (probs * weight.unsqueeze(-1)).sum(1).real
         return dict(zip(keys, probs.mT))
 
-    def _forward_gaussian_prob_helper(self, cov, mean, even_basis, odd_basis, basis, detector, loop):
+    def _forward_gaussian_prob_helper(self, cov, mean, basis, detector, loop, purity):
         prob_lst = []
         if detector == 'pnrd':
+            odd_basis = basis[0]
+            even_basis = basis[1]
             for state in even_basis:
                 prob_even = self._get_probs_gaussian_helper(state, cov, mean, detector, loop)
                 prob_lst.append(prob_even)
-            if loop or self._lossy:
+            if loop or not purity:
                 for state in odd_basis:
                     prob_odd = self._get_probs_gaussian_helper(state, cov, mean, detector, loop)
                     prob_lst.append(prob_odd)
@@ -856,7 +855,7 @@ class QumodeCircuit(Operation):
                     even_lst.append(temp_basis)
                 else:
                     odd_lst.append(temp_basis)
-            return odd_lst, even_lst
+            return [odd_lst, even_lst]
         elif detector == 'threshold':
             final_states = torch.tensor(list(itertools.product(range(2), repeat=nmode)))
             keys = torch.sum(final_states, dim=1)
