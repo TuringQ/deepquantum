@@ -88,12 +88,12 @@ class DoubleGateQPD(GateQPD):
         bases1 = []
         bases2 = []
         for basis in self.bases:
-            bases1.append(tuple[basis[0]])
-            bases2.append(tuple[basis[1]])
+            bases1.append(tuple([basis[0]]))
+            bases2.append(tuple([basis[1]]))
         name = self.name + f'_label{self.label}_'
-        gate1 = SingleGateQPD(bases1, self.coeffs, self.label, name+'1', self.nqubit, self.wires[0],
+        gate1 = SingleGateQPD(bases1, self.coeffs, self.label, name+'1', self.nqubit, [self.wires[0]],
                               self.den_mat, self.tsr_mode)
-        gate2 = SingleGateQPD(bases2, self.coeffs, self.label, name+'2', self.nqubit, self.wires[1],
+        gate2 = SingleGateQPD(bases2, self.coeffs, self.label, name+'2', self.nqubit, [self.wires[1]],
                               self.den_mat, self.tsr_mode)
         return gate1, gate2
 

@@ -20,7 +20,8 @@ from .qpd import DoubleGateQPD
 def transform_cut2move(
     operators: nn.Sequential,
     cut_lst: List[Tuple[int, int]],
-    observables: Optional[nn.ModuleList] = None
+    observables: Optional[nn.ModuleList] = None,
+    qpd_form: bool = False
 ) -> Tuple[nn.Sequential, Optional[nn.ModuleList]]:
     """Transform ``WireCut`` to ``Move`` and expand the observables accordingly."""
     nqubit = operators[0].nqubit
@@ -29,31 +30,33 @@ def transform_cut2move(
         cuts_per_qubit[wire].append(idx)
     ncut_cum_lst = [] # ncut before the current qubit
     ncut = 0
-    for i in range(nqubit):
+    for i in range(nqubit + 1):
         ncut_cum_lst.append(ncut)
         ncut += len(cuts_per_qubit[i])
     new_nqubit = nqubit + ncut
     for i, op in enumerate(operators):
-        op.nqubit = new_nqubit
+        op.set_nqubit(new_nqubit)
         new_wires = []
+        new_controls = []
         for wire in op.wires:
-            ncut_before = bisect.bisect_left(cuts_per_qubit, i)
+            ncut_before = bisect.bisect_left(cuts_per_qubit[wire], i)
             new_wires.append(wire + ncut_cum_lst[wire] + ncut_before)
-        op.wires = new_wires
+        for wire in op.controls:
+            ncut_before = bisect.bisect_left(cuts_per_qubit[wire], i)
+            new_controls.append(wire + ncut_cum_lst[wire] + ncut_before)
+        op.set_wires(new_wires)
+        op.set_controls(new_controls)
         if isinstance(op, WireCut):
-            operators[i] = Move(nqubit=new_nqubit, wires=[op.wires[0], op.wires[0] + 1], tsr_mode=op.tsr_mode)
+            move = Move(nqubit=new_nqubit, wires=[op.wires[0], op.wires[0] + 1], tsr_mode=op.tsr_mode)
+            if qpd_form:
+                operators[i] = move.qpd()
+            else:
+                operators[i] = move
     if observables is not None:
         for ob in observables:
-            ob.nqubit = new_nqubit
-            new_wires_ob = []
-            for gate in ob.gates:
-                gate.nqubit = new_nqubit
-                new_wires = []
-                for wire in gate.wires:
-                    new_wires.append(wire + ncut_cum_lst[wire + 1])
-                gate.wires = new_wires
-                new_wires_ob.append(new_wires)
-            ob.wires = new_wires_ob
+            ob.set_nqubit(new_nqubit)
+            new_wires = [[wire + ncut_cum_lst[wire + 1] for wire in wires] for wires in ob.wires]
+            ob.set_wires(new_wires)
     return operators, observables
 
 
@@ -189,9 +192,11 @@ def separate_operators(operators: nn.Sequential, qubit_labels: Optional[Sequence
         sub_ops = nn.Sequential()
         nqubit_sub = len(label2qubits_dict[label])
         for i in indices:
-            operators[i].nqubit = nqubit_sub
+            operators[i].set_nqubit(nqubit_sub)
             wires = [qubit_map[wire][1] for wire in operators[i].wires]
-            operators[i].wires = wires
+            controls = [qubit_map[wire][1] for wire in operators[i].controls]
+            operators[i].set_wires(wires)
+            operators[i].set_controls(controls)
             sub_ops.append(operators[i])
         combine_barriers(sub_ops)
         label2sub_dict[label] = sub_ops
@@ -204,18 +209,18 @@ def decompose_observables(observables: nn.ModuleList, qubit_labels: Sequence[Has
     label2obs_dict = {}
     for label, qubits in label2qubits_dict.items():
         sub_obs = nn.ModuleList()
-        nqubit_sub = len(qubits)
+        new_nqubit = len(qubits)
         for ob in observables:
-            new_ob = Observable(nqubit_sub, [], den_mat=ob.den_mat, tsr_mode=ob.tsr_mode)
-            for gate in ob.gates:
-                wire = gate.wires[0]
+            new_wires = []
+            new_ob = Observable(new_nqubit, new_wires, den_mat=ob.den_mat, tsr_mode=ob.tsr_mode)
+            for i, gate in enumerate(ob.gates):
+                wire = ob.wires[i][0]
                 if wire in qubits:
-                    new_wire = qubit_map[wire][1]
-                    new_ob.wires.append(new_wire)
-                    new_ob.basis += ob.basis[ob.wires.index(wire)]
-                    gate.nqubit = nqubit_sub
-                    gate.wires = [new_wire]
+                    new_wires.append([qubit_map[wire][1]])
+                    new_ob.basis += ob.basis[ob.wires.index([wire])]
                     new_ob.gates.append(gate)
+            new_ob.set_nqubit(new_nqubit)
+            new_ob.set_wires(new_wires)
             sub_obs.append(new_ob)
         label2obs_dict[label] = sub_obs
     return label2obs_dict

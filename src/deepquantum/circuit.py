@@ -4,6 +4,8 @@ Quantum circuit
 
 from copy import copy, deepcopy
 from collections import defaultdict
+from collections.abc import Sequence, Hashable
+from itertools import product
 from typing import Any, Dict, List, Optional, Tuple, Union
 from typing import TYPE_CHECKING
 
@@ -15,16 +17,17 @@ from torch import nn, vmap
 from .adjoint import AdjointExpectation
 from .channel import BitFlip, PhaseFlip, Depolarizing, Pauli, AmplitudeDamping, PhaseDamping
 from .channel import GeneralizedAmplitudeDamping
-from .cutting import transform_cut2move
+from .cutting import transform_cut2move, partition_labels, partition_problem
 from .distributed import measure_dist
 from .gate import ParametricSingleGate
 from .gate import U3Gate, PhaseShift, PauliX, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, TGate, TDaggerGate
 from .gate import Rx, Ry, Rz, ProjectionJ, CNOT, Swap, Rxx, Ryy, Rzz, Rxy, ReconfigurableBeamSplitter, Toffoli, Fredkin
 from .gate import CombinedSingleGate, UAnyGate, LatentGate, HamiltonianGate, Reset, Barrier, WireCut, Move
 from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer, RyLayer, RzLayer, CnotLayer, CnotRing
-from .operation import Operation, Gate, Layer, Channel
+from .operation import Operation, Gate, Layer, Channel, MeasureQPD
 from .qmath import amplitude_encoding, measure, expectation, sample_sc_mcmc, sample2expval
 from .qmath import slice_state_vector, inner_product_mps, get_prob_mps
+from .qpd import SingleGateQPD
 from .state import QubitState, MatrixProductState, DistributedQubitState
 
 if TYPE_CHECKING:
@@ -645,6 +648,84 @@ class QubitCircuit(Operation):
         for wire, node in zip(gate.wires, gate.nodes):
             self.wire2node_dict[wire] = node
         return pattern
+
+    def transform_cut2move(self) -> 'QubitCircuit':
+        """Transform ``WireCut`` to ``Move`` and expand the observables accordingly."""
+        operators = deepcopy(self.operators)
+        if len(self.observables) == 0:
+            observables = None
+        else:
+            observables = deepcopy(self.observables)
+        operators, observables = transform_cut2move(operators, self._cut_lst, observables, False)
+        cir = QubitCircuit(operators[0].nqubit, den_mat=self.den_mat, reupload=self.reupload,
+                           mps=self.mps, chi=self.chi, shots=self.shots)
+        for op in operators:
+            cir.add(op)
+        if observables is not None:
+            cir.observables = observables
+        return cir
+
+    def get_subexperiments(self, qubit_labels: Optional[Sequence[Hashable]] = None) -> Tuple[Dict, List[float]]:
+        """Generate cutting subexperiments and their associated coefficients."""
+        operators = deepcopy(self.operators)
+        if len(self.observables) == 0:
+            observables = None
+        else:
+            observables = deepcopy(self.observables)
+        operators, observables = transform_cut2move(operators, self._cut_lst, observables, True)
+        label2sub_dict, label2obs_dict = partition_problem(operators, qubit_labels, observables)
+        label2qpd_dict = defaultdict(list) # {label: [idx, ...]}
+        gate_label_lst = []
+        nbasis_lst = []
+        for label, sub_ops in label2sub_dict.items():
+            for i, op in enumerate(sub_ops):
+                if isinstance(op, SingleGateQPD):
+                    label2qpd_dict[label].append(i)
+                    if op.label is not None and op.label not in gate_label_lst:
+                        gate_label_lst.append(op.label)
+                        nbasis_lst.append(len(op.bases))
+        indices = sorted(range(len(gate_label_lst)), key=lambda i: gate_label_lst[i])
+        gate_label_lst_sorted = [gate_label_lst[i] for i in indices]
+        nbasis_lst_sorted = [nbasis_lst[i] for i in indices]
+        ranges = [range(0, nbasis) for nbasis in nbasis_lst_sorted]
+        subexperiments = defaultdict(list)
+        coefficients = []
+        for combination in product(*ranges):
+            for label, sub_ops in label2sub_dict.items():
+                coeff = 1.
+                nqubit = sub_ops[0].nqubit
+                cir = QubitCircuit(nqubit, den_mat=self.den_mat, reupload=self.reupload, mps=self.mps, chi=self.chi,
+                                   shots=self.shots)
+                if observables is not None:
+                    obs = nn.ModuleList()
+                    for ob in label2obs_dict[label]:
+                        new_ob = Observable(ob.nqubit, [], den_mat=self.den_mat)
+                        new_ob.wires = ob.wires
+                        new_ob.basis = ob.basis
+                        new_ob.gates.extend(ob.gates)
+                        obs.append(new_ob)
+                for op in sub_ops:
+                    if isinstance(op, SingleGateQPD):
+                        for i, idx in enumerate(combination):
+                            if op.label == gate_label_lst_sorted[i]:
+                                coeff *= op.coeffs[idx]
+                                for ops in op.bases[idx]:
+                                    for gate in ops:
+                                        cir.add(gate)
+                                if observables is not None and len(op.bases[idx][0]) > 0:
+                                    if isinstance(op.bases[idx][0][-1], MeasureQPD):
+                                        pauliz = PauliZ(nqubit, op.wires, den_mat=op.den_mat, tsr_mode=True)
+                                        for new_ob in obs:
+                                            new_ob.wires = new_ob.wires + [op.wires]
+                                            new_ob.basis = new_ob.basis + 'z'
+                                            new_ob.gates.append(pauliz)
+                    else:
+                        cir.add(op)
+                if observables is not None:
+                    cir.observables = obs
+                subexperiments[label].append(cir)
+            coefficients.append(coeff)
+        return subexperiments, coefficients
 
     def draw(self, output: str = 'mpl', **kwargs):
         """Visualize the quantum circuit."""

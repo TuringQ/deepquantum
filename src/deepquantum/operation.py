@@ -71,6 +71,14 @@ class Operation(nn.Module):
         """Initialize the parameters."""
         pass
 
+    def set_nqubit(self, nqubit: int) -> None:
+        """Set the number of qubits of the ``Operation``."""
+        self.nqubit = nqubit
+
+    def set_wires(self, wires: Union[int, List[int]]) -> None:
+        """Set the wires of the ``Operation``."""
+        self.wires = self._convert_indices(wires)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass."""
         if self.tsr_mode:
@@ -161,6 +169,10 @@ class Gate(Operation):
         else:
             super().to(arg)
         return self
+
+    def set_controls(self, controls: Union[int, List[int]]) -> None:
+        """Set the control wires of the ``Operation``."""
+        self.controls = self._convert_indices(controls)
 
     def get_matrix(self, inputs: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
@@ -415,7 +427,7 @@ class Layer(Operation):
     Args:
         name (str, optional): The name of the layer. Default: ``None``
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+        wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
@@ -426,7 +438,7 @@ class Layer(Operation):
         self,
         name: Optional[str] = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
+        wires: Union[int, List[int], List[List[int]], None] = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -469,6 +481,18 @@ class Layer(Operation):
         self.npara = 0
         for gate in self.gates:
             self.npara += gate.npara
+
+    def set_nqubit(self, nqubit: int) -> None:
+        """Set the number of qubits of the ``Layer``."""
+        self.nqubit = nqubit
+        for gate in self.gates:
+            gate.nqubit = nqubit
+
+    def set_wires(self, wires: Union[int, List[int], List[List[int]]]) -> None:
+        """Set the wires of the ``Layer``."""
+        self.wires = self._convert_indices(wires)
+        for i, gate in enumerate(self.gates):
+            gate.wires = self.wires[i]
 
     def forward(
         self,
@@ -678,6 +702,22 @@ class GateQPD(Gate):
                     op.to(arg)
         return self
 
+    def set_nqubit(self, nqubit: int) -> None:
+        """Set the number of qubits of the ``GateQPD``."""
+        self.nqubit = nqubit
+        for basis in self.bases:
+            for ops in basis:
+                for op in ops:
+                    op.nqubit = nqubit
+
+    def set_wires(self, wires: Union[int, List[int]]) -> None:
+        """Set the wires of the ``GateQPD``."""
+        self.wires = self._convert_indices(wires)
+        for basis in self.bases:
+            for i, ops in enumerate(basis):
+                for op in ops:
+                    op.set_wires(self.wires[i])
+
     def forward(self, x: torch.Tensor, idx: Optional[int] = None) -> torch.Tensor:
         """Perform a forward pass.
 
@@ -690,8 +730,7 @@ class GateQPD(Gate):
         if not self.tsr_mode:
             x = self.tensor_rep(x)
         for ops in self.bases[self.idx]:
-            for i in range(len(self.wires)):
-                x = ops[i](x)
+            x = ops(x)
         if not self.tsr_mode:
             if self.den_mat:
                 x = self.matrix_rep(x).squeeze(0)
