@@ -676,20 +676,20 @@ class QubitCircuit(Operation):
         label2sub_dict, label2obs_dict = partition_problem(operators, qubit_labels, observables)
         label2qpd_dict = defaultdict(list) # {label: [idx, ...]}
         gate_label_lst = []
-        nbasis_lst = []
         gate_coeff_lst = []
+        nbasis_lst = []
         for label, sub_ops in label2sub_dict.items():
             for i, op in enumerate(sub_ops):
                 if isinstance(op, SingleGateQPD):
                     label2qpd_dict[label].append(i)
                     if op.label is not None and op.label not in gate_label_lst:
                         gate_label_lst.append(op.label)
-                        nbasis_lst.append(len(op.bases))
                         gate_coeff_lst.append(op.coeffs)
+                        nbasis_lst.append(len(op.bases))
         indices = sorted(range(len(gate_label_lst)), key=lambda i: gate_label_lst[i])
         gate_label_lst_sorted = [gate_label_lst[i] for i in indices]
-        nbasis_lst_sorted = [nbasis_lst[i] for i in indices]
         gate_coeff_lst_sorted = [gate_coeff_lst[i] for i in indices]
+        nbasis_lst_sorted = [nbasis_lst[i] for i in indices]
         ranges = [range(0, nbasis) for nbasis in nbasis_lst_sorted]
         subexperiments = defaultdict(list)
         coefficients = []
