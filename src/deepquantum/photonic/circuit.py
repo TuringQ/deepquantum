@@ -495,12 +495,14 @@ class QumodeCircuit(Operation):
             mean = mean.expand(-1, shape_cov[1], -1, -1)
         cov = cov.reshape(-1, *shape_cov[-2:])
         mean = mean.reshape(-1, *shape_mean[-2:])
-        batch_forward = vmap(self._forward_gaussian_prob_helper, in_dims=(0, 0, None, None, None, None, None))
+        purity = GaussianState([cov, mean]).is_pure
+        batch_forward = vmap(self._forward_gaussian_prob_helper, in_dims=(0, 0, None, None, None, None))
         if detector is None:
             detector = self.detector
         else:
             detector = detector.lower()
             self.detector = detector
+        basis = self._get_odd_even_fock_basis(detector=detector)
         if detector == 'pnrd':
             idx_loop = torch.all(mean==0, dim=1)
             idx_loop = idx_loop.squeeze(1)
@@ -508,17 +510,15 @@ class QumodeCircuit(Operation):
             mean_0 = mean[idx_loop]
             cov_1 = cov[~idx_loop]
             mean_1 = mean[~idx_loop]
-            odd_basis, even_basis = self._get_odd_even_fock_basis(detector=detector)
-            basis = [] # threshold case
-            final_states = torch.cat([torch.cat(even_basis), torch.cat(odd_basis)])
+            final_states = torch.cat([torch.cat(basis[1]), torch.cat(basis[0])])
             probs = []
             if len(cov_0) > 0:
                 loop = False
-                probs_0 = batch_forward(cov_0, mean_0, even_basis, odd_basis, basis, detector, loop)
+                probs_0 = batch_forward(cov_0, mean_0, basis, detector, purity, loop)
                 probs.append(probs_0)
             if len(cov_1) > 0:
                 loop = True
-                probs_1 = batch_forward(cov_1, mean_1, even_basis, odd_basis, basis, detector, loop)
+                probs_1 = batch_forward(cov_1, mean_1, basis, detector, purity, loop)
                 probs.append(probs_1)
             probs = torch.cat(probs) # reorder the result here
             if len(cov_0) * len(cov_1) > 0:
@@ -526,27 +526,26 @@ class QumodeCircuit(Operation):
                 idx1 = torch.where(~idx_loop==1)[0]
                 probs = probs[torch.argsort(torch.cat([idx0, idx1]))]
         elif detector == 'threshold':
-            even_basis = [] # pnrd case
-            odd_basis= [] # pnrd case
-            basis = self._get_odd_even_fock_basis(detector=detector)
             final_states = torch.cat(basis)
             loop = True
-            probs = batch_forward(cov, mean, even_basis, odd_basis, basis, detector, loop)
+            probs = batch_forward(cov, mean, basis, detector, purity, loop)
         keys = list(map(FockState, final_states.tolist()))
         probs = probs.reshape(*shape_cov[:-2], -1)
         if weight is not None:
             probs = (probs * weight.unsqueeze(-1)).sum(1).real
         return dict(zip(keys, probs.mT))
 
-    def _forward_gaussian_prob_helper(self, cov, mean, even_basis, odd_basis, basis, detector, loop):
+    def _forward_gaussian_prob_helper(self, cov, mean, basis, detector, purity, loop):
         prob_lst = []
         if detector == 'pnrd':
+            odd_basis = basis[0]
+            even_basis = basis[1]
             for state in even_basis:
-                prob_even = self._get_probs_gaussian_helper(state, cov, mean, detector, loop)
+                prob_even = self._get_probs_gaussian_helper(state, cov, mean, detector, purity, loop)
                 prob_lst.append(prob_even)
-            if loop or self._lossy:
+            if loop or not purity:
                 for state in odd_basis:
-                    prob_odd = self._get_probs_gaussian_helper(state, cov, mean, detector, loop)
+                    prob_odd = self._get_probs_gaussian_helper(state, cov, mean, detector, purity, loop)
                     prob_lst.append(prob_odd)
                 probs = torch.cat(prob_lst)
             else:
@@ -554,7 +553,7 @@ class QumodeCircuit(Operation):
                 probs = torch.cat([probs, torch.zeros(len(torch.cat(odd_basis)), device=probs.device)])
         elif detector == 'threshold':
             for state in basis:
-                prob = self._get_probs_gaussian_helper(state, cov, mean, detector, loop)
+                prob = self._get_probs_gaussian_helper(state, cov, mean, detector, purity, loop)
                 prob_lst.append(prob)
             probs = torch.cat(prob_lst)
         return probs
@@ -842,7 +841,7 @@ class QumodeCircuit(Operation):
                               dtype=torch.long, device=init_state.device)
         return states
 
-    def _get_odd_even_fock_basis(self, detector: Optional[str] = None) -> Union[Tuple[List], List]:
+    def _get_odd_even_fock_basis(self, detector: Optional[str] = None) -> Union[Tuple[List, List], List]:
         """Split the fock basis into the odd and even photon number parts."""
         if detector is None:
             detector = self.detector
@@ -1046,6 +1045,7 @@ class QumodeCircuit(Operation):
         cov: torch.Tensor,
         mean: torch.Tensor,
         detector: str = 'pnrd',
+        purity: Optional[bool] = None,
         loop: Optional[bool] = None
     ) -> torch.Tensor:
         """Get the probabilities of the final states for Gaussian backend."""
@@ -1069,7 +1069,8 @@ class QumodeCircuit(Operation):
             matrix = a_mat
         elif detector == 'threshold':
             matrix = o_mat
-        purity = GaussianState(self.state[:2]).is_pure
+        if purity is None:
+            purity = GaussianState([cov, mean]).is_pure
         p_vac = torch.exp(-0.5 * mean_ladder.mH @ torch.inverse(q) @ mean_ladder) / torch.sqrt(det_q)
         batch_get_prob = vmap(self._get_prob_gaussian_base, in_dims=(0, None, None, None, None, None, None))
         probs = batch_get_prob(final_states, matrix, gamma, p_vac, detector, purity, loop)
@@ -1094,7 +1095,7 @@ class QumodeCircuit(Operation):
             gamma_n2 = torch.repeat_interleave(gamma[nmode:], final_state)
         sub_gamma = torch.cat([gamma_n1, gamma_n2])
         if detector == 'pnrd':
-            if purity and detector == 'pnrd':
+            if purity:
                 sub_mat = sub_matrix(matrix[:nmode, :nmode], final_state, final_state)
                 half_len = len(sub_gamma) // 2
                 sub_gamma = sub_gamma[:half_len]
