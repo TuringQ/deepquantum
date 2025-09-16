@@ -1090,7 +1090,7 @@ class QumodeCircuit(Operation):
             gamma_n2 = torch.repeat_interleave(gamma[nmode:], final_state)
         sub_gamma = torch.cat([gamma_n1, gamma_n2])
         if detector == 'pnrd':
-            if purity and detector == 'pnrd':
+            if purity:
                 sub_mat = sub_matrix(matrix[:nmode, :nmode], final_state, final_state)
                 half_len = len(sub_gamma) // 2
                 sub_gamma = sub_gamma[:half_len]
