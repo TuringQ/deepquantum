@@ -17,7 +17,7 @@ from torch import nn, vmap
 from .adjoint import AdjointExpectation
 from .channel import BitFlip, PhaseFlip, Depolarizing, Pauli, AmplitudeDamping, PhaseDamping
 from .channel import GeneralizedAmplitudeDamping
-from .cutting import transform_cut2move, partition_labels, partition_problem
+from .cutting import transform_cut2move, partition_problem
 from .distributed import measure_dist
 from .gate import ParametricSingleGate
 from .gate import U3Gate, PhaseShift, PauliX, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, TGate, TDaggerGate
