@@ -12,12 +12,14 @@ from . import bitmath
 from . import channel
 from . import circuit
 from . import communication
+from . import cutting
 from . import distributed
 from . import gate
 from . import layer
 from . import operation
 from . import optimizer
 from . import qmath
+from . import qpd
 from . import state
 from . import utils
 

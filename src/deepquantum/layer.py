@@ -19,8 +19,8 @@ class SingleLayer(Layer):
     Args:
         name (str, optional): The name of the layer. Default: ``None``
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (int, List[List[int]], List[int] or None, optional): The indices of the qubits that the
-            quantum operation acts on. Default: ``None``
+        wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that
+            the quantum operation acts on. Default: ``None``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
@@ -31,7 +31,7 @@ class SingleLayer(Layer):
         self,
         name: Optional[str] = None,
         nqubit: int = 1,
-        wires: Union[int, List[List[int]], List[int], None] = None,
+        wires: Union[int, List[int], List[List[int]], None] = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -57,8 +57,8 @@ class ParametricSingleLayer(SingleLayer):
     Args:
         name (str or None, optional): The name of the layer. Default: ``None``
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
+        wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that
+            the quantum operation acts on. Default: ``None``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
@@ -122,7 +122,7 @@ class DoubleLayer(Layer):
         self,
         name: Optional[str] = None,
         nqubit: int = 2,
-        wires: Union[List[List[int]], None] = None,
+        wires: Optional[List[List[int]]] = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -180,8 +180,8 @@ class U3Layer(ParametricSingleLayer):
 
     Args:
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that the
-            quantum operation acts on. Default: ``None``
+        wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that
+            the quantum operation acts on. Default: ``None``
         inputs (Any, optional): The parameters of the layer. Default: ``None``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
@@ -218,8 +218,8 @@ class XLayer(SingleLayer):
 
     Args:
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that the
-            quantum operation acts on. Default: ``None``
+        wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that
+            the quantum operation acts on. Default: ``None``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
@@ -244,8 +244,8 @@ class YLayer(SingleLayer):
 
     Args:
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that the
-            quantum operation acts on. Default: ``None``
+        wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that
+            the quantum operation acts on. Default: ``None``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
@@ -270,8 +270,8 @@ class ZLayer(SingleLayer):
 
     Args:
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that the
-            quantum operation acts on. Default: ``None``
+        wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that
+            the quantum operation acts on. Default: ``None``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
@@ -296,8 +296,8 @@ class HLayer(SingleLayer):
 
     Args:
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that the
-            quantum operation acts on. Default: ``None``
+        wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that
+            the quantum operation acts on. Default: ``None``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
@@ -322,8 +322,8 @@ class RxLayer(ParametricSingleLayer):
 
     Args:
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that the
-            quantum operation acts on. Default: ``None``
+        wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that
+            the quantum operation acts on. Default: ``None``
         inputs (Any, optional): The parameters of the layer. Default: ``None``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
@@ -360,8 +360,8 @@ class RyLayer(ParametricSingleLayer):
 
     Args:
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that the
-            quantum operation acts on. Default: ``None``
+        wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that
+            the quantum operation acts on. Default: ``None``
         inputs (Any, optional): The parameters of the layer. Default: ``None``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
@@ -398,8 +398,8 @@ class RzLayer(ParametricSingleLayer):
 
     Args:
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that the
-            quantum operation acts on. Default: ``None``
+        wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that
+            the quantum operation acts on. Default: ``None``
         inputs (Any, optional): The parameters of the layer. Default: ``None``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
@@ -448,7 +448,7 @@ class CnotLayer(DoubleLayer):
     def __init__(
         self,
         nqubit: int = 2,
-        wires: Union[List[List[int]], None] = None,
+        wires: Optional[List[List[int]]] = None,
         name: str = 'CnotLayer',
         den_mat: bool = False,
         tsr_mode: bool = False
@@ -472,8 +472,6 @@ class CnotRing(CnotLayer):
 
     Args:
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 2
-        wires (List[List[int]] or None, optional): The indices of the qubits that the quantum operation
-            acts on. Default: ``None``
         minmax (List[int] or None, optional): The minimum and maximum indices of qubits that the quantum
             operation acts on. Default: ``None``
         step (int, optional): The distance between the control and target qubits of each CNOT gate.

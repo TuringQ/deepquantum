@@ -4,6 +4,7 @@ Quantum gates
 
 from copy import copy
 from typing import Any, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING
 
 import torch
 from torch import nn
@@ -11,8 +12,12 @@ from torch.autograd.functional import jacobian
 
 from .distributed import dist_one_targ_gate, dist_many_ctrl_one_targ_gate, dist_swap_gate
 from .operation import Gate
-from .qmath import multi_kron, is_unitary, svd
+from .qmath import multi_kron, is_unitary, inverse_permutation, evolve_state, svd
 from .state import DistributedQubitState
+
+if TYPE_CHECKING:
+    from .qpd import MoveQPD
+
 
 class SingleGate(Gate):
     r"""A base class for single-qubit gates.
@@ -306,9 +311,6 @@ class ArbitraryGate(Gate):
         gate.inv_mode = not self.inv_mode
         gate.name = name
         return gate
-
-    def _qasm(self) -> str:
-        return self._qasm_customized(self.name)
 
 
 class ParametricSingleGate(SingleGate):
@@ -1642,12 +1644,12 @@ class ProjectionJ(ParametricSingleGate):
     def _qasm(self) -> str:
         if self.condition:
             name = 'j'
-            qasm_lst1 = [f'gate {name} ']
+            qasm_lst1 = [f'opaque {name} ']
             qasm_lst2 = [f'{name} ']
             for i, wire in enumerate(self.wires):
                 qasm_lst1.append(f'q{i},')
                 qasm_lst2.append(f'q[{wire}],')
-            qasm_str1 = ''.join(qasm_lst1)[:-1] + ' { }\n'
+            qasm_str1 = ''.join(qasm_lst1)[:-1] + ';\n'
             qasm_str2 = ''.join(qasm_lst2)[:-1] + ';\n'
             # pylint: disable=protected-access
             if name not in Gate._qasm_new_gate:
@@ -2156,12 +2158,12 @@ class Rxy(ParametricDoubleGate):
     def _qasm(self) -> str:
         if self.condition:
             name = 'rxy'
-            qasm_lst1 = [f'gate {name} ']
+            qasm_lst1 = [f'opaque {name} ']
             qasm_lst2 = [f'{name} ']
             for i, wire in enumerate(self.wires):
                 qasm_lst1.append(f'q{i},')
                 qasm_lst2.append(f'q[{wire}],')
-            qasm_str1 = ''.join(qasm_lst1)[:-1] + ' { }\n'
+            qasm_str1 = ''.join(qasm_lst1)[:-1] + ';\n'
             qasm_str2 = ''.join(qasm_lst2)[:-1] + ';\n'
             # pylint: disable=protected-access
             if name not in Gate._qasm_new_gate:
@@ -2239,12 +2241,12 @@ class ReconfigurableBeamSplitter(ParametricDoubleGate):
     def _qasm(self) -> str:
         if self.condition:
             name = 'rbs'
-            qasm_lst1 = [f'gate {name} ']
+            qasm_lst1 = [f'opaque {name} ']
             qasm_lst2 = [f'{name} ']
             for i, wire in enumerate(self.wires):
                 qasm_lst1.append(f'q{i},')
                 qasm_lst2.append(f'q[{wire}],')
-            qasm_str1 = ''.join(qasm_lst1)[:-1] + ' { }\n'
+            qasm_str1 = ''.join(qasm_lst1)[:-1] + ';\n'
             qasm_str2 = ''.join(qasm_lst2)[:-1] + ';\n'
             # pylint: disable=protected-access
             if name not in Gate._qasm_new_gate:
@@ -2772,6 +2774,85 @@ class HamiltonianGate(ArbitraryGate):
         self.update_matrix()
 
 
+class Reset(Gate):
+    r"""Reset.
+
+    Args:
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        postselect (int or None, optional): The postselected value. Default: 0 (``None`` means no postselection,
+            which is not compatible with vmap)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
+            Default: ``False``
+    """
+    def __init__(
+        self,
+        nqubit: int = 1,
+        wires: Union[int, List[int], None] = None,
+        postselect: Optional[int] = 0,
+        tsr_mode: bool = False
+    ) -> None:
+        if wires is None:
+            wires = list(range(nqubit))
+        super().__init__(name='Reset', nqubit=nqubit, wires=wires, tsr_mode=tsr_mode)
+        self.postselect = postselect
+
+    def to(self, arg: Any) -> 'Reset':
+        """Set dtype or device of the ``Reset``."""
+        return self
+
+    def op_state(self, x: torch.Tensor) -> torch.Tensor:
+        """Perform a forward pass for state vectors."""
+        if len(self.wires) == self.nqubit:
+            x = torch.zeros_like(self.vector_rep(x))
+            x[:, 0] = 1
+            x = self.tensor_rep(x)
+        else:
+            if self.postselect in (0, 1): # compatible with vmap
+                for wire in self.wires:
+                    pm_shape = list(range(1, self.nqubit + 1))
+                    pm_shape.remove(wire + 1)
+                    pm_shape = [wire + 1] + pm_shape + [0]
+                    x = x.permute(pm_shape) # (2, ..., 2, batch)
+                    probs = (x.abs() ** 2).sum(list(range(1, self.nqubit))) # (2, batch)
+                    mask = 1 - torch.sign(probs[self.postselect]) # (batch)
+                    norm = torch.sqrt(probs[self.postselect] + mask)
+                    state0 = ((1 - mask) * x[self.postselect] + mask * x[1 - self.postselect]) / norm
+                    state1 = torch.zeros_like(state0)
+                    x = torch.stack([state0, state1])
+                    x = x.permute(inverse_permutation(pm_shape))
+            elif self.postselect is None: # NOT compatible with vmap
+                wires = sorted(self.wires)
+                idx_sum = list(range(1, self.nqubit + 1))
+                for i in wires:
+                    idx_sum.remove(i + 1)
+                probs = (x.abs() ** 2).sum(idx_sum)
+                out = []
+                for i, prob in enumerate(probs):
+                    prob = prob.reshape(-1)
+                    sample = torch.multinomial(prob, 1)[0]
+                    proj = torch.zeros_like(prob)
+                    proj[sample] = 1 / prob[sample] ** 0.5
+                    reset = torch.ones_like(prob).diag_embed()
+                    reset[0, 0] = 0
+                    reset[sample, sample] = 0
+                    reset[0, sample] = 1
+                    mat = reset @ proj.diag_embed() + 0j
+                    out.append(evolve_state(x[i:i+1], mat, self.nqubit, wires))
+                x = torch.cat(out)
+        if not self.tsr_mode:
+            x = self.vector_rep(x).squeeze(0)
+        return x
+
+    def _qasm(self) -> str:
+        qasm_lst = []
+        for wire in self.wires:
+            qasm_lst.append(f'reset q[{wire}];\n')
+        return ''.join(qasm_lst)
+
+
 class Barrier(Gate):
     """Barrier.
 
@@ -2779,12 +2860,17 @@ class Barrier(Gate):
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
+        name (str, optional): The name of the gate. Default: ``'Barrier'``
     """
-    def __init__(self, nqubit: int = 1, wires: Union[int, List[int], None] = None) -> None:
+    def __init__(self, nqubit: int = 1, wires: Union[int, List[int], None] = None, name: str = 'Barrier') -> None:
         if wires is None:
             wires = list(range(nqubit))
-        super().__init__(name='Barrier', nqubit=nqubit, wires=wires)
+        super().__init__(name=name, nqubit=nqubit, wires=wires)
         self.nancilla = 0
+
+    def to(self, arg: Any) -> 'Barrier':
+        """Set dtype or device of the ``Barrier``."""
+        return self
 
     def forward(self, x: Any) -> Any:
         """Perform a forward pass."""
@@ -2801,3 +2887,60 @@ class Barrier(Gate):
         assert len(ancilla) == self.nancilla
         self.nodes = nodes
         return nn.Sequential()
+
+
+class WireCut(Barrier):
+    """Wire Cut.
+
+    Args:
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (int or List[int], optional): The indices of the qubits that the quantum operation acts on. Default: 0
+    """
+    def __init__(self, nqubit: int = 1, wires: Union[int, List[int]] = 0) -> None:
+        super().__init__(name='WireCut', nqubit=nqubit, wires=wires)
+
+
+class Move(DoubleGate):
+    r"""Move, a two-qubit operation representing a reset of the second qubit followed by a swap.
+
+    Args:
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+        wires (List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        postselect (int or None, optional): The postselected value. Default: 0 (``None`` means no postselection,
+            which is not compatible with vmap)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
+            Default: ``False``
+    """
+    def __init__(
+        self,
+        nqubit: int = 2,
+        wires: Optional[List[int]] = None,
+        postselect: Optional[int] = 0,
+        tsr_mode: bool = False
+    ) -> None:
+        super().__init__(name='Move', nqubit=nqubit, wires=wires, tsr_mode=tsr_mode)
+        reset = Reset(nqubit=nqubit, wires=self.wires[1], postselect=postselect, tsr_mode=True)
+        swap = Swap(nqubit=nqubit, wires=self.wires, tsr_mode=True)
+        self.gates = nn.Sequential(reset, swap)
+
+    def to(self, arg: Any) -> 'Move':
+        """Set dtype or device of the ``Move``."""
+        for gate in self.gates:
+            gate.to(arg)
+        return self
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Perform a forward pass."""
+        if not self.tsr_mode:
+            x = self.tensor_rep(x)
+        x = self.gates(x)
+        if not self.tsr_mode:
+            return self.vector_rep(x).squeeze(0)
+        return x
+
+    def qpd(self, label: Optional[int] = None) -> 'MoveQPD':
+        """Get the quasiprobability-decomposition representation."""
+        from .qpd import MoveQPD
+        return MoveQPD(nqubit=self.nqubit, wires=self.wires, label=label, tsr_mode=self.tsr_mode)
