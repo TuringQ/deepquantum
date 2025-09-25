@@ -508,3 +508,64 @@ def align_shape(cov: torch.Tensor, mean: torch.Tensor, weight: torch.Tensor) -> 
         if mean.shape[0] == 1:
             mean = mean.expand(ncomb, -1, -1)
     return [cov, mean, weight]
+
+def sqrtm_torch(mat):
+    """
+    sqrtm for real symmetric matrix
+    """
+    s, u = torch.linalg.eig(mat)
+    return u @ torch.sqrt(torch.diag_embed(s)) @ torch.linalg.inv(u)
+
+def schur_antisymm_torch(a):
+    """
+    schur decomposition for real antisymmetric matrix
+    """
+    assert torch.allclose(a, -a.mT, rtol=1e-05, atol=1e-05)
+    r1 = a
+    r2 = -r1*1j # hermitian
+    s, u = torch.linalg.eigh(r2)
+    s_half = s[int(len(s)/2):]
+    s_half = s_half.to(r1)
+
+    T  = torch.zeros_like(r1, dtype=r1.dtype, device=r1.device)
+    list_1 = torch.arange(0, len(r1)-1, 2)
+    list_2 = torch.arange(1, len(r1), 2)
+    T[list_1, list_2]  = s_half
+    T[list_2, list_1]  = -s_half
+
+    O = torch.zeros_like(r1, dtype=r1.dtype, device=r1.device)
+    O[:, ::2] = u[:,int(len(s)/2):].real
+    O[:, 1::2] = u[:,int(len(s)/2):].imag
+    norm = torch.norm(O, p=2, dim=0, keepdim=True)
+    O_norm =  O / norm
+
+    return T, O_norm
+
+def williamson(cov):
+    (n, m) = cov.shape
+    if n != m:
+        raise ValueError("The input matrix is not square")
+    assert torch.allclose(cov, cov.mT, rtol=1e-05, atol=1e-05), "The input matrix is not symmetric"
+    if n % 2 != 0:
+        raise ValueError("The input matrix must have an even number of rows/columns")
+    n = n // 2
+    nmode = n
+    identity = torch.diag_embed(torch.cat([-torch.ones(nmode), torch.ones(nmode)]))
+    identity = identity.to(cov)
+    omega = identity.reshape(2, nmode, 2 * nmode).flip(0).reshape(2 * nmode, 2 * nmode)
+    vals = torch.linalg.eigvalsh(cov)
+    assert torch.all(vals > 0), "Matrix must be positive definite."
+    Mm12 = sqrtm_torch(torch.linalg.inv(cov)).real
+    r1 = Mm12 @ omega @ Mm12  # antisymmetric
+    s1, K = schur_antisymm_torch(r1) # pytorch
+    perm_indices = torch.arange(2 * n).reshape(-1, 2).T.flatten()
+    dd = s1[:,perm_indices][perm_indices]
+    Ktt = K[:, perm_indices]
+    Db_half = dd[torch.arange(n), torch.arange(n)+n]
+    Db_half_inv = 1/Db_half
+    Db = torch.diag(torch.cat([Db_half_inv, Db_half_inv]))
+
+    S = Mm12 @ Ktt @ torch.sqrt(Db)
+    S = torch.linalg.inv(S).mT
+    T = Db
+    return T, S, omega

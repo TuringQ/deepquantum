@@ -28,7 +28,7 @@ from .measurement import Homodyne
 from .operation import Operation, Gate, Channel, Delay
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
 from .qmath import photon_number_mean_var, measure_fock_tensor, sample_homodyne_fock, sample_reject_bosonic
-from .qmath import quadrature_to_ladder, shift_func, align_shape
+from .qmath import quadrature_to_ladder, shift_func, align_shape, williamson
 from .state import FockState, GaussianState, BosonicState, CatState, GKPState, DistributedFockState
 from .state import combine_bosonic_states
 from .torontonian_ import torontonian
@@ -1024,7 +1024,7 @@ class QumodeCircuit(Operation):
             mean = self._mean
         else:
             if not isinstance(state, GaussianState):
-                state = GaussianState(state=state, nmode=self.nmode, cutoff=self.cutoff)
+                state = GaussianState(state=state, cutoff=self.cutoff)
             cov = state.cov
             mean = state.mean
         if cov.ndim == 2:
@@ -1384,7 +1384,6 @@ class QumodeCircuit(Operation):
     ) -> List[Dict]:
         """Measure the final state for Gaussian backend."""
         if isinstance(self.state, List):
-            print('Automatically using MCMC to sample the final states!')
             return self._measure_gaussian_state(shots, with_prob, wires, detector)
         elif isinstance(self.state, Dict):
             assert not mcmc, "Final states have been calculated, we don't need mcmc!"
@@ -1401,9 +1400,27 @@ class QumodeCircuit(Operation):
         cov, mean = self.state
         batch = cov.shape[0]
         all_results = []
-        for i in range(batch):
-            samples_i = self._sample_mcmc_gaussian(shots=shots, cov=cov[i], mean=mean[i],
-                                                   detector=detector, num_chain=5)
+        all_samples = []
+        if shots < 1e6: # chain-rule method with small number of shots
+            print('Automatically using chain-rule method to sample the final states!')
+            samples = []
+            for _ in range(shots):
+                sample = self._generate_chain_sample(wires)
+                samples.append(sample)
+                print(_, end='\r')
+            samples = torch.stack(samples).permute(1,0,2) # (batch, shots, wires)
+            for i in range(batch):
+                list_sample = samples[i].tolist()
+                tuple_sample = [tuple(s) for s in list_sample]
+                samples_i = defaultdict(int, Counter(tuple_sample))
+                all_samples.append(samples_i)
+        else:
+            print('Automatically using MCMC method to sample the final states!')
+            for i in range(batch):
+                samples_i = self._sample_mcmc_gaussian(shots=shots, cov=cov[i], mean=mean[i],
+                                                       detector=detector, num_chain=5)
+                all_samples.append(samples_i)
+        for samples_i in all_samples: # post-process samples for chain-rule and mcmc method
             results = defaultdict(list)
             if with_prob:
                 for k in samples_i:
@@ -1473,7 +1490,7 @@ class QumodeCircuit(Operation):
         return sample
 
     def _generate_chain_sample(self, wires: Union[int, List[int], None] = None) -> torch.Tensor:
-        """Generate random samples via chain rule.
+        """Generate single random sample via chain rule.
 
         Args:
             wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
@@ -1483,20 +1500,50 @@ class QumodeCircuit(Operation):
         Returns:
             torch.Tensor: Tensor of shape (batch, nwire).
         """
+        ### add prob gaussian for single mode, mps=False
         if wires is None:
             wires = self.wires
         wires = sorted(self._convert_indices(wires))
+        wires = torch.tensor(wires)
         sample = []
-        mps = copy(self.state)
-        if mps[0].ndim == 3:
-            mps = [site.unsqueeze(0) for site in mps]
-        for i in wires:
-            p = vmap(get_prob_mps)(mps, wire=i)
-            sample_single_wire = torch.multinomial(p, num_samples=1)
-            sample.append(sample_single_wire)
-            index = sample_single_wire.reshape(-1, 1, 1, 1).expand(-1, mps[i].shape[-3], -1, mps[i].shape[-1])
-            mps[i] = torch.gather(mps[i], dim=2, index=index)
-        sample = torch.stack(sample, dim=-1).squeeze(1)
+        if self.backend == 'gaussian': # chain rule for GBS # 尝试写到qmath，或者新建一个函数_generate_chain_sample_gaussian
+            purity = GaussianState(self.state).is_pure
+            cov, mean = self.state
+            batch = cov.shape[0]
+            if purity: # 直接进行chain rule 采样
+                for k in range(batch):
+                    sample_k = [] # single batch
+                    for i in range(1, len(wires)+1):
+                        idx = torch.cat([wires[:i], wires[:i] + self.nmode])
+                        cov_sub = cov[k, idx[:, None], idx]
+                        mean_sub = mean[k, idx, :]
+                        s_sub = [torch.tensor(sample_k + [ii]) for ii in range(self.cutoff)]
+                        p_list = []
+                        for s in s_sub:
+                            p_temp = self._get_probs_gaussian_helper(s, cov=cov_sub,
+                                                                     mean=mean_sub,
+                                                                     detector=self.detector)[0]
+                            p_list.append(p_temp)
+                        sample_single_wire = torch.multinomial(torch.tensor(p_list), num_samples=1)
+                        sample_k.append(sample_single_wire)
+                    sample.append(torch.stack(sample_k).flatten())
+                sample = torch.stack(sample)
+            else: # 做willianmson 分解将mixed state分解为多个pure state
+                print('perform sampling for mixed state')
+        if self.backend == 'fock':
+            if self.mps:
+                mps = copy(self.state)
+                if mps[0].ndim == 3:
+                    mps = [site.unsqueeze(0) for site in mps]
+                for i in wires:
+                    p = vmap(get_prob_mps)(mps, wire=i)
+                    sample_single_wire = torch.multinomial(p, num_samples=1)
+                    sample.append(sample_single_wire)
+                    index = sample_single_wire.reshape(-1, 1, 1, 1).expand(-1, mps[i].shape[-3], -1, mps[i].shape[-1])
+                    mps[i] = torch.gather(mps[i], dim=2, index=index)
+                sample = torch.stack(sample, dim=-1).squeeze(1)
+            else:
+                print('not implemented for fock case')
         return sample
 
     def photon_number_mean_var(
