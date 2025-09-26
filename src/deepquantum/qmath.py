@@ -646,6 +646,10 @@ def sample_sc_mcmc(
     samples_chain = []
     merged_samples = defaultdict(int)
     cache_prob = {}
+    if shots <= 0:
+        return merged_samples
+    elif shots < num_chain:
+        num_chain = shots
     shots_lst = [shots // num_chain] * num_chain
     shots_lst[-1] += shots % num_chain
     for trial in range(num_chain):

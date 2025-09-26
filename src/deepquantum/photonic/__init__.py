@@ -30,7 +30,7 @@ from .gate import QuadraticPhase, ControlledX, ControlledZ, CubicPhase, Kerr, Cr
 from .hafnian_ import hafnian
 from .mapper import UnitaryMapper
 from .measurement import Generaldyne, Homodyne, GeneralBosonic, PhotonNumberResolvingBosonic
-from .qmath import permanent, takagi, xxpp_to_xpxp, xpxp_to_xxpp, quadrature_to_ladder, ladder_to_quadrature
+from .qmath import permanent, takagi, xxpp_to_xpxp, xpxp_to_xxpp, quadrature_to_ladder, ladder_to_quadrature, williamson
 from .state import FockState, GaussianState, BosonicState, CatState, GKPState, FockStateBosonic, DistributedFockState
 from .tdm import QumodeCircuitTDM
 from .torontonian_ import torontonian
