@@ -1475,7 +1475,7 @@ class DistributedQubitCircuit(QubitCircuit):
         if shots is None:
             parameters = []
             for op in self.operators:
-                if isinstance(op, (Layer, CombinedSingleGate)):
+                if isinstance(op, CombinedSingleGate):
                     gates = op.gates
                 elif isinstance(op, Gate):
                     gates = [op]
@@ -1511,7 +1511,10 @@ class DistributedQubitCircuit(QubitCircuit):
                 state = cir_basis(state=state)
                 wires = sum(observable.wires, [])
                 samples = measure_dist(state=state, shots=shots, wires=wires)
-                expval = sample2expval(sample=samples).to(dtype).to(device).squeeze(0)
+                if self.state.rank == 0:
+                    expval = sample2expval(sample=samples).to(dtype).to(device).squeeze(0)
+                else:
+                    expval = torch.tensor([], dtype=dtype, device=device)
                 out.append(expval)
         out = torch.stack(out, dim=-1)
         return out

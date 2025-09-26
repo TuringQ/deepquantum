@@ -231,10 +231,12 @@ def measure_dist(
     else:
         nqubit_local = state.log_num_amps_per_node
         nqubit_global = state.log_num_nodes
+        probs = torch.abs(state.amps) ** 2
         if isinstance(wires, int):
             wires = [wires]
         num_bits = len(wires) if wires else state.nqubit
         if wires is not None:
+            probs = probs.reshape([2] * nqubit_local)
             targets = [state.nqubit - wire - 1 for wire in wires]
             pm_shape = list(range(nqubit_local))
             # Assume nqubit_global < nqubit_local
@@ -243,14 +245,13 @@ def measure_dist(
                     targets_new = get_local_targets(targets, nqubit_local)
                     for i in range(num_bits):
                         if targets_new[i] != targets[i]:
-                            dist_swap_gate(state, targets_new[i], targets[i])
+                            dist_swap_gate(state, targets[i], targets_new[i])
                     wires_local = sorted([nqubit_local - target - 1 for target in targets_new])
                 else:
                     wires_local = sorted([nqubit_local - target - 1 for target in targets])
                 for w in wires_local:
                     pm_shape.remove(w)
                 pm_shape = wires_local + pm_shape
-                probs = (torch.abs(state.amps) ** 2).reshape([2] * nqubit_local)
                 probs = probs.permute(pm_shape).reshape([2] * num_bits + [-1]).sum(-1).reshape(-1)
                 dist.all_reduce(probs, dist.ReduceOp.SUM)
                 if state.rank == 0:
@@ -259,7 +260,7 @@ def measure_dist(
                     if with_prob:
                         for k in results:
                             index = int(k, 2)
-                            results[k] = results[k], probs[index]
+                            results[k] = results[k], probs[index].item()
                     return results
                 return {}
             else: # All targets are sorted, then move to global qubits
@@ -275,10 +276,7 @@ def measure_dist(
                 for w in wires_local:
                     pm_shape.remove(w)
                 pm_shape = wires_local + pm_shape
-                probs = (torch.abs(state.amps) ** 2).reshape([2] * nqubit_local)
                 probs = probs.permute(pm_shape).reshape([2] * len(wires_local) + [-1]).sum(-1).reshape(-1)
-        else:
-            probs = torch.abs(state.amps) ** 2
         probs_rank = probs.new_empty(state.world_size)
         dist.all_gather_into_tensor(probs_rank, probs.sum().unsqueeze(0))
         blocks = torch.multinomial(probs_rank, shots, replacement=True)
@@ -287,19 +285,17 @@ def measure_dist(
         key_offset = state.rank << (num_bits - nqubit_global)
         if state.rank in block_dict:
             samples = Counter(block_sample(probs, block_dict[state.rank], block_size))
-            results = {bin(key + key_offset)[2:].zfill(num_bits): value for key, value in samples.items()}
+            results = {key + key_offset: value for key, value in samples.items()}
         else:
             results = {}
         if with_prob:
             for k in results:
-                index = int(k, 2) - key_offset
-                results[k] = results[k], probs[index]
+                index = k - key_offset
+                results[k] = results[k], probs[index].item()
         results_lst = [None] * state.world_size
         dist.all_gather_object(results_lst, results)
         if state.rank == 0:
-            results = {}
-            for r in results_lst:
-                results.update(r)
+            results = {bin(key)[2:].zfill(num_bits): value for r in results_lst for key, value in r.items()}
             return results
         else:
             return {}
