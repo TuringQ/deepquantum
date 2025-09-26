@@ -18,6 +18,7 @@ from . import gate
 from . import layer
 from . import operation
 from . import optimizer
+from . import qasm3
 from . import qmath
 from . import qpd
 from . import state
@@ -52,6 +53,7 @@ from .gate import CNOT, Swap, Rxx, Ryy, Rzz, Rxy, ReconfigurableBeamSplitter, To
 from .gate import UAnyGate, LatentGate, HamiltonianGate, Barrier
 from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer, RyLayer, RzLayer
 from .layer import CnotLayer, CnotRing
+from .qasm3 import dq_to_qasm3, qasm3_to_dq
 from .qmath import multi_kron, partial_trace, amplitude_encoding, measure, expectation
 from .qmath import meyer_wallach_measure
 from .state import QubitState, MatrixProductState, DistributedQubitState
