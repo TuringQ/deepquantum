@@ -1408,7 +1408,6 @@ class QumodeCircuit(Operation):
             for _ in range(shots):
                 sample = self._generate_chain_sample(wires)
                 samples.append(sample)
-                print(_, end='\r')
             samples = torch.stack(samples).permute(1,0,2) # (batch, shots, wires)
             for i in range(batch):
                 list_sample = samples[i].tolist()
@@ -1559,16 +1558,17 @@ class QumodeCircuit(Operation):
 
         def _sample_single_batch_mixed(cov_k, mean_k, wires, nmode, cutoff, detector, eps=1e-6):
             """Sample single batch for mixed state"""
+            device = cov_k.device
             t, s, o = williamson(cov_k)
             cov_t = 0.5 * dqp.hbar * s @ s.mT
             cov_w = cov_k - cov_t  # cov_mix = cov_t + cov_w
-            cov_w = cov_w + eps * torch.eye(cov_w.size(0))
+            cov_w = cov_w + eps * torch.eye(cov_w.size(0), device=device)
             x0 = MultivariateNormal(mean_k.squeeze(-1), cov_w).sample([1])[0]
             sample_k = []
             mean_m = None
             for i in range(1, len(wires) + 1):
                 wires_k = wires[i:].tolist()
-                cov_m = 0.5 * dqp.hbar * torch.eye(2 * len(wires_k))  # See Eq.5.18 in ref
+                cov_m = 0.5 * dqp.hbar * torch.eye(2 * len(wires_k), device=device)  # See Eq.5.18 in ref
                 heterodyne = Generaldyne(cov_m=cov_m, wires=wires_k, nmode=nmode)
                 # collaspse the state
                 x = [cov_t.unsqueeze(0), x0.reshape(1, -1, 1)]
