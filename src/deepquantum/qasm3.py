@@ -334,7 +334,8 @@ def qasm3_to_cir(qasm_string: str) -> QubitCircuit:
                 target = all_qubits_after_mods[1]
                 if len(final_controls) == 1:
                     circuit_obj.cnot(control=final_controls[0], target=target)
-                else: circuit_obj.x(wires=target, controls=final_controls)
+                else:
+                    circuit_obj.x(wires=target, controls=final_controls)
             elif gate_name == 'cz':
                 final_controls = total_controls + [all_qubits_after_mods[0]]
                 target = all_qubits_after_mods[1]
@@ -344,13 +345,15 @@ def qasm3_to_cir(qasm_string: str) -> QubitCircuit:
                 target = all_qubits_after_mods[2]
                 if len(final_controls) == 2:
                     circuit_obj.toffoli(control1=final_controls[0], control2=final_controls[1], target=target)
-                else: circuit_obj.x(wires=target, controls=final_controls)
+                else:
+                    circuit_obj.x(wires=target, controls=final_controls)
             elif gate_name == 'cswap':
                 final_controls = total_controls + [all_qubits_after_mods[0]]
                 targets = all_qubits_after_mods[1:3]
                 if len(final_controls) == 1:
                     circuit_obj.fredkin(control=final_controls[0], target1=targets[0], target2=targets[1])
-                else: circuit_obj.swap(wires=targets, controls=final_controls)
+                else:
+                    circuit_obj.swap(wires=targets, controls=final_controls)
             else:
                 targets = all_qubits_after_mods
                 target_arg = targets[0] if len(targets) == 1 else targets
