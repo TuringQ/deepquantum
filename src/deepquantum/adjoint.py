@@ -12,7 +12,7 @@ from torch.autograd import Function
 
 from .distributed import dist_one_targ_gate, dist_many_ctrl_one_targ_gate, dist_many_targ_gate, inner_product_dist
 from .gate import SingleGate, CombinedSingleGate
-from .operation import Gate, Layer
+from .operation import Gate
 from .state import DistributedQubitState
 
 if TYPE_CHECKING:
@@ -51,7 +51,7 @@ class AdjointExpectation(Function):
         grads = []
         idx = 1
         for op in ctx.operators[::-1]:
-            if isinstance(op, (Layer, CombinedSingleGate)):
+            if isinstance(op, CombinedSingleGate):
                 gates = op.gates
             elif isinstance(op, Gate):
                 gates = [op]
