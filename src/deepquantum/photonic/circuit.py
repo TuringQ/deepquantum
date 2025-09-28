@@ -1557,31 +1557,33 @@ class QumodeCircuit(Operation):
                 sample_k.append(sample_single_wire)
             return torch.stack(sample_k).flatten()
 
-        def _sample_single_batch_mixed(cov_k, mean_k, wires, nmode, cutoff, detector):
+        def _sample_single_batch_mixed(cov_k, mean_k, wires, nmode, cutoff, detector, eps=1e-6):
             """Sample single batch for mixed state"""
-
-            # cov_mix = cov_t + cov_w
             t, s, o = williamson(cov_k)
             cov_t = 0.5 * dqp.hbar * s @ s.mT
-            cov_w = cov_k - cov_t
-
-            # sample quadrature x with covariance w
+            cov_w = cov_k - cov_t  # cov_mix = cov_t + cov_w
+            cov_w = cov_w + eps * torch.eye(cov_w.size(0))
             x0 = MultivariateNormal(mean_k.squeeze(-1), cov_w).sample([1])[0]
             sample_k = []
-
+            mean_m = None
             for i in range(1, len(wires) + 1):
-                # sample all modes but the first and continue
                 wires_k = wires[i:].tolist()
                 cov_m = 0.5 * dqp.hbar * torch.eye(2 * len(wires_k))  # See Eq.5.18 in ref
-                generaldyne = Generaldyne(cov_m=cov_m, wires=wires_k, nmode=nmode)
+                heterodyne = Generaldyne(cov_m=cov_m, wires=wires_k, nmode=nmode)
                 # collaspse the state
                 x = [cov_t.unsqueeze(0), x0.reshape(1, -1, 1)]
-                cov_out, mean_out = generaldyne(x) if i < len(wires) else x
-
+                if i < len(wires):
+                    cov_out, mean_out = heterodyne(x, mean_m)
+                    mean_m = heterodyne.samples[0] # with batch
+                    mask = torch.ones_like(mean_m, dtype=bool)
+                    idx_discard = torch.tensor([0, len(mean_m)//2], device=mask.device)
+                    mask[idx_discard] = False
+                    mean_m = mean_m[idx_discard] # discard the first mode
+                else:
+                    cov_out, mean_out = x
                 idx = torch.cat([wires[:i], wires[:i] + nmode])
                 cov_sub = cov_out[0, idx[:, None], idx]
                 mean_sub = mean_out[0, idx, :]
-
                 sample_single_wire = _sample_wire(sample_k, cov_sub, mean_sub, cutoff, detector)
                 sample_k.append(sample_single_wire)
             return torch.stack(sample_k).flatten()
