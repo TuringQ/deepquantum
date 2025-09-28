@@ -78,7 +78,7 @@ def _op_to_qasm3(op: Operation) -> str:
     return f"{ctrl_modifiers}{qasm_name}{param_str} {qubits_str};"
 
 
-def dq_to_qasm3(circuit: QubitCircuit) -> str:
+def cir_to_qasm3(circuit: QubitCircuit) -> str:
     """Converts ``QubitCircuit`` to an OpenQASM 3.0 string.
 
     Args:
@@ -127,7 +127,7 @@ class GateDefinition:
         self.name, self.params, self.qubits, self.body = name, params, qubits, body
 
 
-def qasm3_to_dq(qasm_string: str) -> QubitCircuit:
+def qasm3_to_cir(qasm_string: str) -> QubitCircuit:
     """Converts a full-featured OpenQASM 3.0 string to ``QubitCircuit``.
     Supports: `def`, `inv @`, `ctrl @`, and floating-point/negative `pow() @`.
     """
@@ -214,7 +214,7 @@ def qasm3_to_dq(qasm_string: str) -> QubitCircuit:
             temp_qasm.append(f"def {name}{params_def} {qubits_def} {{\n  {body_def}\n}}")
         temp_qasm.append(fake_line)
 
-        temp_circ = qasm3_to_dq("\n".join(temp_qasm))
+        temp_circ = qasm3_to_cir("\n".join(temp_qasm))
 
         return temp_circ.get_unitary()
 
