@@ -341,6 +341,72 @@ def takagi(a: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
                     return v, diag
 
 
+def sqrtm_symmetric(mat):
+    """Compute the matrix square root of a real symmetric matrix using eigenvalue decomposition."""
+    s, u = torch.linalg.eigh(mat)
+    return u @ s.sqrt().diag_embed() @ u.inverse()
+
+
+def schur_antisymmetric(a):
+    """Perform Schur decomposition for a real antisymmetric matrix.
+
+    This function decomposes a real antisymmetric matrix A into the form
+    :math:`A = O T O^T`, where O is an orthogonal matrix and T is a block-diagonal
+    matrix with 2x2 antisymmetric blocks.
+    """
+    assert torch.allclose(a, -a.mT, rtol=1e-05, atol=1e-05)
+    r1 = a
+    r2 = -r1 * 1j # hermitian
+    s, u = torch.linalg.eigh(r2)
+    s_half = s[int(len(s)/2):]
+    t = torch.zeros_like(r1)
+    list_1 = torch.arange(0, len(r1) - 1, 2)
+    list_2 = torch.arange(1, len(r1), 2)
+    t[list_1, list_2] = s_half
+    t[list_2, list_1] = -s_half
+    o = torch.zeros_like(r1)
+    o[:, ::2] = u[:,int(len(s)/2):].real
+    o[:, 1::2] = u[:,int(len(s)/2):].imag
+    norm = torch.norm(o, p=2, dim=0, keepdim=True)
+    o_norm =  o / norm
+    return t, o_norm
+
+
+def williamson(cov):
+    """ Perform willianmson decomposition for real symmetric positive definite matrix.
+
+    The Williamson decomposition decomposes a real symmetric positive definite matrix
+    V into the form :math:`V = S D S^T`, where S is a symplectic matrix and D is a
+    diagonal matrix with the symplectic eigenvalues.
+
+    See https://arxiv.org/abs/2403.04596 Box 5
+    """
+    n, m = cov.shape
+    if n != m:
+        raise ValueError('The input matrix is not square')
+    assert torch.allclose(cov, cov.mT, rtol=1e-05, atol=1e-05), 'The input matrix is not symmetric'
+    if n % 2 != 0:
+        raise ValueError('The input matrix must have an even number of rows/columns')
+    nmode = n // 2
+    omega = torch.diag_embed(torch.cat([-cov.new_ones(nmode), cov.new_ones(nmode)]))
+    omega = omega.reshape(2, nmode, 2 * nmode).flip(0).reshape(2 * nmode, 2 * nmode)
+    vals = torch.linalg.eigvalsh(cov)
+    assert torch.all(vals > 0), 'Matrix must be positive definite.'
+    inv_sqrt = sqrtm_symmetric(cov.inverse())
+    psi = inv_sqrt @ omega @ inv_sqrt  # antisymmetric
+    s1, o1 = schur_antisymmetric(psi)
+    perm_indices = torch.arange(2 * nmode).reshape(-1, 2).T.flatten()
+    s2 = s1[:, perm_indices][perm_indices]
+    o2 = o1[:, perm_indices]
+    idx = torch.arange(nmode, device=cov.device)
+    s2_half = s2[idx, idx + nmode]
+    s2_half_inv = 1 / s2_half
+    diag = torch.diag(torch.cat([s2_half_inv, s2_half_inv]))
+    s = inv_sqrt @ o2 @ torch.sqrt(diag)
+    s = s.inverse().mT
+    return diag, s
+
+
 def measure_fock_tensor(
     state: torch.Tensor,
     shots: int = 1024,
@@ -508,66 +574,3 @@ def align_shape(cov: torch.Tensor, mean: torch.Tensor, weight: torch.Tensor) -> 
         if mean.shape[0] == 1:
             mean = mean.expand(ncomb, -1, -1)
     return [cov, mean, weight]
-
-def sqrtm_symmetric(mat):
-    """Compute the matrix square root of a real symmetric matrix using eigenvalue decomposition.
-    """
-    s, u = torch.linalg.eig(mat)
-    return u @ torch.sqrt(torch.diag_embed(s)) @ torch.linalg.inv(u)
-
-def schur_antisymmetric(a):
-    """Perform Schur decomposition for a real antisymmetric matrix.
-    This function decomposes a real antisymmetric matrix A into the form
-    A = O @ T @ O^T, where O is an orthogonal matrix and T is a block-diagonal
-    matrix with 2x2 antisymmetric blocks.
-    """
-    assert torch.allclose(a, -a.mT, rtol=1e-05, atol=1e-05)
-    r1 = a
-    r2 = -r1 * 1j # hermitian
-    s, u = torch.linalg.eigh(r2)
-    s_half = s[int(len(s)/2):]
-    s_half = s_half.to(r1)
-    t  = torch.zeros_like(r1, dtype=r1.dtype, device=r1.device)
-    list_1 = torch.arange(0, len(r1)-1, 2)
-    list_2 = torch.arange(1, len(r1), 2)
-    t[list_1, list_2]  = s_half
-    t[list_2, list_1]  = -s_half
-    o = torch.zeros_like(r1, dtype=r1.dtype, device=r1.device)
-    o[:, ::2] = u[:,int(len(s)/2):].real
-    o[:, 1::2] = u[:,int(len(s)/2):].imag
-    norm = torch.norm(o, p=2, dim=0, keepdim=True)
-    o_norm =  o / norm
-    return t, o_norm
-
-def williamson(cov):
-    """ Perform willianmson decomposition for real symmetric positive definite matrix.
-    The Williamson decomposition decomposes a real symmetric positive definite matrix
-    V into the form V = S @ D @ S^T, where S is a symplectic matrix and D is a
-    diagonal matrix with the symplectic eigenvalues.
-
-    See https://arxiv.org/abs/2403.04596 Box 5
-    """
-    (n, m) = cov.shape
-    if n != m:
-        raise ValueError("The input matrix is not square")
-    assert torch.allclose(cov, cov.mT, rtol=1e-05, atol=1e-05), "The input matrix is not symmetric"
-    if n % 2 != 0:
-        raise ValueError("The input matrix must have an even number of rows/columns")
-    nmode = n // 2
-    identity = torch.diag_embed(torch.cat([-torch.ones(nmode), torch.ones(nmode)]))
-    identity = identity.to(cov)
-    omega = identity.reshape(2, nmode, 2 * nmode).flip(0).reshape(2 * nmode, 2 * nmode)
-    vals = torch.linalg.eigvalsh(cov)
-    assert torch.all(vals > 0), "Matrix must be positive definite."
-    inv_sqrt = sqrtm_symmetric(torch.linalg.inv(cov)).real
-    psi = inv_sqrt @ omega @ inv_sqrt  # antisymmetric
-    s1, o1 = schur_antisymmetric(psi)
-    perm_indices = torch.arange(2 * nmode).reshape(-1, 2).T.flatten()
-    s2 = s1[:,perm_indices][perm_indices]
-    o2 = o1[:, perm_indices]
-    s2_half = s2[torch.arange(nmode), torch.arange(nmode) + nmode]
-    s2_half_inv = 1/s2_half
-    diag = torch.diag(torch.cat([s2_half_inv, s2_half_inv]))
-    s = inv_sqrt @ o2 @ torch.sqrt(diag)
-    s = torch.linalg.inv(s).mT
-    return diag, s, omega

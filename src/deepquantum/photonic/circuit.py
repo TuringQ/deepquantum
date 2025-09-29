@@ -1559,7 +1559,7 @@ class QumodeCircuit(Operation):
         def _sample_single_batch_mixed(cov_k, mean_k, wires, nmode, cutoff, detector, eps=1e-6):
             """Sample single batch for mixed state"""
             device = cov_k.device
-            t, s, o = williamson(cov_k)
+            _, s= williamson(cov_k)
             cov_t = 0.5 * dqp.hbar * s @ s.mT
             cov_w = cov_k - cov_t  # cov_mix = cov_t + cov_w
             cov_w = cov_w + eps * torch.eye(cov_w.size(0), device=device)
