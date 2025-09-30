@@ -1427,11 +1427,11 @@ class QumodeCircuit(Operation):
                 sample_tup = [tuple(s) for s in sample_lst]
                 samples_i = defaultdict(int, Counter(sample_tup))
                 all_samples.append(samples_i)
-        for samples_i in all_samples: # post-process samples
+        for i, samples_i in enumerate(all_samples): # post-process samples
             results = defaultdict(list)
             if with_prob:
                 for k in samples_i:
-                    prob = self._get_prob_gaussian(k)
+                    prob = self._get_prob_gaussian(k, [cov[i], mean[i]])
                     samples_i[k] = samples_i[k], prob
             for key in samples_i.keys():
                 state_b = [key[wire] for wire in wires]
