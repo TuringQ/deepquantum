@@ -60,6 +60,8 @@ cd deepquantum
 pip install -e .
 # or use tsinghua source
 pip install -e . -i https://pypi.tuna.tsinghua.edu.cn/simple
+# for developers
+pip install -r requirements-dev.txt
 ```
 
 # Getting Started
