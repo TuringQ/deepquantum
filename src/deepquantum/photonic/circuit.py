@@ -1385,7 +1385,7 @@ class QumodeCircuit(Operation):
     ) -> List[Dict]:
         """Measure the final state for Gaussian backend."""
         if isinstance(self.state, List):
-            return self._measure_gaussian_state(shots, with_prob, wires, detector)
+            return self._measure_gaussian_state(shots, with_prob, wires, detector, mcmc)
         elif isinstance(self.state, Dict):
             assert not mcmc, "Final states have been calculated, we don't need mcmc!"
             print('Automatically using the default detector!')
@@ -1393,7 +1393,14 @@ class QumodeCircuit(Operation):
         else:
             assert False, 'Check your forward function or input!'
 
-    def _measure_gaussian_state(self, shots: int, with_prob: bool, wires: List[int], detector: str) -> List[Dict]:
+    def _measure_gaussian_state(
+        self,
+        shots: int,
+        with_prob: bool,
+        wires: List[int],
+        detector: str,
+        mcmc: bool
+    ) -> List[Dict]:
         """Measure the final state according to Gaussian state for Gaussian backend.
 
         See https://arxiv.org/pdf/2108.01622
@@ -1402,25 +1409,25 @@ class QumodeCircuit(Operation):
         batch = cov.shape[0]
         all_results = []
         all_samples = []
-        if shots < 1e6: # chain-rule method with small number of shots
-            print('Automatically using chain-rule method to sample the final states!')
-            samples = []
-            for _ in range(shots):
-                sample = self._generate_chain_sample(wires)
-                samples.append(sample)
-            samples = torch.stack(samples).permute(1,0,2) # (batch, shots, wires)
-            for i in range(batch):
-                list_sample = samples[i].tolist()
-                tuple_sample = [tuple(s) for s in list_sample]
-                samples_i = defaultdict(int, Counter(tuple_sample))
-                all_samples.append(samples_i)
-        else:
-            print('Automatically using MCMC method to sample the final states!')
+        if mcmc:
+            print('Using MCMC method to sample the final states!')
             for i in range(batch):
                 samples_i = self._sample_mcmc_gaussian(shots=shots, cov=cov[i], mean=mean[i],
                                                        detector=detector, num_chain=5)
                 all_samples.append(samples_i)
-        for samples_i in all_samples: # post-process samples for chain-rule and mcmc method
+        else: # chain-rule method with small number of shots
+            print('Using chain-rule method to sample the final states!')
+            samples = []
+            for _ in range(shots):
+                sample = self._generate_chain_sample(wires)
+                samples.append(sample)
+            samples = torch.stack(samples).permute(1, 0, 2) # (batch, shots, wires)
+            for i in range(batch):
+                sample_lst = samples[i].tolist()
+                sample_tup = [tuple(s) for s in sample_lst]
+                samples_i = defaultdict(int, Counter(sample_tup))
+                all_samples.append(samples_i)
+        for samples_i in all_samples: # post-process samples
             results = defaultdict(list)
             if with_prob:
                 for k in samples_i:
@@ -1478,7 +1485,7 @@ class QumodeCircuit(Operation):
         return tuple(sample.tolist())
 
     def _generate_rand_sample(self, detector: str = 'pnrd'):
-        """Generate random sample according to uniform proposal distribution."""
+        """Generate a random sample according to uniform proposal distribution."""
         if self._if_delayloop:
             nmode = self._nmode_tdm
         else:
@@ -1490,7 +1497,7 @@ class QumodeCircuit(Operation):
         return sample
 
     def _generate_chain_sample(self, wires: Union[int, List[int], None] = None) -> torch.Tensor:
-        """Generate single random sample via chain rule.
+        """Generate batched random samples via chain rule.
 
         Args:
             wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
@@ -1503,98 +1510,90 @@ class QumodeCircuit(Operation):
         if wires is None:
             wires = self.wires
         wires = sorted(self._convert_indices(wires))
-        wires = torch.tensor(wires)
         sample = []
-        if self.backend == 'gaussian': # chain rule for GBS
-            sample = self._generate_chain_sample_gaussian(wires)
         if self.backend == 'fock':
-            if self.mps:
-                mps = copy(self.state)
-                if mps[0].ndim == 3:
-                    mps = [site.unsqueeze(0) for site in mps]
-                for i in wires:
-                    p = vmap(get_prob_mps)(mps, wire=i)
-                    sample_single_wire = torch.multinomial(p, num_samples=1)
-                    sample.append(sample_single_wire)
-                    index = sample_single_wire.reshape(-1, 1, 1, 1).expand(-1, mps[i].shape[-3], -1, mps[i].shape[-1])
-                    mps[i] = torch.gather(mps[i], dim=2, index=index)
-                sample = torch.stack(sample, dim=-1).squeeze(1)
-            else:
-                print('not implemented for fock case')
+            assert self.mps
+            mps = copy(self.state)
+            if mps[0].ndim == 3:
+                mps = [site.unsqueeze(0) for site in mps]
+            for i in wires:
+                p = vmap(get_prob_mps)(mps, wire=i)
+                sample_single_wire = torch.multinomial(p, num_samples=1)
+                sample.append(sample_single_wire)
+                index = sample_single_wire.reshape(-1, 1, 1, 1).expand(-1, mps[i].shape[-3], -1, mps[i].shape[-1])
+                mps[i] = torch.gather(mps[i], dim=2, index=index)
+            sample = torch.stack(sample, dim=-1).squeeze(1)
+        elif self.backend == 'gaussian': # chain rule for GBS
+            sample = self._generate_chain_sample_gaussian(wires)
         return sample
 
-    def _generate_chain_sample_gaussian(self, wires: torch.Tensor) -> torch.Tensor:
-        """Generate single random sample via chain rule for gaussian backend.
+    def _generate_chain_sample_gaussian(self, wires: List[int]) -> torch.Tensor:
+        """Generate batched random samples via chain rule for Gaussian backend.
 
         See https://research-information.bris.ac.uk/en/studentTheses/classical-simulations-of-gaussian-boson-sampling
         Chapter 5
         """
-        sample = []
-        assert self.backend == 'gaussian'
-        purity = GaussianState(self.state).is_pure
-        cov, mean = self.state
-        batch = cov.shape[0]
+        def _sample_wire(sample, cov_sub, mean_sub, cutoff, detector):
+            """Sample for a wire"""
+            states = [torch.tensor(sample + [i], device=cov_sub.device) for i in range(cutoff)]
+            probs = [self._get_probs_gaussian_helper(s, cov_sub, mean_sub, detector) for s in states]
+            sample_wire = torch.multinomial(torch.cat(probs), num_samples=1)
+            return sample_wire
 
-        def _sample_wire(sample_k, cov_sub, mean_sub, cutoff, detector):
-            """Generate a sample for single wire"""
-            s_sub = [torch.tensor(sample_k + [ii]) for ii in range(cutoff)]
-            p_list = [
-                self._get_probs_gaussian_helper(s, cov=cov_sub, mean=mean_sub, detector=detector)[0]
-                for s in s_sub
-            ]
-            sample_single_wire = torch.multinomial(torch.tensor(p_list), num_samples=1)
-            return sample_single_wire
-
-        def _sample_single_batch_pure(cov_k, mean_k, wires, nmode, cutoff, detector):
-            """Sample single batch for pure state"""
-            sample_k = []
+        def _sample_pure(cov, mean, wires, nmode, cutoff, detector):
+            """Sample for a pure state"""
+            wires = torch.tensor(wires, device=cov.device)
+            sample = []
             for i in range(1, len(wires) + 1):
                 idx = torch.cat([wires[:i], wires[:i] + nmode])
-                cov_sub = cov_k[idx[:, None], idx]
-                mean_sub = mean_k[idx, :]
-                sample_single_wire = _sample_wire(sample_k, cov_sub, mean_sub, cutoff, detector)
-                sample_k.append(sample_single_wire)
-            return torch.stack(sample_k).flatten()
+                cov_sub = cov[idx[:, None], idx]
+                mean_sub = mean[idx, :]
+                sample_wire = _sample_wire(sample, cov_sub, mean_sub, cutoff, detector)
+                sample.append(sample_wire)
+            return torch.cat(sample)
 
-        def _sample_single_batch_mixed(cov_k, mean_k, wires, nmode, cutoff, detector, eps=1e-6):
-            """Sample single batch for mixed state"""
-            device = cov_k.device
-            _, s= williamson(cov_k)
-            cov_t = 0.5 * dqp.hbar * s @ s.mT
-            cov_w = cov_k - cov_t  # cov_mix = cov_t + cov_w
-            cov_w = cov_w + eps * torch.eye(cov_w.size(0), device=device)
-            x0 = MultivariateNormal(mean_k.squeeze(-1), cov_w).sample([1])[0]
-            sample_k = []
+        def _sample_mixed(cov, mean, wires, nmode, cutoff, detector, eps = 5e-5):
+            """Sample for a mixed state"""
+            wires = torch.tensor(wires, device=cov.device)
+            _, s = williamson(cov)
+            cov_t = s @ s.mT * dqp.hbar / (4 * dqp.kappa**2)
+            cov_w = cov - cov_t # cov_mix = cov_t + cov_w
+            cov_w += cov.new_ones(cov_w.shape[-1]).diag_embed() * eps
+            mean0 = MultivariateNormal(mean.squeeze(-1), cov_w).sample([1])[0] # may be numerically unstable
+            sample = []
             mean_m = None
             for i in range(1, len(wires) + 1):
-                wires_k = wires[i:].tolist()
-                cov_m = 0.5 * dqp.hbar * torch.eye(2 * len(wires_k), device=device)  # See Eq.5.18 in ref
-                heterodyne = Generaldyne(cov_m=cov_m, wires=wires_k, nmode=nmode)
-                # collaspse the state
-                x = [cov_t.unsqueeze(0), x0.reshape(1, -1, 1)]
+                wires_i = wires[i:].tolist()
+                cov_m = cov.new_ones(2 * len(wires_i)).diag_embed() * dqp.hbar / (4 * dqp.kappa**2) # See Eq.(5.18)
+                heterodyne = Generaldyne(cov_m=cov_m, nmode=nmode, wires=wires_i)
+                # collapse the state
+                state = [cov_t.unsqueeze(0), mean0.reshape(1, -1, 1)]
                 if i < len(wires):
-                    cov_out, mean_out = heterodyne(x, mean_m)
+                    cov_out, mean_out = heterodyne(state, mean_m)
                     mean_m = heterodyne.samples[0] # with batch
                     mask = torch.ones_like(mean_m, dtype=bool)
-                    idx_discard = torch.tensor([0, len(mean_m)//2], device=mask.device)
+                    idx_discard = torch.tensor([0, len(mean_m) // 2], device=mask.device)
                     mask[idx_discard] = False
-                    mean_m = mean_m[idx_discard] # discard the first mode
+                    mean_m = mean_m[mask] # discard the first mode
                 else:
-                    cov_out, mean_out = x
+                    cov_out, mean_out = state
                 idx = torch.cat([wires[:i], wires[:i] + nmode])
                 cov_sub = cov_out[0, idx[:, None], idx]
                 mean_sub = mean_out[0, idx, :]
-                sample_single_wire = _sample_wire(sample_k, cov_sub, mean_sub, cutoff, detector)
-                sample_k.append(sample_single_wire)
-            return torch.stack(sample_k).flatten()
+                sample_wire = _sample_wire(sample, cov_sub, mean_sub, cutoff, detector)
+                sample.append(sample_wire)
+            return torch.cat(sample)
+
+        sample = []
+        purity = GaussianState(self.state).is_pure
+        cov, mean = self.state
+        batch = cov.shape[0]
         if purity:
-            for k in range(batch):
-                sample.append(_sample_single_batch_pure(cov[k], mean[k], wires,
-                                                        self.nmode, self.cutoff, self.detector))
+            for i in range(batch):
+                sample.append(_sample_pure(cov[i], mean[i], wires, self.nmode, self.cutoff, self.detector))
         else:
-            for k in range(batch):
-                sample.append(_sample_single_batch_mixed(cov[k], mean[k], wires,
-                                                         self.nmode, self.cutoff, self.detector))
+            for i in range(batch):
+                sample.append(_sample_mixed(cov[i], mean[i], wires, self.nmode, self.cutoff, self.detector))
         sample = torch.stack(sample)
         return sample
 
