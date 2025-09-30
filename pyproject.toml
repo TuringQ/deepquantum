@@ -49,8 +49,8 @@ classifiers = [
 [project.optional-dependencies]
 dev = ['pytest',
        'perceval-quandela',
-       'strawberryfields @ git+https://github.com/XanaduAI/strawberryfields.git@master',
-       'thewalrus @ git+https://github.com/XanaduAI/thewalrus.git@master',
+       'strawberryfields',
+       'thewalrus',
        'graphix==0.3.1']
 
 [project.urls]
