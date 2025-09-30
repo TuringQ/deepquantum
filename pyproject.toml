@@ -51,7 +51,7 @@ dev = ['pytest',
        'perceval-quandela',
        'strawberryfields @ git+https://github.com/XanaduAI/strawberryfields.git@master',
        'thewalrus @ git+https://github.com/XanaduAI/thewalrus.git@master',
-       'graphix']
+       'graphix==0.3.1']
 
 [project.urls]
 Homepage = 'https://deepquantum.turingq.com/'
