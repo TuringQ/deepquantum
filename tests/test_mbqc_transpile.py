@@ -8,9 +8,8 @@ import torch
 def test_random_circuit_transpilation():
     # Create a circuit with random number of qubits (2-5)
     n_qubits = random.randint(2, 5)
-    batch_size = random.randint(1,3)
+    batch_size = random.randint(1, 3)
     init_state = torch.rand(batch_size, 2**n_qubits)
-    init_state = init_state / torch.norm(init_state, dim=-1, keepdim=True)  # normalize
 
     cir = dq.QubitCircuit(n_qubits, init_state=init_state)
 
@@ -58,9 +57,8 @@ def test_random_circuit_transpilation():
 def test_encode_transpilation():
     # Create a circuit with random number of qubits (2-5)
     n_qubits = random.randint(2, 5)
-    batch_size = random.randint(1,3)
+    batch_size = random.randint(1, 3)
     init_state = torch.rand(batch_size, 2**n_qubits)
-    init_state = init_state / torch.norm(init_state, dim=-1, keepdim=True)  # normalize
 
     cir = dq.QubitCircuit(n_qubits, init_state=init_state)
 
@@ -121,10 +119,8 @@ def test_encode_transpilation():
 def test_batch_data_transpilation():
     # Create a circuit with random number of qubits (2-5)
     n_qubits = random.randint(2, 5)
-    batch_size = random.randint(1,3)
+    batch_size = random.randint(1, 3)
     init_state = torch.rand(2**n_qubits)
-    # init_state = torch.rand(batch_size, 2**n_qubits)
-    init_state = init_state / torch.norm(init_state, dim=-1, keepdim=True)  # normalize
 
     cir = dq.QubitCircuit(n_qubits, init_state=init_state)
 
@@ -185,10 +181,8 @@ def test_batch_data_transpilation():
 def test_data_reupload_transpilation():
     # Create a circuit with random number of qubits (2-5)
     n_qubits = random.randint(2, 5)
-    batch_size = random.randint(1,3)
+    batch_size = random.randint(1, 3)
     init_state = torch.rand(2**n_qubits)
-    # init_state = torch.rand(batch_size, 2**n_qubits)
-    init_state = init_state / torch.norm(init_state, dim=-1, keepdim=True)  # normalize
 
     cir = dq.QubitCircuit(n_qubits, init_state=init_state, reupload=True)
 

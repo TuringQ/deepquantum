@@ -13,6 +13,7 @@ def test_gaussian_shape():
     state = cir(data=data2)
     assert tuple(state[0].shape) == (2, 2, 2) and tuple(state[1].shape) == (2, 2, 1)
 
+
 def test_gaussian_batch_shape():
     batch = torch.randint(1, 10, size=[1])[0]
     covs = torch.stack([torch.eye(2)] * batch)
@@ -25,6 +26,7 @@ def test_gaussian_batch_shape():
     assert tuple(state[0].shape) == (batch, 2, 2) and tuple(state[1].shape) == (batch, 2, 1)
     state = cir(data=data2)
     assert tuple(state[0].shape) == (batch, 2, 2) and tuple(state[1].shape) == (batch, 2, 1)
+
 
 def test_bosonic_shape():
     cir = dq.QumodeCircuit(nmode=2, init_state='vac', cutoff=3, backend='bosonic')
@@ -41,6 +43,7 @@ def test_bosonic_shape():
     assert (tuple(state[0].shape) == (2, 1, 4, 4) and
             tuple(state[1].shape) == (2, 356, 4, 1) and
             tuple(state[2].shape) == (1, 356))
+
 
 def test_bosonic_batch_shape():
     batch = torch.randint(1, 10, size=[1])[0]
