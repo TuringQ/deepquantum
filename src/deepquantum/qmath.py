@@ -457,7 +457,7 @@ def amplitude_encoding(data: Any, nqubit: int) -> torch.Tensor:
     data = data.reshape(batch, -1)
     size = data.shape[1]
     n = 2 ** nqubit
-    state = torch.zeros(batch, n, dtype=data.dtype, device=data.device)
+    state = torch.zeros(batch, n, dtype=data.dtype, device=data.device) + 0j
     data = nn.functional.normalize(data[:, :n], p=2, dim=-1)
     if n > size:
         state[:, :size] = data[:, :]
@@ -646,6 +646,10 @@ def sample_sc_mcmc(
     samples_chain = []
     merged_samples = defaultdict(int)
     cache_prob = {}
+    if shots <= 0:
+        return merged_samples
+    elif shots < num_chain:
+        num_chain = shots
     shots_lst = [shots // num_chain] * num_chain
     shots_lst[-1] += shots % num_chain
     for trial in range(num_chain):

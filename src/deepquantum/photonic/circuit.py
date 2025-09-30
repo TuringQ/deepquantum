@@ -14,6 +14,7 @@ import torch
 from torch import nn, vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
 
+import deepquantum.photonic as dqp
 from ..qmath import get_prob_mps, inner_product_mps, is_positive_definite, sample_sc_mcmc
 from ..state import MatrixProductState
 from .channel import PhotonLoss
@@ -24,11 +25,11 @@ from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitter
 from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum
 from .gate import QuadraticPhase, ControlledX, ControlledZ, CubicPhase, Kerr, CrossKerr, DelayBS, DelayMZI, Barrier
 from .hafnian_ import hafnian
-from .measurement import Homodyne
+from .measurement import Homodyne, Generaldyne
 from .operation import Operation, Gate, Channel, Delay
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
 from .qmath import photon_number_mean_var, measure_fock_tensor, sample_homodyne_fock, sample_reject_bosonic
-from .qmath import quadrature_to_ladder, shift_func, align_shape
+from .qmath import quadrature_to_ladder, shift_func, align_shape, williamson
 from .state import FockState, GaussianState, BosonicState, CatState, GKPState, DistributedFockState
 from .state import combine_bosonic_states
 from .torontonian_ import torontonian
@@ -1024,7 +1025,7 @@ class QumodeCircuit(Operation):
             mean = self._mean
         else:
             if not isinstance(state, GaussianState):
-                state = GaussianState(state=state, nmode=self.nmode, cutoff=self.cutoff)
+                state = GaussianState(state=state, cutoff=self.cutoff)
             cov = state.cov
             mean = state.mean
         if cov.ndim == 2:
@@ -1056,22 +1057,22 @@ class QumodeCircuit(Operation):
         assert final_states.ndim == 2
         nmode = final_states.shape[-1]
         final_states = final_states.to(cov.device)
-        identity = torch.eye(2 * nmode, dtype=cov.dtype, device=cov.device)
+        identity = cov.new_ones(2 * nmode).diag_embed()
         cov_ladder = quadrature_to_ladder(cov)
         mean_ladder = quadrature_to_ladder(mean)
         q = cov_ladder + identity / 2
-        det_q = torch.det(q)
+        det_q = q.det()
         x_mat = identity.reshape(2, nmode, 2 * nmode).flip(0).reshape(2 * nmode, 2 * nmode) + 0j
-        o_mat = identity - torch.inverse(q)
+        o_mat = identity - q.inverse()
         a_mat = x_mat @ o_mat
-        gamma = mean_ladder.conj().mT @ torch.inverse(q)
+        gamma = mean_ladder.mH @ q.inverse()
         if detector == 'pnrd':
             matrix = a_mat
         elif detector == 'threshold':
             matrix = o_mat
         if purity is None:
             purity = GaussianState([cov, mean]).is_pure
-        p_vac = torch.exp(-0.5 * mean_ladder.mH @ torch.inverse(q) @ mean_ladder) / torch.sqrt(det_q)
+        p_vac = torch.exp(-0.5 * mean_ladder.mH @ q.inverse() @ mean_ladder) / det_q.sqrt()
         batch_get_prob = vmap(self._get_prob_gaussian_base, in_dims=(0, None, None, None, None, None, None))
         probs = batch_get_prob(final_states, matrix, gamma, p_vac, detector, purity, loop)
         return probs
@@ -1384,8 +1385,7 @@ class QumodeCircuit(Operation):
     ) -> List[Dict]:
         """Measure the final state for Gaussian backend."""
         if isinstance(self.state, List):
-            print('Automatically using MCMC to sample the final states!')
-            return self._measure_gaussian_state(shots, with_prob, wires, detector)
+            return self._measure_gaussian_state(shots, with_prob, wires, detector, mcmc)
         elif isinstance(self.state, Dict):
             assert not mcmc, "Final states have been calculated, we don't need mcmc!"
             print('Automatically using the default detector!')
@@ -1393,7 +1393,14 @@ class QumodeCircuit(Operation):
         else:
             assert False, 'Check your forward function or input!'
 
-    def _measure_gaussian_state(self, shots: int, with_prob: bool, wires: List[int], detector: str) -> List[Dict]:
+    def _measure_gaussian_state(
+        self,
+        shots: int,
+        with_prob: bool,
+        wires: List[int],
+        detector: str,
+        mcmc: bool
+    ) -> List[Dict]:
         """Measure the final state according to Gaussian state for Gaussian backend.
 
         See https://arxiv.org/pdf/2108.01622
@@ -1401,13 +1408,30 @@ class QumodeCircuit(Operation):
         cov, mean = self.state
         batch = cov.shape[0]
         all_results = []
-        for i in range(batch):
-            samples_i = self._sample_mcmc_gaussian(shots=shots, cov=cov[i], mean=mean[i],
-                                                   detector=detector, num_chain=5)
+        all_samples = []
+        if mcmc:
+            print('Using MCMC method to sample the final states!')
+            for i in range(batch):
+                samples_i = self._sample_mcmc_gaussian(shots=shots, cov=cov[i], mean=mean[i],
+                                                       detector=detector, num_chain=5)
+                all_samples.append(samples_i)
+        else: # chain-rule method with small number of shots
+            print('Using chain-rule method to sample the final states!')
+            samples = []
+            for _ in range(shots):
+                sample = self._generate_chain_sample(wires)
+                samples.append(sample)
+            samples = torch.stack(samples).permute(1, 0, 2) # (batch, shots, wires)
+            for i in range(batch):
+                sample_lst = samples[i].tolist()
+                sample_tup = [tuple(s) for s in sample_lst]
+                samples_i = defaultdict(int, Counter(sample_tup))
+                all_samples.append(samples_i)
+        for i, samples_i in enumerate(all_samples): # post-process samples
             results = defaultdict(list)
             if with_prob:
                 for k in samples_i:
-                    prob = self._get_prob_gaussian(k)
+                    prob = self._get_prob_gaussian(k, [cov[i], mean[i]])
                     samples_i[k] = samples_i[k], prob
             for key in samples_i.keys():
                 state_b = [key[wire] for wire in wires]
@@ -1461,7 +1485,7 @@ class QumodeCircuit(Operation):
         return tuple(sample.tolist())
 
     def _generate_rand_sample(self, detector: str = 'pnrd'):
-        """Generate random sample according to uniform proposal distribution."""
+        """Generate a random sample according to uniform proposal distribution."""
         if self._if_delayloop:
             nmode = self._nmode_tdm
         else:
@@ -1473,7 +1497,7 @@ class QumodeCircuit(Operation):
         return sample
 
     def _generate_chain_sample(self, wires: Union[int, List[int], None] = None) -> torch.Tensor:
-        """Generate random samples via chain rule.
+        """Generate batched random samples via chain rule.
 
         Args:
             wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
@@ -1487,16 +1511,90 @@ class QumodeCircuit(Operation):
             wires = self.wires
         wires = sorted(self._convert_indices(wires))
         sample = []
-        mps = copy(self.state)
-        if mps[0].ndim == 3:
-            mps = [site.unsqueeze(0) for site in mps]
-        for i in wires:
-            p = vmap(get_prob_mps)(mps, wire=i)
-            sample_single_wire = torch.multinomial(p, num_samples=1)
-            sample.append(sample_single_wire)
-            index = sample_single_wire.reshape(-1, 1, 1, 1).expand(-1, mps[i].shape[-3], -1, mps[i].shape[-1])
-            mps[i] = torch.gather(mps[i], dim=2, index=index)
-        sample = torch.stack(sample, dim=-1).squeeze(1)
+        if self.backend == 'fock':
+            assert self.mps
+            mps = copy(self.state)
+            if mps[0].ndim == 3:
+                mps = [site.unsqueeze(0) for site in mps]
+            for i in wires:
+                p = vmap(get_prob_mps)(mps, wire=i)
+                sample_single_wire = torch.multinomial(p, num_samples=1)
+                sample.append(sample_single_wire)
+                index = sample_single_wire.reshape(-1, 1, 1, 1).expand(-1, mps[i].shape[-3], -1, mps[i].shape[-1])
+                mps[i] = torch.gather(mps[i], dim=2, index=index)
+            sample = torch.stack(sample, dim=-1).squeeze(1)
+        elif self.backend == 'gaussian': # chain rule for GBS
+            sample = self._generate_chain_sample_gaussian(wires)
+        return sample
+
+    def _generate_chain_sample_gaussian(self, wires: List[int]) -> torch.Tensor:
+        """Generate batched random samples via chain rule for Gaussian backend.
+
+        See https://research-information.bris.ac.uk/en/studentTheses/classical-simulations-of-gaussian-boson-sampling
+        Chapter 5
+        """
+        def _sample_wire(sample, cov_sub, mean_sub, cutoff, detector):
+            """Sample for a wire"""
+            states = [torch.tensor(sample + [i], device=cov_sub.device) for i in range(cutoff)]
+            probs = [self._get_probs_gaussian_helper(s, cov_sub, mean_sub, detector) for s in states]
+            sample_wire = torch.multinomial(torch.cat(probs), num_samples=1)
+            return sample_wire
+
+        def _sample_pure(cov, mean, wires, nmode, cutoff, detector):
+            """Sample for a pure state"""
+            wires = torch.tensor(wires, device=cov.device)
+            sample = []
+            for i in range(1, len(wires) + 1):
+                idx = torch.cat([wires[:i], wires[:i] + nmode])
+                cov_sub = cov[idx[:, None], idx]
+                mean_sub = mean[idx, :]
+                sample_wire = _sample_wire(sample, cov_sub, mean_sub, cutoff, detector)
+                sample.append(sample_wire)
+            return torch.cat(sample)
+
+        def _sample_mixed(cov, mean, wires, nmode, cutoff, detector, eps = 5e-5):
+            """Sample for a mixed state"""
+            wires = torch.tensor(wires, device=cov.device)
+            _, s = williamson(cov)
+            cov_t = s @ s.mT * dqp.hbar / (4 * dqp.kappa**2)
+            cov_w = cov - cov_t # cov_mix = cov_t + cov_w
+            cov_w += cov.new_ones(cov_w.shape[-1]).diag_embed() * eps
+            mean0 = MultivariateNormal(mean.squeeze(-1), cov_w).sample([1])[0] # may be numerically unstable
+            sample = []
+            mean_m = None
+            for i in range(1, len(wires) + 1):
+                wires_i = wires[i:].tolist()
+                cov_m = cov.new_ones(2 * len(wires_i)).diag_embed() * dqp.hbar / (4 * dqp.kappa**2) # See Eq.(5.18)
+                heterodyne = Generaldyne(cov_m=cov_m, nmode=nmode, wires=wires_i)
+                # collapse the state
+                state = [cov_t.unsqueeze(0), mean0.reshape(1, -1, 1)]
+                if i < len(wires):
+                    cov_out, mean_out = heterodyne(state, mean_m)
+                    mean_m = heterodyne.samples[0] # with batch
+                    mask = torch.ones_like(mean_m, dtype=bool)
+                    idx_discard = torch.tensor([0, len(mean_m) // 2], device=mask.device)
+                    mask[idx_discard] = False
+                    mean_m = mean_m[mask] # discard the first mode
+                else:
+                    cov_out, mean_out = state
+                idx = torch.cat([wires[:i], wires[:i] + nmode])
+                cov_sub = cov_out[0, idx[:, None], idx]
+                mean_sub = mean_out[0, idx, :]
+                sample_wire = _sample_wire(sample, cov_sub, mean_sub, cutoff, detector)
+                sample.append(sample_wire)
+            return torch.cat(sample)
+
+        sample = []
+        purity = GaussianState(self.state).is_pure
+        cov, mean = self.state
+        batch = cov.shape[0]
+        if purity:
+            for i in range(batch):
+                sample.append(_sample_pure(cov[i], mean[i], wires, self.nmode, self.cutoff, self.detector))
+        else:
+            for i in range(batch):
+                sample.append(_sample_mixed(cov[i], mean[i], wires, self.nmode, self.cutoff, self.detector))
+        sample = torch.stack(sample)
         return sample
 
     def photon_number_mean_var(
