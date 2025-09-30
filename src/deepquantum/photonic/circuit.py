@@ -1057,22 +1057,22 @@ class QumodeCircuit(Operation):
         assert final_states.ndim == 2
         nmode = final_states.shape[-1]
         final_states = final_states.to(cov.device)
-        identity = torch.eye(2 * nmode, dtype=cov.dtype, device=cov.device)
+        identity = cov.new_ones(2 * nmode).diag_embed()
         cov_ladder = quadrature_to_ladder(cov)
         mean_ladder = quadrature_to_ladder(mean)
         q = cov_ladder + identity / 2
-        det_q = torch.det(q)
+        det_q = q.det()
         x_mat = identity.reshape(2, nmode, 2 * nmode).flip(0).reshape(2 * nmode, 2 * nmode) + 0j
-        o_mat = identity - torch.inverse(q)
+        o_mat = identity - q.inverse()
         a_mat = x_mat @ o_mat
-        gamma = mean_ladder.conj().mT @ torch.inverse(q)
+        gamma = mean_ladder.mH @ q.inverse()
         if detector == 'pnrd':
             matrix = a_mat
         elif detector == 'threshold':
             matrix = o_mat
         if purity is None:
             purity = GaussianState([cov, mean]).is_pure
-        p_vac = torch.exp(-0.5 * mean_ladder.mH @ torch.inverse(q) @ mean_ladder) / torch.sqrt(det_q)
+        p_vac = torch.exp(-0.5 * mean_ladder.mH @ q.inverse() @ mean_ladder) / det_q.sqrt()
         batch_get_prob = vmap(self._get_prob_gaussian_base, in_dims=(0, None, None, None, None, None, None))
         probs = batch_get_prob(final_states, matrix, gamma, p_vac, detector, purity, loop)
         return probs

@@ -183,7 +183,7 @@ def fock_combinations(nmode: int, nphoton: int, cutoff: Optional[int] = None, na
 
 def ladder_ops(cutoff: int, dtype = torch.cfloat, device = 'cpu') -> Tuple[torch.Tensor, torch.Tensor]:
     """Get the matrix representation of the annihilation and creation operators."""
-    sqrt = torch.arange(1, cutoff).to(dtype=dtype, device=device) ** 0.5
+    sqrt = torch.arange(1, cutoff, dtype=dtype, device=device) ** 0.5
     a = torch.diag(sqrt, diagonal=1)
     ad = a.mH # share the memory
     return a, ad
@@ -203,7 +203,7 @@ def shift_func(l: List, nstep: int) -> List:
 def xxpp_to_xpxp(matrix: torch.Tensor) -> torch.Tensor:
     """Transform the representation in ``xxpp`` ordering to the representation in ``xpxp`` ordering."""
     nmode = matrix.shape[-2] // 2
-    idx = torch.arange(2 * nmode).reshape(2, nmode).T.flatten()
+    idx = torch.arange(2 * nmode, device=matrix.device).reshape(2, nmode).T.flatten()
     if matrix.shape[-1] == 2 * nmode:
         return matrix[..., idx[:, None], idx]
     elif matrix.shape[-1] == 1:
@@ -213,7 +213,7 @@ def xxpp_to_xpxp(matrix: torch.Tensor) -> torch.Tensor:
 def xpxp_to_xxpp(matrix: torch.Tensor) -> torch.Tensor:
     """Transform the representation in ``xpxp`` ordering to the representation in ``xxpp`` ordering."""
     nmode = matrix.shape[-2] // 2
-    idx = torch.arange(2 * nmode).reshape(nmode, 2).T.flatten()
+    idx = torch.arange(2 * nmode, device=matrix.device).reshape(nmode, 2).T.flatten()
     if matrix.shape[-1] == 2 * nmode:
         return matrix[..., idx[:, None], idx]
     elif matrix.shape[-1] == 1:
@@ -307,7 +307,7 @@ def photon_number_mean_var(
 
 
 def takagi(a: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Tagaki decomposition for symmetric complex matrix.
+    """Tagaki decomposition for a symmetric complex matrix.
 
     See https://math.stackexchange.com/questions/2026110/
     """
@@ -341,70 +341,66 @@ def takagi(a: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
                     return v, diag
 
 
-def sqrtm_symmetric(mat):
-    """Compute the matrix square root of a real symmetric matrix using eigenvalue decomposition."""
-    s, u = torch.linalg.eigh(mat)
-    return u @ s.sqrt().diag_embed() @ u.inverse()
+def sqrtm_herm(mat: torch.Tensor) -> torch.Tensor:
+    """Compute the positive matrix square root of a Hermitian matrix using eigenvalue decomposition."""
+    lambd, mat_q = torch.linalg.eigh(mat)
+    return mat_q @ lambd.sqrt().diag_embed().to(mat_q.dtype) @ mat_q.mH
 
 
-def schur_antisymmetric(a):
-    """Perform Schur decomposition for a real antisymmetric matrix.
+def schur_anti_symm_even(mat: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    r"""Schur decomposition for a real antisymmetric and even-dimensional matrix.
 
-    This function decomposes a real antisymmetric matrix A into the form
-    :math:`A = O T O^T`, where O is an orthogonal matrix and T is a block-diagonal
-    matrix with 2x2 antisymmetric blocks.
+    This function decomposes a real antisymmetric matrix :math:`A` into the form :math:`A = O T O^T`,
+    where :math:`O` is an orthogonal matrix and :math:`T` is a block-diagonal matrix
+    with :math:`2 \times 2` antisymmetric blocks.
     """
-    assert torch.allclose(a, -a.mT, rtol=1e-05, atol=1e-05)
-    r1 = a
-    r2 = -r1 * 1j # hermitian
-    s, u = torch.linalg.eigh(r2)
-    s_half = s[int(len(s)/2):]
-    t = torch.zeros_like(r1)
-    list_1 = torch.arange(0, len(r1) - 1, 2)
-    list_2 = torch.arange(1, len(r1), 2)
-    t[list_1, list_2] = s_half
-    t[list_2, list_1] = -s_half
-    o = torch.zeros_like(r1)
-    o[:, ::2] = u[:,int(len(s)/2):].real
-    o[:, 1::2] = u[:,int(len(s)/2):].imag
-    norm = torch.norm(o, p=2, dim=0, keepdim=True)
-    o_norm =  o / norm
-    return t, o_norm
+    assert torch.allclose(mat, -mat.mT, rtol=1e-5, atol=1e-5)
+    n = len(mat)
+    hermitian = mat * -1j
+    lambd, u = torch.linalg.eigh(hermitian)
+    mat_t = torch.zeros_like(mat)
+    idx1 = torch.arange(0, n, 2, device=mat.device)
+    idx2 = torch.arange(1, n, 2, device=mat.device)
+    # positive value is above the diagonal and in ascending order
+    mat_t[idx1, idx2] = lambd[n//2:]
+    mat_t[idx2, idx1] = -lambd[n//2:]
+    mat_o = torch.zeros_like(mat)
+    mat_o[:, ::2] = u[:, n//2:].real
+    mat_o[:, 1::2] = u[:, n//2:].imag
+    norm = torch.linalg.vector_norm(mat_o, dim=0, keepdim=True)
+    mat_o = mat_o / norm
+    return mat_t, mat_o
 
 
-def williamson(cov):
-    """ Perform willianmson decomposition for real symmetric positive definite matrix.
+def williamson(cov: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Williamson decomposition.
 
-    The Williamson decomposition decomposes a real symmetric positive definite matrix
-    V into the form :math:`V = S D S^T`, where S is a symplectic matrix and D is a
-    diagonal matrix with the symplectic eigenvalues.
+    This function decomposes a real symmetric and even-dimensional positive definite matrix :math:`V`
+    into the form :math:`V = S D S^T`, where :math:`S` is a symplectic matrix and
+    :math:`D` is a diagonal matrix with the symplectic eigenvalues.
 
-    See https://arxiv.org/abs/2403.04596 Box 5
+    See https://arxiv.org/pdf/2403.04596 Section VII.
     """
-    n, m = cov.shape
-    if n != m:
-        raise ValueError('The input matrix is not square')
-    assert torch.allclose(cov, cov.mT, rtol=1e-05, atol=1e-05), 'The input matrix is not symmetric'
-    if n % 2 != 0:
-        raise ValueError('The input matrix must have an even number of rows/columns')
-    nmode = n // 2
-    omega = torch.diag_embed(torch.cat([-cov.new_ones(nmode), cov.new_ones(nmode)]))
-    omega = omega.reshape(2, nmode, 2 * nmode).flip(0).reshape(2 * nmode, 2 * nmode)
+    assert torch.allclose(cov, cov.mT, rtol=1e-5, atol=1e-5)
+    nmode = cov.shape[-1] // 2
+    omega = cov.new_ones(nmode)
+    omega = torch.cat([-omega, omega]).diag_embed()
+    omega = omega.reshape(2, nmode, 2 * nmode).flip(0).reshape(2 * nmode, 2 * nmode) # symplectic form
     vals = torch.linalg.eigvalsh(cov)
     assert torch.all(vals > 0), 'Matrix must be positive definite.'
-    inv_sqrt = sqrtm_symmetric(cov.inverse())
-    psi = inv_sqrt @ omega @ inv_sqrt  # antisymmetric
-    s1, o1 = schur_antisymmetric(psi)
-    perm_indices = torch.arange(2 * nmode).reshape(-1, 2).T.flatten()
-    s2 = s1[:, perm_indices][perm_indices]
-    o2 = o1[:, perm_indices]
+    cov_sqrt = sqrtm_herm(cov)
+    cov_sqrt_inv = cov_sqrt.inverse()
+    psi = cov_sqrt_inv @ omega @ cov_sqrt_inv # antisymmetric
+    mat_t, o_tilde = schur_anti_symm_even(psi)
+    idx_perm = torch.arange(2 * nmode, device=cov.device).reshape(nmode, 2).T.flatten()
+    mat_t_xxpp = mat_t[:, idx_perm][idx_perm]
+    mat_o = o_tilde[:, idx_perm]
     idx = torch.arange(nmode, device=cov.device)
-    s2_half = s2[idx, idx + nmode]
-    s2_half_inv = 1 / s2_half
-    diag = torch.diag(torch.cat([s2_half_inv, s2_half_inv]))
-    s = inv_sqrt @ o2 @ torch.sqrt(diag)
-    s = s.inverse().mT
-    return diag, s
+    phi = mat_t_xxpp[idx, idx + nmode]
+    phi2 = torch.cat([phi, phi])
+    diag = (1 / phi2).diag_embed()
+    mat_s = cov_sqrt @ mat_o @ phi2.sqrt().diag_embed()
+    return diag, mat_s
 
 
 def measure_fock_tensor(
