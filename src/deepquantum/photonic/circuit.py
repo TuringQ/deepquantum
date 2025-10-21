@@ -488,6 +488,7 @@ class QumodeCircuit(Operation):
             detector (str or None, optional): Use ``'pnrd'`` for the photon-number-resolving detector or
                 ``'threshold'`` for the threshold detector. Default: ``None``
         """
+        assert weight is None, 'Currently Fock probability is not supported in Bosonic backend'
         shape_cov = cov.shape
         shape_mean = mean.shape
         if shape_cov[1] == 1:
@@ -531,9 +532,10 @@ class QumodeCircuit(Operation):
             loop = True
             probs = batch_forward(cov, mean, basis, detector, purity, loop)
         keys = list(map(FockState, final_states.tolist()))
-        probs = probs.reshape(*shape_cov[:-2], -1)
-        if weight is not None:
-            probs = (probs * weight.unsqueeze(-1)).sum(1).real
+        # TODO: Fock probabilities for Bosonic state with weights
+        # if weight is not None:
+        #     probs = probs.reshape(weight.shape[0], weight.shape[1], -1) # (batch, ncomb, nfock)
+        #     probs = (probs * weight.unsqueeze(-1)).sum(1).real
         return dict(zip(keys, probs.mT))
 
     def _forward_gaussian_prob_helper(self, cov, mean, basis, detector, purity, loop):
@@ -1162,7 +1164,7 @@ class QumodeCircuit(Operation):
 
         See https://arxiv.org/pdf/2108.01622 for MCMC.
         """
-        assert self.backend in ('fock', 'gaussian')
+        assert self.backend in ('fock', 'gaussian'), 'Currently Fock measurement is not supported in Bosonic backend'
         if self.state is None:
             return
         if wires is None:
