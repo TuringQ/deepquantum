@@ -21,7 +21,8 @@ from .cutting import transform_cut2move, partition_problem
 from .distributed import measure_dist
 from .gate import ParametricSingleGate
 from .gate import U3Gate, PhaseShift, PauliX, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, TGate, TDaggerGate
-from .gate import Rx, Ry, Rz, ProjectionJ, CNOT, Swap, Rxx, Ryy, Rzz, Rxy, ReconfigurableBeamSplitter, Toffoli, Fredkin
+from .gate import Rx, Ry, Rz, ProjectionJ, CNOT, Swap, ImaginarySwap, Rxx, Ryy, Rzz, Rxy, ReconfigurableBeamSplitter
+from .gate import Toffoli, Fredkin
 from .gate import CombinedSingleGate, UAnyGate, LatentGate, HamiltonianGate, Reset, Barrier, WireCut, Move
 from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer, RyLayer, RzLayer, CnotLayer, CnotRing
 from .operation import Operation, Gate, Layer, Channel, MeasureQPD
@@ -1049,6 +1050,12 @@ class QubitCircuit(Operation):
         """Add a SWAP gate."""
         swap = Swap(nqubit=self.nqubit, wires=wires, controls=controls, condition=condition, den_mat=self.den_mat)
         self.add(swap)
+
+    def iswap(self, wires: List[int], controls: Union[int, List[int], None] = None, condition: bool = False) -> None:
+        """Add an imaginary SWAP gate."""
+        iswap = ImaginarySwap(nqubit=self.nqubit, wires=wires, controls=controls, condition=condition,
+                              den_mat=self.den_mat)
+        self.add(iswap)
 
     def rxx(
         self,
