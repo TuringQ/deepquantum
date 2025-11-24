@@ -49,7 +49,7 @@ from .communication import setup_distributed, cleanup_distributed
 from .gate import U3Gate, PhaseShift, Identity, PauliX, PauliY, PauliZ, Hadamard
 from .gate import SGate, SDaggerGate, TGate, TDaggerGate
 from .gate import Rx, Ry, Rz, ProjectionJ, CombinedSingleGate
-from .gate import CNOT, Swap, Rxx, Ryy, Rzz, Rxy, ReconfigurableBeamSplitter, Toffoli, Fredkin
+from .gate import CNOT, Swap, ImaginarySwap, Rxx, Ryy, Rzz, Rxy, ReconfigurableBeamSplitter, Toffoli, Fredkin
 from .gate import UAnyGate, LatentGate, HamiltonianGate, Barrier
 from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer, RyLayer, RzLayer
 from .layer import CnotLayer, CnotRing

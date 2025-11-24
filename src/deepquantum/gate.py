@@ -1891,6 +1891,63 @@ class Swap(DoubleGate):
             return self._qasm_customized('swap')
 
 
+class ImaginarySwap(DoubleGate):
+    r"""Imaginary Swap gate.
+
+    **Matrix Representation:**
+
+    .. math::
+        \text{iSWAP} =
+            \begin{pmatrix}
+                1 & 0 & 0 & 0 \\
+                0 & 0 & i & 0 \\
+                0 & i & 0 & 0 \\
+                0 & 0 & 0 & 1
+            \end{pmatrix}
+
+    Args:
+        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 2
+        wires (List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+            Default: ``None``
+        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+        condition (bool, optional): Whether to use ``controls`` as conditional measurement. Default: ``False``
+        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
+            Default: ``False``
+    """
+    def __init__(
+        self,
+        nqubit: int = 2,
+        wires: Optional[List[int]] = None,
+        controls: Union[int, List[int], None] = None,
+        condition: bool = False,
+        den_mat: bool = False,
+        tsr_mode: bool = False
+    ) -> None:
+        super().__init__(name='ImaginarySwap', nqubit=nqubit, wires=wires, controls=controls, condition=condition,
+                         den_mat=den_mat, tsr_mode=tsr_mode)
+        self.register_buffer('matrix', torch.tensor([[1, 0, 0, 0],
+                                                     [0, 0, 1j, 0],
+                                                     [0, 1j, 0, 0],
+                                                     [0, 0, 0, 1]]))
+
+    def _qasm(self) -> str:
+        qasm_str1 = ''
+        qasm_str2 = f'iswap q[{self.wires[0]}],q[{self.wires[1]}];\n'
+        # pylint: disable=protected-access
+        if 'iswap' not in Gate._qasm_new_gate:
+            qasm_str1 = 'gate iswap q0,q1 { s q0; s q1; h q0; cx q0,q1; cx q1,q0; h q1; }\n'
+            Gate._qasm_new_gate.append('iswap')
+        if self.condition:
+            return qasm_str1 + self._qasm_cond_measure() + qasm_str2
+        if self.controls == []:
+            return qasm_str1 + qasm_str2
+        else:
+            return self._qasm_customized('iswap')
+
+
 class Rxx(ParametricDoubleGate):
     r"""Rxx gate.
 
