@@ -772,17 +772,21 @@ class QumodeCircuit(Operation):
                 if u is None:
                     u = op.gate.get_unitary()
                 else:
+                    idx_r = torch.tensor(op.gate.wires, device=u.device)
+                    idx_c = torch.arange(op.gate.nmode, device=u.device)
                     u = torch.block_diag(u, torch.eye(1, dtype=u.dtype, device=u.device))
                     u_local = op.gate.update_matrix()
-                    u_update = u[np.ix_(op.gate.wires, list(range(op.gate.nmode)))]
-                    u[np.ix_(op.gate.wires, list(range(op.gate.nmode)))] = u_local @ u_update
+                    u_update = u[idx_r[:, None], idx_c]
+                    u[idx_r[:, None], idx_c] = u_local @ u_update
             else:
                 if u is None:
                     u = op.get_unitary()
                 else:
+                    idx_r = torch.tensor(op.wires, device=u.device)
+                    idx_c = torch.arange(op.nmode + nloss, device=u.device)
                     u_local = op.update_matrix()
-                    u_update = u[np.ix_(op.wires, list(range(op.nmode + nloss)))]
-                    u[np.ix_(op.wires, list(range(op.nmode + nloss)))] = u_local @ u_update
+                    u_update = u[idx_r[:, None], idx_c]
+                    u[idx_r[:, None], idx_c] = u_local @ u_update
         if u is None:
             return torch.eye(self.nmode, dtype=torch.cfloat)
         else:
