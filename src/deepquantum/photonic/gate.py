@@ -2333,7 +2333,7 @@ class DelayBS(Delay):
         den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        loop_gates (List[Gate] or None, optional): The list of gates added to the delay line. Default: ``None``
+        loop_gates (List[Gate] or None, optional): The list of gates added to the delay loop. Default: ``None``
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
@@ -2393,7 +2393,7 @@ class DelayMZI(Delay):
         den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        loop_gates (List[Gate] or None, optional): The list of gates added to the delay line. Default: ``None``
+        loop_gates (List[Gate] or None, optional): The list of gates added to the delay loop. Default: ``None``
         noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
