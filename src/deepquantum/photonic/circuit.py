@@ -1441,10 +1441,19 @@ class QumodeCircuit(Operation):
             results = defaultdict(list)
             if with_prob:
                 for k in samples_i:
-                    prob = self._get_prob_gaussian(k, [cov[i], mean[i]])
+                    if mcmc:
+                        prob = self._get_prob_gaussian(k, [cov[i], mean[i]])
+                    else:
+                        wires_ = sorted(self._convert_indices(wires))
+                        wires_ = torch.tensor(wires_, device=cov.device)
+                        idx = torch.cat([wires_, wires_ + self.nmode])
+                        prob = self._get_prob_gaussian(k, [cov[i][idx[:, None], idx], mean[i][idx, :]])
                     samples_i[k] = samples_i[k], prob
             for key in samples_i.keys():
-                state_b = [key[wire] for wire in wires]
+                if mcmc:
+                    state_b = [key[wire] for wire in wires]
+                else:
+                    state_b = list(key)
                 state_b = FockState(state=state_b)
                 results[state_b].append(samples_i[key])
             if with_prob:
