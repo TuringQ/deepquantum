@@ -9,7 +9,7 @@ from tqdm import tqdm
 # Print version
 print(dq.__version__)
 
-device = 'cpu'
+device = 'gpu'
 
 def torontonian_dq(n, l):
     A = torch.load(f"tor_matrix_{n}_{1000}.pt").to(device)
@@ -31,9 +31,9 @@ def torontonian_dq(n, l):
 
 results = {}
 
-platform = 'deepquantum'
+platform = 'deepquantum_gpu'
 
-n_list = [2, 6, 10, 14, 18]
+n_list = [2, 6, 10, 14]
 l_list = [1, 10, 100, 1000]
 
 for n in tqdm(n_list):

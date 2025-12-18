@@ -18,6 +18,8 @@ def torontonian_dq(n, l):
         trials = 10
         if l == 100 or l == 1000:
             trials = 1
+        gamma = torch.diagonal(A[0:1], dim1=1, dim2=2)
+        torch.vmap(torontonian)(A[0:1], gamma)
         time0 = time.time()
         for i in range(trials):
             gamma = torch.diagonal(A[i*l:(i+1)*l], dim1=1, dim2=2)

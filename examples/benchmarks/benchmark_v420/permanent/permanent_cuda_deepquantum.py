@@ -18,6 +18,7 @@ def permanent_dq(n, l):
         trials = 1
         if l == 10 or l == 100 or l == 1000:
             trials = 1
+        torch.vmap(permanent)(matrix[0:1])
         time0 = time.time()
         for i in range(trials):
             if n > 21 and l >= 100:

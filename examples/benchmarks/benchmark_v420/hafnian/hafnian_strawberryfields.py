@@ -20,6 +20,7 @@ def hafnian_sf(n, l):
         trials = 100
         if l == 100 or l == 1000:
             trials = 1
+        hafnian(np.array(A[0]))
         time0 = time.time()
         for i in tqdm(range(trials)):
             for j in range(i*l, (i+1)*l):
