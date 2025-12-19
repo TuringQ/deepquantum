@@ -1415,6 +1415,7 @@ class QumodeCircuit(Operation):
 
         See https://arxiv.org/pdf/2108.01622
         """
+        assert not self._if_delayloop, 'Currently Fock measurement is not supported with delay loops'
         cov, mean = self.state
         batch = cov.shape[0]
         all_results = []
@@ -1441,10 +1442,18 @@ class QumodeCircuit(Operation):
             results = defaultdict(list)
             if with_prob:
                 for k in samples_i:
-                    prob = self._get_prob_gaussian(k, [cov[i], mean[i]])
+                    if mcmc:
+                        prob = self._get_prob_gaussian(k, [cov[i], mean[i]])
+                    else:
+                        wires_ = torch.tensor(wires, device=cov.device)
+                        idx = torch.cat([wires_, wires_ + self.nmode])
+                        prob = self._get_prob_gaussian(k, [cov[i][idx[:, None], idx], mean[i][idx, :]])
                     samples_i[k] = samples_i[k], prob
             for key in samples_i.keys():
-                state_b = [key[wire] for wire in wires]
+                if mcmc:
+                    state_b = [key[wire] for wire in wires]
+                else:
+                    state_b = list(key)
                 state_b = FockState(state=state_b)
                 results[state_b].append(samples_i[key])
             if with_prob:
