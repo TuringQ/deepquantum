@@ -9,7 +9,7 @@ from tqdm import tqdm
 # Print version
 print(dq.__version__)
 
-device = 'gpu'
+device = 'cuda'
 
 def torontonian_dq(n, l):
     A = torch.load(f"tor_matrix_{n}_{1000}.pt").to(device)
