@@ -21,6 +21,7 @@ def torontonian_pq(n, l):
         trials = 10
         if l == 100 or l == 1000:
             trials = 1
+        np.vectorize(_tor_pq_loop, signature='(n,n)->()')(A[0:1])
         time0 = time.time()
         for i in range(trials):
             results = np.vectorize(_tor_pq_loop, signature='(n,n)->()')(A[i*l:(i+1)*l])

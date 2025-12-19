@@ -17,6 +17,7 @@ def hafnian_pq(n, l):
         trials = 10
         if l == 100 or l == 1000:
             trials = 1
+        hafnian_with_reduction(np.array(A[0], dtype=np.complex128), np.array([1]*2*n))
         time0 = time.time()
         for i in tqdm(range(trials)):
             for j in range(i*l, (i+1)*l):

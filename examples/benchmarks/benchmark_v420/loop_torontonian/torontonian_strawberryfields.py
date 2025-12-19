@@ -22,10 +22,10 @@ def torontonian_sf(n, l):
         # if l == 100 or l == 1000:
         if l == 1000:
             trials = 1
+        np.vectorize(_tor_sf_loop,signature='(n,n)->()')(A[0:1])
         time0 = time.time()
         for i in range(trials):
             results = np.vectorize(_tor_sf_loop,signature='(n,n)->()')(A[i*l:(i+1)*l])
-            # print(results)
         time1 = time.time()
         ts = (time1 - time0) / trials
         return ts

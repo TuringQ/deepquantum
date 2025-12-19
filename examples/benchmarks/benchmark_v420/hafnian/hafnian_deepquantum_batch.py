@@ -18,10 +18,10 @@ def hafnian_batch_dq(n, l): # n modes 的数量 ， l batchsize
         trials = 100
         if l == 100 or l == 1000:
             trials = 1
+        hafnian_batch(A[0:1])
         time0 = time.time()
         for i in tqdm(range(trials)):
             results = hafnian_batch(A[i*l:(i+1)*l])
-            # print(results)
         time1 = time.time()
         ts = (time1 - time0) / trials
         return ts
