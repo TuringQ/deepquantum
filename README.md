@@ -239,6 +239,23 @@ if rank == 0:
 dq.cleanup_distributed()
 ```
 
+# Citation
+
+If you use DeepQuantum in your research, please cite [our paper](https://arxiv.org/abs/2512.18995):
+
+```bibtex
+@article{he2025deepquantum,
+  title={DeepQuantum: A PyTorch-based Software Platform for Quantum Machine Learning and Photonic Quantum Computing},
+  author={He, Jun-Jie and Hu, Ke-Ming and Zhu, Yu-Ze and Yan, Guan-Ju and Liang, Shu-Yi and Zhao, Xiang and Wang, Ding and Guo, Fei-Xiang and Lan, Ze-Feng and Shang, Xiao-Wen and others},
+  journal={arXiv preprint arXiv:2512.18995},
+  year={2025}
+}
+```
+
+# Star History
+
+[![Stargazers over time](https://starchart.cc/TuringQ/deepquantum.svg?variant=adaptive)](https://starchart.cc/TuringQ/deepquantum)
+
 # License
 
 DeepQuantum is open source, released under the Apache License, Version 2.0.
