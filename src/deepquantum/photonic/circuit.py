@@ -320,7 +320,7 @@ class QumodeCircuit(Operation):
     ) -> Union[torch.Tensor, Dict]:
         """Perform a forward pass for one sample if the input is a Fock basis state."""
         self.encode(data)
-        unitary = self.get_unitary()
+        unitary = self.get_unitary(use_vmap=True)
         if is_prob is None:
             return unitary
         else:
@@ -754,7 +754,7 @@ class QumodeCircuit(Operation):
             op.init_para(data[count:count_up])
             count = count_up
 
-    def get_unitary(self) -> torch.Tensor:
+    def get_unitary(self, use_vmap: bool = False) -> torch.Tensor:
         """Get the unitary matrix of the photonic quantum circuit."""
         u = None
         if self._if_delayloop:
@@ -772,21 +772,27 @@ class QumodeCircuit(Operation):
                 if u is None:
                     u = op.gate.get_unitary()
                 else:
-                    idx_r = torch.tensor(op.gate.wires, device=u.device)
-                    idx_c = torch.arange(op.gate.nmode, device=u.device)
                     u = torch.block_diag(u, torch.eye(1, dtype=u.dtype, device=u.device))
-                    u_local = op.gate.update_matrix()
-                    u_update = u[idx_r[:, None], idx_c]
-                    u[idx_r[:, None], idx_c] = u_local @ u_update
+                    if use_vmap:
+                        u = op.gate.get_unitary() @ u
+                    else:
+                        idx_r = torch.tensor(op.gate.wires, device=u.device)
+                        idx_c = torch.arange(op.gate.nmode, device=u.device)
+                        u_local = op.gate.update_matrix()
+                        u_update = u[idx_r[:, None], idx_c]
+                        u[idx_r[:, None], idx_c] = u_local @ u_update
             else:
                 if u is None:
                     u = op.get_unitary()
                 else:
-                    idx_r = torch.tensor(op.wires, device=u.device)
-                    idx_c = torch.arange(op.nmode + nloss, device=u.device)
-                    u_local = op.update_matrix()
-                    u_update = u[idx_r[:, None], idx_c]
-                    u[idx_r[:, None], idx_c] = u_local @ u_update
+                    if use_vmap:
+                        u = torch.block_diag(op.get_unitary(), torch.eye(nloss, dtype=u.dtype, device=u.device)) @ u
+                    else:
+                        idx_r = torch.tensor(op.wires, device=u.device)
+                        idx_c = torch.arange(op.nmode + nloss, device=u.device)
+                        u_local = op.update_matrix()
+                        u_update = u[idx_r[:, None], idx_c]
+                        u[idx_r[:, None], idx_c] = u_local @ u_update
         if u is None:
             return torch.eye(self.nmode, dtype=torch.cfloat)
         else:

@@ -3,6 +3,15 @@ import pytest
 import torch
 
 
+def test_forward_unitary():
+    batch = 2
+    cir = dq.QumodeCircuit(2, init_state=[1,0])
+    cir.bs([0,1])
+    cir.ps(0, encode=True)
+    x = torch.randn(batch, 1)
+    u = cir(x)
+    assert u.shape == (batch, 2, 2)
+
 def test_gaussian_shape():
     cir = dq.QumodeCircuit(nmode=1, init_state='vac', cutoff=3, backend='gaussian')
     cir.s(0, 0., encode=True)
