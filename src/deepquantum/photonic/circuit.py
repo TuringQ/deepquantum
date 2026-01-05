@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
+import torch._C._functorch as _functorch
 from torch import nn, vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
 
@@ -272,6 +273,8 @@ class QumodeCircuit(Operation):
             self._is_batch_expand = False # reset
             self._expand_state = None # reset
             state = self._prepare_expand_state(state, cal_all_fock_basis=True)
+        if self.ndata == 0:
+            data = None
         if data is None or data.ndim == 1:
             if self.basis:
                 assert state.ndim in (1, 2)
@@ -771,22 +774,29 @@ class QumodeCircuit(Operation):
                 op.gate.nmode = op.nmode + nloss
                 if u is None:
                     u = op.gate.get_unitary()
+                    continue
                 else:
+                    u = torch.block_diag(u, torch.eye(1, dtype=u.dtype, device=u.device))
                     idx_r = torch.tensor(op.gate.wires, device=u.device)
                     idx_c = torch.arange(op.gate.nmode, device=u.device)
-                    u = torch.block_diag(u, torch.eye(1, dtype=u.dtype, device=u.device))
                     u_local = op.gate.update_matrix()
-                    u_update = u[idx_r[:, None], idx_c]
-                    u[idx_r[:, None], idx_c] = u_local @ u_update
             else:
                 if u is None:
                     u = op.get_unitary()
+                    continue
                 else:
                     idx_r = torch.tensor(op.wires, device=u.device)
                     idx_c = torch.arange(op.nmode + nloss, device=u.device)
                     u_local = op.update_matrix()
-                    u_update = u[idx_r[:, None], idx_c]
-                    u[idx_r[:, None], idx_c] = u_local @ u_update
+            if _functorch.is_batchedtensor(u_local) and not _functorch.is_batchedtensor(u):
+                bdim = _functorch.maybe_get_bdim(u_local)
+                level = _functorch.maybe_get_level(u_local)
+                raw_tensor = _functorch._remove_batch_dim(u_local, level, -1, bdim)
+                bs = raw_tensor.shape[bdim]
+                u = torch.stack([u] * bs, dim=bdim)
+                u = _functorch._add_batch_dim(u, bdim, level)
+            u_update = u[idx_r[:, None], idx_c]
+            u[idx_r[:, None], idx_c] = u_local @ u_update
         if u is None:
             return torch.eye(self.nmode, dtype=torch.cfloat)
         else:
