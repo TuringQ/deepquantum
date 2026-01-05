@@ -4,7 +4,7 @@ import torch
 
 
 def test_forward_unitary():
-    batch = 2
+    batch = 4
     cir = dq.QumodeCircuit(2, init_state=[1,0])
     cir.bs([0,1])
     cir.ps(0, encode=True)

@@ -273,6 +273,8 @@ class QumodeCircuit(Operation):
             self._is_batch_expand = False # reset
             self._expand_state = None # reset
             state = self._prepare_expand_state(state, cal_all_fock_basis=True)
+        if self.ndata == 0:
+            data = None
         if data is None or data.ndim == 1:
             if self.basis:
                 assert state.ndim in (1, 2)
@@ -789,7 +791,9 @@ class QumodeCircuit(Operation):
             if _functorch.is_batchedtensor(u_local) and not _functorch.is_batchedtensor(u):
                 bdim = _functorch.maybe_get_bdim(u_local)
                 level = _functorch.maybe_get_level(u_local)
-                u = torch.stack([u] * u.shape[bdim], dim=bdim)
+                raw_tensor = _functorch._remove_batch_dim(u_local, level, -1, bdim)
+                bs = raw_tensor.shape[bdim]
+                u = torch.stack([u] * bs, dim=bdim)
                 u = _functorch._add_batch_dim(u, bdim, level)
             u_update = u[idx_r[:, None], idx_c]
             u[idx_r[:, None], idx_c] = u_local @ u_update
