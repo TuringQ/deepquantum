@@ -56,9 +56,8 @@ def trace_powers(a, power):
     Compute [Tr(a^0), Tr(a^1), ..., Tr(a^power)] in one forward pass.
     Autograd & Hessian safe.
     """
-    n = a.shape[0]
     traces = []
-    x = torch.diag(a.new_ones(a.size()[0]))
+    x = torch.diag(a.new_ones(a.shape[0]))
     traces.append(torch.trace(x)) # a^0
     for _ in range(power):
         x = x @ a
