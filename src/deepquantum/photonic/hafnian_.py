@@ -59,6 +59,7 @@ def poly_lambda(submat: torch.Tensor, int_partition: List, power: int, loop: boo
     x_mat = identity.reshape(size // 2, 2, size).flip(1).reshape(size, size)
     xaz = x_mat @ submat
     eigen = torch.linalg.eigvals(xaz) # eigen decomposition
+    # trace_list = torch.stack([torch.trace(torch.matrix_power(xaz, i)) for i in range(0, power + 1)])
     trace_list = torch.stack([(eigen ** i).sum() for i in range(0, power + 1)])
     coeff = 0
     if loop: # loop hafnian case
