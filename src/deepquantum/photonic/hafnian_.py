@@ -51,6 +51,19 @@ def get_submat_haf(a: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
     submat = a[idx][:, idx]
     return submat
 
+def trace_powers(a, power):
+    """
+    Compute [Tr(a^0), Tr(a^1), ..., Tr(a^power)] in one forward pass.
+    Autograd & Hessian safe.
+    """
+    n = a.shape[0]
+    traces = []
+    x = torch.diag(a.new_ones(a.size()[0]))
+    traces.append(torch.trace(x)) # a^0
+    for _ in range(power):
+        x = x @ a
+        traces.append(torch.trace(x))
+    return torch.stack(traces)
 
 def poly_lambda(submat: torch.Tensor, int_partition: List, power: int, loop: bool = False) -> torch.Tensor:
     """Get the coefficient of the polynomial."""
@@ -58,9 +71,7 @@ def poly_lambda(submat: torch.Tensor, int_partition: List, power: int, loop: boo
     identity = torch.eye(size, dtype=submat.dtype, device=submat.device)
     x_mat = identity.reshape(size // 2, 2, size).flip(1).reshape(size, size)
     xaz = x_mat @ submat
-    eigen = torch.linalg.eigvals(xaz) # eigen decomposition
-    # trace_list = torch.stack([torch.trace(torch.matrix_power(xaz, i)) for i in range(0, power + 1)])
-    trace_list = torch.stack([(eigen ** i).sum() for i in range(0, power + 1)])
+    trace_list = trace_powers(xaz, power)
     coeff = 0
     if loop: # loop hafnian case
         v = torch.diag(submat)
