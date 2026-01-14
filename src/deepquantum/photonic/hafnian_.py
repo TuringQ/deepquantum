@@ -53,17 +53,35 @@ def get_submat_haf(a: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
 
 
 def poly_lambda(submat: torch.Tensor, int_partition: List, power: int, loop: bool = False) -> torch.Tensor:
-    """Get the coefficient of the polynomial."""
+    """Get the coefficient of the polynomial.
+
+    See https://arxiv.org/abs/1805.12498 Eq.(3.26) (noting that Eq.(3.26) contains a typo) and
+    https://research-information.bris.ac.uk/ws/portalfiles/portal/329011096/thesis.pdf Eq.(3.80)
+    """
     size = submat.shape[-1]
     identity = torch.eye(size, dtype=submat.dtype, device=submat.device)
     x_mat = identity.reshape(size // 2, 2, size).flip(1).reshape(size, size)
     xaz = x_mat @ submat
-    eigen = torch.linalg.eigvals(xaz) # eigen decomposition
-    trace_list = torch.stack([(eigen ** i).sum() for i in range(0, power + 1)])
+    # trace power calculation
+    traces = []
+    x = xaz.new_ones(xaz.shape[-1]).diag()
+    traces.append(torch.trace(x))
+    for _ in range(power):
+        x = x @ xaz
+        traces.append(torch.trace(x))
+    trace_list = torch.stack(traces)
     coeff = 0
     if loop: # loop hafnian case
         v = torch.diag(submat)
-        diag_term = torch.stack([v @ torch.linalg.matrix_power(xaz, i - 1) @ x_mat @ v / 2 for i in range(1, power+1)])
+        xv = x_mat @ v / 2
+        # matrix power calculation
+        diag_term = []
+        x = xaz.new_ones(xaz.shape[-1]).diag()
+        diag_term.append(v @ x @ xv)
+        for _ in range(power-1):
+            x = x @ xaz
+            diag_term.append(v @ x @ xv)
+        diag_term = torch.stack(diag_term)
     for orders in int_partition:
         ncount = count_unique_permutations(orders)
         orders = torch.tensor(orders, device=submat.device)
