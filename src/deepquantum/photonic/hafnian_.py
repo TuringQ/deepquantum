@@ -55,8 +55,8 @@ def get_submat_haf(a: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
 def poly_lambda(submat: torch.Tensor, int_partition: List, power: int, loop: bool = False) -> torch.Tensor:
     """Get the coefficient of the polynomial.
 
-    See https://arxiv.org/abs/1805.12498 Eq.(3.26) with typo and
-    https://research-information.bris.ac.uk/ws/portalfiles/portal/329011096/thesis.pdf Eq.(3.30)
+    See https://arxiv.org/abs/1805.12498 Eq.(3.26) (noting that Eq.(3.26) contains a typo) and
+    https://research-information.bris.ac.uk/ws/portalfiles/portal/329011096/thesis.pdf Eq.(3.80)
     """
     size = submat.shape[-1]
     identity = torch.eye(size, dtype=submat.dtype, device=submat.device)
