@@ -51,8 +51,13 @@ def get_submat_haf(a: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
     submat = a[idx][:, idx]
     return submat
 
+
 def poly_lambda(submat: torch.Tensor, int_partition: List, power: int, loop: bool = False) -> torch.Tensor:
-    """Get the coefficient of the polynomial."""
+    """Get the coefficient of the polynomial.
+
+    See https://arxiv.org/abs/1805.12498 Eq.(3.26) with typo and
+    https://research-information.bris.ac.uk/ws/portalfiles/portal/329011096/thesis.pdf Eq.(3.30)
+    """
     size = submat.shape[-1]
     identity = torch.eye(size, dtype=submat.dtype, device=submat.device)
     x_mat = identity.reshape(size // 2, 2, size).flip(1).reshape(size, size)
@@ -68,13 +73,14 @@ def poly_lambda(submat: torch.Tensor, int_partition: List, power: int, loop: boo
     coeff = 0
     if loop: # loop hafnian case
         v = torch.diag(submat)
+        xv = x_mat @ v / 2
         # matrix power calculation
         diag_term = []
         x = xaz.new_ones(xaz.shape[-1]).diag()
-        diag_term.append(v @ x @ x_mat @ v / 2)
-        for _ in range(power):
+        diag_term.append(v @ x @ xv)
+        for _ in range(power-1):
             x = x @ xaz
-            diag_term.append(v @ x @ x_mat @ v / 2)
+            diag_term.append(v @ x @ xv)
         diag_term = torch.stack(diag_term)
     for orders in int_partition:
         ncount = count_unique_permutations(orders)
