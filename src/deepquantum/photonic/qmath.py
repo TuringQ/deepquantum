@@ -571,3 +571,56 @@ def align_shape(cov: torch.Tensor, mean: torch.Tensor, weight: torch.Tensor) -> 
         if mean.shape[0] == 1:
             mean = mean.expand(ncomb, -1, -1)
     return [cov, mean, weight]
+
+def fock_wigner(
+    state: torch.Tensor,
+    cutoff: int,
+    xvec: torch.Tensor,
+    pvec: torch.Tensor,
+    den_mat: bool = False
+) -> torch.Tensor:
+    """Compute the Wigner function W(q, p) from a Fock tensor state or density matrix
+        using the iterative method.
+
+        See https://qutip.org/docs/4.7/modules/qutip/wigner.html
+    """
+    if den_mat:
+        rho = state.reshape(-1, cutoff, cutoff)
+    else:
+        state = state.reshape(-1, cutoff, 1)
+        rho = state @ state.mH
+    dtype = rho.dtype
+    device = rho.device
+    if not isinstance(xvec, torch.Tensor):
+        xvec = torch.tensor(xvec, device=device)
+    if not isinstance(pvec, torch.Tensor):
+        pvec = torch.tensor(pvec, device=device)
+    coef = 2 * dqp.kappa ** 2 / dqp.hbar
+    xvec = coef ** 0.5 * xvec
+    pvec = coef ** 0.5 * pvec
+    qlist, plist = torch.meshgrid(xvec, pvec, indexing='ij')
+    # alpha = (q + i p) / sqrt(2)
+    alpha = (qlist + 1.0j * plist) / rho.new_tensor(2.0).sqrt()
+    w_list = qlist.new_zeros(cutoff, qlist.shape[-2], qlist.shape[-1]) * 1j
+    w_00 = coef * torch.exp(-2 * abs(alpha)**2) / torch.pi
+    w_list[0] = w_00
+    w  = rho[:,0,0].reshape(-1,1,1) * w_list[0]
+    # First row: W_{0i}
+    for i in range(1, cutoff):
+        w_list[i] = 2 * alpha * w_list[i-1] / rho.new_tensor(i).sqrt()
+        w += 2 * (rho[:,0,i].reshape(-1,1,1) * w_list[i]).real
+    # Remaining rows: W_{ij}, i ≥ 1
+    for i in range(1, cutoff):
+        # Diagonal element W_{ii}
+        sqrt_i = rho.new_tensor(i).sqrt()
+        temp = w_list[i].clone()
+        w_list[i] = (2 * alpha.conj() * temp - sqrt_i * w_list[i-1]) / sqrt_i
+        w  += rho[:,i,i].reshape(-1,1,1) * w_list[i]
+        # Off-diagonal elements W_{ij}, j > i
+        for j in range(i+1, cutoff):
+            sqrt_j = rho.new_tensor(j).sqrt()
+            temp2 = (2 * alpha * w_list[j-1] - sqrt_i * temp) / sqrt_j
+            temp = w_list[j].clone()
+            w_list[j] = temp2
+            w += 2 * (rho[:,i,j].reshape(-1,1,1) * w_list[j]).real
+    return w
