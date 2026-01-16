@@ -607,6 +607,7 @@ def fock_wigner(
     w  = rho[:,0,0].reshape(-1,1,1) * w_list[0]
     # First row: W_{0i}
     for i in range(1, cutoff):
+        # For numerical stability, it is recommended to use cutoff < 80
         w_list[i] = 2 * alpha * w_list[i-1] / rho.new_tensor(i).sqrt()
         w += 2 * (rho[:,0,i].reshape(-1,1,1) * w_list[i]).real
     # Remaining rows: W_{ij}, i ≥ 1
