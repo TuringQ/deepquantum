@@ -361,9 +361,14 @@ class BosonicState(nn.Module):
         exp_real = torch.exp(mean.imag.mT @ torch.linalg.solve(cov, mean.imag) / 2).squeeze(-2, -1) # (batch, ncomb)
         # (batch, npoints, ncomb)
         exp_imag = torch.exp((coords3 - mean.real.unsqueeze(1)).mT @
-                             torch.linalg.solve(cov, mean.imag).unsqueeze(1) * 1j).squeeze()
+                             torch.linalg.solve(cov, mean.imag).unsqueeze(1) * 1j).squeeze(-2, -1)
         wigner_vals = exp_real.unsqueeze(-2) * prob_g.permute(1, 0, 2) * exp_imag * self.weight.unsqueeze(-2)
         wigner_vals = wigner_vals.sum(dim=2).reshape(-1, len(qvec), len(pvec)).real
+        # normalize the wigner function
+        dq_ = qvec[1] - qvec[0]
+        dp_ = pvec[1] - pvec[0]
+        total_integral = torch.sum(wigner_vals, dim=[1,2]) * dq_ * dp_
+        wigner_vals = wigner_vals / total_integral.reshape(-1, 1, 1)
         if plot:
             fig, axes = plt.subplots(1, 2, figsize=(16, 8))
             ax1 = plt.subplot(121)
