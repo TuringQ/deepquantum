@@ -7,7 +7,9 @@ import warnings
 from collections import Counter
 from typing import Dict, Generator, List, Optional, Tuple, Union
 
+import matplotlib.pyplot as plt
 import torch
+from matplotlib import cm
 from torch import vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
 
@@ -572,56 +574,196 @@ def align_shape(cov: torch.Tensor, mean: torch.Tensor, weight: torch.Tensor) -> 
             mean = mean.expand(ncomb, -1, -1)
     return [cov, mean, weight]
 
-def fock_wigner(
+def fock_to_wigner(
     state: torch.Tensor,
+    wire: int,
+    nmode: int,
     cutoff: int,
-    xvec: torch.Tensor,
-    pvec: torch.Tensor,
-    den_mat: bool = False
+    den_mat: bool = False,
+    xrange: Union[int, List] = 10,
+    prange: Union[int, List] = 10,
+    npoints: Union[int, List] = 200,
+    plot: bool = True,
+    k: int = 0
 ) -> torch.Tensor:
     """Compute the Wigner function W(q, p) from a Fock tensor state or density matrix
-        using the iterative method.
+    using the iterative method.
 
-        See https://qutip.org/docs/4.7/modules/qutip/wigner.html
+    See https://qutip.org/docs/4.7/modules/qutip/wigner.html
+
+    Args:
+        state(List): The input Fock state tensor or density matrix.
+        wire (int): The wigner function for given wire.
+        nmode(int): The mode number of the Fock state.
+        xrange (int or List, optional): The range of quadrature q. Default: 10
+        prange (int or List, optional): The range of quadrature p. Default: 10
+        npoints(int or List, optional): The number of discretization points for quadratures. Default: 200
+        plot (bool, optional): Whether to plot the wigner function. Default: ``True``
+        k (int, optional): The wigner function of kth batch to plot. Default: 0
     """
     if den_mat:
-        rho = state.reshape(-1, cutoff, cutoff)
+        rho = state.reshape(-1, cutoff**nmode, cutoff**nmode)
     else:
-        state = state.reshape(-1, cutoff, 1)
+        state = state.reshape(-1, cutoff**nmode, 1)
         rho = state @ state.mH
-    dtype = rho.dtype
-    device = rho.device
-    if not isinstance(xvec, torch.Tensor):
-        xvec = torch.tensor(xvec, device=device)
-    if not isinstance(pvec, torch.Tensor):
-        pvec = torch.tensor(pvec, device=device)
+    trace_lst = [i for i in range(nmode) if i != wire]
+    reduced_dm = partial_trace(rho, nmode, trace_lst, cutoff) # (batch, cutoff, cutoff)
+    if reduced_dm.ndim == 2:
+        reduced_dm = reduced_dm.unsqueeze(0)
+    if isinstance(xrange, int):
+        xlist = [-xrange, xrange]
+    else:
+        xlist = xrange
+    if isinstance(prange, int):
+        plist = [-prange, prange]
+    else:
+        plist = prange
+    if isinstance(npoints, int):
+        xlist.append(npoints)
+        plist.append(npoints)
+    else:
+        xlist.append(npoints[0])
+        plist.append(npoints[1])
+    assert len(xlist) == len(plist) == 3
+    xvec = torch.linspace(*xlist, dtype=torch.double)
+    pvec = torch.linspace(*plist, dtype=torch.double)
     coef = 2 * dqp.kappa ** 2 / dqp.hbar
     xvec = coef ** 0.5 * xvec
     pvec = coef ** 0.5 * pvec
-    qlist, plist = torch.meshgrid(xvec, pvec, indexing='ij')
+    xlist, plist = torch.meshgrid(xvec, pvec, indexing='ij')
     # alpha = (q + i p) / sqrt(2)
-    alpha = (qlist + 1.0j * plist) / rho.new_tensor(2.0).sqrt()
-    w_list = qlist.new_zeros(cutoff, qlist.shape[-2], qlist.shape[-1]) * 1j
+    alpha = (xlist + 1.0j * plist) / rho.new_tensor(2.0).sqrt()
+    w_list = xlist.new_zeros(cutoff, xlist.shape[-2], xlist.shape[-1]) * 1j
     w_00 = coef * torch.exp(-2 * abs(alpha)**2) / torch.pi
     w_list[0] = w_00
-    w  = rho[:,0,0].reshape(-1,1,1) * w_list[0]
+    w  = reduced_dm[:,0,0].reshape(-1,1,1) * w_list[0]
     # First row: W_{0i}
     for i in range(1, cutoff):
         # For numerical stability, it is recommended to use cutoff < 80
         w_list[i] = 2 * alpha * w_list[i-1] / rho.new_tensor(i).sqrt()
-        w += 2 * (rho[:,0,i].reshape(-1,1,1) * w_list[i]).real
+        w += 2 * (reduced_dm[:,0,i].reshape(-1,1,1) * w_list[i]).real
     # Remaining rows: W_{ij}, i ≥ 1
     for i in range(1, cutoff):
         # Diagonal element W_{ii}
         sqrt_i = rho.new_tensor(i).sqrt()
         temp = w_list[i].clone()
         w_list[i] = (2 * alpha.conj() * temp - sqrt_i * w_list[i-1]) / sqrt_i
-        w  += rho[:,i,i].reshape(-1,1,1) * w_list[i]
+        w += reduced_dm[:,i,i].reshape(-1,1,1) * w_list[i]
         # Off-diagonal elements W_{ij}, j > i
         for j in range(i+1, cutoff):
             sqrt_j = rho.new_tensor(j).sqrt()
             temp2 = (2 * alpha * w_list[j-1] - sqrt_i * temp) / sqrt_j
             temp = w_list[j].clone()
             w_list[j] = temp2
-            w += 2 * (rho[:,i,j].reshape(-1,1,1) * w_list[j]).real
+            w += 2 * (reduced_dm[:,i,j].reshape(-1,1,1) * w_list[j]).real
+    if plot:
+        plot_wigner(w, xvec, pvec, k=k)
     return w
+
+def cv_to_wigner(
+    state: List,
+    wire: int,
+    xrange: Union[int, List] = 10,
+    prange: Union[int, List] = 10,
+    npoints: Union[int, List] = 200,
+    plot: bool = True,
+    k: int = 0
+):
+    """Get the discretized Wigner function of the specified mode.
+
+    Args:
+        state(List): The input Gaussianstate or BosonicState.
+        wire (int): The wigner function for given wire.
+        xrange (int or List, optional): The range of quadrature q. Default: 10
+        prange (int or List, optional): The range of quadrature p. Default: 10
+        npoints(int or List, optional): The number of discretization points for quadratures. Default: 200
+        plot (bool, optional): Whether to plot the wigner function. Default: ``True``
+        k (int, optional): The wigner function of kth batch to plot. Default: 0
+    """
+    if isinstance(xrange, int):
+        xlist = [-xrange, xrange]
+    else:
+        xlist = xrange
+    if isinstance(prange, int):
+        plist = [-prange, prange]
+    else:
+        plist = prange
+    if isinstance(npoints, int):
+        xlist.append(npoints)
+        plist.append(npoints)
+    else:
+        xlist.append(npoints[0])
+        plist.append(npoints[1])
+    assert len(xlist) == len(plist) == 3
+    xvec = torch.linspace(*xlist, dtype=torch.double)
+    pvec = torch.linspace(*plist, dtype=torch.double)
+    grid_x, grid_y = torch.meshgrid(xvec, pvec, indexing='ij')
+    coords = torch.stack([grid_x.reshape(-1), grid_y.reshape(-1)]).mT
+    coords2 = coords.unsqueeze(1).unsqueeze(2) # (npoints, 1, 1, 2)
+    coords3 = coords.unsqueeze(-1).unsqueeze(-3)
+    if not isinstance(wire, torch.Tensor):
+        wire = torch.tensor(wire).reshape(1)
+    cov, mean = state[:2]
+    mean = mean.to(torch.complex128)
+    if cov.ndim == 2:
+        cov = cov.unsqueeze(0)
+    if mean.ndim == 2:
+        mean = mean.unsqueeze(0)
+    if cov.ndim == 3:
+        cov = cov.unsqueeze(1)
+    if mean.ndim == 3:
+        mean = mean.unsqueeze(1)
+    if len(state)==2:
+        weight = cov.new_tensor(1.).reshape(1)
+    if len(state)==3:
+        weight = state[-1]
+    cov, mean, weight = align_shape(cov, mean, weight)
+    nmode = cov.shape[-1]//2
+    idx = torch.cat([wire, wire + nmode]) # xxpp order
+    cov  = cov[..., idx[:, None], idx]
+    mean = mean[..., idx, :]
+    gauss_b = MultivariateNormal(mean.squeeze(-1).real, cov) # mean shape: (batch, ncomb, 2)
+    prob_g = gauss_b.log_prob(coords2).exp() # (npoints, batch, ncomb)
+    exp_real = torch.exp(mean.imag.mT @ torch.linalg.solve(cov, mean.imag) / 2).squeeze(-2, -1) # (batch, ncomb)
+    # (batch, npoints, ncomb)
+    exp_imag = torch.exp((coords3 - mean.real.unsqueeze(1)).mT @
+                            torch.linalg.solve(cov, mean.imag).unsqueeze(1) * 1j).squeeze(-2, -1)
+    wigner_vals = exp_real.unsqueeze(-2) * prob_g.permute(1, 0, 2) * exp_imag * weight.unsqueeze(-2)
+    wigner_vals = wigner_vals.sum(dim=2).reshape(-1, len(xvec), len(pvec)).real
+    # normalize the wigner function
+    dx_ = xvec[1] - xvec[0]
+    dp_ = pvec[1] - pvec[0]
+    total_integral = torch.sum(wigner_vals, dim=[1,2]) * dx_ * dp_
+    wigner_vals = wigner_vals / total_integral.reshape(-1, 1, 1)
+    if plot:
+        plot_wigner(wigner_vals, xvec, pvec, k=k)
+    return wigner_vals
+
+def plot_wigner(
+    wigner: torch.Tensor,
+    xvec: torch.Tensor,
+    pvec: torch.Tensor,
+    k: int=0
+):
+    """Plot a 2D contour and a 3D surface of a discretized Wigner function W(x, p).
+
+    Args:
+        wigner (torch.Tensor): Discretized Wigner values with shape (batch, len(xvec), len(pvec)).
+        xvec (torch.Tensor): 1D grid for quadrature q.
+        pvec (torch.Tensor): 1D grid for quadrature p.
+        k (int, optional): Batch index to plot. Default: 0.
+    """
+    grid_x, grid_y = torch.meshgrid(xvec, pvec, indexing='ij')
+    fig, axes = plt.subplots(1, 2, figsize=(16, 8))
+    ax1 = plt.subplot(121)
+    plt.xlabel('Quadrature q')
+    plt.ylabel('Quadrature p')
+    plt.contourf(grid_x.cpu(), grid_y.cpu(), wigner[k].cpu(), 60, cmap=cm.RdBu)
+    plt.colorbar(shrink=0.5)
+    ax2 = plt.subplot(122, projection='3d')
+    surf = ax2.plot_surface(grid_x.cpu(), grid_y.cpu(), wigner[k].cpu(), cmap=cm.RdBu, alpha=0.8)
+    ax2.set_xlabel('Quadrature q')
+    ax2.set_ylabel('Quadrature p')
+    ax2.set_zlabel('W(q,p)')
+    plt.tight_layout()
+    plt.show()
