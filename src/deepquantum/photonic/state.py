@@ -140,7 +140,7 @@ class FockState(nn.Module):
             wire (int): The wigner function for given wire.
             xrange (int or List, optional): The range of quadrature q. Default: 10
             prange (int or List, optional): The range of quadrature p. Default: 10
-            npoints(int or List, optional): The number of discretization points for quadratures. Default: 200
+            npoints (int or List, optional): The number of discretization points for quadratures. Default: 100
             plot (bool, optional): Whether to plot the wigner function. Default: ``True``
             k (int, optional): The wigner function of kth batch to plot. Default: 0
         """
@@ -261,7 +261,7 @@ class GaussianState(nn.Module):
             wire (int): The wigner function for given wire.
             xrange (int or List, optional): The range of quadrature q. Default: 10
             prange (int or List, optional): The range of quadrature p. Default: 10
-            npoints(int or List, optional): The number of discretization points for quadratures. Default: 200
+            npoints (int or List, optional): The number of discretization points for quadratures. Default: 100
             plot (bool, optional): Whether to plot the wigner function. Default: ``True``
             k (int, optional): The wigner function of kth batch to plot. Default: 0
         """
@@ -366,7 +366,7 @@ class BosonicState(nn.Module):
             wire (int): The wigner function for given wire.
             xrange (int or List, optional): The range of quadrature q. Default: 10
             prange (int or List, optional): The range of quadrature p. Default: 10
-            npoints(int or List, optional): The number of discretization points for quadratures. Default: 200
+            npoints (int or List, optional): The number of discretization points for quadratures. Default: 100
             plot (bool, optional): Whether to plot the wigner function. Default: ``True``
             k (int, optional): The wigner function of kth batch to plot. Default: 0
         """
@@ -377,7 +377,7 @@ class BosonicState(nn.Module):
         wire: int,
         phi: float = 0.,
         xrange: Union[int, List] = 10,
-        npoints: int = 200,
+        npoints: int = 100,
         plot: bool = True,
         k: int = 0
     ):
@@ -387,9 +387,9 @@ class BosonicState(nn.Module):
             wire (int): The marginal function for given wire.
             phi (float, optional): The angle used to compute the linear combination of quadratures. Default: 0
             xrange (int or List, optional): The range of quadrature. Default: 10
-            npoints(int, optional): The number of discretization points for quadrature. Default: 200
+            npoints (int, optional): The number of discretization points for quadrature. Default: 100
             plot (bool, optional): Whether to plot the marginal function. Default: ``True``
-            k (int, optional): The marginal function of kth batch to plot. Default: 0
+            k (int, optional): The index of the marginal function within the batch to plot. Default: 0
         """
         # pylint: disable=import-outside-toplevel
         from .gate import PhaseShift

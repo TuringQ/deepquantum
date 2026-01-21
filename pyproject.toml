@@ -49,6 +49,7 @@ classifiers = [
 [project.optional-dependencies]
 dev = ['pytest',
        'perceval-quandela',
+       'qutip',
        'strawberryfields',
        'thewalrus',
        'graphix==0.3.1']
