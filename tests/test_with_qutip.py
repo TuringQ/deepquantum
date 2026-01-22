@@ -15,7 +15,6 @@ def test_with_qutip_fock_wigner():
     fock_state = dq.FockState(state=re, basis=False)
     psi = re[0]
     psi = psi.reshape(cutoff, 1)
-    rho = psi @ psi.mH
 
     npoints = 100
     xrange = 10
@@ -37,7 +36,6 @@ def test_with_qutip_gaussian_wigner():
     re  = cir1()
     psi = re[0]
     psi = psi.reshape(cutoff, 1)
-    rho = psi @ psi.mH
 
     cir2 = dq.QumodeCircuit(nmode=1, init_state='vac', backend='gaussian')
     cir2.s(0, r=r, theta=0)

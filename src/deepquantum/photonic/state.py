@@ -9,7 +9,6 @@ import numpy as np
 import torch
 from scipy.special import comb
 from torch import nn, vmap
-from torch.distributions.multivariate_normal import MultivariateNormal
 
 import deepquantum.photonic as dqp
 from ..communication import comm_get_rank, comm_get_world_size
@@ -125,6 +124,7 @@ class FockState(nn.Module):
         else:
             self.state = self.state.to(arg)
         return self
+
     def wigner(
         self,
         wire: int,

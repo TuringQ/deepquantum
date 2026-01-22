@@ -659,8 +659,8 @@ def fock_to_wigner(
             w_list[j] = temp2
             w += 2 * (reduced_dm[:, i, j].reshape(-1, 1, 1) * w_list[j]).real
     if plot:
-        plot_wigner(w, xvec, pvec, k=k)
-    return w
+        plot_wigner(w.real, xvec, pvec, k=k)
+    return w.real
 
 
 def cv_to_wigner(
@@ -747,7 +747,7 @@ def plot_wigner(
     wigner: torch.Tensor,
     xvec: torch.Tensor,
     pvec: torch.Tensor,
-    k: int=0
+    k: int = 0
 ):
     """Plot a 2D contour and a 3D surface of a discretized Wigner function W(x, p).
 
@@ -762,10 +762,10 @@ def plot_wigner(
     ax1 = plt.subplot(121)
     plt.xlabel('Quadrature q')
     plt.ylabel('Quadrature p')
-    plt.contourf(grid_x.cpu(), grid_y.cpu(), wigner[k].real.cpu(), 60, cmap=cm.RdBu)
+    plt.contourf(grid_x.cpu(), grid_y.cpu(), wigner[k].cpu(), 60, cmap=cm.RdBu)
     plt.colorbar(shrink=0.5)
     ax2 = plt.subplot(122, projection='3d')
-    surf = ax2.plot_surface(grid_x.cpu(), grid_y.cpu(), wigner[k].real.cpu(), cmap=cm.RdBu, alpha=0.8)
+    surf = ax2.plot_surface(grid_x.cpu(), grid_y.cpu(), wigner[k].cpu(), cmap=cm.RdBu, alpha=0.8)
     ax2.set_xlabel('Quadrature q')
     ax2.set_ylabel('Quadrature p')
     ax2.set_zlabel('W(q,p)')
