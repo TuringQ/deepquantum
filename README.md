@@ -1,10 +1,6 @@
 # DeepQuantum
 
-<p align="center">
-  <a href="https://github.com/TuringQ/deepquantum">
-    <img width=70% src="docs/assets/deepquantum_logo_light_v1.png" alt="DeepQuantum logo"/>
-  </a>
-</p>
+![DeepQuantum logo](docs/source/_static/assets/logo_light_v1.png)
 
 [![docs](https://img.shields.io/badge/docs-link-blue.svg)](https://dqapi.turingq.com/)
 [![PyPI](https://img.shields.io/pypi/v/deepquantum.svg?logo=pypi)](https://pypi.org/project/deepquantum/)
@@ -17,11 +13,7 @@ DeepQuantum is a platform that integrates artificial intelligence (AI) and quant
 
 # Key Features
 
-<p align="center">
-  <a href="https://github.com/TuringQ/deepquantum">
-    <img width=90% src="docs/assets/deepquantum_architecture.png" alt="DeepQuantum architecture"/>
-  </a>
-</p>
+![DeepQuantum architecture](docs/source/_static/assets/architecture.png)
 
 - **AI-Enhanced Quantum Computing Framework**: Seamlessly integrated with PyTorch, it utilizes technologies such as automatic differentiation, vectorized parallelism, and GPU acceleration for efficiency. It facilitates the easy construction of hybrid quantum-classical models, enabling end-to-end training and inference.
 - **User-Friendly API Design**: The API is designed to be simple and intuitive, making it easy to initialize quantum neural networks and providing flexibility in data encoding.
