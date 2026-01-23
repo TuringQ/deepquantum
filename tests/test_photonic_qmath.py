@@ -42,7 +42,7 @@ def test_takagi():
         assert torch.allclose(u @ s_diag @ u.mT, a + 0j, rtol=1e-5, atol=1e-5)
 
 
-def test_quadrature_ladder_transform():
+def test_quadrature_ladder_transform_sq2():
     gate = Squeezing2()
     mat_ladder = gate.update_matrix()
     mat_xxpp = gate.update_transform_xp()[0]
