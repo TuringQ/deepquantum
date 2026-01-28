@@ -297,7 +297,7 @@ def _photon_number_mean_var_bosonic(
     return exp.real, var.real
 
 
-def photon_number_mean_var(
+def photon_number_mean_var_cv(
     cov: torch.Tensor,
     mean: torch.Tensor,
     weight: Optional[torch.Tensor] = None
@@ -307,6 +307,68 @@ def photon_number_mean_var(
         return  _photon_number_mean_var_gaussian(cov, mean)
     else:
         return _photon_number_mean_var_bosonic(cov, mean, weight)
+
+
+def photon_number_mean_var_fock(
+    state: torch.Tensor,
+    nmode: int,
+    cutoff: int,
+    wires: List[int],
+    den_mat: bool = False
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Get the expectation value and variance of the photon number for Fock state tensors."""
+    if den_mat:
+        rho = state.reshape(-1, cutoff ** nmode, cutoff ** nmode)
+        prob = torch.diagonal(rho, dim1=1, dim2=2).reshape([-1] + [cutoff] * nmode)
+    else:
+        if state.ndim == nmode:
+            state = state.unsqueeze(0)
+        prob = abs(state) ** 2
+    num_op = torch.arange(cutoff, device=state.device)
+    num_exp_list = []
+    var_list = []
+    for i in wires:
+        p_i = torch.sum(prob, dim=[j+1 for j in range(nmode) if j != i])
+        num_exp = (num_op * p_i).sum(dim=-1) # (batch,)
+        num2_exp = ((num_op ** 2) * p_i).sum(dim=-1) # (batch,)
+        var = num2_exp  - num_exp ** 2
+        num_exp_list.append(num_exp)
+        var_list.append(var)
+    return torch.stack(num_exp_list).real, torch.stack(var_list).real
+
+def quadrature_mean_fock(
+    state: torch.Tensor,
+    nmode: int,
+    cutoff: int,
+    wires: List[int],
+    den_mat: bool = False
+) -> torch.Tensor:
+    coef = 2 * dqp.kappa ** 2 / dqp.hbar
+    factor = torch.sqrt((torch.arange(cutoff - 1) + 1) / 2)
+    mean = []
+    if den_mat:
+        state = state.reshape(-1, cutoff ** nmode, cutoff ** nmode)
+        for wire in wires:
+            trace_lst = [i for i in range(nmode) if i != wire]
+            reduced_dm = partial_trace(state, nmode, trace_lst, cutoff) # (batch, cutoff, cutoff)
+            reduced_dm = reduced_dm.reshape(-1, cutoff, cutoff)
+            off_diag = reduced_dm.diagonal(offset=1, dim1=1, dim2=2) # rho_{n, n+1}
+            term = factor * (2 * (off_diag).real)
+            mean.append(term.sum(dim=1))
+    else:
+        if state.ndim == nmode:
+            state = state.unsqueeze(0)
+        factor = factor.view(1, -1, *([1] * (nmode - 1)))
+        for wire in wires:
+            pm_shape = list(range(1, nmode+1))
+            pm_shape.remove(wire+1)
+            pm_shape = [0] + [wire+1] + pm_shape
+            state_i = state.permute(pm_shape)
+            cn = state_i[:, :-1, ...] # n
+            cn1 = state_i[:, 1:, ...] # n+1
+            term = factor * (2 * (cn.conj() * cn1).real)
+            mean.append(term.sum(dim=tuple(range(1, nmode + 1))))
+    return coef**(-0.5) * torch.stack(mean)
 
 
 def takagi(a: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:

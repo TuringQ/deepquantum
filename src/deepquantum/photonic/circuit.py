@@ -29,7 +29,8 @@ from .hafnian_ import hafnian
 from .measurement import Homodyne, Generaldyne
 from .operation import Operation, Gate, Channel, Delay
 from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
-from .qmath import photon_number_mean_var, measure_fock_tensor, sample_homodyne_fock, sample_reject_bosonic
+from .qmath import measure_fock_tensor, sample_homodyne_fock, sample_reject_bosonic
+from .qmath import photon_number_mean_var_cv, photon_number_mean_var_fock, quadrature_mean_fock
 from .qmath import quadrature_to_ladder, shift_func, align_shape, williamson
 from .state import FockState, GaussianState, BosonicState, CatState, GKPState, DistributedFockState
 from .state import combine_bosonic_states
@@ -1637,46 +1638,69 @@ class QumodeCircuit(Operation):
                 integers specifying the indices of the wires. Default: ``None`` (which means all wires are
                 measured)
         """
-        assert self.backend in ('gaussian', 'bosonic')
         if self.state is None:
             return
-        assert isinstance(self.state, list), 'NOT valid when "is_prob" is True'
-        if self.backend == 'gaussian':
-            cov, mean = self.state
-        elif self.backend == 'bosonic':
-            cov, mean, weight = self.state
         if wires is None:
             wires = self.wires
         wires = sorted(self._convert_indices(wires))
         if self._if_delayloop:
             wires = [self._unroll_dict[wire][-1] for wire in wires]
-        shape_cov = cov.shape
-        shape_mean = mean.shape
-        batch = shape_cov[0]
-        nwire = len(wires)
-        cov = cov.reshape(-1, *shape_cov[-2:])
-        mean = mean.reshape(-1, *shape_mean[-2:])
-        covs, means = self._get_local_covs_means(cov, mean, wires)
-        if self.backend == 'gaussian':
-            weights = None
-        elif self.backend == 'bosonic':
-            covs = covs.reshape(*shape_cov[:2], nwire, 2, 2).transpose(1, 2)
-            covs = covs.reshape(-1, shape_cov[-3], 2, 2) # (batch*nwire, ncomb, 2, 2)
-            means = means.reshape(*shape_mean[:2], nwire, 2, 1).transpose(1, 2)
-            means = means.reshape(-1, shape_mean[-3], 2, 1)
-            if weight.shape[0] == 1:
-                weights = weight
-            else:
-                weights = torch.stack([weight] * nwire, dim=-2).reshape(batch * nwire, weight.shape[-1])
-            ncomb = weights.shape[-1]
-            if covs.shape[1] == 1:
-                covs = covs.expand(-1, ncomb, -1, -1)
-            if means.shape[1] == 1:
-                means = means.expand(-1, ncomb, -1, -1)
-        exp, var = photon_number_mean_var(covs, means, weights)
-        exp = exp.reshape(batch, nwire).squeeze()
-        var = var.reshape(batch, nwire).squeeze()
+        if self.backend == 'fock':
+            exp, var = photon_number_mean_var_fock(self.state, self.nmode, self.cutoff, wires, self.den_mat)
+        if self.backend in ('gaussian', 'bosonic'):
+            if self.backend == 'gaussian':
+                cov, mean = self.state
+            elif self.backend == 'bosonic':
+                cov, mean, weight = self.state
+            shape_cov = cov.shape
+            shape_mean = mean.shape
+            batch = shape_cov[0]
+            nwire = len(wires)
+            cov = cov.reshape(-1, *shape_cov[-2:])
+            mean = mean.reshape(-1, *shape_mean[-2:])
+            covs, means = self._get_local_covs_means(cov, mean, wires)
+            if self.backend == 'gaussian':
+                weights = None
+            elif self.backend == 'bosonic':
+                covs = covs.reshape(*shape_cov[:2], nwire, 2, 2).transpose(1, 2)
+                covs = covs.reshape(-1, shape_cov[-3], 2, 2) # (batch*nwire, ncomb, 2, 2)
+                means = means.reshape(*shape_mean[:2], nwire, 2, 1).transpose(1, 2)
+                means = means.reshape(-1, shape_mean[-3], 2, 1)
+                if weight.shape[0] == 1:
+                    weights = weight
+                else:
+                    weights = torch.stack([weight] * nwire, dim=-2).reshape(batch * nwire, weight.shape[-1])
+                ncomb = weights.shape[-1]
+                if covs.shape[1] == 1:
+                    covs = covs.expand(-1, ncomb, -1, -1)
+                if means.shape[1] == 1:
+                    means = means.expand(-1, ncomb, -1, -1)
+            exp, var = photon_number_mean_var_cv(covs, means, weights)
+            exp = exp.reshape(batch, nwire).squeeze()
+            var = var.reshape(batch, nwire).squeeze()
         return exp, var
+
+    def quadrature_mean(
+        self,
+        wires: Union[int, List[int], None] = None,
+        phi: Any = None
+    ) -> Optional[Tuple[torch.Tensor, torch.Tensor]]:
+        """Get the expectation value of the quadratuere operator :math:`\hat{X}\cos\phi + \hat{P}\sin\phi`.
+
+        Args:
+            wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
+                integers specifying the indices of the wires. Default: ``None`` (which means all wires are
+                measured)
+        """
+        if self.backend == 'fock':
+            if wires is None:
+                wires = self.wires
+            wires = sorted(self._convert_indices(wires))
+            mean = quadrature_mean_fock(self.state, self.nmode, self.cutoff, wires, self.den_mat)
+            return mean
+        if self.backend in ('gaussian', 'bosonic'):
+            mean = self.state[1]
+        return mean
 
     def _get_local_covs_means(
         self,
