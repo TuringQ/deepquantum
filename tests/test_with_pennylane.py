@@ -4,7 +4,6 @@ import pennylane as qml
 import torch
 
 
-
 def test_number_operator_exp():
     nmode = 4
     cutoff = 4
@@ -60,3 +59,4 @@ def test_quadrature_operator_exp():
     state = cir()
     exp_dq = cir.quadrature_mean(wires=list(range(nmode)), phi=list(phi))
     assert (exp_dq.flatten() - exp_qml.numpy()).sum() < 1e-6
+
