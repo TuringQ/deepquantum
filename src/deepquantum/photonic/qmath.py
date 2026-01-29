@@ -336,6 +336,7 @@ def photon_number_mean_var_fock(
         var_list.append(var)
     return torch.stack(num_exp_list).real, torch.stack(var_list).real
 
+
 def quadrature_mean_fock(
     state: torch.Tensor,
     nmode: int,
@@ -343,8 +344,9 @@ def quadrature_mean_fock(
     wires: List[int],
     den_mat: bool = False
 ) -> torch.Tensor:
+    """Get the expectation value of the quadrature x for Fock state tensors."""
     coef = 2 * dqp.kappa ** 2 / dqp.hbar
-    factor = torch.sqrt((torch.arange(cutoff - 1) + 1) / 2)
+    factor = torch.sqrt((torch.arange(cutoff - 1, device=state.device) + 1) / 2)
     mean = []
     if den_mat:
         state = state.reshape(-1, cutoff ** nmode, cutoff ** nmode)
@@ -353,7 +355,7 @@ def quadrature_mean_fock(
             reduced_dm = partial_trace(state, nmode, trace_lst, cutoff) # (batch, cutoff, cutoff)
             reduced_dm = reduced_dm.reshape(-1, cutoff, cutoff)
             off_diag = reduced_dm.diagonal(offset=1, dim1=1, dim2=2) # rho_{n, n+1}
-            term = factor * (2 * (off_diag).real)
+            term = factor * (2 * (off_diag).real) # only with real part contribution
             mean.append(term.sum(dim=1))
     else:
         if state.ndim == nmode:
@@ -368,7 +370,7 @@ def quadrature_mean_fock(
             cn1 = state_i[:, 1:, ...] # n+1
             term = factor * (2 * (cn.conj() * cn1).real)
             mean.append(term.sum(dim=tuple(range(1, nmode + 1))))
-    return coef**(-0.5) * torch.stack(mean)
+    return coef ** (-0.5) * torch.stack(mean)
 
 
 def takagi(a: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:

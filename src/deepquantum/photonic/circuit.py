@@ -1683,23 +1683,49 @@ class QumodeCircuit(Operation):
     def quadrature_mean(
         self,
         wires: Union[int, List[int], None] = None,
-        phi: Any = None
-    ) -> Optional[Tuple[torch.Tensor, torch.Tensor]]:
+        phi: Union[float, List[float], torch.Tensor, None] = None
+    ) -> torch.Tensor:
         """Get the expectation value of the quadratuere operator :math:`\hat{X}\cos\phi + \hat{P}\sin\phi`.
 
         Args:
             wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
                 integers specifying the indices of the wires. Default: ``None`` (which means all wires are
-                measured)
+                measured).
+            phi (float, torch.Tensor, List[float], or None, optional): The phi angles for quadrature operator
+                :math:`\hat{X}\cos\phi + \hat{P}\sin\phi`. Default: ``None``
         """
+        if wires is None:
+            wires = self.wires
+        wires = sorted(self._convert_indices(wires))
+        if phi is None:
+            phi = torch.zeros(len(wires))
+        elif isinstance(phi, float):
+            phi = torch.tensor([phi] * len(wires))
+        elif not isinstance(phi, torch.Tensor):
+            phi = torch.tensor(phi)
+        elif phi.ndim == 0:
+            phi = phi.expand(len(wires))
+        assert len(wires) == len(phi), f'phi length {len(phi)} must match wires length {len(wires)}'
         if self.backend == 'fock':
-            if wires is None:
-                wires = self.wires
-            wires = sorted(self._convert_indices(wires))
-            mean = quadrature_mean_fock(self.state, self.nmode, self.cutoff, wires, self.den_mat)
+            state = self.state
+            if self.den_mat:
+                state = state.reshape([-1] + [self.cutoff] * 2 * self.nmode)
+            for i in range(len(wires)):
+                if not torch.isclose(phi[i], phi.new_tensor(0.0)):
+                    r = PhaseShift(inputs=-phi[i], nmode=self.nmode, wires=wires[i],
+                                   cutoff=self.cutoff, den_mat=self.den_mat)
+                    state = r(state)
+            mean = quadrature_mean_fock(state, self.nmode, self.cutoff, wires, self.den_mat)
             return mean
         if self.backend in ('gaussian', 'bosonic'):
-            mean = self.state[1]
+            wires = torch.tensor(wires)
+            idx = torch.cat([wires, wires + self.nmode]) # xxpp order
+            means = self.state[1][..., idx, :]
+            phi = phi.reshape(-1, 1)
+            mean = means[..., :len(wires), :] * torch.cos(phi) + means[..., len(wires):, :] * torch.sin(phi)
+            if self.backend == 'bosonic':
+                weight = self.state[2].unsqueeze(-1).unsqueeze(-2)
+                mean = torch.sum(weight * mean, dim=1)
         return mean
 
     def _get_local_covs_means(
