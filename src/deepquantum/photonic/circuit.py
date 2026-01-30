@@ -1645,9 +1645,10 @@ class QumodeCircuit(Operation):
         wires = sorted(self._convert_indices(wires))
         if self._if_delayloop:
             wires = [self._unroll_dict[wire][-1] for wire in wires]
-        if self.backend == 'fock' and not self.basis:
+        if self.backend == 'fock':
+            assert not self.basis
             exp, var = photon_number_mean_var_fock(self.state, self.nmode, self.cutoff, wires, self.den_mat)
-        if self.backend in ('gaussian', 'bosonic'):
+        elif self.backend in ('gaussian', 'bosonic'):
             if self.backend == 'gaussian':
                 cov, mean = self.state
             elif self.backend == 'bosonic':
@@ -1687,6 +1688,11 @@ class QumodeCircuit(Operation):
     ) -> torch.Tensor:
         """Get the expectation value of the quadratuere operator :math:`\hat{X}\cos\phi + \hat{P}\sin\phi`.
 
+        If ``self.measurements`` is empty, this method directly computes the quadrature expectation values
+        for the specified ``wires`` and ``phi``. If ``self.measurements`` is specified via ``self.homodyne``,
+        the wires and corresponding homodyne angles are inferred from the stored measurement instructions,
+        and the input arguments ``wires`` and ``phi`` are ignored.
+
         Args:
             wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
                 integers specifying the indices of the wires. Default: ``None`` (which means all wires are
@@ -1699,8 +1705,6 @@ class QumodeCircuit(Operation):
                 wires = self.wires
             if phi is None:
                 phi = torch.zeros(len(wires))
-            elif isinstance(phi, float):
-                phi = torch.tensor([phi] * len(wires))
             elif not isinstance(phi, torch.Tensor):
                 phi = torch.tensor(phi)
             if phi.numel() == 1:
@@ -1714,7 +1718,8 @@ class QumodeCircuit(Operation):
             phi = torch.stack(phi)
         wires = sorted(self._convert_indices(wires))
         assert len(wires) == len(phi), f'phi length {len(phi)} must match wires length {len(wires)}'
-        if self.backend == 'fock' and not self.basis:
+        if self.backend == 'fock':
+            assert not self.basis
             state = self.state
             if self.den_mat:
                 state = state.reshape([-1] + [self.cutoff] * 2 * self.nmode)
