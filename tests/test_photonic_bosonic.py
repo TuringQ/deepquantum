@@ -80,12 +80,13 @@ def test_photon_number_mean_var():
 
 
 def test_wigner():
-    qrange = 5
+    xrange = 5
     prange = 5
     npoints = 200
     theta = 2 * np.pi * np.random.rand(1)[0]
     phi = 2 * np.pi * np.random.rand(1)[0]
     gkp = dq.GKPState(theta=theta, phi=phi, amp_cutoff=0.01, epsilon=0.05)
+    gkp.to(torch.double)
 
     nmodes = 1
     prog_cat_bosonic = sf.Program(nmodes)
@@ -93,9 +94,9 @@ def test_wigner():
         sf.ops.GKP(state=[theta, phi], epsilon=0.05, ampl_cutoff=0.01) | q[0] # superposition of 4 states
     eng = sf.Engine("bosonic", backend_options={"hbar": 2}) # xpxp order
     state = eng.run(prog_cat_bosonic).state
-    qvec = torch.linspace(-qrange, qrange, npoints)
+    xvec = torch.linspace(-xrange, xrange, npoints)
     pvec = torch.linspace(-prange, prange, npoints)
-    w = state.wigner(0, qvec, pvec)
-    test = gkp.wigner(wire=0, qrange=qrange, prange=qrange, plot=False)
-    err = abs(test[0].mT - w).max()
+    w_sf = state.wigner(0, xvec, pvec)
+    w_dq = gkp.wigner(0, xrange, prange, npoints, plot=False, normalize=False)
+    err = abs(w_dq[0].mT - w_sf).max()
     assert err < 1e-5
