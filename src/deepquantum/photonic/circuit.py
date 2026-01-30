@@ -1645,7 +1645,7 @@ class QumodeCircuit(Operation):
         wires = sorted(self._convert_indices(wires))
         if self._if_delayloop:
             wires = [self._unroll_dict[wire][-1] for wire in wires]
-        if self.backend == 'fock':
+        if self.backend == 'fock' and not self.basis:
             exp, var = photon_number_mean_var_fock(self.state, self.nmode, self.cutoff, wires, self.den_mat)
         if self.backend in ('gaussian', 'bosonic'):
             if self.backend == 'gaussian':
@@ -1714,7 +1714,7 @@ class QumodeCircuit(Operation):
             phi = torch.stack(phi)
         wires = sorted(self._convert_indices(wires))
         assert len(wires) == len(phi), f'phi length {len(phi)} must match wires length {len(wires)}'
-        if self.backend == 'fock':
+        if self.backend == 'fock' and not self.basis:
             state = self.state
             if self.den_mat:
                 state = state.reshape([-1] + [self.cutoff] * 2 * self.nmode)
