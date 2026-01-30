@@ -346,7 +346,7 @@ def quadrature_mean_fock(
 ) -> torch.Tensor:
     """Get the expectation value of the quadrature x for Fock state tensors."""
     coef = 2 * dqp.kappa ** 2 / dqp.hbar
-    factor = torch.sqrt((torch.arange(cutoff - 1, device=state.device) + 1) / 2)
+    factor = torch.sqrt(torch.arange(1, cutoff, device=state.device, dtype=torch.float64) / 2)
     mean = []
     if den_mat:
         state = state.reshape(-1, cutoff ** nmode, cutoff ** nmode)
@@ -355,12 +355,12 @@ def quadrature_mean_fock(
             reduced_dm = partial_trace(state, nmode, trace_lst, cutoff) # (batch, cutoff, cutoff)
             reduced_dm = reduced_dm.reshape(-1, cutoff, cutoff)
             off_diag = reduced_dm.diagonal(offset=1, dim1=1, dim2=2) # rho_{n, n+1}
-            term = factor * (2 * (off_diag).real) # only with real part contribution
+            term = factor * 2 * (off_diag).real # only with real part contribution
             mean.append(term.sum(dim=1))
     else:
         if state.ndim == nmode:
             state = state.unsqueeze(0)
-        factor = factor.view(1, -1, *([1] * (nmode - 1)))
+        factor = factor.view([1, -1] + [1] * (nmode - 1))
         for wire in wires:
             pm_shape = list(range(1, nmode+1))
             pm_shape.remove(wire+1)
@@ -368,7 +368,7 @@ def quadrature_mean_fock(
             state_i = state.permute(pm_shape)
             cn = state_i[:, :-1, ...] # n
             cn1 = state_i[:, 1:, ...] # n+1
-            term = factor * (2 * (cn.conj() * cn1).real)
+            term = factor * 2 * (cn.conj() * cn1).real
             mean.append(term.sum(dim=tuple(range(1, nmode + 1))))
     return coef ** (-0.5) * torch.stack(mean)
 

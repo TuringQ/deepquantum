@@ -1694,17 +1694,25 @@ class QumodeCircuit(Operation):
             phi (float, torch.Tensor, List[float], or None, optional): The phi angles for quadrature operator
                 :math:`\hat{X}\cos\phi + \hat{P}\sin\phi`. Default: ``None``
         """
-        if wires is None:
-            wires = self.wires
+        if len(self.measurements) == 0:
+            if wires is None:
+                wires = self.wires
+            if phi is None:
+                phi = torch.zeros(len(wires))
+            elif isinstance(phi, float):
+                phi = torch.tensor([phi] * len(wires))
+            elif not isinstance(phi, torch.Tensor):
+                phi = torch.tensor(phi)
+            if phi.numel() == 1:
+                phi = phi.reshape(-1).expand(len(wires))
+        else:
+            wires = []
+            phi = []
+            for mea in self.measurements:
+                wires = wires + mea.wires
+                phi.append(mea.phi)
+            phi = torch.stack(phi)
         wires = sorted(self._convert_indices(wires))
-        if phi is None:
-            phi = torch.zeros(len(wires))
-        elif isinstance(phi, float):
-            phi = torch.tensor([phi] * len(wires))
-        elif not isinstance(phi, torch.Tensor):
-            phi = torch.tensor(phi)
-        elif phi.ndim == 0:
-            phi = phi.expand(len(wires))
         assert len(wires) == len(phi), f'phi length {len(phi)} must match wires length {len(wires)}'
         if self.backend == 'fock':
             state = self.state
@@ -1717,7 +1725,7 @@ class QumodeCircuit(Operation):
                     state = r(state)
             mean = quadrature_mean_fock(state, self.nmode, self.cutoff, wires, self.den_mat)
             return mean
-        if self.backend in ('gaussian', 'bosonic'):
+        elif self.backend in ('gaussian', 'bosonic'):
             wires = torch.tensor(wires)
             idx = torch.cat([wires, wires + self.nmode]) # xxpp order
             means = self.state[1][..., idx, :]
