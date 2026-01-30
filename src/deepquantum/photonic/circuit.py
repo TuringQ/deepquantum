@@ -1715,8 +1715,8 @@ class QumodeCircuit(Operation):
             for mea in self.measurements:
                 wires = wires + mea.wires
                 phi.append(mea.phi)
-            phi = torch.stack(phi)
-        wires = sorted(self._convert_indices(wires))
+            phi = torch.cat(phi)
+        wires = self._convert_indices(wires)
         assert len(wires) == len(phi), f'phi length {len(phi)} must match wires length {len(wires)}'
         if self.backend == 'fock':
             assert not self.basis
