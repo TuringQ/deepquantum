@@ -49,10 +49,11 @@ classifiers = [
 [project.optional-dependencies]
 dev = ['pytest',
        'perceval-quandela',
-       'qutip',
        'strawberryfields',
        'thewalrus',
-       'graphix==0.3.1']
+       'graphix==0.3.1',
+       'qutip',
+       'pennylane-sf']
 
 [project.urls]
 Homepage = 'https://deepquantum.turingq.com/'

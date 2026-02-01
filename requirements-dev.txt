@@ -1,6 +1,7 @@
 pytest
 perceval-quandela
-qutip
 strawberryfields @ git+https://github.com/XanaduAI/strawberryfields.git@master
 thewalrus @ git+https://github.com/XanaduAI/thewalrus.git@master
 graphix==0.3.1
+qutip
+pennylane-sf
