@@ -253,7 +253,8 @@ class GaussianState(nn.Module):
         prange: Union[int, List] = 10,
         npoints: Union[int, List] = 100,
         plot: bool = True,
-        k: int = 0
+        k: int = 0,
+        normalize: bool = True
     ):
         """Get the discretized Wigner function of the specified mode.
 
@@ -264,8 +265,9 @@ class GaussianState(nn.Module):
             npoints (int or List, optional): The number of discretization points for quadratures. Default: 100
             plot (bool, optional): Whether to plot the wigner function. Default: ``True``
             k (int, optional): The wigner function of kth batch to plot. Default: 0
+            normalize (bool, optional): Whether to normalize the wigner function. Default: ``True``
         """
-        return cv_to_wigner([self.cov, self.mean], wire, xrange, prange, npoints, plot, k)
+        return cv_to_wigner([self.cov, self.mean], wire, xrange, prange, npoints, plot, k, normalize)
 
 
 class BosonicState(nn.Module):
@@ -358,7 +360,8 @@ class BosonicState(nn.Module):
         prange: Union[int, List] = 10,
         npoints: Union[int, List] = 100,
         plot: bool = True,
-        k: int = 0
+        k: int = 0,
+        normalize: bool = True
     ):
         """Get the discretized Wigner function of the specified mode.
 
@@ -369,8 +372,9 @@ class BosonicState(nn.Module):
             npoints (int or List, optional): The number of discretization points for quadratures. Default: 100
             plot (bool, optional): Whether to plot the wigner function. Default: ``True``
             k (int, optional): The wigner function of kth batch to plot. Default: 0
+            normalize (bool, optional): Whether to normalize the wigner function. Default: ``True``
         """
-        return cv_to_wigner([self.cov, self.mean, self.weight], wire, xrange, prange, npoints, plot, k)
+        return cv_to_wigner([self.cov, self.mean, self.weight], wire, xrange, prange, npoints, plot, k, normalize)
 
     def marginal(
         self,

@@ -657,7 +657,7 @@ def fock_to_wigner(
     See https://qutip.org/docs/4.7/modules/qutip/wigner.html
 
     Args:
-        state (List): The input Fock state tensor or density matrix.
+        state (torch.Tensor): The input Fock state tensor or density matrix.
         wire (int): The wigner function for given wire.
         nmode (int): The mode number of the Fock state.
         cutoff (int): The Fock space truncation.
@@ -693,8 +693,8 @@ def fock_to_wigner(
         xlist.append(npoints[0])
         plist.append(npoints[1])
     assert len(xlist) == len(plist) == 3
-    xvec = torch.linspace(*xlist, dtype=torch.double)
-    pvec = torch.linspace(*plist, dtype=torch.double)
+    xvec = torch.linspace(*xlist, dtype=state.real.dtype, device=state.device)
+    pvec = torch.linspace(*plist, dtype=state.real.dtype, device=state.device)
     coef = 2 * dqp.kappa ** 2 / dqp.hbar
     xlist, plist = torch.meshgrid(xvec, pvec, indexing='ij')
     # alpha = (sqrt(2) * kappa / sqrt(hbar)) * (q + i p) / sqrt(2)
@@ -723,7 +723,7 @@ def fock_to_wigner(
             w_list[j] = temp2
             w += 2 * (reduced_dm[:, i, j].reshape(-1, 1, 1) * w_list[j]).real
     if plot:
-        plot_wigner(w.real, xvec, pvec, k=k)
+        plot_wigner(w.real, xvec, pvec, k)
     return w.real
 
 
@@ -734,7 +734,8 @@ def cv_to_wigner(
     prange: Union[int, List] = 10,
     npoints: Union[int, List] = 100,
     plot: bool = True,
-    k: int = 0
+    k: int = 0,
+    normalize: bool = True
 ):
     """Get the discretized Wigner function of the specified mode.
 
@@ -746,7 +747,9 @@ def cv_to_wigner(
         npoints (int or List, optional): The number of discretization points for quadratures. Default: 100
         plot (bool, optional): Whether to plot the wigner function. Default: ``True``
         k (int, optional): The index of the Wigner function within the batch to plot. Default: 0
+        normalize (bool, optional): Whether to normalize the Wigner function. Default: ``True``
     """
+    cov, mean = state[:2]
     if isinstance(xrange, int):
         xlist = [-xrange, xrange]
     else:
@@ -762,16 +765,14 @@ def cv_to_wigner(
         xlist.append(npoints[0])
         plist.append(npoints[1])
     assert len(xlist) == len(plist) == 3
-    xvec = torch.linspace(*xlist, dtype=torch.double)
-    pvec = torch.linspace(*plist, dtype=torch.double)
+    xvec = torch.linspace(*xlist, dtype=cov.dtype, device=cov.device)
+    pvec = torch.linspace(*plist, dtype=cov.dtype, device=cov.device)
     grid_x, grid_y = torch.meshgrid(xvec, pvec, indexing='ij')
     coords = torch.stack([grid_x.reshape(-1), grid_y.reshape(-1)]).mT
     coords2 = coords.unsqueeze(1).unsqueeze(2) # (npoints, 1, 1, 2)
     coords3 = coords.unsqueeze(-1).unsqueeze(-3)
     if not isinstance(wire, torch.Tensor):
         wire = torch.tensor(wire).reshape(1)
-    cov, mean = state[:2]
-    mean = mean.to(torch.complex128)
     if cov.ndim == 2:
         cov = cov.unsqueeze(0)
     if mean.ndim == 2:
@@ -780,15 +781,15 @@ def cv_to_wigner(
         cov = cov.unsqueeze(1)
     if mean.ndim == 3:
         mean = mean.unsqueeze(1)
-    if len(state)==2:
-        weight = cov.new_tensor(1.).reshape(1)
-    if len(state)==3:
+    if len(state) == 2:
+        weight = cov.new_ones(1)
+    elif len(state) == 3:
         weight = state[-1]
     cov, mean, weight = align_shape(cov, mean, weight)
-    nmode = cov.shape[-1]//2
+    nmode = cov.shape[-1] // 2
     idx = torch.cat([wire, wire + nmode]) # xxpp order
     cov  = cov[..., idx[:, None], idx]
-    mean = mean[..., idx, :]
+    mean = mean[..., idx, :] + 0j # for Gaussian state
     gauss_b = MultivariateNormal(mean.squeeze(-1).real, cov) # mean shape: (batch, ncomb, 2)
     prob_g = gauss_b.log_prob(coords2).exp() # (npoints, batch, ncomb)
     exp_real = torch.exp(mean.imag.mT @ torch.linalg.solve(cov, mean.imag) / 2).squeeze(-2, -1) # (batch, ncomb)
@@ -797,13 +798,14 @@ def cv_to_wigner(
                          torch.linalg.solve(cov, mean.imag).unsqueeze(1) * 1j).squeeze(-2, -1)
     wigner_vals = exp_real.unsqueeze(-2) * prob_g.permute(1, 0, 2) * exp_imag * weight.unsqueeze(-2)
     wigner_vals = wigner_vals.sum(dim=2).reshape(-1, len(xvec), len(pvec)).real
-    # normalize the wigner function
-    dx_ = xvec[1] - xvec[0]
-    dp_ = pvec[1] - pvec[0]
-    total_integral = torch.sum(wigner_vals, dim=[1,2]) * dx_ * dp_
-    wigner_vals = wigner_vals / total_integral.reshape(-1, 1, 1)
+    if normalize:
+        # normalize the wigner function
+        dx = xvec[1] - xvec[0]
+        dp = pvec[1] - pvec[0]
+        total_integral = torch.sum(wigner_vals, dim=[1,2]) * dx * dp
+        wigner_vals = wigner_vals / total_integral.reshape(-1, 1, 1)
     if plot:
-        plot_wigner(wigner_vals, xvec, pvec, k=k)
+        plot_wigner(wigner_vals, xvec, pvec, k)
     return wigner_vals
 
 
@@ -816,22 +818,25 @@ def plot_wigner(
     """Plot a 2D contour and a 3D surface of a discretized Wigner function W(x, p).
 
     Args:
-        wigner (torch.Tensor): Discretized Wigner values with shape (batch, len(xvec), len(pvec)).
-        xvec (torch.Tensor): 1D grid for quadrature q.
+        wigner (torch.Tensor): Discretized Wigner values with shape (batch, nx, np).
+        xvec (torch.Tensor): 1D grid for quadrature x.
         pvec (torch.Tensor): 1D grid for quadrature p.
         k (int, optional): The index of the Wigner function within the batch to plot. Default: 0
     """
     grid_x, grid_y = torch.meshgrid(xvec, pvec, indexing='ij')
-    fig, axes = plt.subplots(1, 2, figsize=(16, 8))
-    ax1 = plt.subplot(121)
-    plt.xlabel('Quadrature q')
-    plt.ylabel('Quadrature p')
-    plt.contourf(grid_x.cpu(), grid_y.cpu(), wigner[k].cpu(), 60, cmap=cm.RdBu)
-    plt.colorbar(shrink=0.5)
-    ax2 = plt.subplot(122, projection='3d')
-    surf = ax2.plot_surface(grid_x.cpu(), grid_y.cpu(), wigner[k].cpu(), cmap=cm.RdBu, alpha=0.8)
-    ax2.set_xlabel('Quadrature q')
+    x = grid_x.cpu()
+    y = grid_y.cpu()
+    z = wigner[k].cpu()
+    fig = plt.figure(figsize=(16, 8))
+    ax1 = fig.add_subplot(1, 2, 1)
+    ax1.set_xlabel('Quadrature x')
+    ax1.set_ylabel('Quadrature p')
+    cntr = ax1.contourf(x, y, z, 60, cmap=cm.RdBu)
+    fig.colorbar(cntr, ax=ax1, shrink=0.5)
+    ax2 = fig.add_subplot(1, 2, 2, projection='3d')
+    ax2.plot_surface(x, y, z, cmap=cm.RdBu, alpha=0.8)
+    ax2.set_xlabel('Quadrature x')
     ax2.set_ylabel('Quadrature p')
-    ax2.set_zlabel('W(q,p)')
+    ax2.set_zlabel('W(x, p)')
     plt.tight_layout()
     plt.show()

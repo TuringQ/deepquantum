@@ -4,6 +4,7 @@ import pytest
 import qutip as qp
 import torch
 
+
 def test_with_qutip_fock_wigner():
     r, d = torch.rand(2)
     cutoff = 50
@@ -11,7 +12,7 @@ def test_with_qutip_fock_wigner():
     cir1.s(0, r=r, theta=0)
     cir1.d(0, r=d)
     cir1.to(torch.double)
-    re  = cir1()
+    re = cir1()
     fock_state = dq.FockState(state=re, basis=False)
     psi = re[0]
     psi = psi.reshape(cutoff, 1)
@@ -22,9 +23,10 @@ def test_with_qutip_fock_wigner():
     xvec = np.linspace(-xrange, xrange, npoints)
     pvec = np.linspace(-prange, prange, npoints)
     wigner_qp = qp.wigner(qp.Qobj(psi), xvec, pvec, g=1)
-    w = fock_state.wigner(wire=0, xrange=xrange, prange=prange, npoints=npoints, plot=False)
-    err = torch.sum(abs(w - torch.tensor(wigner_qp.mT)), dim=[1,2])
+    wigner_dq = fock_state.wigner(0, xrange, prange, npoints, plot=False)
+    err = torch.sum(abs(wigner_dq - torch.tensor(wigner_qp.mT)), dim=[1,2])
     assert err < 1e-6
+
 
 def test_with_qutip_gaussian_wigner():
     r, d = torch.rand(2)
@@ -33,7 +35,7 @@ def test_with_qutip_gaussian_wigner():
     cir1.s(0, r=r, theta=0)
     cir1.d(0, r=d)
     cir1.to(torch.double)
-    re  = cir1()
+    re = cir1()
     psi = re[0]
     psi = psi.reshape(cutoff, 1)
 
@@ -50,6 +52,6 @@ def test_with_qutip_gaussian_wigner():
     xvec = np.linspace(-xrange, xrange, npoints)
     pvec = np.linspace(-prange, prange, npoints)
     wigner_qp = qp.wigner(qp.Qobj(psi), xvec, pvec, g=1)
-    wigner_dq = gaussian_state.wigner(wire=0, xrange=xrange, prange=prange, npoints=npoints, plot=False)
+    wigner_dq = gaussian_state.wigner(0, xrange, prange, npoints, plot=False, normalize=True)
     err = torch.sum(abs(wigner_dq - torch.tensor(wigner_qp.mT)), dim=[1,2])
     assert err < 1e-2
