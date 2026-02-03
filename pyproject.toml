@@ -76,12 +76,12 @@ formats = 'ipynb,py:percent'
 [tool.ruff]
 line-length = 120
 
-[tool.ruff.extend-per-file-ignores]
-'__init__.py' = ['F401']
-'tutorials/*.ipynb' = ['E402']
-
 [tool.ruff.format]
 quote-style = 'single'
 
 [tool.ruff.lint]
 select = ['E', 'W', 'F', 'I', 'B', 'UP']
+
+[tool.ruff.lint.extend-per-file-ignores]
+'__init__.py' = ['F401']
+'tutorials/*.ipynb' = ['E402']
