@@ -1717,7 +1717,7 @@ class QumodeCircuit(Operation):
     def quadrature_mean(
         self,
         wires: Union[int, List[int], None] = None,
-        phi: Union[float, List[float], torch.Tensor, None] = None
+        phi: Optional[Any] = None
     ) -> torch.Tensor:
         r"""Get the expectation value of the quadratuere operator :math:`\hat{X}\cos\phi + \hat{P}\sin\phi`.
 
@@ -1730,7 +1730,7 @@ class QumodeCircuit(Operation):
             wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
                 integers specifying the indices of the wires. Default: ``None`` (which means all wires are
                 measured).
-            phi (float, torch.Tensor, List[float], or None, optional): The phi angles for quadrature operator
+            phi (Any or None, optional): The phi angles for quadrature operator
                 :math:`\hat{X}\cos\phi + \hat{P}\sin\phi`. Default: ``None``
         """
         if len(self.measurements) == 0:
