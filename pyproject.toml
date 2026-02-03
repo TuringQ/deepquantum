@@ -75,6 +75,9 @@ formats = 'ipynb,py:percent'
 [tool.ruff]
 line-length = 120
 
+[tool.ruff.extend-per-file-ignores]
+'tutorials/*.ipynb' = ['E402']
+
 [tool.ruff.format]
 quote-style = 'single'
 
