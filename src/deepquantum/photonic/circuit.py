@@ -104,6 +104,7 @@ class QumodeCircuit(Operation):
         self._is_batch_expand = False # whether batch states are expanded out of photons conservation
         self._expand_state = None # expanded state (init_state + lossy + batch expand)
         self._all_fock_basis = None
+        self.sort = True
         # TDM
         self._if_delayloop = False
         self._nmode_tdm = self.nmode
@@ -273,7 +274,10 @@ class QumodeCircuit(Operation):
         if self.basis:
             self._is_batch_expand = False # reset
             self._expand_state = None # reset
-            state = self._prepare_expand_state(state, cal_all_fock_basis=True)
+            if self._all_fock_basis is None:
+                state = self._prepare_expand_state(state, cal_all_fock_basis=True)
+            else:
+                state = self._prepare_expand_state(state)
         if self.ndata == 0:
             data = None
         if data is None or data.ndim == 1:
@@ -312,7 +316,7 @@ class QumodeCircuit(Operation):
                         self.state = vmap(self._forward_helper_tensor, in_dims=(0, 0, None))(data, state, is_prob)
             # for plotting the last data
             self.encode(data[-1])
-        if self.basis and is_prob is not None:
+        if self.sort and self.basis and is_prob is not None:
             self.state = sort_dict_fock_basis(self.state)
         return self.state
 
@@ -758,6 +762,51 @@ class QumodeCircuit(Operation):
             op.init_para(data[count:count_up])
             count = count_up
 
+    # def get_unitary(self) -> torch.Tensor:
+    #     """Get the unitary matrix of the photonic quantum circuit."""
+    #     u = None
+    #     if self._if_delayloop:
+    #         operators = self._operators_tdm
+    #     else:
+    #         operators = self.operators
+    #     nloss = 0
+    #     for op in operators:
+    #         if isinstance(op, Barrier):
+    #             continue
+    #         if isinstance(op, PhotonLoss):
+    #             nloss += 1
+    #             op.gate.wires = [op.wires[0], op.nmode + nloss - 1]
+    #             op.gate.nmode = op.nmode + nloss
+    #             if u is None:
+    #                 u = op.gate.get_unitary()
+    #                 continue
+    #             else:
+    #                 u = torch.block_diag(u, torch.eye(1, dtype=u.dtype, device=u.device))
+    #                 idx_r = torch.tensor(op.gate.wires, device=u.device)
+    #                 idx_c = torch.arange(op.gate.nmode, device=u.device)
+    #                 u_local = op.gate.update_matrix()
+    #         else:
+    #             if u is None:
+    #                 u = op.get_unitary()
+    #                 continue
+    #             else:
+    #                 idx_r = torch.tensor(op.wires, device=u.device)
+    #                 idx_c = torch.arange(op.nmode + nloss, device=u.device)
+    #                 u_local = op.update_matrix()
+    #         if _functorch.is_batchedtensor(u_local) and not _functorch.is_batchedtensor(u):
+    #             bdim = _functorch.maybe_get_bdim(u_local)
+    #             level = _functorch.maybe_get_level(u_local)
+    #             raw_tensor = _functorch._remove_batch_dim(u_local, level, -1, bdim)
+    #             bs = raw_tensor.shape[bdim]
+    #             u = torch.stack([u] * bs, dim=bdim)
+    #             u = _functorch._add_batch_dim(u, bdim, level)
+    #         u_update = u[idx_r[:, None], idx_c]
+    #         u[idx_r[:, None], idx_c] = u_local @ u_update
+    #     if u is None:
+    #         return torch.eye(self.nmode, dtype=torch.cfloat)
+    #     else:
+    #         return u
+
     def get_unitary(self) -> torch.Tensor:
         """Get the unitary matrix of the photonic quantum circuit."""
         u = None
@@ -775,29 +824,14 @@ class QumodeCircuit(Operation):
                 op.gate.nmode = op.nmode + nloss
                 if u is None:
                     u = op.gate.get_unitary()
-                    continue
                 else:
                     u = torch.block_diag(u, torch.eye(1, dtype=u.dtype, device=u.device))
-                    idx_r = torch.tensor(op.gate.wires, device=u.device)
-                    idx_c = torch.arange(op.gate.nmode, device=u.device)
-                    u_local = op.gate.update_matrix()
+                    u = op.gate.get_unitary() @ u
             else:
                 if u is None:
                     u = op.get_unitary()
-                    continue
                 else:
-                    idx_r = torch.tensor(op.wires, device=u.device)
-                    idx_c = torch.arange(op.nmode + nloss, device=u.device)
-                    u_local = op.update_matrix()
-            if _functorch.is_batchedtensor(u_local) and not _functorch.is_batchedtensor(u):
-                bdim = _functorch.maybe_get_bdim(u_local)
-                level = _functorch.maybe_get_level(u_local)
-                raw_tensor = _functorch._remove_batch_dim(u_local, level, -1, bdim)
-                bs = raw_tensor.shape[bdim]
-                u = torch.stack([u] * bs, dim=bdim)
-                u = _functorch._add_batch_dim(u, bdim, level)
-            u_update = u[idx_r[:, None], idx_c]
-            u[idx_r[:, None], idx_c] = u_local @ u_update
+                    u = torch.block_diag(op.get_unitary(), torch.eye(nloss, dtype=u.dtype, device=u.device)) @ u
         if u is None:
             return torch.eye(self.nmode, dtype=torch.cfloat)
         else:
@@ -1686,7 +1720,7 @@ class QumodeCircuit(Operation):
         wires: Union[int, List[int], None] = None,
         phi: Union[float, List[float], torch.Tensor, None] = None
     ) -> torch.Tensor:
-        """Get the expectation value of the quadratuere operator :math:`\hat{X}\cos\phi + \hat{P}\sin\phi`.
+        r"""Get the expectation value of the quadratuere operator :math:`\hat{X}\cos\phi + \hat{P}\sin\phi`.
 
         If ``self.measurements`` is empty, this method directly computes the quadrature expectation values
         for the specified ``wires`` and ``phi``. If ``self.measurements`` is specified via ``self.homodyne``,
