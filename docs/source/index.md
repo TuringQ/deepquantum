@@ -38,8 +38,8 @@ tutorials/mbqc_basics.ipynb
 :caption: Demos
 :hidden:
 
-examples/gbs/boson_sampling/boson_sampling.ipynb
-examples/tdm/advanced_cluster_state/复杂纠缠态的制备.ipynb
+demos/gbs/boson_sampling/boson_sampling.ipynb
+demos/tdm/advanced_cluster_state/advanced_cluster_state.ipynb
 ```
 
 ```{toctree}
