@@ -55,7 +55,8 @@ dev = ['pytest',
        'qutip',
        'pennylane-sf',
        'jupytext',
-       'ruff']
+       'ruff',
+       'pre-commit']
 
 [project.urls]
 Homepage = 'https://deepquantum.turingq.com/'

@@ -7,3 +7,4 @@ qutip
 pennylane-sf
 jupytext
 ruff
+pre-commit
