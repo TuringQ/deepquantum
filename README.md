@@ -2,8 +2,8 @@
 
 ![DeepQuantum logo](docs/source/_static/assets/logo_light_v1.png)
 
-[![docs](https://img.shields.io/badge/docs-link-blue.svg)](https://dqapi.turingq.com/)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![docs](https://img.shields.io/badge/docs-link-blue.svg)](https://dqapi.turingq.com/)
 [![PyPI](https://img.shields.io/pypi/v/deepquantum.svg?logo=pypi)](https://pypi.org/project/deepquantum/)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/deepquantum)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg?logo=apache)](./LICENSE)
