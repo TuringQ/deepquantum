@@ -53,7 +53,9 @@ dev = ['pytest',
        'thewalrus',
        'graphix==0.3.1',
        'qutip',
-       'pennylane-sf']
+       'pennylane-sf',
+       'jupytext',
+       'ruff']
 
 [project.urls]
 Homepage = 'https://deepquantum.turingq.com/'
@@ -66,3 +68,15 @@ version = {attr = 'deepquantum.__version__'}
 
 [tool.setuptools.package-data]
 'deepquantum.photonic' = ['cache/*']
+
+[tool.jupytext]
+formats = 'ipynb,py:percent'
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.format]
+quote-style = 'single'
+
+[tool.ruff.lint]
+select = ['E', 'W', 'F', 'I', 'B', 'UP']
