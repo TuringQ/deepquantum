@@ -58,6 +58,8 @@ class QumodeCircuit(Operation):
             Default: ``False``
         detector (str, optional): For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector
             or ``'threshold'`` for the threshold detector. Default: ``'pnrd'``
+        sort (bool, optional): Whether to sort dictionary of Fock basis states in the descending order of probs.
+            Default: ``True``
         name (str or None, optional): The name of the circuit. Default: ``None``
         mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
         chi (int or None, optional): The bond dimension for matrix product state representation.
@@ -75,6 +77,7 @@ class QumodeCircuit(Operation):
         basis: bool = True,
         den_mat: bool = False,
         detector: str = 'pnrd',
+        sort: bool = True,
         name: Optional[str] = None,
         mps: bool = False,
         chi: Optional[int] = None,
@@ -104,7 +107,7 @@ class QumodeCircuit(Operation):
         self._is_batch_expand = False # whether batch states are expanded out of photons conservation
         self._expand_state = None # expanded state (init_state + lossy + batch expand)
         self._all_fock_basis = None
-        self.sort = True
+        self.sort = sort
         # TDM
         self._if_delayloop = False
         self._nmode_tdm = self.nmode
