@@ -1426,7 +1426,8 @@ class QumodeCircuit(Operation):
         """Sample the output states for Fock backend via SC-MCMC method."""
         self._init_state = init_state
         self._unitary = unitary
-        self._all_fock_basis = self._get_all_fock_basis(init_state)
+        if self._all_fock_basis is None:
+            self._all_fock_basis = self._get_all_fock_basis(init_state)
         merged_samples = sample_sc_mcmc(prob_func=self._get_prob_fock,
                                         proposal_sampler=self._proposal_sampler,
                                         shots=shots,
