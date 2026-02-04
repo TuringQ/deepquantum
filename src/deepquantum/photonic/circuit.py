@@ -58,8 +58,6 @@ class QumodeCircuit(Operation):
             Default: ``False``
         detector (str, optional): For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector
             or ``'threshold'`` for the threshold detector. Default: ``'pnrd'``
-        sort (bool, optional): Whether to sort dictionary of Fock basis states in the descending order of probs.
-            Default: ``True``
         name (str or None, optional): The name of the circuit. Default: ``None``
         mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
         chi (int or None, optional): The bond dimension for matrix product state representation.
@@ -77,7 +75,6 @@ class QumodeCircuit(Operation):
         basis: bool = True,
         den_mat: bool = False,
         detector: str = 'pnrd',
-        sort: bool = True,
         name: Optional[str] = None,
         mps: bool = False,
         chi: Optional[int] = None,
@@ -107,7 +104,7 @@ class QumodeCircuit(Operation):
         self._is_batch_expand = False # whether batch states are expanded out of photons conservation
         self._expand_state = None # expanded state (init_state + lossy + batch expand)
         self._all_fock_basis = None
-        self.sort = sort
+
         # TDM
         self._if_delayloop = False
         self._nmode_tdm = self.nmode
@@ -197,6 +194,7 @@ class QumodeCircuit(Operation):
     def to(self, arg: Any) -> 'QumodeCircuit':
         """Set dtype or device of the ``QumodeCircuit``."""
         self.init_state.to(arg)
+        self._all_fock_basis.to(self.init_state.state.device, self.init_state.state.dtype)
         if arg in (torch.float, torch.double):
             for op in self.operators:
                 op.to(arg)
@@ -210,6 +208,12 @@ class QumodeCircuit(Operation):
                 bs.to(arg)
         return self
 
+    def pre_cal_fock_basis(self) -> None:
+        state = self.init_state.state
+        if self._lossy:
+            state = torch.cat([state, state.new_zeros(self._nloss)], dim=-1)
+        self._all_fock_basis = self._get_all_fock_basis(state)
+
     # pylint: disable=arguments-renamed
     def forward(
         self,
@@ -217,6 +221,7 @@ class QumodeCircuit(Operation):
         state: Any = None,
         is_prob: Optional[bool] = None,
         detector: Optional[str] = None,
+        sort: bool = True,
         stepwise: bool = False
     ) -> Union[torch.Tensor, Dict, List[torch.Tensor]]:
         """Perform a forward pass of the photonic quantum circuit and return the final-state-related result.
@@ -229,6 +234,8 @@ class QumodeCircuit(Operation):
                 For Fock backend with ``basis=True``, set ``None`` to return the unitary matrix. Default: ``None``
             detector (str or None, optional): For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving
                 detector or ``'threshold'`` for the threshold detector. Default: ``None``
+            sort (bool, optional): Whether to sort dictionary of Fock basis states in the descending order of probs.
+                Default: ``True``
             stepwise (bool, optional): Whether to use the forward function of each operator for Gaussian backend.
                 Default: ``False``
 
@@ -237,7 +244,7 @@ class QumodeCircuit(Operation):
             applying the ``operators``.
         """
         if self.backend == 'fock':
-            return self._forward_fock(data, state, is_prob)
+            return self._forward_fock(data, state, is_prob, sort)
         elif self.backend in ('gaussian', 'bosonic'):
             return self._forward_cv(data, state, is_prob, detector, stepwise)
 
@@ -245,7 +252,8 @@ class QumodeCircuit(Operation):
         self,
         data: Optional[torch.Tensor] = None,
         state: Any = None,
-        is_prob: Optional[bool] = None
+        is_prob: Optional[bool] = None,
+        sort: bool = True
     ) -> Union[torch.Tensor, Dict, List[torch.Tensor]]:
         """Perform a forward pass based on the Fock backend.
 
@@ -254,6 +262,8 @@ class QumodeCircuit(Operation):
             state (Any, optional): The initial state for the photonic quantum circuit. Default: ``None``
             is_prob (bool or None, optional): Whether to return probabilities or amplitudes.
                 When ``basis=True``, set ``None`` to return the unitary matrix. Default: ``None``
+            sort (bool, optional): Whether to sort dictionary of Fock basis states in the descending order of probs.
+                Default: ``True``
 
         Returns:
             Union[torch.Tensor, Dict, List[torch.Tensor]]: Unitary matrix, Fock state tensor,
@@ -277,10 +287,7 @@ class QumodeCircuit(Operation):
         if self.basis:
             self._is_batch_expand = False # reset
             self._expand_state = None # reset
-            if self._all_fock_basis is None:
-                state = self._prepare_expand_state(state, cal_all_fock_basis=True)
-            else:
-                state = self._prepare_expand_state(state)
+            state = self._prepare_expand_state(state, cal_all_fock_basis=self._all_fock_basis is None)
         if self.ndata == 0:
             data = None
         if data is None or data.ndim == 1:
@@ -319,7 +326,7 @@ class QumodeCircuit(Operation):
                         self.state = vmap(self._forward_helper_tensor, in_dims=(0, 0, None))(data, state, is_prob)
             # for plotting the last data
             self.encode(data[-1])
-        if self.sort and self.basis and is_prob is not None:
+        if sort and self.basis and is_prob is not None:
             self.state = sort_dict_fock_basis(self.state)
         return self.state
 
@@ -589,7 +596,7 @@ class QumodeCircuit(Operation):
                 state = torch.cat([state, max_photon - nphotons], dim=-1)
                 self._is_batch_expand = True
             if cal_all_fock_basis:
-                self._all_fock_basis = self._get_all_fock_basis(state[0])
+                self._all_fock_basis = self._get_all_fock_basis(state)
         if self._lossy or self._is_batch_expand:
             self._expand_state = state
         return state
@@ -765,51 +772,6 @@ class QumodeCircuit(Operation):
             op.init_para(data[count:count_up])
             count = count_up
 
-    # def get_unitary(self) -> torch.Tensor:
-    #     """Get the unitary matrix of the photonic quantum circuit."""
-    #     u = None
-    #     if self._if_delayloop:
-    #         operators = self._operators_tdm
-    #     else:
-    #         operators = self.operators
-    #     nloss = 0
-    #     for op in operators:
-    #         if isinstance(op, Barrier):
-    #             continue
-    #         if isinstance(op, PhotonLoss):
-    #             nloss += 1
-    #             op.gate.wires = [op.wires[0], op.nmode + nloss - 1]
-    #             op.gate.nmode = op.nmode + nloss
-    #             if u is None:
-    #                 u = op.gate.get_unitary()
-    #                 continue
-    #             else:
-    #                 u = torch.block_diag(u, torch.eye(1, dtype=u.dtype, device=u.device))
-    #                 idx_r = torch.tensor(op.gate.wires, device=u.device)
-    #                 idx_c = torch.arange(op.gate.nmode, device=u.device)
-    #                 u_local = op.gate.update_matrix()
-    #         else:
-    #             if u is None:
-    #                 u = op.get_unitary()
-    #                 continue
-    #             else:
-    #                 idx_r = torch.tensor(op.wires, device=u.device)
-    #                 idx_c = torch.arange(op.nmode + nloss, device=u.device)
-    #                 u_local = op.update_matrix()
-    #         if _functorch.is_batchedtensor(u_local) and not _functorch.is_batchedtensor(u):
-    #             bdim = _functorch.maybe_get_bdim(u_local)
-    #             level = _functorch.maybe_get_level(u_local)
-    #             raw_tensor = _functorch._remove_batch_dim(u_local, level, -1, bdim)
-    #             bs = raw_tensor.shape[bdim]
-    #             u = torch.stack([u] * bs, dim=bdim)
-    #             u = _functorch._add_batch_dim(u, bdim, level)
-    #         u_update = u[idx_r[:, None], idx_c]
-    #         u[idx_r[:, None], idx_c] = u_local @ u_update
-    #     if u is None:
-    #         return torch.eye(self.nmode, dtype=torch.cfloat)
-    #     else:
-    #         return u
-
     def get_unitary(self) -> torch.Tensor:
         """Get the unitary matrix of the photonic quantum circuit."""
         u = None
@@ -827,14 +789,23 @@ class QumodeCircuit(Operation):
                 op.gate.nmode = op.nmode + nloss
                 if u is None:
                     u = op.gate.get_unitary()
+                    continue
                 else:
                     u = torch.block_diag(u, torch.eye(1, dtype=u.dtype, device=u.device))
-                    u = op.gate.get_unitary() @ u
+                    idx_r = torch.tensor(op.gate.wires, device=u.device)
+                    idx_c = torch.arange(op.gate.nmode, device=u.device)
+                    u_local = op.gate.update_matrix()
             else:
                 if u is None:
                     u = op.get_unitary()
+                    continue
                 else:
-                    u = torch.block_diag(op.get_unitary(), torch.eye(nloss, dtype=u.dtype, device=u.device)) @ u
+                    idx_r = torch.tensor(op.wires, device=u.device)
+                    idx_c = torch.arange(op.nmode + nloss, device=u.device)
+                    u_local = op.update_matrix()
+            u_update = u[idx_r[:, None], idx_c]
+            new_val = u_local @ u_update
+            u = u.index_put((idx_r[:, None], idx_c), new_val)
         if u is None:
             return torch.eye(self.nmode, dtype=torch.cfloat)
         else:
