@@ -1,11 +1,8 @@
 # DeepQuantum
 
-<p align="center">
-  <a href="https://github.com/TuringQ/deepquantum">
-    <img width=70% src="docs/assets/deepquantum_logo_light_v1.png" alt="DeepQuantum logo"/>
-  </a>
-</p>
+![DeepQuantum logo](docs/source/_static/assets/logo_light_v1.png)
 
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![docs](https://img.shields.io/badge/docs-link-blue.svg)](https://dqapi.turingq.com/)
 [![PyPI](https://img.shields.io/pypi/v/deepquantum.svg?logo=pypi)](https://pypi.org/project/deepquantum/)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/deepquantum)
@@ -13,62 +10,78 @@
 [![Downloads](https://img.shields.io/pypi/dm/deepquantum.svg)](https://pypi.org/project/deepquantum/)
 [![Downloads](https://static.pepy.tech/badge/deepquantum)](https://pepy.tech/project/deepquantum)
 
-DeepQuantum is a platform that integrates artificial intelligence (AI) and quantum computing (QC). It is an efficient programming framework designed for quantum machine learning and photonic quantum computing. By leveraging the PyTorch deep learning platform for QC, DeepQuantum provides a powerful and easy-to-use tool for creating and simulating quantum circuits and photonic quantum circuits. This makes it ideal for developers to quickly get started and explore the field in depth. It also serves as a valuable learning platform for quantum computing enthusiasts.
+DeepQuantum is a platform that integrates artificial intelligence (AI) and quantum computing (QC).
+It is an efficient programming framework designed for quantum machine learning and photonic quantum computing.
+By leveraging the PyTorch deep learning platform for QC, DeepQuantum provides a powerful and easy-to-use tool for creating and simulating quantum circuits and photonic quantum circuits.
+This makes it ideal for developers to quickly get started and explore the field in depth.
+It also serves as a valuable learning platform for quantum computing enthusiasts.
 
 # Key Features
 
-<p align="center">
-  <a href="https://github.com/TuringQ/deepquantum">
-    <img width=90% src="docs/assets/deepquantum_architecture.png" alt="DeepQuantum architecture"/>
-  </a>
-</p>
+![DeepQuantum architecture](docs/source/_static/assets/architecture.png)
 
-- **AI-Enhanced Quantum Computing Framework**: Seamlessly integrated with PyTorch, it utilizes technologies such as automatic differentiation, vectorized parallelism, and GPU acceleration for efficiency. It facilitates the easy construction of hybrid quantum-classical models, enabling end-to-end training and inference.
-- **User-Friendly API Design**: The API is designed to be simple and intuitive, making it easy to initialize quantum neural networks and providing flexibility in data encoding.
-- **Photonic Quantum Computing Simulation**: The Photonic module includes Fock, Gaussian and Bosonic backends, catering to different simulation needs in photonic quantum computing. It comes with built-in optimizers to support on-chip training of photonic quantum circuits.
-- **Large-Scale Quantum Circuit Simulation**: Leveraging tensor network techniques, DeepQuantum enables approximate simulation of circuits with over 100 qubits on a single laptop. Through a distributed parallel architecture and PyTorch's native communication protocol, it efficiently utilizes multi-node, multi-GPU computational power to boost large-scale quantum simulations. These capabilities allow DeepQuantum to deliver industry-leading performance in both simulation scale and efficiency.
-- **Advanced Architecture for Cutting-Edge Algorithm Exploration**: The first framework to support algorithm design and mapping for time-domain-multiplexed photonic quantum circuits, and the first to realize closed-loop integration of quantum circuits, photonic quantum circuits, and MBQC, enabling robust support for both specialized and universal photonic quantum algorithm design.
+- **AI-Enhanced Quantum Computing Framework**:
+Seamlessly integrated with PyTorch, it utilizes technologies such as automatic differentiation, vectorized parallelism, and GPU acceleration for efficiency.
+It facilitates the easy construction of hybrid quantum-classical models, enabling end-to-end training and inference.
+- **User-Friendly API Design**:
+The API is designed to be simple and intuitive, making it easy to initialize quantum neural networks and providing flexibility in data encoding.
+- **Photonic Quantum Computing Simulation**:
+The Photonic module includes Fock, Gaussian and Bosonic backends, catering to different simulation needs in photonic quantum computing.
+It comes with built-in optimizers to support on-chip training of photonic quantum circuits.
+- **Large-Scale Quantum Circuit Simulation**:
+Leveraging tensor network techniques, DeepQuantum enables approximate simulation of circuits with over 100 qubits on a single laptop.
+Through a distributed parallel architecture and PyTorch's native communication protocol, it efficiently utilizes multi-node, multi-GPU computational power to boost large-scale quantum simulations.
+These capabilities allow DeepQuantum to deliver industry-leading performance in both simulation scale and efficiency.
+- **Advanced Architecture for Cutting-Edge Algorithm Exploration**:
+The first framework to support algorithm design and mapping for time-domain-multiplexed photonic quantum circuits, and the first to realize closed-loop integration of quantum circuits, photonic quantum circuits, and MBQC, enabling robust support for both specialized and universal photonic quantum algorithm design.
 
 # Installation
 
-Before installing DeepQuantum, we recommend first manually installing PyTorch 2.
-If the latest version of PyTorch is not compatible with your CUDA version, manually install a compatible PyTorch 2 version.
+## 1. Prerequisites (PyTorch)
 
-The PyTorch installation instructions currently recommend:
-1. Install [Miniconda](https://docs.anaconda.com/miniconda/) or [Anaconda](https://www.anaconda.com/download).
-2. Setup conda environment. For example, run `conda create -n <ENV_NAME> python=3.12` and `conda activate <ENV_NAME>`.
-3. Install PyTorch following the [PyTorch installation instructions](https://pytorch.org/get-started/locally/).
-Currently, this suggests running `pip install torch`.
+DeepQuantum requires **PyTorch 2**.
+We recommend installing it manually first to ensure compatibility with your system and CUDA version.
 
-If you want to customize your installation, please follow the [PyTorch installation instructions](https://pytorch.org/get-started/locally/) to build from source.
+1. Install [Miniconda](https://www.anaconda.com/docs/getting-started/miniconda/main) or [Anaconda](https://www.anaconda.com/docs/getting-started/main).
+2. Create and activate a conda environment.
+For example, run `conda create -n <ENV_NAME> python=3.12` and `conda activate <ENV_NAME>`.
+3. Install PyTorch following the [official instructions](https://pytorch.org/get-started/locally/).
+For example, run `pip install torch`.
+
+## 2. Install DeepQuantum
+
+### For Users (Stable Version)
 
 To install DeepQuantum with `pip`, run
 
 ```bash
 pip install deepquantum
-# or for developers
-pip install deepquantum[dev]
-# or use tsinghua source
+# Or use a mirror site for faster download
 pip install deepquantum -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
-Alternatively, to install DeepQuantum from source, run
+### For Developers (Source Installation)
+
+If you intend to contribute to DeepQuantum or run unit tests, **we strongly recommend installing from source**.
+
+> **Note on Dependencies**: `strawberryfields` and `thewalrus` on PyPI are outdated and may have compatibility issues with modern environments.
+Our `requirements-dev.txt` points to their latest GitHub main branches to ensure a stable development environment.
 
 ```bash
 git clone https://github.com/TuringQ/deepquantum.git
 cd deepquantum
 pip install -e .
-# or use tsinghua source
-pip install -e . -i https://pypi.tuna.tsinghua.edu.cn/simple
-# for developers
 pip install -r requirements-dev.txt
+# Or use a mirror site for faster download
+pip install -e . -i https://pypi.tuna.tsinghua.edu.cn/simple
+pip install -r requirements-dev.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
 # Getting Started
 
-To begin, please start with the tutorials (CN) on [basics](./docs/basics.ipynb) and [photonic basics](./docs/photonic_basics.ipynb).
+To begin, please start with the tutorials (CN) on [basics](./tutorials/basics.ipynb) and [photonic basics](./tutorials/photonic_basics.ipynb).
 
-Below are some minimal demos to help you get started.
+Below are some minimal examples to help you get started.
 
 - Quantum circuit
 

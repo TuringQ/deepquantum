@@ -5,3 +5,6 @@ thewalrus @ git+https://github.com/XanaduAI/thewalrus.git@master
 graphix==0.3.1
 qutip
 pennylane-sf
+jupytext
+ruff
+pre-commit
