@@ -353,7 +353,7 @@ class QumodeCircuit(Operation):
                     assert final_state not in out_dict, \
                         'Amplitudes of reduced states can not be added, please set "is_prob" to be True.'
                 out_dict[final_state] += rst[i]
-            return out_dict
+            return dict(out_dict)
 
     def _forward_helper_tensor(
         self,
@@ -584,10 +584,13 @@ class QumodeCircuit(Operation):
             state = self.init_state.state
             if self._lossy:
                 state = torch.cat([state, state.new_zeros(self._nloss)], dim=-1)
+            self._all_fock_basis = self._get_all_fock_basis(state)
         else:
-            state = FockState(state, nmode=self.nmode, cutoff=self.cutoff, basis=self.basis).state
-            assert state.shape(-1) == self.nmode + self._nloss, 'Please fill in all ancilla modes in lossy case.'
-        self._all_fock_basis = self._get_all_fock_basis(state)
+            state = FockState(state).state
+            assert torch.all(state.sum(dim=-1) == self.init_state.state.sum()), \
+                "The number of photons must be the same and equal to initial states."
+            assert state.shape[-1] == self.nmode + self._nloss, 'Please fill in all ancilla modes in lossy case.'
+            self._all_fock_basis = state
 
     def get_fock_basis(self) -> None:
         """Get output fock basis states according to the current design.
