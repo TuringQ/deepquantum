@@ -593,7 +593,7 @@ class QumodeCircuit(Operation):
             self._all_fock_basis = state
 
     def get_fock_basis(self) -> None:
-        """Get output fock basis states according to the current design.
+        """Get output fock basis states according to the current settings.
 
         Returns:
             Union[List[torch.Tensor], Dict]: The final Gaussian (Bosonic) state or a dictionary of probabilities.
