@@ -589,6 +589,8 @@ class QumodeCircuit(Operation):
             self._all_fock_basis = self._get_all_fock_basis(state)
         else:
             state = FockState(state).state
+            if state.ndim == 1:
+                state = state.unsqueeze(0)
             # assert torch.all(state.sum(dim=-1) == self.init_state.state.sum()), \
             #     "The number of photons must be the same and equal to initial states."
             assert state.shape[-1] == self.nmode + self._nloss, \
