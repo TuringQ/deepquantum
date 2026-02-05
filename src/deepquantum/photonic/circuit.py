@@ -581,9 +581,9 @@ class QumodeCircuit(Operation):
             state (Any, optional): The output fock basis states. Default: ``None``
         """
         assert self.basis
+        assert self.init_state.state.ndim == 1, 'Manually settings for batched init_state are not needed.'
         if state is None:
             state = self.init_state.state
-            assert state.ndim == 1, 'Manually settings for batched init_state are not needed.'
             if self._lossy:
                 state = torch.cat([state, state.new_zeros(self._nloss)], dim=-1)
             self._all_fock_basis = self._get_all_fock_basis(state)
@@ -591,8 +591,8 @@ class QumodeCircuit(Operation):
             state = FockState(state).state
             if state.ndim == 1:
                 state = state.unsqueeze(0)
-            # assert torch.all(state.sum(dim=-1) == self.init_state.state.sum()), \
-            #     "The number of photons must be the same and equal to initial states."
+            assert torch.all(state.sum(dim=-1) == state[0].sum(dim=-1)), \
+                "The number of photons must be the same and equal to initial states."
             assert state.shape[-1] == self.nmode + self._nloss, \
                 'Please fill in right number of modes (including all ancilla modes in lossy case.)'
             self._all_fock_basis = state
