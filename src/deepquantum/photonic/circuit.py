@@ -104,6 +104,7 @@ class QumodeCircuit(Operation):
         self._is_batch_expand = False # whether batch states are expanded out of photons conservation
         self._expand_state = None # expanded state (init_state + lossy + batch expand)
         self._all_fock_basis = None
+
         # TDM
         self._if_delayloop = False
         self._nmode_tdm = self.nmode
@@ -213,6 +214,7 @@ class QumodeCircuit(Operation):
         state: Any = None,
         is_prob: Optional[bool] = None,
         detector: Optional[str] = None,
+        sort: bool = True,
         stepwise: bool = False
     ) -> Union[torch.Tensor, Dict, List[torch.Tensor]]:
         """Perform a forward pass of the photonic quantum circuit and return the final-state-related result.
@@ -225,6 +227,8 @@ class QumodeCircuit(Operation):
                 For Fock backend with ``basis=True``, set ``None`` to return the unitary matrix. Default: ``None``
             detector (str or None, optional): For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving
                 detector or ``'threshold'`` for the threshold detector. Default: ``None``
+            sort (bool, optional): Whether to sort dictionary of Fock basis states in the descending
+                order of probabilities. Default: ``True``
             stepwise (bool, optional): Whether to use the forward function of each operator for Gaussian backend.
                 Default: ``False``
 
@@ -233,7 +237,7 @@ class QumodeCircuit(Operation):
             applying the ``operators``.
         """
         if self.backend == 'fock':
-            return self._forward_fock(data, state, is_prob)
+            return self._forward_fock(data, state, is_prob, sort)
         elif self.backend in ('gaussian', 'bosonic'):
             return self._forward_cv(data, state, is_prob, detector, stepwise)
 
@@ -241,7 +245,8 @@ class QumodeCircuit(Operation):
         self,
         data: Optional[torch.Tensor] = None,
         state: Any = None,
-        is_prob: Optional[bool] = None
+        is_prob: Optional[bool] = None,
+        sort: bool = True
     ) -> Union[torch.Tensor, Dict, List[torch.Tensor]]:
         """Perform a forward pass based on the Fock backend.
 
@@ -250,6 +255,8 @@ class QumodeCircuit(Operation):
             state (Any, optional): The initial state for the photonic quantum circuit. Default: ``None``
             is_prob (bool or None, optional): Whether to return probabilities or amplitudes.
                 When ``basis=True``, set ``None`` to return the unitary matrix. Default: ``None``
+            sort (bool, optional): Whether to sort dictionary of Fock basis states in the descending
+                order of probabilities. Default: ``True``
 
         Returns:
             Union[torch.Tensor, Dict, List[torch.Tensor]]: Unitary matrix, Fock state tensor,
@@ -273,7 +280,7 @@ class QumodeCircuit(Operation):
         if self.basis:
             self._is_batch_expand = False # reset
             self._expand_state = None # reset
-            state = self._prepare_expand_state(state, cal_all_fock_basis=True)
+            state = self._prepare_expand_state(state, cal_all_fock_basis=self._all_fock_basis is None)
         if self.ndata == 0:
             data = None
         if data is None or data.ndim == 1:
@@ -312,7 +319,7 @@ class QumodeCircuit(Operation):
                         self.state = vmap(self._forward_helper_tensor, in_dims=(0, 0, None))(data, state, is_prob)
             # for plotting the last data
             self.encode(data[-1])
-        if self.basis and is_prob is not None:
+        if sort and self.basis and is_prob is not None:
             self.state = sort_dict_fock_basis(self.state)
         return self.state
 
@@ -346,7 +353,7 @@ class QumodeCircuit(Operation):
                     assert final_state not in out_dict, \
                         'Amplitudes of reduced states can not be added, please set "is_prob" to be True.'
                 out_dict[final_state] += rst[i]
-            return out_dict
+            return dict(out_dict)
 
     def _forward_helper_tensor(
         self,
@@ -564,6 +571,79 @@ class QumodeCircuit(Operation):
                 prob_lst.append(prob)
             probs = torch.cat(prob_lst)
         return probs
+
+    def set_fock_basis(self, state: Any = None) -> None:
+        """Set output fock basis states manually.
+
+        By default it will generate all fock basis states according to the inital state.
+
+        Args:
+            state (Any, optional): The output fock basis states. Default: ``None``
+        """
+        assert self.basis
+        assert self.init_state.state.ndim == 1, 'Manually settings for batched init_state are not needed.'
+        if state is None:
+            state = self.init_state.state
+            if self._lossy:
+                state = torch.cat([state, state.new_zeros(self._nloss)], dim=-1)
+            self._all_fock_basis = self._get_all_fock_basis(state)
+        else:
+            state = FockState(state).state
+            if state.ndim == 1:
+                state = state.unsqueeze(0)
+            assert torch.all(state.sum(dim=-1) == state[0].sum(dim=-1)), \
+                "The number of photons must be the same and equal to initial states."
+            assert state.shape[-1] == self.nmode + self._nloss, \
+                'Please fill in right number of modes (including all ancilla modes in lossy case.)'
+            self._all_fock_basis = state
+
+    def get_fock_basis(self) -> torch.Tensor:
+        """Get output fock basis states according to the current settings."""
+        if self._all_fock_basis is None:
+            state = self.init_state.state
+            self._prepare_expand_state(state, cal_all_fock_basis=True)
+        return self._all_fock_basis
+
+    def _get_all_fock_basis(self, init_state: torch.Tensor) -> torch.Tensor:
+        """Calculate all possible fock basis states according to the initial state."""
+        nphoton = torch.max(torch.sum(init_state, dim=-1))
+        nmode = len(init_state)
+        if self._if_delayloop:
+            nancilla = nmode - self._nmode_tdm
+        else:
+            nancilla = nmode - self.nmode
+        states = torch.tensor(fock_combinations(nmode, nphoton, self.cutoff, nancilla=nancilla),
+                              dtype=torch.long, device=init_state.device)
+        return states
+
+    def _get_odd_even_fock_basis(self, detector: Optional[str] = None) -> Union[Tuple[List, List], List]:
+        """Split the fock basis into the odd and even photon number parts."""
+        if detector is None:
+            detector = self.detector
+        if self._if_delayloop:
+            nmode = self._nmode_tdm
+        else:
+            nmode = self.nmode
+        if detector == 'pnrd':
+            max_photon = nmode * (self.cutoff - 1)
+            odd_lst = []
+            even_lst = []
+            for i in range(0, max_photon + 1):
+                state_tmp = torch.tensor([i] + [0] * (nmode - 1))
+                temp_basis = self._get_all_fock_basis(state_tmp)
+                if i % 2 == 0:
+                    even_lst.append(temp_basis)
+                else:
+                    odd_lst.append(temp_basis)
+            return odd_lst, even_lst
+        elif detector == 'threshold':
+            final_states = torch.tensor(list(itertools.product(range(2), repeat=nmode)))
+            keys = torch.sum(final_states, dim=1)
+            dic_temp = defaultdict(list)
+            for state, s in zip(final_states, keys):
+                dic_temp[s.item()].append(state)
+            state_lst = [torch.stack(i) for i in list(dic_temp.values())]
+            return state_lst
 
     def _prepare_expand_state(self, state: torch.Tensor, cal_all_fock_basis: bool = False) -> torch.Tensor:
         """Check and expand the Fock state if necessary."""
@@ -789,15 +869,9 @@ class QumodeCircuit(Operation):
                     idx_r = torch.tensor(op.wires, device=u.device)
                     idx_c = torch.arange(op.nmode + nloss, device=u.device)
                     u_local = op.update_matrix()
-            if _functorch.is_batchedtensor(u_local) and not _functorch.is_batchedtensor(u):
-                bdim = _functorch.maybe_get_bdim(u_local)
-                level = _functorch.maybe_get_level(u_local)
-                raw_tensor = _functorch._remove_batch_dim(u_local, level, -1, bdim)
-                bs = raw_tensor.shape[bdim]
-                u = torch.stack([u] * bs, dim=bdim)
-                u = _functorch._add_batch_dim(u, bdim, level)
             u_update = u[idx_r[:, None], idx_c]
-            u[idx_r[:, None], idx_c] = u_local @ u_update
+            new_val = u_local @ u_update
+            u = u.index_put((idx_r[:, None], idx_c), new_val)
         if u is None:
             return torch.eye(self.nmode, dtype=torch.cfloat)
         else:
@@ -850,47 +924,6 @@ class QumodeCircuit(Operation):
                 continue
             mean = op.get_symplectic().to(mean.dtype) @ mean + op.get_displacement()
         return mean
-
-    def _get_all_fock_basis(self, init_state: torch.Tensor) -> torch.Tensor:
-        """Get all possible fock basis states according to the initial state."""
-        nphoton = torch.max(torch.sum(init_state, dim=-1))
-        nmode = len(init_state)
-        if self._if_delayloop:
-            nancilla = nmode - self._nmode_tdm
-        else:
-            nancilla = nmode - self.nmode
-        states = torch.tensor(fock_combinations(nmode, nphoton, self.cutoff, nancilla=nancilla),
-                              dtype=torch.long, device=init_state.device)
-        return states
-
-    def _get_odd_even_fock_basis(self, detector: Optional[str] = None) -> Union[Tuple[List, List], List]:
-        """Split the fock basis into the odd and even photon number parts."""
-        if detector is None:
-            detector = self.detector
-        if self._if_delayloop:
-            nmode = self._nmode_tdm
-        else:
-            nmode = self.nmode
-        if detector == 'pnrd':
-            max_photon = nmode * (self.cutoff - 1)
-            odd_lst = []
-            even_lst = []
-            for i in range(0, max_photon + 1):
-                state_tmp = torch.tensor([i] + [0] * (nmode - 1))
-                temp_basis = self._get_all_fock_basis(state_tmp)
-                if i % 2 == 0:
-                    even_lst.append(temp_basis)
-                else:
-                    odd_lst.append(temp_basis)
-            return odd_lst, even_lst
-        elif detector == 'threshold':
-            final_states = torch.tensor(list(itertools.product(range(2), repeat=nmode)))
-            keys = torch.sum(final_states, dim=1)
-            dic_temp = defaultdict(list)
-            for state, s in zip(final_states, keys):
-                dic_temp[s.item()].append(state)
-            state_lst = [torch.stack(i) for i in list(dic_temp.values())]
-            return state_lst
 
     def _get_permanent_norms(self, init_state: torch.Tensor, final_state: torch.Tensor) -> torch.Tensor:
         """Get the normalization factors for permanent."""
@@ -1686,7 +1719,7 @@ class QumodeCircuit(Operation):
         wires: Union[int, List[int], None] = None,
         phi: Union[float, List[float], torch.Tensor, None] = None
     ) -> torch.Tensor:
-        """Get the expectation value of the quadratuere operator :math:`\hat{X}\cos\phi + \hat{P}\sin\phi`.
+        r"""Get the expectation value of the quadratuere operator :math:`\hat{X}\cos\phi + \hat{P}\sin\phi`.
 
         If ``self.measurements`` is empty, this method directly computes the quadrature expectation values
         for the specified ``wires`` and ``phi``. If ``self.measurements`` is specified via ``self.homodyne``,

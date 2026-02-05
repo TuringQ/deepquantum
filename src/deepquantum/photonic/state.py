@@ -173,6 +173,8 @@ class FockState(nn.Module):
 
     def __hash__(self) -> int:
         """Compute the hash value for the ``FockState``."""
+        if self.state.device.type == 'meta':
+            return hash(id(self))
         if self.basis:
             # Hash Fock basis state as a string
             state_str = ''.join(map(str, self.state.tolist()))
