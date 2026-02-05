@@ -227,8 +227,8 @@ class QumodeCircuit(Operation):
                 For Fock backend with ``basis=True``, set ``None`` to return the unitary matrix. Default: ``None``
             detector (str or None, optional): For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving
                 detector or ``'threshold'`` for the threshold detector. Default: ``None``
-            sort (bool, optional): Whether to sort dictionary of Fock basis states in the descending order of probs.
-                Default: ``True``
+            sort (bool, optional): Whether to sort dictionary of Fock basis states in the descending
+                order of probabilities. Default: ``True``
             stepwise (bool, optional): Whether to use the forward function of each operator for Gaussian backend.
                 Default: ``False``
 
@@ -255,8 +255,8 @@ class QumodeCircuit(Operation):
             state (Any, optional): The initial state for the photonic quantum circuit. Default: ``None``
             is_prob (bool or None, optional): Whether to return probabilities or amplitudes.
                 When ``basis=True``, set ``None`` to return the unitary matrix. Default: ``None``
-            sort (bool, optional): Whether to sort dictionary of Fock basis states in the descending order of probs.
-                Default: ``True``
+            sort (bool, optional): Whether to sort dictionary of Fock basis states in the descending
+                order of probabilities. Default: ``True``
 
         Returns:
             Union[torch.Tensor, Dict, List[torch.Tensor]]: Unitary matrix, Fock state tensor,
@@ -574,6 +574,7 @@ class QumodeCircuit(Operation):
 
     def set_fock_basis(self, state: Any = None) -> None:
         """Set output fock basis states manually.
+
         By default it will generate all fock basis states according to the inital state.
 
         Args:
@@ -582,22 +583,23 @@ class QumodeCircuit(Operation):
         assert self.basis
         if state is None:
             state = self.init_state.state
+            assert state.ndim == 1, 'Manually settings for batched init_state are not needed.'
             if self._lossy:
                 state = torch.cat([state, state.new_zeros(self._nloss)], dim=-1)
             self._all_fock_basis = self._get_all_fock_basis(state)
         else:
             state = FockState(state).state
-            assert torch.all(state.sum(dim=-1) == self.init_state.state.sum()), \
-                "The number of photons must be the same and equal to initial states."
-            assert state.shape[-1] == self.nmode + self._nloss, 'Please fill in all ancilla modes in lossy case.'
+            # assert torch.all(state.sum(dim=-1) == self.init_state.state.sum()), \
+            #     "The number of photons must be the same and equal to initial states."
+            assert state.shape[-1] == self.nmode + self._nloss, \
+                'Please fill in right number of modes (including all ancilla modes in lossy case.)'
             self._all_fock_basis = state
 
-    def get_fock_basis(self) -> None:
-        """Get output fock basis states according to the current settings.
-
-        Returns:
-            Union[List[torch.Tensor], Dict]: The final Gaussian (Bosonic) state or a dictionary of probabilities.
-        """
+    def get_fock_basis(self) -> torch.Tensor:
+        """Get output fock basis states according to the current settings."""
+        if self._all_fock_basis is None:
+            state = self.init_state.state
+            self._prepare_expand_state(state, cal_all_fock_basis=True)
         return self._all_fock_basis
 
     def _get_all_fock_basis(self, init_state: torch.Tensor) -> torch.Tensor:
@@ -658,7 +660,7 @@ class QumodeCircuit(Operation):
                 state = torch.cat([state, max_photon - nphotons], dim=-1)
                 self._is_batch_expand = True
             if cal_all_fock_basis:
-                self._all_fock_basis = self._get_all_fock_basis(state)
+                self._all_fock_basis = self._get_all_fock_basis(state[0])
         if self._lossy or self._is_batch_expand:
             self._expand_state = state
         return state
@@ -1418,8 +1420,7 @@ class QumodeCircuit(Operation):
         """Sample the output states for Fock backend via SC-MCMC method."""
         self._init_state = init_state
         self._unitary = unitary
-        if self._all_fock_basis is None:
-            self._all_fock_basis = self._get_all_fock_basis(init_state)
+        self._all_fock_basis = self._get_all_fock_basis(init_state)
         merged_samples = sample_sc_mcmc(prob_func=self._get_prob_fock,
                                         proposal_sampler=self._proposal_sampler,
                                         shots=shots,
