@@ -194,7 +194,6 @@ class QumodeCircuit(Operation):
     def to(self, arg: Any) -> 'QumodeCircuit':
         """Set dtype or device of the ``QumodeCircuit``."""
         self.init_state.to(arg)
-        self._all_fock_basis.to(self.init_state.state.device, self.init_state.state.dtype)
         if arg in (torch.float, torch.double):
             for op in self.operators:
                 op.to(arg)
@@ -207,12 +206,6 @@ class QumodeCircuit(Operation):
             for bs in self._bosonic_states:
                 bs.to(arg)
         return self
-
-    def pre_cal_fock_basis(self) -> None:
-        state = self.init_state.state
-        if self._lossy:
-            state = torch.cat([state, state.new_zeros(self._nloss)], dim=-1)
-        self._all_fock_basis = self._get_all_fock_basis(state)
 
     # pylint: disable=arguments-renamed
     def forward(
@@ -579,6 +572,72 @@ class QumodeCircuit(Operation):
             probs = torch.cat(prob_lst)
         return probs
 
+    def set_fock_basis(self, state: Any = None) -> None:
+        """Set output fock basis states manually.
+        By default it will generate all fock basis states according to the inital state.
+
+        Args:
+            state (Any, optional): The output fock basis states. Default: ``None``
+        """
+        assert self.basis
+        if state is None:
+            state = self.init_state.state
+            if self._lossy:
+                state = torch.cat([state, state.new_zeros(self._nloss)], dim=-1)
+        else:
+            state = FockState(state, nmode=self.nmode, cutoff=self.cutoff, basis=self.basis).state
+            assert state.shape(-1) == self.nmode + self._nloss, 'Please fill in all ancilla modes in lossy case.'
+        self._all_fock_basis = self._get_all_fock_basis(state)
+
+    def get_fock_basis(self) -> None:
+        """Get output fock basis states according to the current design.
+
+        Returns:
+            Union[List[torch.Tensor], Dict]: The final Gaussian (Bosonic) state or a dictionary of probabilities.
+        """
+        return self._all_fock_basis
+
+    def _get_all_fock_basis(self, init_state: torch.Tensor) -> torch.Tensor:
+        """Calculate all possible fock basis states according to the initial state."""
+        nphoton = torch.max(torch.sum(init_state, dim=-1))
+        nmode = len(init_state)
+        if self._if_delayloop:
+            nancilla = nmode - self._nmode_tdm
+        else:
+            nancilla = nmode - self.nmode
+        states = torch.tensor(fock_combinations(nmode, nphoton, self.cutoff, nancilla=nancilla),
+                              dtype=torch.long, device=init_state.device)
+        return states
+
+    def _get_odd_even_fock_basis(self, detector: Optional[str] = None) -> Union[Tuple[List, List], List]:
+        """Split the fock basis into the odd and even photon number parts."""
+        if detector is None:
+            detector = self.detector
+        if self._if_delayloop:
+            nmode = self._nmode_tdm
+        else:
+            nmode = self.nmode
+        if detector == 'pnrd':
+            max_photon = nmode * (self.cutoff - 1)
+            odd_lst = []
+            even_lst = []
+            for i in range(0, max_photon + 1):
+                state_tmp = torch.tensor([i] + [0] * (nmode - 1))
+                temp_basis = self._get_all_fock_basis(state_tmp)
+                if i % 2 == 0:
+                    even_lst.append(temp_basis)
+                else:
+                    odd_lst.append(temp_basis)
+            return odd_lst, even_lst
+        elif detector == 'threshold':
+            final_states = torch.tensor(list(itertools.product(range(2), repeat=nmode)))
+            keys = torch.sum(final_states, dim=1)
+            dic_temp = defaultdict(list)
+            for state, s in zip(final_states, keys):
+                dic_temp[s.item()].append(state)
+            state_lst = [torch.stack(i) for i in list(dic_temp.values())]
+            return state_lst
+
     def _prepare_expand_state(self, state: torch.Tensor, cal_all_fock_basis: bool = False) -> torch.Tensor:
         """Check and expand the Fock state if necessary."""
         if state.ndim == 1:
@@ -858,47 +917,6 @@ class QumodeCircuit(Operation):
                 continue
             mean = op.get_symplectic().to(mean.dtype) @ mean + op.get_displacement()
         return mean
-
-    def _get_all_fock_basis(self, init_state: torch.Tensor) -> torch.Tensor:
-        """Get all possible fock basis states according to the initial state."""
-        nphoton = torch.max(torch.sum(init_state, dim=-1))
-        nmode = len(init_state)
-        if self._if_delayloop:
-            nancilla = nmode - self._nmode_tdm
-        else:
-            nancilla = nmode - self.nmode
-        states = torch.tensor(fock_combinations(nmode, nphoton, self.cutoff, nancilla=nancilla),
-                              dtype=torch.long, device=init_state.device)
-        return states
-
-    def _get_odd_even_fock_basis(self, detector: Optional[str] = None) -> Union[Tuple[List, List], List]:
-        """Split the fock basis into the odd and even photon number parts."""
-        if detector is None:
-            detector = self.detector
-        if self._if_delayloop:
-            nmode = self._nmode_tdm
-        else:
-            nmode = self.nmode
-        if detector == 'pnrd':
-            max_photon = nmode * (self.cutoff - 1)
-            odd_lst = []
-            even_lst = []
-            for i in range(0, max_photon + 1):
-                state_tmp = torch.tensor([i] + [0] * (nmode - 1))
-                temp_basis = self._get_all_fock_basis(state_tmp)
-                if i % 2 == 0:
-                    even_lst.append(temp_basis)
-                else:
-                    odd_lst.append(temp_basis)
-            return odd_lst, even_lst
-        elif detector == 'threshold':
-            final_states = torch.tensor(list(itertools.product(range(2), repeat=nmode)))
-            keys = torch.sum(final_states, dim=1)
-            dic_temp = defaultdict(list)
-            for state, s in zip(final_states, keys):
-                dic_temp[s.item()].append(state)
-            state_lst = [torch.stack(i) for i in list(dic_temp.values())]
-            return state_lst
 
     def _get_permanent_norms(self, init_state: torch.Tensor, final_state: torch.Tensor) -> torch.Tensor:
         """Get the normalization factors for permanent."""
