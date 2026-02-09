@@ -2,7 +2,6 @@
 functions for torontonian
 """
 
-from typing import Optional
 
 import torch
 
@@ -28,7 +27,7 @@ def _tor_helper(submat: torch.Tensor, sub_gamma: torch.Tensor) -> torch.Tensor:
     return torch.exp(exp_term) / torch.sqrt(torch.linalg.det(cov_q_inv))
 
 
-def torontonian(o_mat: torch.Tensor, gamma: Optional[torch.Tensor] = None) -> torch.Tensor:
+def torontonian(o_mat: torch.Tensor, gamma: torch.Tensor | None = None) -> torch.Tensor:
     """Calculate the torontonian function for the given matrix.
 
     See https://research-information.bris.ac.uk/ws/portalfiles/portal/329011096/thesis.pdf Eq.(3.54)
@@ -50,7 +49,7 @@ def torontonian(o_mat: torch.Tensor, gamma: Optional[torch.Tensor] = None) -> to
     return tor
 
 
-def torontonian_batch(o_mat: torch.Tensor, gamma: Optional[torch.Tensor] = None) -> torch.Tensor:
+def torontonian_batch(o_mat: torch.Tensor, gamma: torch.Tensor | None = None) -> torch.Tensor:
     """Calculate the batch torontonian."""
     assert o_mat.dim() == 3, 'Input tensor should be in batched size'
     assert o_mat.shape[-2] == o_mat.shape[-1]

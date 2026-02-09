@@ -1,7 +1,7 @@
-import deepquantum as dq
 import numpy as np
-import pytest
 import torch
+
+import deepquantum as dq
 
 
 def test_mapper():

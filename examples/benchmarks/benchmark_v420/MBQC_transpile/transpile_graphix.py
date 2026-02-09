@@ -5,6 +5,7 @@ import time
 import graphix
 from tqdm import tqdm
 
+
 def benchmark(f, *args, trials=100):
     r = f(*args)
     time0 = time.time()
@@ -69,5 +70,5 @@ for n in tqdm(n_list):
 with open('transpile_mbqc_'+platform+'_results.data', 'w') as f:
     json.dump(results, f)
 
-with open('transpile_mbqc_'+platform+'_results.data', 'r') as f:
+with open('transpile_mbqc_'+platform+'_results.data') as f:
     print(json.load(f))

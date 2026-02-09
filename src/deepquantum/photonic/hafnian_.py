@@ -3,8 +3,7 @@ functions for hafnian
 """
 
 from collections import Counter
-from functools import lru_cache
-from typing import List, Union
+from functools import cache
 
 import numpy as np
 import torch
@@ -13,8 +12,8 @@ from scipy.special import factorial
 from .qmath import get_powerset
 
 
-@lru_cache(maxsize=None)
-def integer_partition(remaining: int, max_num: int) -> List:
+@cache
+def integer_partition(remaining: int, max_num: int) -> list:
     """Generate all unique integer partitions of m using integers up to n."""
     if remaining == 0:
         return [[]]
@@ -28,7 +27,7 @@ def integer_partition(remaining: int, max_num: int) -> List:
     return result
 
 
-def count_unique_permutations(nums: Union[List, np.array]) -> np.float64:
+def count_unique_permutations(nums: list | np.array) -> np.float64:
     """Count the number of unique permutations of a list of numbers."""
     total_permutations = factorial(len(nums))
     num_counts = Counter(nums)
@@ -52,7 +51,7 @@ def get_submat_haf(a: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
     return submat
 
 
-def poly_lambda(submat: torch.Tensor, int_partition: List, power: int, loop: bool = False) -> torch.Tensor:
+def poly_lambda(submat: torch.Tensor, int_partition: list, power: int, loop: bool = False) -> torch.Tensor:
     """Get the coefficient of the polynomial.
 
     See https://arxiv.org/abs/1805.12498 Eq.(3.26) (noting that Eq.(3.26) contains a typo) and

@@ -3,13 +3,12 @@ Decompose the unitary matrix
 """
 
 from collections import defaultdict
-from typing import Dict, Tuple, Union
 
 import numpy as np
 import torch
 
 
-class UnitaryDecomposer():
+class UnitaryDecomposer:
     """This class is to decompose a unitary matrix into the Clements/Reck architecture.
 
     Args:
@@ -23,7 +22,7 @@ class UnitaryDecomposer():
             The last char denotes the position of a column of phase shifters, i.e., ``'l'`` for left
             and ``'r'`` for right. Default: ``'cssr'``
     """
-    def __init__(self, unitary: Union[np.ndarray, torch.Tensor], method: str = 'cssr') -> None:
+    def __init__(self, unitary: np.ndarray | torch.Tensor, method: str = 'cssr') -> None:
         if isinstance(unitary, np.ndarray):
             self.unitary = unitary.copy()
         elif isinstance(unitary, torch.Tensor):
@@ -37,14 +36,14 @@ class UnitaryDecomposer():
         self.unitary[np.abs(self.unitary) < 1e-32] = 1e-32
         self.method = method
 
-    def decomp(self) -> Tuple[Dict, Dict, Dict]:
+    def decomp(self) -> tuple[dict, dict, dict]:
         """Decompose the unitary matrix.The third dictionary is the representation
           of the positions and the angles of all phase shifters.
         """
         def period_cut(input_angle: float, period: float = np.pi * 2) -> float:
             return input_angle - np.floor(input_angle/period)*period
 
-        def decomp_rr(unitary: np.ndarray, method: str) -> Dict:
+        def decomp_rr(unitary: np.ndarray, method: str) -> dict:
             n_dim = len(unitary)
             info = {}
             info['N'] = n_dim
@@ -80,7 +79,7 @@ class UnitaryDecomposer():
             info['phase_angle'][mask] -= np.floor(info['phase_angle'][mask]/np.pi/2)*np.pi*2
             return info, unitary
 
-        def decomp_cr(unitary: np.ndarray, method: str) -> Dict:
+        def decomp_cr(unitary: np.ndarray, method: str) -> dict:
             n_dim = len(unitary)
             info = {}
             info['N']= n_dim
@@ -145,7 +144,7 @@ class UnitaryDecomposer():
             info['phase_angle'][mask] -= np.floor(info['phase_angle'][mask]/np.pi/2)*np.pi*2
             return info, unitary
 
-        def decomp_rl(unitary: np.ndarray, method: str) -> Dict:
+        def decomp_rl(unitary: np.ndarray, method: str) -> dict:
             n_dim = len(unitary)
             info = {}
             info['N'] = n_dim
@@ -181,7 +180,7 @@ class UnitaryDecomposer():
             info['phase_angle'][mask] -= np.floor(info['phase_angle'][mask]/np.pi/2)*np.pi*2
             return info, unitary
 
-        def decomp_cl(unitary: np.ndarray, method: str) -> Dict:
+        def decomp_cl(unitary: np.ndarray, method: str) -> dict:
             n_dim = len(unitary)
             info = {}
             info['N'] = n_dim

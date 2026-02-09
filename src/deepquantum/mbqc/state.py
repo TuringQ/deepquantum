@@ -3,7 +3,7 @@ Quantum states
 """
 
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 import networkx as nx
 import numpy as np
@@ -11,7 +11,7 @@ import torch
 from torch import nn, vmap
 
 from ..circuit import QubitCircuit
-from ..qmath import multi_kron, inverse_permutation
+from ..qmath import inverse_permutation, multi_kron
 from ..state import QubitState
 
 
@@ -28,10 +28,10 @@ class SubGraphState(nn.Module):
     """
     def __init__(
         self,
-        nodes_state: Union[int, List[int], None] = None,
+        nodes_state: int | list[int] | None = None,
         state: Any = 'plus',
-        edges: Optional[List] = None,
-        nodes: Union[int, List[int], None] = None # primarily, for the single-node case
+        edges: list | None = None,
+        nodes: int | list[int] | None = None # primarily, for the single-node case
     ) -> None:
         super().__init__()
         self.nodes_out_seq = None
@@ -80,9 +80,9 @@ class SubGraphState(nn.Module):
 
     def set_graph(
         self,
-        nodes_state: Union[int, List[int], None] = None,
-        edges: Optional[List] = None,
-        nodes: Union[int, List[int], None] = None
+        nodes_state: int | list[int] | None = None,
+        edges: list | None = None,
+        nodes: int | list[int] | None = None
     ) -> None:
         """Set the graph structure for the subgraph state."""
         if nodes_state is None:
@@ -127,7 +127,7 @@ class SubGraphState(nn.Module):
         else:
             self.register_buffer('state', torch.tensor(1, dtype=state.dtype, device=state.device))
 
-    def set_nodes_out_seq(self, nodes: Optional[List[int]] = None) -> None:
+    def set_nodes_out_seq(self, nodes: list[int] | None = None) -> None:
         """Set the output sequence of the nodes."""
         if nodes is not None:
             assert len(nodes) == len(self.nodes)
@@ -135,14 +135,14 @@ class SubGraphState(nn.Module):
         self.nodes_out_seq = nodes
         self.update_node2wire_dict()
 
-    def add_nodes(self, nodes: Union[int, List[int]]) -> None:
+    def add_nodes(self, nodes: int | list[int]) -> None:
         """Add nodes to the subgraph state."""
         if isinstance(nodes, int):
             nodes = [nodes]
         self.graph.add_nodes_from(nodes)
         self.update_node2wire_dict()
 
-    def add_edges(self, edges: List) -> None:
+    def add_edges(self, edges: list) -> None:
         """Add edges to the subgraph state."""
         self.graph.add_edges_from(edges, cz=True)
         self.update_node2wire_dict()
@@ -184,7 +184,7 @@ class SubGraphState(nn.Module):
         sgs.measure_dict.update(other.measure_dict)
         return sgs
 
-    def update_node2wire_dict(self) -> Dict:
+    def update_node2wire_dict(self) -> dict:
         """Update the mapping from nodes to wire indices.
 
         Returns:
@@ -220,10 +220,10 @@ class GraphState(nn.Module):
     """
     def __init__(
         self,
-        nodes_state: Union[int, List[int], None] = None,
+        nodes_state: int | list[int] | None = None,
         state: Any = 'plus',
-        edges: Optional[List] = None,
-        nodes: Union[int, List[int], None] = None
+        edges: list | None = None,
+        nodes: int | list[int] | None = None
     ) -> None:
         super().__init__()
         sgs = SubGraphState(nodes_state, state, edges, nodes)
@@ -238,12 +238,12 @@ class GraphState(nn.Module):
 
     def add_subgraph(
         self,
-        nodes_state: Union[int, List[int], None] = None,
+        nodes_state: int | list[int] | None = None,
         state: Any = 'plus',
-        edges: Optional[List] = None,
-        nodes: Union[int, List[int], None] = None,
-        measure_dict: Optional[Dict] = None,
-        index: Optional[int] = None
+        edges: list | None = None,
+        nodes: int | list[int] | None = None,
+        measure_dict: dict | None = None,
+        index: int | None = None
     ) -> None:
         """Add a subgraph state to the graph state.
 
@@ -289,10 +289,10 @@ class GraphState(nn.Module):
         return self.graph.full_state
 
     @property
-    def measure_dict(self) -> Dict:
+    def measure_dict(self) -> dict:
         """A dictionary containing all measurement results for the graph state."""
         return self.graph.measure_dict
 
-    def set_nodes_out_seq(self, nodes: Optional[List[int]] = None) -> None:
+    def set_nodes_out_seq(self, nodes: list[int] | None = None) -> None:
         """Set the output sequence of the nodes."""
         self.nodes_out_seq = nodes

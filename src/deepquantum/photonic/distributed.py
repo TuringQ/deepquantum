@@ -3,15 +3,14 @@ Distributed operations
 """
 
 from collections import Counter
-from typing import Dict, List, Union
 
 import torch
 import torch.distributed as dist
 
 from ..communication import comm_exchange_arrays
 from ..distributed import get_local_targets
-from ..qmath import list_to_decimal, decimal_to_list, inverse_permutation, evolve_state, block_sample
-from .state import FockState, DistributedFockState
+from ..qmath import block_sample, decimal_to_list, evolve_state, inverse_permutation, list_to_decimal
+from .state import DistributedFockState, FockState
 
 
 # The 0-th mode is the rightmost for the `target`
@@ -31,7 +30,7 @@ def get_digit(decimal: int, target: int, cutoff: int) -> int:
         return digits[-(target+1)]
 
 
-def local_gate(state: torch.Tensor, targets: List[int], matrix: torch.Tensor) -> torch.Tensor:
+def local_gate(state: torch.Tensor, targets: list[int], matrix: torch.Tensor) -> torch.Tensor:
     """Apply a gate to a Fock state tensor locally."""
     shape = state.shape
     nmode = len(shape)
@@ -84,7 +83,7 @@ def dist_swap_gate(state: DistributedFockState, target1: int, target2: int):
 
 def dist_gate(
     state: DistributedFockState,
-    targets: List[int],
+    targets: list[int],
     matrix: torch.Tensor
 ) -> DistributedFockState:
     """Apply a gate to a distributed Fock state tensor."""
@@ -108,9 +107,9 @@ def measure_dist(
     state: DistributedFockState,
     shots: int = 1024,
     with_prob: bool = False,
-    wires: Union[int, List[int], None] = None,
+    wires: int | list[int] | None = None,
     block_size: int = 2 ** 24
-) -> Dict:
+) -> dict:
     """Measure a distributed Fock state tensor."""
     if isinstance(wires, int):
         wires = [wires]

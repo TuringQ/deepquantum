@@ -58,5 +58,5 @@ for n in tqdm(n_list):
 with open('gradient_'+platform+'_results.data', 'w') as f:
     json.dump(results, f)
 
-with open('gradient_'+platform+'_results.data', 'r') as f:
+with open('gradient_'+platform+'_results.data') as f:
     print(json.load(f))

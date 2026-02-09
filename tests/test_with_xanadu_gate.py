@@ -1,8 +1,9 @@
-import deepquantum as dq
 import numpy as np
 import strawberryfields as sf
 import torch
-from strawberryfields.ops import Pgate, CXgate, CZgate, Vgate, Kgate, CKgate
+from strawberryfields.ops import CKgate, CXgate, CZgate, Kgate, Pgate, Vgate
+
+import deepquantum as dq
 
 
 def test_quadratic_phase_gate():

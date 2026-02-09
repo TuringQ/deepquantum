@@ -3,16 +3,15 @@ Quantum gates
 """
 
 from copy import copy
-from typing import Any, List, Optional, Tuple, Union
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import torch
 from torch import nn
 from torch.autograd.functional import jacobian
 
-from .distributed import dist_one_targ_gate, dist_many_ctrl_one_targ_gate, dist_swap_gate
+from .distributed import dist_many_ctrl_one_targ_gate, dist_one_targ_gate, dist_swap_gate
 from .operation import Gate
-from .qmath import multi_kron, is_unitary, inverse_permutation, evolve_state, svd
+from .qmath import evolve_state, inverse_permutation, is_unitary, multi_kron, svd
 from .state import DistributedQubitState
 
 if TYPE_CHECKING:
@@ -37,10 +36,10 @@ class SingleGate(Gate):
     """
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False
@@ -99,10 +98,10 @@ class DoubleGate(Gate):
     """
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False
@@ -185,9 +184,9 @@ class DoubleControlGate(DoubleGate):
     """
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
+        wires: list[int] | None = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -228,10 +227,10 @@ class TripleGate(Gate):
     """
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         nqubit: int = 3,
-        wires: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False
@@ -262,11 +261,11 @@ class ArbitraryGate(Gate):
     """
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        minmax: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        minmax: list[int] | None = None,
+        controls: int | list[int] | None = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -334,11 +333,11 @@ class ParametricSingleGate(SingleGate):
     """
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         inputs: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
@@ -425,11 +424,11 @@ class ParametricDoubleGate(DoubleGate):
     """
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         inputs: Any = None,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
@@ -530,8 +529,8 @@ class U3Gate(ParametricSingleGate):
         self,
         inputs: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
@@ -541,7 +540,7 @@ class U3Gate(ParametricSingleGate):
                          condition=condition, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
         self.npara = 3
 
-    def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def inputs_to_tensor(self, inputs: Any = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Convert inputs to torch.Tensor."""
         if inputs is None:
             theta = torch.rand(1)[0] * torch.pi
@@ -674,8 +673,8 @@ class PhaseShift(ParametricSingleGate):
         self,
         inputs: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
@@ -741,7 +740,7 @@ class Identity(Gate):
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -785,8 +784,8 @@ class PauliX(SingleGate):
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False
@@ -807,9 +806,9 @@ class PauliX(SingleGate):
         else:
             return self._qasm_customized('x')
 
-    def pattern(self, nodes: Union[int, List[int]], ancilla: List[int]) -> nn.Sequential:
+    def pattern(self, nodes: int | list[int], ancilla: list[int]) -> nn.Sequential:
         """Get the MBQC pattern."""
-        from .mbqc import Node, Entanglement, Measurement, Correction
+        from .mbqc import Correction, Entanglement, Measurement, Node
         if isinstance(nodes, list):
             assert len(nodes) == len(self.wires)
             nodes = nodes[0]
@@ -853,8 +852,8 @@ class PauliY(SingleGate):
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False
@@ -875,9 +874,9 @@ class PauliY(SingleGate):
         else:
             return self._qasm_customized('y')
 
-    def pattern(self, nodes: Union[int, List[int]], ancilla: List[int]) -> nn.Sequential:
+    def pattern(self, nodes: int | list[int], ancilla: list[int]) -> nn.Sequential:
         """Get the MBQC pattern."""
-        from .mbqc import Node, Entanglement, Measurement, Correction
+        from .mbqc import Correction, Entanglement, Measurement, Node
         if isinstance(nodes, list):
             assert len(nodes) == len(self.wires)
             nodes = nodes[0]
@@ -925,8 +924,8 @@ class PauliZ(SingleGate):
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False
@@ -945,9 +944,9 @@ class PauliZ(SingleGate):
         else:
             return self._qasm_customized('z')
 
-    def pattern(self, nodes: Union[int, List[int]], ancilla: List[int]) -> nn.Sequential:
+    def pattern(self, nodes: int | list[int], ancilla: list[int]) -> nn.Sequential:
         """Get the MBQC pattern."""
-        from .mbqc import Node, Entanglement, Measurement, Correction
+        from .mbqc import Correction, Entanglement, Measurement, Node
         if isinstance(nodes, list):
             assert len(nodes) == len(self.wires)
             nodes = nodes[0]
@@ -992,8 +991,8 @@ class Hadamard(SingleGate):
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False
@@ -1014,9 +1013,9 @@ class Hadamard(SingleGate):
         else:
             return self._qasm_customized('h')
 
-    def pattern(self, nodes: Union[int, List[int]], ancilla: Union[int, List[int]]) -> nn.Sequential:
+    def pattern(self, nodes: int | list[int], ancilla: int | list[int]) -> nn.Sequential:
         """Get the MBQC pattern."""
-        from .mbqc import Node, Entanglement, Measurement, Correction
+        from .mbqc import Correction, Entanglement, Measurement, Node
         if isinstance(nodes, list):
             assert len(nodes) == len(self.wires)
             nodes = nodes[0]
@@ -1059,8 +1058,8 @@ class SGate(SingleGate):
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False
@@ -1090,9 +1089,9 @@ class SGate(SingleGate):
         else:
             return self._qasm_customized('s')
 
-    def pattern(self, nodes: Union[int, List[int]], ancilla: List[int]) -> nn.Sequential:
+    def pattern(self, nodes: int | list[int], ancilla: list[int]) -> nn.Sequential:
         """Get the MBQC pattern."""
-        from .mbqc import Node, Entanglement, Measurement, Correction
+        from .mbqc import Correction, Entanglement, Measurement, Node
         if isinstance(nodes, list):
             assert len(nodes) == len(self.wires)
             nodes = nodes[0]
@@ -1137,8 +1136,8 @@ class SDaggerGate(SingleGate):
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False
@@ -1196,8 +1195,8 @@ class TGate(SingleGate):
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False
@@ -1248,8 +1247,8 @@ class TDaggerGate(SingleGate):
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False
@@ -1306,8 +1305,8 @@ class Rx(ParametricSingleGate):
         self,
         inputs: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
@@ -1341,13 +1340,13 @@ class Rx(ParametricSingleGate):
 
     def pattern(
         self,
-        nodes: Union[int, List[int]],
-        ancilla: List[int],
+        nodes: int | list[int],
+        ancilla: list[int],
         angle: Any,
         requires_grad: bool = False
     ) -> nn.Sequential:
         """Get the MBQC pattern."""
-        from .mbqc import Node, Entanglement, Measurement, Correction
+        from .mbqc import Correction, Entanglement, Measurement, Node
         if isinstance(nodes, list):
             assert len(nodes) == len(self.wires)
             nodes = nodes[0]
@@ -1398,8 +1397,8 @@ class Ry(ParametricSingleGate):
         self,
         inputs: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
@@ -1434,13 +1433,13 @@ class Ry(ParametricSingleGate):
 
     def pattern(
         self,
-        nodes: Union[int, List[int]],
-        ancilla: List[int],
+        nodes: int | list[int],
+        ancilla: list[int],
         angle: Any,
         requires_grad: bool = False
     ) -> nn.Sequential:
         """Get the MBQC pattern."""
-        from .mbqc import Node, Entanglement, Measurement, Correction
+        from .mbqc import Correction, Entanglement, Measurement, Node
         if isinstance(nodes, list):
             assert len(nodes) == len(self.wires)
             nodes = nodes[0]
@@ -1493,8 +1492,8 @@ class Rz(ParametricSingleGate):
         self,
         inputs: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
@@ -1528,13 +1527,13 @@ class Rz(ParametricSingleGate):
 
     def pattern(
         self,
-        nodes: Union[int, List[int]],
-        ancilla: List[int],
+        nodes: int | list[int],
+        ancilla: list[int],
         angle: Any,
         requires_grad: bool = False
     ) -> nn.Sequential:
         """Get the MBQC pattern."""
-        from .mbqc import Node, Entanglement, Measurement, Correction
+        from .mbqc import Correction, Entanglement, Measurement, Node
         if isinstance(nodes, list):
             assert len(nodes) == len(self.wires)
             nodes = nodes[0]
@@ -1608,9 +1607,9 @@ class ProjectionJ(ParametricSingleGate):
         self,
         inputs: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
         plane: str = 'xy',
-        controls: Union[int, List[int], None] = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
@@ -1679,11 +1678,11 @@ class CombinedSingleGate(SingleGate):
     """
     def __init__(
         self,
-        gates: List[SingleGate],
-        name: Optional[str] = None,
+        gates: list[SingleGate],
+        name: str | None = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False
@@ -1795,7 +1794,7 @@ class CNOT(DoubleControlGate):
     def __init__(
         self,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
+        wires: list[int] | None = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -1810,9 +1809,9 @@ class CNOT(DoubleControlGate):
     def _qasm(self) -> str:
         return f'cx q[{self.wires[0]}],q[{self.wires[1]}];\n'
 
-    def pattern(self, nodes: List[int], ancilla: List[int]) -> nn.Sequential:
+    def pattern(self, nodes: list[int], ancilla: list[int]) -> nn.Sequential:
         """Get the MBQC pattern."""
-        from .mbqc import Node, Entanglement, Measurement, Correction
+        from .mbqc import Correction, Entanglement, Measurement, Node
         assert len(nodes) == len(self.wires)
         assert len(ancilla) == self.nancilla
         control = nodes[0]
@@ -1860,8 +1859,8 @@ class Swap(DoubleGate):
     def __init__(
         self,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False
@@ -1920,8 +1919,8 @@ class ImaginarySwap(DoubleGate):
     def __init__(
         self,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False
@@ -1984,8 +1983,8 @@ class Rxx(ParametricDoubleGate):
         self,
         inputs: Any = None,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
@@ -2052,8 +2051,8 @@ class Ryy(ParametricDoubleGate):
         self,
         inputs: Any = None,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
@@ -2127,8 +2126,8 @@ class Rzz(ParametricDoubleGate):
         self,
         inputs: Any = None,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
@@ -2193,8 +2192,8 @@ class Rxy(ParametricDoubleGate):
         self,
         inputs: Any = None,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
@@ -2265,8 +2264,8 @@ class ReconfigurableBeamSplitter(ParametricDoubleGate):
         self,
         inputs: Any = None,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
@@ -2345,7 +2344,7 @@ class Toffoli(TripleGate):
     def __init__(
         self,
         nqubit: int = 3,
-        wires: Optional[List[int]] = None,
+        wires: list[int] | None = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -2382,9 +2381,9 @@ class Toffoli(TripleGate):
     def _qasm(self) -> str:
         return f'ccx q[{self.wires[0]}],q[{self.wires[1]}],q[{self.wires[2]}];\n'
 
-    def pattern(self, nodes: List[int], ancilla: List[int]) -> nn.Sequential:
+    def pattern(self, nodes: list[int], ancilla: list[int]) -> nn.Sequential:
         """Get the MBQC pattern."""
-        from .mbqc import Node, Entanglement, Measurement, Correction
+        from .mbqc import Correction, Entanglement, Measurement, Node
         assert len(nodes) == len(self.wires)
         assert len(ancilla) == self.nancilla
         control1 = nodes[0]
@@ -2483,7 +2482,7 @@ class Fredkin(TripleGate):
     def __init__(
         self,
         nqubit: int = 3,
-        wires: Optional[List[int]] = None,
+        wires: list[int] | None = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -2557,9 +2556,9 @@ class UAnyGate(ArbitraryGate):
         self,
         unitary: Any,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        minmax: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        minmax: list[int] | None = None,
+        controls: int | list[int] | None = None,
         name: str = 'UAnyGate',
         den_mat: bool = False,
         tsr_mode: bool = False
@@ -2605,9 +2604,9 @@ class LatentGate(ArbitraryGate):
         self,
         inputs: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        minmax: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        minmax: list[int] | None = None,
+        controls: int | list[int] | None = None,
         name: str = 'LatentGate',
         den_mat: bool = False,
         tsr_mode: bool = False,
@@ -2689,9 +2688,9 @@ class HamiltonianGate(ArbitraryGate):
         hamiltonian: Any,
         t: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        minmax: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        minmax: list[int] | None = None,
+        controls: int | list[int] | None = None,
         name: str = 'HamiltonianGate',
         den_mat: bool = False,
         tsr_mode: bool = False,
@@ -2730,7 +2729,7 @@ class HamiltonianGate(ArbitraryGate):
             super().to(arg)
         return self
 
-    def _convert_hamiltonian(self, hamiltonian: List) -> List[List]:
+    def _convert_hamiltonian(self, hamiltonian: list) -> list[list]:
         """Convert and check the list representation of the Hamiltonian."""
         if len(hamiltonian) == 2 and isinstance(hamiltonian[1], str):
             hamiltonian = [hamiltonian]
@@ -2739,7 +2738,7 @@ class HamiltonianGate(ArbitraryGate):
             assert isinstance(pair[1], str), 'Invalid input type'
         return hamiltonian
 
-    def get_minmax(self, hamiltonian: List) -> List[int]:
+    def get_minmax(self, hamiltonian: list) -> list[int]:
         """Get ``minmax`` according to the Hamiltonian."""
         hamiltonian = self._convert_hamiltonian(hamiltonian)
         minmax = [self.nqubit - 1, 0]
@@ -2753,7 +2752,7 @@ class HamiltonianGate(ArbitraryGate):
                     minmax[1] = i
         return minmax
 
-    def inputs_to_tensor(self, inputs: Optional[List] = None) -> Tuple[torch.Tensor, torch.Tensor]:
+    def inputs_to_tensor(self, inputs: list | None = None) -> tuple[torch.Tensor, torch.Tensor]:
         """Convert inputs to torch.Tensor."""
         if inputs is None:
             t = torch.rand(1)[0]
@@ -2820,7 +2819,7 @@ class HamiltonianGate(ArbitraryGate):
         du_dx = jacobian(self._real_wrapper, t)
         return du_dx[..., 0] + du_dx[..., 1] * 1j
 
-    def init_para(self, inputs: Optional[List] = None) -> None:
+    def init_para(self, inputs: list | None = None) -> None:
         """Initialize the parameters."""
         ham, t = self.inputs_to_tensor(inputs)
         self.register_buffer('ham_tsr', ham)
@@ -2847,8 +2846,8 @@ class Reset(Gate):
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        postselect: Optional[int] = 0,
+        wires: int | list[int] | None = None,
+        postselect: int | None = 0,
         tsr_mode: bool = False
     ) -> None:
         if wires is None:
@@ -2919,7 +2918,7 @@ class Barrier(Gate):
             Default: ``None``
         name (str, optional): The name of the gate. Default: ``'Barrier'``
     """
-    def __init__(self, nqubit: int = 1, wires: Union[int, List[int], None] = None, name: str = 'Barrier') -> None:
+    def __init__(self, nqubit: int = 1, wires: int | list[int] | None = None, name: str = 'Barrier') -> None:
         if wires is None:
             wires = list(range(nqubit))
         super().__init__(name=name, nqubit=nqubit, wires=wires)
@@ -2939,7 +2938,7 @@ class Barrier(Gate):
             qasm_lst.append(f'q[{wire}],')
         return ''.join(qasm_lst)[:-1] + ';\n'
 
-    def pattern(self, nodes: List[int], ancilla: List[int]) -> nn.Sequential:
+    def pattern(self, nodes: list[int], ancilla: list[int]) -> nn.Sequential:
         """Get the MBQC pattern."""
         assert len(ancilla) == self.nancilla
         self.nodes = nodes
@@ -2953,7 +2952,7 @@ class WireCut(Barrier):
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int or List[int], optional): The indices of the qubits that the quantum operation acts on. Default: 0
     """
-    def __init__(self, nqubit: int = 1, wires: Union[int, List[int]] = 0) -> None:
+    def __init__(self, nqubit: int = 1, wires: int | list[int] = 0) -> None:
         super().__init__(name='WireCut', nqubit=nqubit, wires=wires)
 
 
@@ -2973,8 +2972,8 @@ class Move(DoubleGate):
     def __init__(
         self,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
-        postselect: Optional[int] = 0,
+        wires: list[int] | None = None,
+        postselect: int | None = 0,
         tsr_mode: bool = False
     ) -> None:
         super().__init__(name='Move', nqubit=nqubit, wires=wires, tsr_mode=tsr_mode)
@@ -2997,7 +2996,7 @@ class Move(DoubleGate):
             return self.vector_rep(x).squeeze(0)
         return x
 
-    def qpd(self, label: Optional[int] = None) -> 'MoveQPD':
+    def qpd(self, label: int | None = None) -> 'MoveQPD':
         """Get the quasiprobability-decomposition representation."""
         from .qpd import MoveQPD
         return MoveQPD(nqubit=self.nqubit, wires=self.wires, label=label, tsr_mode=self.tsr_mode)

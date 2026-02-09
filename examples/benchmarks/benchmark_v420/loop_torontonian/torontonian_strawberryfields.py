@@ -48,5 +48,5 @@ for n in tqdm(n_list):
 with open('loop_torontonian_'+platform+'_results.data', 'w') as f:
     json.dump(results, f)
 
-with open('loop_torontonian_'+platform+'_results.data', 'r') as f:
+with open('loop_torontonian_'+platform+'_results.data') as f:
     print(json.load(f))

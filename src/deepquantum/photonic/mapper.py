@@ -6,18 +6,18 @@ import copy
 import itertools
 import os
 import pickle
-from typing import Any, List, Optional
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from scipy import special
 from scipy.optimize import root
-from sympy import symbols, Matrix, simplify
+from sympy import Matrix, simplify, symbols
 from torch import vmap
 
 
-class UnitaryMapper():
+class UnitaryMapper:
     """Map the quantum gate to the unitary matrix of the photonic quantum circuit based on dual-rail encoding.
 
     Args:
@@ -37,8 +37,8 @@ class UnitaryMapper():
         nmode: int,
         ugate: Any,
         success: float,
-        aux: Optional[List] = None,
-        aux_pos: Optional[List] = None
+        aux: list | None = None,
+        aux_pos: list | None = None
     ) -> None:
         assert 2*nqubit<=nmode, 'need more modes'
         self.nmode = nmode
@@ -53,7 +53,7 @@ class UnitaryMapper():
 
         self.u_dim =self.nmode
         y_var = symbols('y0:%d'%((self.u_dim)**2))
-        y_mat = Matrix(np.array((y_var)))
+        y_mat = Matrix(np.array(y_var))
         y_mat = y_mat.reshape(self.u_dim,self.u_dim) # for symbolic computation, the matrix to optimize
         self.y_var = y_var
         self.u = y_mat
@@ -119,7 +119,7 @@ class UnitaryMapper():
 
     ##############################
     # using symbolic computation finding indicies to avoid repeat computing
-    def get_coeff_sym(self, input_state: torch.Tensor, output_states: Optional[List]=None):
+    def get_coeff_sym(self, input_state: torch.Tensor, output_states: list | None=None):
         """
         Return the transfer state coefficient in a symbolic way.
         """
@@ -130,7 +130,7 @@ class UnitaryMapper():
         for output in output_states:
             mat = self.sub_matrix_sym(u, input_state, output)
             per = self.permanent(mat)
-            temp_coeff = per/np.sqrt((self.product_factorial(input_state)*self.product_factorial(output)))
+            temp_coeff = per/np.sqrt(self.product_factorial(input_state)*self.product_factorial(output))
             dic_coeff[output]=simplify(temp_coeff)
         return dic_coeff
 
@@ -318,7 +318,7 @@ class UnitaryMapper():
 
                 y0 = np.random.uniform(-1, 1, (self.u_dim)**2)
                 re1 = root(func, y0, method='lm')
-                temp_eqs = np.array((func(re1.x)))
+                temp_eqs = np.array(func(re1.x))
                 print(re1.success, sum(abs(temp_eqs)))
                 if re1.success and  sum(abs(temp_eqs))<precision:
                     re2 = (re1.x).reshape(self.u_dim,self.u_dim) #the result is for aux_pos=[nmode-2,nmode-1],
@@ -343,7 +343,7 @@ class UnitaryMapper():
 
                 y0 = np.random.uniform(-1, 1, 2*(self.u_dim)**2)
                 re1 = root(func, y0, method='lm')
-                temp_eqs = np.array((func(re1.x)))
+                temp_eqs = np.array(func(re1.x))
                 print(re1.success, sum(abs(temp_eqs)))
                 if re1.success and  sum(abs(temp_eqs))<precision:
                     re2 = re1.x[:(self.u_dim)**2] + re1.x[(self.u_dim)**2:]*1j

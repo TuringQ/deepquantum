@@ -2,7 +2,8 @@
 MBQC commands
 """
 
-from typing import Any, Iterable, List, Union
+from collections.abc import Iterable
+from typing import Any
 
 import torch
 from torch import nn
@@ -18,7 +19,7 @@ class Node(Command):
     Args:
         nodes (int or List[int]): The indices of the nodes to prepare.
     """
-    def __init__(self, nodes: Union[int, List[int]]) -> None:
+    def __init__(self, nodes: int | list[int]) -> None:
         super().__init__(name='Node', nodes=nodes)
 
     def forward(self, x: GraphState) -> GraphState:
@@ -81,11 +82,11 @@ class Measurement(Command):
     """
     def __init__(
         self,
-        nodes: Union[int, List[int]],
+        nodes: int | list[int],
         angle: Any = 0.,
         plane: str = 'xy',
-        s_domain: Union[int, Iterable[int], None] = None,
-        t_domain: Union[int, Iterable[int], None] = None,
+        s_domain: int | Iterable[int] | None = None,
+        t_domain: int | Iterable[int] | None = None,
         requires_grad: bool = False
     ) -> None:
         super().__init__(name='Measurement', nodes=nodes)
@@ -201,9 +202,9 @@ class Correction(Command):
     """
     def __init__(
         self,
-        nodes: Union[int, List[int]],
+        nodes: int | list[int],
         basis: str = 'x',
-        domain: Union[int, Iterable[int], None] = None
+        domain: int | Iterable[int] | None = None
     ) -> None:
         super().__init__(name='Correction', nodes=nodes)
         self.basis = basis.lower()

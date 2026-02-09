@@ -3,19 +3,18 @@ Distributed operations
 """
 
 from collections import Counter
-from typing import Dict, List, Union
 
 import torch
 import torch.distributed as dist
 
-from .bitmath import log_base2, get_bit, flip_bit, flip_bits, all_bits_are_one, get_bit_mask
-from .communication import comm_get_world_size, comm_exchange_arrays
-from .qmath import evolve_state, block_sample, measure
+from .bitmath import all_bits_are_one, flip_bit, flip_bits, get_bit, get_bit_mask, log_base2
+from .communication import comm_exchange_arrays, comm_get_world_size
+from .qmath import block_sample, evolve_state, measure
 from .state import DistributedQubitState
 
 
 # The 0-th qubit is the rightmost in a ket for the `target`
-def local_gate(state: torch.Tensor, targets: List[int], matrix: torch.Tensor) -> torch.Tensor:
+def local_gate(state: torch.Tensor, targets: list[int], matrix: torch.Tensor) -> torch.Tensor:
     """Apply a gate to a state vector locally."""
     nqubit = log_base2(len(state))
     wires = [nqubit - target - 1 for target in targets]
@@ -25,7 +24,7 @@ def local_gate(state: torch.Tensor, targets: List[int], matrix: torch.Tensor) ->
 
 def local_many_ctrl_one_targ_gate(
     state: torch.Tensor,
-    controls: List[int],
+    controls: list[int],
     target: int,
     matrix: torch.Tensor,
     derivative: bool = False
@@ -80,7 +79,7 @@ def dist_one_targ_gate(state: DistributedQubitState, target: int, matrix: torch.
 
 def dist_many_ctrl_one_targ_gate(
     state: DistributedQubitState,
-    controls: List[int],
+    controls: list[int],
     target: int,
     matrix: torch.Tensor,
     derivative: bool = False
@@ -115,7 +114,7 @@ def dist_many_ctrl_one_targ_gate(
 
 def dist_ctrl_sub(
     state: DistributedQubitState,
-    controls: List[int],
+    controls: list[int],
     target: int,
     matrix: torch.Tensor,
     derivative: bool = False
@@ -174,7 +173,7 @@ def dist_swap_gate(state: DistributedQubitState, qb1: int, qb2: int):
     return state
 
 
-def get_local_targets(targets: List[int], nqubit_local: int) -> List[int]:
+def get_local_targets(targets: list[int], nqubit_local: int) -> list[int]:
     mask = get_bit_mask(targets)
     min_non_targ = 0
     while get_bit(mask, min_non_targ):
@@ -193,7 +192,7 @@ def get_local_targets(targets: List[int], nqubit_local: int) -> List[int]:
 
 def dist_many_targ_gate(
     state: DistributedQubitState,
-    targets: List[int],
+    targets: list[int],
     matrix: torch.Tensor
 ) -> DistributedQubitState:
     """Apply a multi-qubit gate to a distributed state vector.
@@ -222,9 +221,9 @@ def measure_dist(
     state: DistributedQubitState,
     shots: int = 1024,
     with_prob: bool = False,
-    wires: Union[int, List[int], None] = None,
+    wires: int | list[int] | None = None,
     block_size: int = 2 ** 24
-) -> Dict:
+) -> dict:
     """Measure a distributed state vector."""
     if state.world_size == 1:
         return measure(state.amps, shots, with_prob, wires, False, block_size)

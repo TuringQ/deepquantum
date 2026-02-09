@@ -3,8 +3,8 @@ Utilities
 """
 
 import time
+from collections.abc import Callable
 from functools import wraps
-from typing import Callable
 
 
 def record_time(func: Callable) -> Callable:
@@ -19,7 +19,7 @@ def record_time(func: Callable) -> Callable:
     return wrapped_function
 
 
-class Time(object):
+class Time:
     """A decorator that records the running time of a function."""
     def __init__(self) -> None:
         pass

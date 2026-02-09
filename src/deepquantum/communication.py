@@ -3,13 +3,12 @@ Communication utilities
 """
 
 import os
-from typing import Optional, Tuple
 
 import torch
 import torch.distributed as dist
 
 
-def setup_distributed(backend: str = 'nccl', port: str = '29500') -> Tuple[int, int, int]:
+def setup_distributed(backend: str = 'nccl', port: str = '29500') -> tuple[int, int, int]:
     """Initialize torch.distributed."""
     try:
         # These should be set by the launch script (e.g., torchrun)
@@ -56,7 +55,7 @@ def comm_get_world_size() -> int:
     return dist.get_world_size()
 
 
-def comm_exchange_arrays(send_data: torch.Tensor, recv_data: torch.Tensor, pair_rank: Optional[int]) -> None:
+def comm_exchange_arrays(send_data: torch.Tensor, recv_data: torch.Tensor, pair_rank: int | None) -> None:
     """Simulate a point-to-point exchange using dist.all_to_all_single
     with output_split_sizes and input_split_sizes to minimize memory.
     If pair_rank is None, this rank participates in the collective call

@@ -1,8 +1,9 @@
-import deepquantum as dq
 import numpy as np
 import torch
-from graphix import Pattern, command
+from graphix import command, Pattern
 from graphix.fundamentals import Plane
+
+import deepquantum as dq
 
 
 def test_random_with_graphix():

@@ -3,25 +3,22 @@ Gradient evaluation comparison between qiskit, tensorcircuit and deepquantum
 Modified from the implementation of tensorcircuit
 """
 
-import time
 import json
+import time
 from functools import reduce
 from operator import xor
-import numpy as np
 
-from qiskit.opflow import X, StateFn
-from qiskit.circuit import QuantumCircuit, ParameterVector
-from qiskit.opflow.gradients import Gradient, Hessian
-
-import tensorcircuit as tc
-
-import torch
-from torch.autograd.functional import hessian
 import deepquantum as dq
-
+import numpy as np
+import pyqpanda as pq
+import tensorcircuit as tc
+import torch
 from pyvqnet.qnn import grad
 from pyvqnet.qnn.measure import expval
-import pyqpanda as pq
+from qiskit.circuit import ParameterVector, QuantumCircuit
+from qiskit.opflow import StateFn, X
+from qiskit.opflow.gradients import Gradient, Hessian
+from torch.autograd.functional import hessian
 
 
 def benchmark(f, *args, trials=10):
@@ -229,5 +226,5 @@ for n in [4, 6, 8, 10, 12]:
 with open('gradient_results.data', 'w') as f:
     json.dump(results, f)
 
-with open('gradient_results.data', 'r') as f:
+with open('gradient_results.data') as f:
     print(json.load(f))

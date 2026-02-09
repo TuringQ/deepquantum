@@ -2,14 +2,14 @@
 Quantum states
 """
 
-from typing import Any, List, Optional, Union
+from typing import Any, Union
 
 import torch
 from torch import nn
 
-from .bitmath import power_of_2, is_power_of_2, log_base2
+from .bitmath import is_power_of_2, log_base2, power_of_2
 from .communication import comm_get_rank, comm_get_world_size
-from .qmath import is_density_matrix, amplitude_encoding, inner_product_mps, svd, qr
+from .qmath import amplitude_encoding, inner_product_mps, is_density_matrix, qr, svd
 
 
 class QubitState(nn.Module):
@@ -96,8 +96,8 @@ class MatrixProductState(nn.Module):
     def __init__(
         self,
         nsite: int = 1,
-        state: Union[str, List[torch.Tensor], List[int]] = 'zeros',
-        chi: Optional[int] = None,
+        state: str | list[torch.Tensor] | list[int] = 'zeros',
+        chi: int | None = None,
         qudit: int = 2,
         normalize: bool = True
     ) -> None:
@@ -124,7 +124,7 @@ class MatrixProductState(nn.Module):
         return self
 
     @property
-    def tensors(self) -> List[torch.Tensor]:
+    def tensors(self) -> list[torch.Tensor]:
         """Get the tensors of the matrix product state.
 
         Note:
@@ -136,7 +136,7 @@ class MatrixProductState(nn.Module):
             tensors.append(getattr(self, f'tensor{j}'))
         return tensors
 
-    def set_tensors(self, state: Union[str, List[torch.Tensor], List[int]]) -> None:
+    def set_tensors(self, state: str | list[torch.Tensor] | list[int]) -> None:
         """Set the tensors of the matrix product state."""
         if state in ('zeros', 'vac'):
             state = [0] * self.nsite
@@ -167,7 +167,7 @@ class MatrixProductState(nn.Module):
         if normalize:
             self.normalize_central_tensor()
 
-    def check_center_orthogonality(self, prt: bool = False) -> List[torch.Tensor]:
+    def check_center_orthogonality(self, prt: bool = False) -> list[torch.Tensor]:
         """Check if the MPS is in center-orthogonal form."""
         tensors = self.tensors
         assert tensors[0].ndim == 3
@@ -215,9 +215,9 @@ class MatrixProductState(nn.Module):
 
     def inner(
         self,
-        tensors: Union[List[torch.Tensor], 'MatrixProductState'],
+        tensors: Union[list[torch.Tensor], 'MatrixProductState'],
         form: str = 'norm'
-    ) -> Union[torch.Tensor, List[torch.Tensor]]:
+    ) -> torch.Tensor | list[torch.Tensor]:
         """Get the inner product with another matrix product state."""
         # form: 'log' or 'list'
         if isinstance(tensors, list):
@@ -321,7 +321,7 @@ class MatrixProductState(nn.Module):
             for site in range(n1, n2, -1):
                 self.orthogonalize_right2left(site, dc, normalize)
 
-    def apply_mpo(self, mpo: List[torch.Tensor], sites: List[int]) -> None:
+    def apply_mpo(self, mpo: list[torch.Tensor], sites: list[int]) -> None:
         """Use TEBD algorithm to contract tensors (contract local states with local operators), i.e.,
 
             >>>          a

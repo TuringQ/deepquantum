@@ -2,11 +2,12 @@
 Photonic quantum channels
 """
 
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any
 
 import torch
 
 import deepquantum.photonic as dqp
+
 from .gate import BeamSplitterSingle
 from .operation import Channel
 
@@ -34,8 +35,8 @@ class PhotonLoss(Channel):
         self,
         inputs: Any = None,
         nmode: int = 1,
-        wires: Union[int, List[int], None] = None,
-        cutoff: Optional[int] = None,
+        wires: int | list[int] | None = None,
+        cutoff: int | None = None,
         requires_grad: bool = False
     ) -> None:
         super().__init__(name='PhotonLoss', nmode=nmode, wires=wires, cutoff=cutoff)
@@ -69,7 +70,7 @@ class PhotonLoss(Channel):
         """Initialize the parameters."""
         self.gate.init_para(inputs)
 
-    def update_transform_xy(self) -> Tuple[torch.Tensor, torch.Tensor]:
+    def update_transform_xy(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Update the local transformation matrices X and Y acting on Gaussian states.
 
         See https://arxiv.org/pdf/quant-ph/0503237 Eq.(4.19), Eq.(4.20)

@@ -2,9 +2,8 @@ import time
 
 import deepquantum as dq
 from deepquantum.photonic.hafnian_ import hafnian_batch
-from tqdm import tqdm
-
 from GlobalHafnian import *
+from tqdm import tqdm
 
 # Print version
 print(dq.__version__)
@@ -40,5 +39,5 @@ for n in tqdm(n_list):
 with open('hafnian/hafnian_'+platform+'_results.data', 'w') as f:
     json.dump(results, f)
 
-with open('hafnian/hafnian_'+platform+'_results.data', 'r') as f:
+with open('hafnian/hafnian_'+platform+'_results.data') as f:
     print(json.load(f))

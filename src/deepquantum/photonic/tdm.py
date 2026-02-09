@@ -2,7 +2,7 @@
 Time domain multiplexing
 """
 
-from typing import Any, List, Optional, Union
+from typing import Any
 
 import torch
 
@@ -33,9 +33,9 @@ class QumodeCircuitTDM(QumodeCircuit):
         self,
         nmode: int,
         init_state: Any,
-        cutoff: Optional[int] = None,
+        cutoff: int | None = None,
         backend: str = 'gaussian',
-        name: Optional[str] = None,
+        name: str | None = None,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
@@ -47,10 +47,10 @@ class QumodeCircuitTDM(QumodeCircuit):
 
     def forward(
         self,
-        data: Optional[torch.Tensor] = None,
+        data: torch.Tensor | None = None,
         state: Any = None,
-        nstep: Optional[int] = None
-    ) -> List[torch.Tensor]:
+        nstep: int | None = None
+    ) -> list[torch.Tensor]:
         r"""Perform a forward pass of the TDM photonic quantum circuit and return the final state.
 
         Args:
@@ -86,7 +86,7 @@ class QumodeCircuitTDM(QumodeCircuit):
         self.samples = torch.stack(samples, dim=-1) # (batch, nwire, nstep)
         return self.state
 
-    def get_samples(self, wires: Union[int, List[int], None] = None) -> torch.Tensor:
+    def get_samples(self, wires: int | list[int] | None = None) -> torch.Tensor:
         """Get the measured samples according to the given ``wires``."""
         if wires is None:
             wires = self.wires

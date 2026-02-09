@@ -1,7 +1,8 @@
-import deepquantum as dq
 import numpy as np
 import pennylane as qml
 import torch
+
+import deepquantum as dq
 
 
 def test_number_operator_exp():

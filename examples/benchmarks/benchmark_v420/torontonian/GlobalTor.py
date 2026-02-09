@@ -1,7 +1,7 @@
 import numpy as np
 import torch
-from thewalrus.random import random_covariance
 from thewalrus.quantum.conversions import Amat, Xmat
+from thewalrus.random import random_covariance
 from tqdm import tqdm
 
 n_list = [2, 6, 10, 14, 18]

@@ -1,5 +1,4 @@
 import torch
-
 from tqdm import tqdm
 
 n_list = [2, 6, 10, 14, 18, 22, 26, 30]

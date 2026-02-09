@@ -3,15 +3,15 @@ Base classes
 """
 
 from copy import copy
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 import torch
 from torch import nn, vmap
 
 from .distributed import dist_many_targ_gate
-from .qmath import inverse_permutation, state_to_tensors, evolve_state, evolve_den_mat
-from .state import MatrixProductState, DistributedQubitState
+from .qmath import evolve_den_mat, evolve_state, inverse_permutation, state_to_tensors
+from .state import DistributedQubitState, MatrixProductState
 
 
 class Operation(nn.Module):
@@ -29,9 +29,9 @@ class Operation(nn.Module):
     """
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -75,7 +75,7 @@ class Operation(nn.Module):
         """Set the number of qubits of the ``Operation``."""
         self.nqubit = nqubit
 
-    def set_wires(self, wires: Union[int, List[int]]) -> None:
+    def set_wires(self, wires: int | list[int]) -> None:
         """Set the wires of the ``Operation``."""
         self.wires = self._convert_indices(wires)
 
@@ -89,7 +89,7 @@ class Operation(nn.Module):
             else:
                 return self.vector_rep(x)
 
-    def _convert_indices(self, indices: Union[int, List[int]]) -> List[int]:
+    def _convert_indices(self, indices: int | list[int]) -> list[int]:
         """Convert and check the indices of the qubits."""
         if isinstance(indices, int):
             indices = [indices]
@@ -100,7 +100,7 @@ class Operation(nn.Module):
         assert len(set(indices)) == len(indices), 'Invalid input'
         return indices
 
-    def _check_minmax(self, minmax: List[int]) -> None:
+    def _check_minmax(self, minmax: list[int]) -> None:
         """Check the minimum and maximum indices of the qubits."""
         assert isinstance(minmax, list)
         assert len(minmax) == 2
@@ -128,10 +128,10 @@ class Gate(Operation):
 
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False
@@ -170,7 +170,7 @@ class Gate(Operation):
             super().to(arg)
         return self
 
-    def set_controls(self, controls: Union[int, List[int]]) -> None:
+    def set_controls(self, controls: int | list[int]) -> None:
         """Set the control wires of the ``Operation``."""
         self.controls = self._convert_indices(controls)
 
@@ -281,8 +281,8 @@ class Gate(Operation):
 
     def forward(
         self,
-        x: Union[torch.Tensor, MatrixProductState, DistributedQubitState]
-    ) -> Union[torch.Tensor, MatrixProductState, DistributedQubitState]:
+        x: torch.Tensor | MatrixProductState | DistributedQubitState
+    ) -> torch.Tensor | MatrixProductState | DistributedQubitState:
         """Perform a forward pass."""
         if isinstance(x, MatrixProductState):
             return self.op_mps(x)
@@ -301,7 +301,7 @@ class Gate(Operation):
         """Get the inversed gate."""
         return self
 
-    def qpd(self, label: Optional[int] = None) -> 'Gate':
+    def qpd(self, label: int | None = None) -> 'Gate':
         """Get the quasiprobability-decomposition representation."""
         return self
 
@@ -346,7 +346,7 @@ class Gate(Operation):
     def _qasm(self) -> str:
         return self._qasm_customized(self.name)
 
-    def get_mpo(self) -> Tuple[List[torch.Tensor], int]:
+    def get_mpo(self) -> tuple[list[torch.Tensor], int]:
         r"""Convert gate to MPO form with identities at empty sites.
 
         Note:
@@ -436,9 +436,9 @@ class Layer(Operation):
     """
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], List[List[int]], None] = None,
+        wires: int | list[int] | list[list[int]] | None = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -488,7 +488,7 @@ class Layer(Operation):
         for gate in self.gates:
             gate.nqubit = nqubit
 
-    def set_wires(self, wires: Union[int, List[int], List[List[int]]]) -> None:
+    def set_wires(self, wires: int | list[int] | list[list[int]]) -> None:
         """Set the wires of the ``Layer``."""
         self.wires = self._convert_indices(wires)
         for i, gate in enumerate(self.gates):
@@ -496,8 +496,8 @@ class Layer(Operation):
 
     def forward(
         self,
-        x: Union[torch.Tensor, MatrixProductState, DistributedQubitState]
-    ) -> Union[torch.Tensor, MatrixProductState, DistributedQubitState]:
+        x: torch.Tensor | MatrixProductState | DistributedQubitState
+    ) -> torch.Tensor | MatrixProductState | DistributedQubitState:
         """Perform a forward pass."""
         if isinstance(x, (MatrixProductState, DistributedQubitState)):
             return self.gates(x)
@@ -515,7 +515,7 @@ class Layer(Operation):
         """Get the inversed layer."""
         return self
 
-    def _convert_indices(self, indices: Union[int, List]) -> List[List[int]]:
+    def _convert_indices(self, indices: int | list) -> list[list[int]]:
         if isinstance(indices, int):
             indices = [[indices]]
         assert isinstance(indices, list), 'Invalid input type'
@@ -535,7 +535,7 @@ class Layer(Operation):
             lst.append(gate._qasm())
         return ''.join(lst)
 
-    def pattern(self, nodes: List[List[int]], ancilla: List[List[int]]) -> nn.Sequential:
+    def pattern(self, nodes: list[list[int]], ancilla: list[list[int]]) -> nn.Sequential:
         """Get the MBQC pattern."""
         assert len(nodes) == len(ancilla) == len(self.gates)
         cmds = nn.Sequential()
@@ -565,9 +565,9 @@ class Channel(Operation):
     def __init__(
         self,
         inputs: Any = None,
-        name: Optional[str] = None,
+        name: str | None = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
         tsr_mode: bool = False,
         requires_grad: bool = False
     ) -> None:
@@ -675,12 +675,12 @@ class GateQPD(Gate):
     """
     def __init__(
         self,
-        bases: List[Tuple[nn.Sequential, ...]],
-        coeffs: List[float],
-        label: Optional[int] = None,
-        name: Optional[str] = None,
+        bases: list[tuple[nn.Sequential, ...]],
+        coeffs: list[float],
+        label: int | None = None,
+        name: str | None = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -710,7 +710,7 @@ class GateQPD(Gate):
                 for op in ops:
                     op.nqubit = nqubit
 
-    def set_wires(self, wires: Union[int, List[int]]) -> None:
+    def set_wires(self, wires: int | list[int]) -> None:
         """Set the wires of the ``GateQPD``."""
         self.wires = self._convert_indices(wires)
         for basis in self.bases:
@@ -718,7 +718,7 @@ class GateQPD(Gate):
                 for op in ops:
                     op.set_wires(self.wires[i])
 
-    def forward(self, x: torch.Tensor, idx: Optional[int] = None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, idx: int | None = None) -> torch.Tensor:
         """Perform a forward pass.
 
         Args:
@@ -747,7 +747,7 @@ class MeasureQPD(Operation):
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
     """
-    def __init__(self, nqubit: int = 1, wires: Union[int, List[int], None] = None) -> None:
+    def __init__(self, nqubit: int = 1, wires: int | list[int] | None = None) -> None:
         self.nqubit = nqubit
         if wires is None:
             wires = [0]

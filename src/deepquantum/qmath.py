@@ -4,8 +4,8 @@ Common functions
 
 import copy
 from collections import Counter, defaultdict
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
-from typing import TYPE_CHECKING
+from collections.abc import Callable
+from typing import Any, TYPE_CHECKING
 
 import numpy as np
 import torch
@@ -55,7 +55,7 @@ def int_to_bitstring(x: int, n: int, debug: bool = False) -> str:
     return s
 
 
-def list_to_decimal(digits: List[int], base: int) -> int:
+def list_to_decimal(digits: list[int], base: int) -> int:
     """Convert from list of digits to decimal integer."""
     result = 0
     for digit in digits:
@@ -64,7 +64,7 @@ def list_to_decimal(digits: List[int], base: int) -> int:
     return result
 
 
-def decimal_to_list(n: int, base: int, ndigit: Optional[int] = None) -> List[int]:
+def decimal_to_list(n: int, base: int, ndigit: int | None = None) -> list[int]:
     """Convert from decimal integer to list of digits."""
     assert base >= 2, 'Base must be at least 2'
     if n == 0:
@@ -82,7 +82,7 @@ def decimal_to_list(n: int, base: int, ndigit: Optional[int] = None) -> List[int
     return digits
 
 
-def inverse_permutation(permute_shape: List[int]) -> List[int]:
+def inverse_permutation(permute_shape: list[int]) -> list[int]:
     """Calculate the inversed permutation.
 
     Args:
@@ -315,7 +315,7 @@ class QR(torch.autograd.Function):
 svd = SVD.apply
 qr = QR.apply
 
-def split_tensor(tensor: torch.Tensor, center_left: bool = True) -> Tuple[torch.Tensor, torch.Tensor]:
+def split_tensor(tensor: torch.Tensor, center_left: bool = True) -> tuple[torch.Tensor, torch.Tensor]:
     """Split a tensor by QR."""
     if center_left:
         q, r = qr(tensor.mH)
@@ -324,7 +324,7 @@ def split_tensor(tensor: torch.Tensor, center_left: bool = True) -> Tuple[torch.
         return qr(tensor)
 
 
-def state_to_tensors(state: torch.Tensor, nsite: int, qudit: int = 2) -> List[torch.Tensor]:
+def state_to_tensors(state: torch.Tensor, nsite: int, qudit: int = 2) -> list[torch.Tensor]:
     """Convert a quantum state to a list of tensors."""
     state = state.reshape([qudit] * nsite)
     tensors = []
@@ -342,7 +342,7 @@ def state_to_tensors(state: torch.Tensor, nsite: int, qudit: int = 2) -> List[to
 def slice_state_vector(
     state: torch.Tensor,
     nqubit: int,
-    wires: List[int],
+    wires: list[int],
     bits: str,
     normalize: bool = True
 ) -> torch.Tensor:
@@ -368,7 +368,7 @@ def slice_state_vector(
     return state
 
 
-def multi_kron(lst: List[torch.Tensor]) -> torch.Tensor:
+def multi_kron(lst: list[torch.Tensor]) -> torch.Tensor:
     """Calculate the Kronecker/tensor/outer product for a list of tensors.
 
     Args:
@@ -386,7 +386,7 @@ def multi_kron(lst: List[torch.Tensor]) -> torch.Tensor:
         return rst.contiguous()
 
 
-def partial_trace(rho: torch.Tensor, nqudit: int, trace_lst: List[int], qudit: int = 2) -> torch.Tensor:
+def partial_trace(rho: torch.Tensor, nqudit: int, trace_lst: list[int], qudit: int = 2) -> torch.Tensor:
     r"""Calculate the partial trace for a batch of density matrices.
 
     Args:
@@ -470,7 +470,7 @@ def evolve_state(
     state: torch.Tensor,
     matrix: torch.Tensor,
     nqudit: int,
-    wires: List[int],
+    wires: list[int],
     qudit: int = 2
 ) -> torch.Tensor:
     """Perform the evolution of quantum states.
@@ -498,7 +498,7 @@ def evolve_den_mat(
     state: torch.Tensor,
     matrix: torch.Tensor,
     nqudit: int,
-    wires: List[int],
+    wires: list[int],
     qudit: int = 2
 ) -> torch.Tensor:
     """Perform the evolution of density matrices.
@@ -532,7 +532,7 @@ def evolve_den_mat(
     return state
 
 
-def block_sample(probs: torch.Tensor, shots: int = 1024, block_size: int = 2 ** 24) -> List:
+def block_sample(probs: torch.Tensor, shots: int = 1024, block_size: int = 2 ** 24) -> list:
     """Sample from a probability distribution using block sampling.
 
     Args:
@@ -561,10 +561,10 @@ def measure(
     state: torch.Tensor,
     shots: int = 1024,
     with_prob: bool = False,
-    wires: Union[int, List[int], None] = None,
+    wires: int | list[int] | None = None,
     den_mat: bool = False,
     block_size: int = 2 ** 24
-) -> Union[Dict, List[Dict]]:
+) -> dict | list[dict]:
     r"""A function that performs a measurement on a quantum state and returns the results.
 
     The measurement is done by sampling from the probability distribution of the quantum state. The results
@@ -709,7 +709,7 @@ def sample_sc_mcmc(
     return merged_samples
 
 
-def get_prob_mps(mps_lst: List[torch.Tensor], wire: int) -> torch.Tensor:
+def get_prob_mps(mps_lst: list[torch.Tensor], wire: int) -> torch.Tensor:
     """Calculate the probability distribution (|0⟩ and |1⟩ probabilities) for a specific wire in an MPS.
 
     This function computes the probability of measuring |0⟩ and |1⟩ for the k-th qubit in a quantum state
@@ -726,7 +726,7 @@ def get_prob_mps(mps_lst: List[torch.Tensor], wire: int) -> torch.Tensor:
     Returns:
         torch.Tensor: A tensor containing [P(|0⟩), P(|1⟩)] probabilities for the target qubit
     """
-    def contract_conjugate_pair(tensors: List[torch.Tensor]) -> torch.Tensor:
+    def contract_conjugate_pair(tensors: list[torch.Tensor]) -> torch.Tensor:
         """Contract a list of MPS tensors with their conjugates.
 
         This helper function performs the contraction between a list of MPS tensors
@@ -773,10 +773,10 @@ def get_prob_mps(mps_lst: List[torch.Tensor], wire: int) -> torch.Tensor:
 
 
 def inner_product_mps(
-    tensors0: List[torch.Tensor],
-    tensors1: List[torch.Tensor],
+    tensors0: list[torch.Tensor],
+    tensors1: list[torch.Tensor],
     form: str = 'norm'
-) -> Union[torch.Tensor, List[torch.Tensor]]:
+) -> torch.Tensor | list[torch.Tensor]:
     r"""Computes the inner product of two matrix product states.
 
     Args:
@@ -829,10 +829,10 @@ def inner_product_mps(
 
 
 def expectation(
-    state: Union[torch.Tensor, List[torch.Tensor]],
+    state: torch.Tensor | list[torch.Tensor],
     observable: 'Observable',
     den_mat: bool = False,
-    chi: Optional[int] = None
+    chi: int | None = None
 ) -> torch.Tensor:
     """A function that calculates the expectation value of an observable on a quantum state.
 
@@ -865,7 +865,7 @@ def expectation(
     return expval
 
 
-def sample2expval(sample: Dict) -> torch.Tensor:
+def sample2expval(sample: dict) -> torch.Tensor:
     """Get the expectation value according to the measurement results."""
     total = 0
     exp = 0

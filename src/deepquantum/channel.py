@@ -2,13 +2,12 @@
 Quantum channels
 """
 
-from typing import Any, List, Union
+from typing import Any
 
 import torch
 
 from .gate import Identity, PauliX, PauliY, PauliZ
 from .operation import Channel
-
 
 mat_i = Identity().matrix
 mat_x = PauliX().matrix
@@ -38,7 +37,7 @@ class BitFlip(Channel):
         self,
         inputs: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
         tsr_mode: bool = False,
         requires_grad: bool = False
     ) -> None:
@@ -79,7 +78,7 @@ class PhaseFlip(Channel):
         self,
         inputs: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
         tsr_mode: bool = False,
         requires_grad: bool = False
     ) -> None:
@@ -123,7 +122,7 @@ class Depolarizing(Channel):
         self,
         inputs: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
         tsr_mode: bool = False,
         requires_grad: bool = False
     ) -> None:
@@ -169,7 +168,7 @@ class Pauli(Channel):
         self,
         inputs: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
         tsr_mode: bool = False,
         requires_grad: bool = False
     ) -> None:
@@ -230,7 +229,7 @@ class AmplitudeDamping(Channel):
         self,
         inputs: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
         tsr_mode: bool = False,
         requires_grad: bool = False
     ) -> None:
@@ -275,7 +274,7 @@ class PhaseDamping(Channel):
         self,
         inputs: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
         tsr_mode: bool = False,
         requires_grad: bool = False
     ) -> None:
@@ -324,7 +323,7 @@ class GeneralizedAmplitudeDamping(Channel):
         self,
         inputs: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
         tsr_mode: bool = False,
         requires_grad: bool = False
     ) -> None:

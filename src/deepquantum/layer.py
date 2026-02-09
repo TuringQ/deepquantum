@@ -3,12 +3,12 @@ Quantum layers
 """
 
 from copy import deepcopy
-from typing import List, Union, Optional, Any
+from typing import Any
 
 import torch
 from torch import nn
 
-from .gate import PauliX, PauliY, PauliZ, U3Gate, Hadamard, Rx, Ry, Rz, CNOT
+from .gate import CNOT, Hadamard, PauliX, PauliY, PauliZ, Rx, Ry, Rz, U3Gate
 from .operation import Layer
 from .qmath import multi_kron
 
@@ -29,9 +29,9 @@ class SingleLayer(Layer):
     """
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], List[List[int]], None] = None,
+        wires: int | list[int] | list[list[int]] | None = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -69,9 +69,9 @@ class ParametricSingleLayer(SingleLayer):
     """
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], List[List[int]], None] = None,
+        wires: int | list[int] | list[list[int]] | None = None,
         den_mat: bool = False,
         tsr_mode: bool = False,
         requires_grad: bool = True
@@ -91,9 +91,9 @@ class ParametricSingleLayer(SingleLayer):
 
     def pattern(
         self,
-        nodes: List[List[int]],
-        ancilla: List[List[int]],
-        angle: List[Any],
+        nodes: list[list[int]],
+        ancilla: list[list[int]],
+        angle: list[Any],
         requires_grad: bool = False
     ) -> nn.Sequential:
         """Get the MBQC pattern."""
@@ -120,9 +120,9 @@ class DoubleLayer(Layer):
     """
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         nqubit: int = 2,
-        wires: Optional[List[List[int]]] = None,
+        wires: list[list[int]] | None = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -151,7 +151,7 @@ class Observable(SingleLayer):
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], List[List[int]], None] = None,
+        wires: int | list[int] | list[list[int]] | None = None,
         basis: str = 'z',
         den_mat: bool = False,
         tsr_mode: bool = False
@@ -194,7 +194,7 @@ class U3Layer(ParametricSingleLayer):
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], List[List[int]], None] = None,
+        wires: int | list[int] | list[list[int]] | None = None,
         inputs: Any = None,
         den_mat: bool = False,
         tsr_mode: bool = False,
@@ -229,7 +229,7 @@ class XLayer(SingleLayer):
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], List[List[int]], None] = None,
+        wires: int | list[int] | list[list[int]] | None = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -255,7 +255,7 @@ class YLayer(SingleLayer):
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], List[List[int]], None] = None,
+        wires: int | list[int] | list[list[int]] | None = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -281,7 +281,7 @@ class ZLayer(SingleLayer):
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], List[List[int]], None] = None,
+        wires: int | list[int] | list[list[int]] | None = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -307,7 +307,7 @@ class HLayer(SingleLayer):
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], List[List[int]], None] = None,
+        wires: int | list[int] | list[list[int]] | None = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -336,7 +336,7 @@ class RxLayer(ParametricSingleLayer):
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], List[List[int]], None] = None,
+        wires: int | list[int] | list[list[int]] | None = None,
         inputs: Any = None,
         den_mat: bool = False,
         tsr_mode: bool = False,
@@ -374,7 +374,7 @@ class RyLayer(ParametricSingleLayer):
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], List[List[int]], None] = None,
+        wires: int | list[int] | list[list[int]] | None = None,
         inputs: Any = None,
         den_mat: bool = False,
         tsr_mode: bool = False,
@@ -412,7 +412,7 @@ class RzLayer(ParametricSingleLayer):
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], List[List[int]], None] = None,
+        wires: int | list[int] | list[list[int]] | None = None,
         inputs: Any = None,
         den_mat: bool = False,
         tsr_mode: bool = False,
@@ -448,7 +448,7 @@ class CnotLayer(DoubleLayer):
     def __init__(
         self,
         nqubit: int = 2,
-        wires: Optional[List[List[int]]] = None,
+        wires: list[list[int]] | None = None,
         name: str = 'CnotLayer',
         den_mat: bool = False,
         tsr_mode: bool = False
@@ -487,7 +487,7 @@ class CnotRing(CnotLayer):
     def __init__(
         self,
         nqubit: int = 2,
-        minmax: Optional[List[int]] = None,
+        minmax: list[int] | None = None,
         step: int = 1,
         reverse: bool = False,
         den_mat: bool = False,

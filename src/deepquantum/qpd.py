@@ -2,11 +2,10 @@
 Quasiprobability-decomposition gates
 """
 
-from typing import List, Optional, Tuple
 
 from torch import nn
 
-from .gate import PauliX, Hadamard, SGate, SDaggerGate
+from .gate import Hadamard, PauliX, SDaggerGate, SGate
 from .operation import GateQPD, MeasureQPD
 
 
@@ -29,12 +28,12 @@ class SingleGateQPD(GateQPD):
     """
     def __init__(
         self,
-        bases: List[Tuple[nn.Sequential, ...]],
-        coeffs: List[float],
-        label: Optional[int] = None,
-        name: Optional[str] = None,
+        bases: list[tuple[nn.Sequential, ...]],
+        coeffs: list[float],
+        label: int | None = None,
+        name: str | None = None,
         nqubit: int = 1,
-        wires: Optional[List[int]] = None,
+        wires: list[int] | None = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -66,12 +65,12 @@ class DoubleGateQPD(GateQPD):
     """
     def __init__(
         self,
-        bases: List[Tuple[nn.Sequential, ...]],
-        coeffs: List[float],
-        label: Optional[int] = None,
-        name: Optional[str] = None,
+        bases: list[tuple[nn.Sequential, ...]],
+        coeffs: list[float],
+        label: int | None = None,
+        name: str | None = None,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
+        wires: list[int] | None = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:
@@ -83,7 +82,7 @@ class DoubleGateQPD(GateQPD):
         super().__init__(bases=bases, coeffs=coeffs, label=label, name=name, nqubit=nqubit, wires=wires,
                          den_mat=den_mat, tsr_mode=tsr_mode)
 
-    def decompose(self) -> Tuple[SingleGateQPD, SingleGateQPD]:
+    def decompose(self) -> tuple[SingleGateQPD, SingleGateQPD]:
         """Decompose the gate into two single-qubit QPD gates."""
         bases1 = []
         bases2 = []
@@ -114,8 +113,8 @@ class MoveQPD(DoubleGateQPD):
     def __init__(
         self,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
-        label: Optional[int] = None,
+        wires: list[int] | None = None,
+        label: int | None = None,
         den_mat: bool = False,
         tsr_mode: bool = False
     ) -> None:

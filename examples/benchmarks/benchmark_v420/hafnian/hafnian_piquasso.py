@@ -2,10 +2,9 @@ import json
 import time
 
 import numpy as np
+from GlobalHafnian import *
 from piquasso._math.hafnian import hafnian_with_reduction
 from tqdm import tqdm
-
-from GlobalHafnian import *
 
 
 def hafnian_pq(n, l):
@@ -43,5 +42,5 @@ with open(f'hafnian/hafnian_{platform}_results.data', 'w') as f:
     json.dump(results, f)
 
 # 读取并打印
-with open(f'hafnian/hafnian_{platform}_results.data', 'r') as f:
+with open(f'hafnian/hafnian_{platform}_results.data') as f:
     print(json.load(f))

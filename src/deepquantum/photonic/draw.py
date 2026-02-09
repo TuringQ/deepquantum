@@ -3,7 +3,6 @@ Draw quantum circuit.
 """
 
 from collections import defaultdict
-from typing import Dict, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -12,11 +11,25 @@ from matplotlib import patches
 from torch import nn
 
 from .channel import PhotonLoss
-from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterSingle, UAnyGate, Squeezing, Squeezing2, Displacement
-from .gate import QuadraticPhase, ControlledX, ControlledZ, CubicPhase, Kerr, CrossKerr, Barrier
+from .gate import (
+    Barrier,
+    BeamSplitter,
+    BeamSplitterSingle,
+    ControlledX,
+    ControlledZ,
+    CrossKerr,
+    CubicPhase,
+    Displacement,
+    Kerr,
+    MZI,
+    PhaseShift,
+    QuadraticPhase,
+    Squeezing,
+    Squeezing2,
+    UAnyGate,
+)
 from .measurement import Homodyne
 from .operation import Delay
-
 
 info_dic = {'PS': ['teal', 0],
             'S': ['royalblue', 3],
@@ -31,7 +44,7 @@ info_dic = {'PS': ['teal', 0],
             'CK': ['pink', 0]}
 
 
-class DrawCircuit():
+class DrawCircuit:
     """Draw the photonic quantum circuit.
 
     Args:
@@ -397,7 +410,7 @@ class DrawCircuit():
                                            fill='none', stroke_dasharray='5,5', stroke=cl, stroke_width=2))
 
 
-class DrawClements():
+class DrawClements:
     """Draw the n-mode Clements architecture.
 
     Args:
@@ -411,7 +424,7 @@ class DrawClements():
     def __init__(
         self,
         nmode: int,
-        mzi_info: Dict,
+        mzi_info: dict,
         cl: str = 'dodgerblue',
         fs: int = 30,
         method: str = 'cssr'

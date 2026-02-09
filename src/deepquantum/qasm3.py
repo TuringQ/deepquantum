@@ -1,15 +1,34 @@
 import re
-from typing import List, Dict, Any
+from typing import Any
 
 import numpy as np
 import torch
 
 from .circuit import QubitCircuit
 from .gate import (
-    U3Gate, PhaseShift, PauliX, PauliY, PauliZ, Hadamard, SGate, SDaggerGate, TGate, TDaggerGate,
-    Rx, Ry, Rz, CNOT, Swap, Rxx, Ryy, Rzz, Toffoli, Fredkin, Barrier
+    Barrier,
+    CNOT,
+    Fredkin,
+    Hadamard,
+    PauliX,
+    PauliY,
+    PauliZ,
+    PhaseShift,
+    Rx,
+    Rxx,
+    Ry,
+    Ryy,
+    Rz,
+    Rzz,
+    SDaggerGate,
+    SGate,
+    Swap,
+    TDaggerGate,
+    TGate,
+    Toffoli,
+    U3Gate,
 )
-from .operation import Gate, Layer, Channel, Operation
+from .operation import Channel, Gate, Layer, Operation
 
 # ==============================================================================
 #                 DeepQuantum Circuit to OpenQASM 3.0 Converter
@@ -123,7 +142,7 @@ def cir_to_qasm3(circuit: QubitCircuit) -> str:
 # ==============================================================================
 
 class GateDefinition:
-    def __init__(self, name: str, params: List[str], qubits: List[str], body: List[str]):
+    def __init__(self, name: str, params: list[str], qubits: list[str], body: list[str]):
         self.name, self.params, self.qubits, self.body = name, params, qubits, body
 
 
@@ -136,7 +155,7 @@ def qasm3_to_cir(qasm_string: str) -> QubitCircuit:
     if not any(line.startswith("OPENQASM 3.0") for line in lines):
         raise ValueError("Input is not a valid OpenQASM 3.0 string (Header missing).")
 
-    gate_definitions: Dict[str, GateDefinition] = {}
+    gate_definitions: dict[str, GateDefinition] = {}
     main_body_lines = []
     i = 0
     while i < len(lines):
@@ -195,7 +214,7 @@ def qasm3_to_cir(qasm_string: str) -> QubitCircuit:
     circuit = QubitCircuit(nqubit=num_qubits)
 
     # --- Helper Function to get gate matrix ---
-    def get_gate_matrix(gate_name: str, params_str: str, gate_qubits_str: List[str], scope: Dict[str, Any]) -> torch.Tensor:
+    def get_gate_matrix(gate_name: str, params_str: str, gate_qubits_str: list[str], scope: dict[str, Any]) -> torch.Tensor:
         """Dynamically builds the unitary matrix for a given gate call."""
         n_gate_qubits = len(gate_qubits_str)
         # Create a fake QASM program to parse
@@ -218,7 +237,7 @@ def qasm3_to_cir(qasm_string: str) -> QubitCircuit:
 
         return temp_circ.get_unitary()
 
-    def _process_qasm_lines(lines_to_process: List[str], circuit_obj: QubitCircuit, scope: Dict[str, Any] = {}, external_controls: List[int] = [], is_inverted: bool = False):
+    def _process_qasm_lines(lines_to_process: list[str], circuit_obj: QubitCircuit, scope: dict[str, Any] = {}, external_controls: list[int] = [], is_inverted: bool = False):
         gate_pattern = re.compile(r"((?:(?:inv|ctrl|pow\s*\(.*?\))\s*@\s*)*)(\w+)(?:\((.*?)\))?\s+(.*?);")
         processing_order = reversed(lines_to_process) if is_inverted else lines_to_process
         for line in processing_order:

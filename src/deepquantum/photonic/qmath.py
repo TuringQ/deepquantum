@@ -5,7 +5,7 @@ Common functions
 import itertools
 import warnings
 from collections import Counter
-from typing import Dict, Generator, List, Optional, Tuple, Union
+from collections.abc import Generator
 
 import matplotlib.pyplot as plt
 import torch
@@ -14,11 +14,12 @@ from torch import vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 import deepquantum.photonic as dqp
-from ..qmath import list_to_decimal, decimal_to_list, is_unitary, partial_trace, block_sample
+
+from ..qmath import block_sample, decimal_to_list, is_unitary, list_to_decimal, partial_trace
 from .utils import mem_to_chunksize
 
 
-def dirac_ket(matrix: torch.Tensor) -> Dict:
+def dirac_ket(matrix: torch.Tensor) -> dict:
     """Convert the batched Fock state tensor to the dictionary of Dirac ket."""
     ket_dict = {}
     for i in range(matrix.shape[0]): # consider batch i
@@ -43,7 +44,7 @@ def dirac_ket(matrix: torch.Tensor) -> Dict:
     return ket_dict
 
 
-def sort_dict_fock_basis(state_dict: Dict, idx: int = 0) -> Dict:
+def sort_dict_fock_basis(state_dict: dict, idx: int = 0) -> dict:
     """Sort the dictionary of Fock basis states in the descending order of probs."""
     sort_list = sorted(state_dict.items(), key=lambda t: abs(t[1][idx]), reverse=True)
     sorted_dict = {}
@@ -101,7 +102,7 @@ def create_subset(num_coincidence: int) -> Generator[torch.Tensor, None, None]:
             comb_lst.append(list(comb))
         yield torch.tensor(comb_lst).reshape(len(comb_lst), k)
 
-def get_powerset(n: int) -> List:
+def get_powerset(n: int) -> list:
     r"""Get the powerset of :math:`\{0,1,...,n-1\}`."""
     powerset = []
     for k in range(n + 1):
@@ -135,7 +136,7 @@ def product_factorial(state: torch.Tensor) -> torch.Tensor:
     return torch.exp(torch.lgamma(state.double() + 1).sum(-1, keepdim=True)) # nature log gamma function
 
 
-def fock_combinations(nmode: int, nphoton: int, cutoff: Optional[int] = None, nancilla: int = 0) -> List:
+def fock_combinations(nmode: int, nphoton: int, cutoff: int | None = None, nancilla: int = 0) -> list:
     """Generate all possible combinations of Fock states for a given number of modes, photons, and cutoff.
 
     Args:
@@ -159,7 +160,7 @@ def fock_combinations(nmode: int, nphoton: int, cutoff: Optional[int] = None, na
     if cutoff is None:
         cutoff = nphoton + 1
     result = []
-    def backtrack(state: List[int], length: int, num_sum: int) -> None:
+    def backtrack(state: list[int], length: int, num_sum: int) -> None:
         """A helper function that uses backtracking to generate all possible Fock states.
 
         Args:
@@ -183,7 +184,7 @@ def fock_combinations(nmode: int, nphoton: int, cutoff: Optional[int] = None, na
     return result
 
 
-def ladder_ops(cutoff: int, dtype = torch.cfloat, device = 'cpu') -> Tuple[torch.Tensor, torch.Tensor]:
+def ladder_ops(cutoff: int, dtype = torch.cfloat, device = 'cpu') -> tuple[torch.Tensor, torch.Tensor]:
     """Get the matrix representation of the annihilation and creation operators."""
     sqrt = torch.arange(1, cutoff, dtype=dtype, device=device) ** 0.5
     a = torch.diag(sqrt, diagonal=1)
@@ -191,7 +192,7 @@ def ladder_ops(cutoff: int, dtype = torch.cfloat, device = 'cpu') -> Tuple[torch
     return a, ad
 
 
-def shift_func(l: List, nstep: int) -> List:
+def shift_func(l: list, nstep: int) -> list:
     """Shift a list by a number of steps.
 
     If ``nstep`` is positive, it shifts to the left.
@@ -266,7 +267,7 @@ def ladder_to_quadrature(tensor: torch.Tensor, symplectic: bool = False) -> torc
         return (omega @ tensor).real * dqp.hbar ** 0.5 / (2 * dqp.kappa)
 
 
-def _photon_number_mean_var_gaussian(cov: torch.Tensor, mean: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+def _photon_number_mean_var_gaussian(cov: torch.Tensor, mean: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """Get the expectation value and variance of the photon number for single-mode Gaussian states."""
     coef = dqp.kappa ** 2 / dqp.hbar
     cov = cov.reshape(-1, 2, 2)
@@ -280,7 +281,7 @@ def _photon_number_mean_var_bosonic(
     cov: torch.Tensor,
     mean: torch.Tensor,
     weight: torch.Tensor
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Get the expectation value and variance of the photon number for single-mode Bosonic states."""
     shape_cov = cov.shape
     shape_mean = mean.shape
@@ -300,8 +301,8 @@ def _photon_number_mean_var_bosonic(
 def photon_number_mean_var_cv(
     cov: torch.Tensor,
     mean: torch.Tensor,
-    weight: Optional[torch.Tensor] = None
-) -> Tuple[torch.Tensor, torch.Tensor]:
+    weight: torch.Tensor | None = None
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Get the expectation value and variance of the photon number for single-mode Gaussian (Bosonic) states."""
     if weight is None:
         return  _photon_number_mean_var_gaussian(cov, mean)
@@ -313,9 +314,9 @@ def photon_number_mean_var_fock(
     state: torch.Tensor,
     nmode: int,
     cutoff: int,
-    wires: List[int],
+    wires: list[int],
     den_mat: bool = False
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Get the expectation value and variance of the photon number for Fock state tensors."""
     if den_mat:
         rho = state.reshape(-1, cutoff ** nmode, cutoff ** nmode)
@@ -341,7 +342,7 @@ def quadrature_mean_fock(
     state: torch.Tensor,
     nmode: int,
     cutoff: int,
-    wires: List[int],
+    wires: list[int],
     den_mat: bool = False
 ) -> torch.Tensor:
     """Get the expectation value of the quadrature x for Fock state tensors."""
@@ -373,7 +374,7 @@ def quadrature_mean_fock(
     return coef ** (-0.5) * torch.stack(mean)
 
 
-def takagi(a: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+def takagi(a: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """Tagaki decomposition for a symmetric complex matrix.
 
     See https://math.stackexchange.com/questions/2026110/
@@ -414,7 +415,7 @@ def sqrtm_herm(mat: torch.Tensor) -> torch.Tensor:
     return mat_q @ lambd.sqrt().diag_embed().to(mat_q.dtype) @ mat_q.mH
 
 
-def schur_anti_symm_even(mat: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+def schur_anti_symm_even(mat: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     r"""Schur decomposition for a real antisymmetric and even-dimensional matrix.
 
     This function decomposes a real antisymmetric matrix :math:`A` into the form :math:`A = O T O^T`,
@@ -439,7 +440,7 @@ def schur_anti_symm_even(mat: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]
     return mat_t, mat_o
 
 
-def williamson(cov: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+def williamson(cov: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """Williamson decomposition.
 
     This function decomposes a real symmetric and even-dimensional positive definite matrix :math:`V`
@@ -474,9 +475,9 @@ def measure_fock_tensor(
     state: torch.Tensor,
     shots: int = 1024,
     with_prob: bool = False,
-    wires: Union[int, List[int], None] = None,
+    wires: int | list[int] | None = None,
     block_size: int = 2 ** 24
-) -> Union[Dict, List[Dict]]:
+) -> dict | list[dict]:
     r"""Measure the batched Fock state tensors.
 
     Args:
@@ -606,7 +607,7 @@ def sample_reject_bosonic(
         # Eq.(70-71)
         p_r0 = (weight[batches] * exp_real[batches] * prob_g * exp_imag).sum(-1) # (shots, batch)
         assert torch.allclose(p_r0.imag, p_r0.imag.new_zeros(1))
-        idx_shots, idx_batch = torch.where((y0 <= p_r0.real))
+        idx_shots, idx_batch = torch.where(y0 <= p_r0.real)
         batches_done = []
         for i in range(len(batches)):
             idx = batches[i]
@@ -621,7 +622,7 @@ def sample_reject_bosonic(
     return torch.stack(rst) # (batch, shots, 2 * nmode)
 
 
-def align_shape(cov: torch.Tensor, mean: torch.Tensor, weight: torch.Tensor) -> List[torch.Tensor]:
+def align_shape(cov: torch.Tensor, mean: torch.Tensor, weight: torch.Tensor) -> list[torch.Tensor]:
     """Align the shape for Bosonic state."""
     ncomb = weight.shape[-1]
     if cov.ndim == mean.ndim == 4 and weight.ndim == 2:
@@ -645,9 +646,9 @@ def fock_to_wigner(
     nmode: int,
     cutoff: int,
     den_mat: bool = False,
-    xrange: Union[int, List] = 10,
-    prange: Union[int, List] = 10,
-    npoints: Union[int, List] = 100,
+    xrange: int | list = 10,
+    prange: int | list = 10,
+    npoints: int | list = 100,
     plot: bool = True,
     k: int = 0
 ) -> torch.Tensor:
@@ -728,11 +729,11 @@ def fock_to_wigner(
 
 
 def cv_to_wigner(
-    state: List,
+    state: list,
     wire: int,
-    xrange: Union[int, List] = 10,
-    prange: Union[int, List] = 10,
-    npoints: Union[int, List] = 100,
+    xrange: int | list = 10,
+    prange: int | list = 10,
+    npoints: int | list = 100,
     plot: bool = True,
     k: int = 0,
     normalize: bool = True

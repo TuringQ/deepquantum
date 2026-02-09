@@ -2,7 +2,7 @@
 Quantum states
 """
 
-from typing import Any, List, Optional, Union
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,9 +11,10 @@ from scipy.special import comb
 from torch import nn, vmap
 
 import deepquantum.photonic as dqp
+
 from ..communication import comm_get_rank, comm_get_world_size
 from ..qmath import is_power, list_to_decimal, multi_kron
-from .qmath import dirac_ket, xpxp_to_xxpp, xxpp_to_xpxp, fock_to_wigner, cv_to_wigner
+from .qmath import cv_to_wigner, dirac_ket, fock_to_wigner, xpxp_to_xxpp, xxpp_to_xpxp
 
 
 class FockState(nn.Module):
@@ -32,8 +33,8 @@ class FockState(nn.Module):
     def __init__(
         self,
         state: Any,
-        nmode: Optional[int] = None,
-        cutoff: Optional[int] = None,
+        nmode: int | None = None,
+        cutoff: int | None = None,
         basis: bool = True,
         den_mat: bool = False
     ) -> None:
@@ -128,9 +129,9 @@ class FockState(nn.Module):
     def wigner(
         self,
         wire: int,
-        xrange: Union[int, List] = 10,
-        prange: Union[int, List] = 10,
-        npoints: Union[int, List] = 100,
+        xrange: int | list = 10,
+        prange: int | list = 10,
+        npoints: int | list = 100,
         plot: bool = True,
         k: int = 0
     ):
@@ -206,9 +207,9 @@ class GaussianState(nn.Module):
     """
     def __init__(
         self,
-        state: Union[str, List] = 'vac',
-        nmode: Optional[int] = None,
-        cutoff: Optional[int] = None
+        state: str | list = 'vac',
+        nmode: int | None = None,
+        cutoff: int | None = None
     ) -> None:
         super().__init__()
         if state == 'vac':
@@ -251,9 +252,9 @@ class GaussianState(nn.Module):
     def wigner(
         self,
         wire: int,
-        xrange: Union[int, List] = 10,
-        prange: Union[int, List] = 10,
-        npoints: Union[int, List] = 100,
+        xrange: int | list = 10,
+        prange: int | list = 10,
+        npoints: int | list = 100,
         plot: bool = True,
         k: int = 0,
         normalize: bool = True
@@ -286,9 +287,9 @@ class BosonicState(nn.Module):
     """
     def __init__(
         self,
-        state: Union[str, List] = 'vac',
-        nmode: Optional[int] = None,
-        cutoff: Optional[int] = None
+        state: str | list = 'vac',
+        nmode: int | None = None,
+        cutoff: int | None = None
     ) -> None:
         super().__init__()
         if state == 'vac':
@@ -358,9 +359,9 @@ class BosonicState(nn.Module):
     def wigner(
         self,
         wire: int,
-        xrange: Union[int, List] = 10,
-        prange: Union[int, List] = 10,
-        npoints: Union[int, List] = 100,
+        xrange: int | list = 10,
+        prange: int | list = 10,
+        npoints: int | list = 100,
         plot: bool = True,
         k: int = 0,
         normalize: bool = True
@@ -382,7 +383,7 @@ class BosonicState(nn.Module):
         self,
         wire: int,
         phi: float = 0.,
-        xrange: Union[int, List] = 10,
+        xrange: int | list = 10,
         npoints: int = 100,
         plot: bool = True,
         k: int = 0
@@ -443,7 +444,7 @@ class CatState(BosonicState):
             cat state, and ``p=1`` an odd cat state. Default: 1
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
     """
-    def __init__(self, r: Any = None, theta: Any = None, p: int = 1, cutoff: Optional[int] = None) -> None:
+    def __init__(self, r: Any = None, theta: Any = None, p: int = 1, cutoff: int | None = None) -> None:
         nmode = 1
         covs = torch.eye(2) * dqp.hbar / (4 * dqp.kappa**2)
         if r is None:
@@ -493,7 +494,7 @@ class GKPState(BosonicState):
         phi: Any = None,
         amp_cutoff: float = 0.1,
         epsilon: float = 0.05,
-        cutoff: Optional[int] = None
+        cutoff: int | None = None
     ) -> None:
         nmode = 1
         if theta is None:
@@ -609,7 +610,7 @@ class FockStateBosonic(BosonicState):
         r (float, optional): The quality parameter for the approximation. Default: 0.05
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
     """
-    def __init__(self, n: int, r: Any = 0.05, cutoff: Optional[int] = None) -> None:
+    def __init__(self, n: int, r: Any = 0.05, cutoff: int | None = None) -> None:
         assert r ** 2 < 1 / n, 'NOT a physical state'
         nmode = 1
         m = np.arange(n + 1)
@@ -635,7 +636,7 @@ class DistributedFockState(nn.Module):
         nmode (int or None, optional): The number of modes in the state. Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
     """
-    def __init__(self, state: Any, nmode: Optional[int] = None, cutoff: Optional[int] = None) -> None:
+    def __init__(self, state: Any, nmode: int | None = None, cutoff: int | None = None) -> None:
         super().__init__()
         self.world_size = comm_get_world_size()
         self.rank = comm_get_rank()
@@ -692,7 +693,7 @@ class DistributedFockState(nn.Module):
                 self.amps[fock_basis] = amp
 
 
-def combine_tensors(tensors: List[torch.Tensor], ndim_ds: int = 2) -> torch.Tensor:
+def combine_tensors(tensors: list[torch.Tensor], ndim_ds: int = 2) -> torch.Tensor:
     """Combine a list of 3D tensors for Bosonic states according to the dimension of direct sum.
 
     Args:
@@ -738,7 +739,7 @@ def combine_tensors(tensors: List[torch.Tensor], ndim_ds: int = 2) -> torch.Tens
     return result.view(-1, size_h, size_w)
 
 
-def combine_bosonic_states(states: List[BosonicState], cutoff: Optional[int] = None) -> BosonicState:
+def combine_bosonic_states(states: list[BosonicState], cutoff: int | None = None) -> BosonicState:
     """Combine multiple Bosonic states into a single state.
 
     Args:

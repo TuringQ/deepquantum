@@ -3,7 +3,6 @@ Optimizer: various on-chip optimization algorthims
 """
 
 import copy
-from typing import Dict, List, Union
 
 import numpy as np
 import torch
@@ -11,7 +10,7 @@ from bayes_opt import BayesianOptimization, UtilityFunction
 from torch import nn
 
 
-class Optimizer(object):
+class Optimizer:
     """A base class for optimizers.
 
     Args:
@@ -57,7 +56,7 @@ class OptimizerBayesian(Optimizer):
     """
     def __init__(self, target_func, param_init, random_state = 0):
         super().__init__(target_func, param_init, random_state)
-        def func_to_maximize(**param_dict: Dict) -> float:
+        def func_to_maximize(**param_dict: dict) -> float:
             return -self.target_func(**param_dict)
 
         self.pbounds = self.gen_pbounds()
@@ -77,7 +76,7 @@ class OptimizerBayesian(Optimizer):
         self.best_target = -np.inf
         self.iter = 0
 
-    def gen_pbounds(self) -> Dict:
+    def gen_pbounds(self) -> dict:
         pbounds = {}
         for key in self.param_dict.keys():
             pbounds[key] = (0,np.pi*2)
@@ -107,7 +106,7 @@ class OptimizerBayesian(Optimizer):
                 self.best_target = target[i]
         self.iter += 1
 
-    def run(self, nstep: int, if_print: bool = False) -> List:
+    def run(self, nstep: int, if_print: bool = False) -> list:
         for step in range(nstep):
             p1 = self.param_suggest()
             f1 = -self.target_func(p1)
@@ -148,7 +147,7 @@ class OptimizerSPSA(Optimizer):
         self.best_param_dict = copy.deepcopy(self.param_dict)
         self.best_target = np.inf
 
-    def set_hyperparam(self, hyperparam: Dict) -> None:
+    def set_hyperparam(self, hyperparam: dict) -> None:
         """Set hyperparameters whose keys include ``'a'``, ``'c'``, ``'A'``, ``'nepoch'``,
         ``'alpha'``, ``'gamma'``.
         """
@@ -163,7 +162,7 @@ class OptimizerSPSA(Optimizer):
         param_array[1] = tmp_param + delta
         return param_array
 
-    def param_register(self, param_array: Union[np.ndarray, List], target: Union[np.ndarray, List]) -> None:
+    def param_register(self, param_array: np.ndarray | list, target: np.ndarray | list) -> None:
         assert len(param_array) == 2
         assert len(target) == 2
         param_lr = self.hyperparam['a'] / (1 + self.iter + self.hyperparam['A']) ** self.hyperparam['alpha']
@@ -188,7 +187,7 @@ class OptimizerSPSA(Optimizer):
     def ori_random_state(self) -> None:
         np.random.set_state(self.random_state_ori)
 
-    def run(self, nstep: int, if_print: bool = False) -> List:
+    def run(self, nstep: int, if_print: bool = False) -> list:
         for step in range(nstep):
             p1, p2 = self.param_suggest()
             f1 = self.target_func(p1)
@@ -272,7 +271,7 @@ class OptimizerFourier(Optimizer):
             self.best_param_dict = dict(zip(self.param_dict.keys(), param_array[target.argmin()]))
         self.iter += 1
 
-    def run(self, nstep: int, if_print: bool = False) -> List:
+    def run(self, nstep: int, if_print: bool = False) -> list:
         for step in range(nstep):
             param_array = self.param_suggest()
             target = np.zeros(len(param_array))

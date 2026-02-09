@@ -3,14 +3,14 @@ Ansatze: various quantum circuits
 """
 
 import random
-from typing import Any, List, Optional, Union
+from typing import Any
 
 import numpy as np
 import torch
 
-from .qmath import int_to_bitstring, is_unitary # avoid circular import
 from .circuit import QubitCircuit
-from .gate import U3Gate, Rxx, Ryy, Rzz
+from .gate import Rxx, Ryy, Rzz, U3Gate
+from .qmath import int_to_bitstring, is_unitary  # avoid circular import
 
 
 class Ansatz(QubitCircuit):
@@ -35,16 +35,16 @@ class Ansatz(QubitCircuit):
     def __init__(
         self,
         nqubit: int,
-        wires: Union[int, List[int], None] = None,
-        minmax: Optional[List[int]] = None,
-        ancilla: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        minmax: list[int] | None = None,
+        ancilla: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         init_state: Any = 'zeros',
-        name: Optional[str] = None,
+        name: str | None = None,
         den_mat: bool = False,
         reupload: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None
+        chi: int | None = None
     ) -> None:
         super().__init__(nqubit=nqubit, init_state=init_state, name=name, den_mat=den_mat,
                          reupload=reupload, mps=mps, chi=chi)
@@ -93,13 +93,13 @@ class ControlledMultiplier(Ansatz):
         nqubit: int,
         a: int,
         mod: int,
-        minmax: Optional[List[int]] = None,
-        nqubitx: Optional[int] = None,
-        ancilla: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        minmax: list[int] | None = None,
+        nqubitx: int | None = None,
+        ancilla: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         den_mat: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None,
+        chi: int | None = None,
         debug: bool = False
     ) -> None:
         assert isinstance(a, int)
@@ -157,12 +157,12 @@ class ControlledUa(Ansatz):
         nqubit: int,
         a: int,
         mod: int,
-        minmax: Optional[List[int]] = None,
-        ancilla: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        minmax: list[int] | None = None,
+        ancilla: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         den_mat: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None,
+        chi: int | None = None,
         debug: bool = False
     ) -> None:
         # |x> with n bits, |0> with n+1 bits and one extra ancilla bit
@@ -210,7 +210,7 @@ class HHL(Ansatz):
         t0: float = 1,
         den_mat: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None,
+        chi: int | None = None,
         show_barrier: bool = False
     ) -> None:
         if not isinstance(mat, torch.Tensor):
@@ -264,10 +264,10 @@ class NumberEncoder(Ansatz):
         self,
         nqubit: int,
         number: int,
-        minmax: Optional[List[int]] = None,
+        minmax: list[int] | None = None,
         den_mat: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None
+        chi: int | None = None
     ) -> None:
         super().__init__(nqubit=nqubit, wires=None, minmax=minmax, ancilla=None, controls=None,
                          init_state='zeros', name='NumberEncoder', den_mat=den_mat, mps=mps, chi=chi)
@@ -298,11 +298,11 @@ class PhiAdder(Ansatz):
         self,
         nqubit: int,
         number: int,
-        minmax: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        minmax: list[int] | None = None,
+        controls: int | list[int] | None = None,
         den_mat: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None,
+        chi: int | None = None,
         debug: bool = False
     ) -> None:
         super().__init__(nqubit=nqubit, wires=None, minmax=minmax, ancilla=None, controls=controls,
@@ -343,12 +343,12 @@ class PhiModularAdder(Ansatz):
         nqubit: int,
         number: int,
         mod: int,
-        minmax: Optional[List[int]] = None,
-        ancilla: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        minmax: list[int] | None = None,
+        ancilla: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         den_mat: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None,
+        chi: int | None = None,
         debug: bool = False
     ) -> None:
         if minmax is None:
@@ -407,12 +407,12 @@ class QuantumConvolutionalNeuralNetwork(Ansatz):
         self,
         nqubit: int,
         nlayer: int,
-        minmax: Optional[List[int]] = None,
+        minmax: list[int] | None = None,
         init_state: Any = 'zeros',
         den_mat: bool = False,
         requires_grad: bool = True,
         mps: bool = False,
-        chi: Optional[int] = None
+        chi: int | None = None
     ) -> None:
         super().__init__(nqubit=nqubit, wires=None, minmax=minmax, ancilla=None, controls=None,
                          init_state=init_state, name='QuantumConvolutionalNeuralNetwork', den_mat=den_mat,
@@ -430,7 +430,7 @@ class QuantumConvolutionalNeuralNetwork(Ansatz):
             wires = wires[::2]
         self.latent(wires=wires)
 
-    def conv(self, wires: List[int]) -> None:
+    def conv(self, wires: list[int]) -> None:
         rxx = Rxx(nqubit=self.nqubit, den_mat=self.den_mat, requires_grad=self.requires_grad)
         ryy = Ryy(nqubit=self.nqubit, den_mat=self.den_mat, requires_grad=self.requires_grad)
         rzz = Rzz(nqubit=self.nqubit, den_mat=self.den_mat, requires_grad=self.requires_grad)
@@ -444,7 +444,7 @@ class QuantumConvolutionalNeuralNetwork(Ansatz):
                 self.add(u1, wires=wires[2 * i + start - 1])
                 self.add(u2, wires=wire)
 
-    def pool(self, wires: List[int]) -> None:
+    def pool(self, wires: list[int]) -> None:
         cu = U3Gate(nqubit=self.nqubit, den_mat=self.den_mat, requires_grad=self.requires_grad)
         for i, wire in enumerate(wires[1::2]):
             self.add(cu, wires=wires[2 * i], controls=wire)
@@ -470,12 +470,12 @@ class QuantumFourierTransform(Ansatz):
     def __init__(
         self,
         nqubit: int,
-        minmax: Optional[List[int]] = None,
+        minmax: list[int] | None = None,
         reverse: bool = False,
         init_state: Any = 'zeros',
         den_mat: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None,
+        chi: int | None = None,
         show_barrier: bool = False
     ) -> None:
         super().__init__(nqubit=nqubit, wires=None, minmax=minmax, ancilla=None, controls=None,
@@ -518,10 +518,10 @@ class QuantumPhaseEstimation(Ansatz):
         nqubit: int,
         ncount: int,
         unitary: Any,
-        minmax: Optional[List[int]] = None,
+        minmax: list[int] | None = None,
         den_mat: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None,
+        chi: int | None = None,
         show_barrier: bool = False
     ) -> None:
         if not isinstance(unitary, torch.Tensor):
@@ -567,7 +567,7 @@ class QuantumPhaseEstimationSingleQubit(Ansatz):
         phase: Any,
         den_mat: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None
+        chi: int | None = None
     ) -> None:
         nqubit = t + 1
         self.phase = phase
@@ -603,12 +603,12 @@ class RandomCircuitG3(Ansatz):
         self,
         nqubit: int,
         ngate: int,
-        wires: Optional[List[int]] = None,
-        minmax: Optional[List[int]] = None,
+        wires: list[int] | None = None,
+        minmax: list[int] | None = None,
         init_state: Any = 'zeros',
         den_mat: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None
+        chi: int | None = None
     ) -> None:
         super().__init__(nqubit=nqubit, wires=wires, minmax=minmax, ancilla=None, controls=None,
                          init_state=init_state, name='RandomCircuitG3', den_mat=den_mat, mps=mps, chi=chi)
@@ -648,7 +648,7 @@ class ShorCircuit(Ansatz):
         a: int,
         den_mat: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None,
+        chi: int | None = None,
         debug: bool = False
     ) -> None:
         nreg = len(bin(mod)) - 2
@@ -694,7 +694,7 @@ class ShorCircuitFor15(Ansatz):
         a: int,
         den_mat: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None
+        chi: int | None = None
     ) -> None:
         mod = 15
         nreg = len(bin(mod)) - 2
@@ -713,7 +713,7 @@ class ShorCircuitFor15(Ansatz):
                                        den_mat=self.den_mat, mps=self.mps, chi=self.chi).inverse()
         self.add(iqft)
 
-    def cua(self, a: int, power: int, controls: Union[int, List[int], None]) -> None:
+    def cua(self, a: int, power: int, controls: int | list[int] | None) -> None:
         assert a in [2, 4, 7, 8, 11, 13]
         for _ in range(power):
             if a in [2, 13]:

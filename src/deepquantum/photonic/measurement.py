@@ -2,7 +2,7 @@
 Photonic measurements
 """
 
-from typing import Any, List, Optional, Union
+from typing import Any
 
 import numpy as np
 import torch
@@ -11,8 +11,9 @@ from torch import nn, vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 import deepquantum.photonic as dqp
-from .gate import PhaseShift, Displacement
-from .operation import Operation, evolve_state, evolve_den_mat
+
+from .gate import Displacement, PhaseShift
+from .operation import evolve_den_mat, evolve_state, Operation
 from .qmath import sample_homodyne_fock, sample_reject_bosonic
 from .state import FockStateBosonic
 
@@ -36,8 +37,8 @@ class Generaldyne(Operation):
         self,
         cov_m: Any,
         nmode: int = 1,
-        wires: Union[int, List[int], None] = None,
-        cutoff: Optional[int] = None,
+        wires: int | list[int] | None = None,
+        cutoff: int | None = None,
         den_mat: bool = False,
         name: str = 'Generaldyne',
         noise: bool = False,
@@ -59,7 +60,7 @@ class Generaldyne(Operation):
         self.register_buffer('cov_m', cov_m)
         self.samples = None
 
-    def forward(self, x: List[torch.Tensor], samples: Any = None) -> List[torch.Tensor]:
+    def forward(self, x: list[torch.Tensor], samples: Any = None) -> list[torch.Tensor]:
         """Perform a forward pass for Gaussian (Bosonic) states.
 
         See Quantum Continuous Variables: A Primer of Theoretical Methods (2024)
@@ -145,8 +146,8 @@ class Homodyne(Generaldyne):
         self,
         phi: Any = None,
         nmode: int = 1,
-        wires: Union[int, List[int], None] = None,
-        cutoff: Optional[int] = None,
+        wires: int | list[int] | None = None,
+        cutoff: int | None = None,
         den_mat: bool = False,
         eps: float = 2e-4,
         requires_grad: bool = False,
@@ -226,7 +227,7 @@ class Homodyne(Generaldyne):
             x = x / norm.reshape([-1] + [1] * self.nmode)
         return x
 
-    def op_cv(self, x: List[torch.Tensor], samples: Any = None) -> List[torch.Tensor]:
+    def op_cv(self, x: list[torch.Tensor], samples: Any = None) -> list[torch.Tensor]:
         """Perform a forward pass for Gaussian (Bosonic) states."""
         r = PhaseShift(inputs=-self.phi, nmode=self.nmode, wires=self.wires, cutoff=self.cutoff)
         cov, mean = x[:2]
@@ -235,9 +236,9 @@ class Homodyne(Generaldyne):
 
     def forward(
         self,
-        x: Union[torch.Tensor, List[torch.Tensor]],
+        x: torch.Tensor | list[torch.Tensor],
         samples: Any = None
-    ) -> Union[torch.Tensor, List[torch.Tensor]]:
+    ) -> torch.Tensor | list[torch.Tensor]:
         """Perform a forward pass."""
         if isinstance(x, torch.Tensor):
             return self.op_fock(x, samples)
@@ -265,8 +266,8 @@ class GeneralBosonic(Operation):
         cov: Any,
         weight: Any,
         nmode: int = 1,
-        wires: Union[int, List[int], None] = None,
-        cutoff: Optional[int] = None,
+        wires: int | list[int] | None = None,
+        cutoff: int | None = None,
         name: str = 'GeneralBosonic'
     ) -> None:
         self.nmode = nmode
@@ -290,7 +291,7 @@ class GeneralBosonic(Operation):
         self.register_buffer('weight', weight)
         self.samples = None
 
-    def forward(self, x: List[torch.Tensor], samples: Any = None) -> List[torch.Tensor]:
+    def forward(self, x: list[torch.Tensor], samples: Any = None) -> list[torch.Tensor]:
         """Perform a forward pass for Gaussian (Bosonic) states.
 
         See https://arxiv.org/abs/2103.05530 Eq.(30-31) and Eq.(35-37)
@@ -373,8 +374,8 @@ class PhotonNumberResolvingBosonic(GeneralBosonic):
         n: int,
         r: Any = 0.05,
         nmode: int = 1,
-        wires: Union[int, List[int], None] = None,
-        cutoff: Optional[int] = None,
+        wires: int | list[int] | None = None,
+        cutoff: int | None = None,
         name: str = 'PhotonNumberResolvingBosonic'
     ) -> None:
         self.nmode = nmode
@@ -388,7 +389,7 @@ class PhotonNumberResolvingBosonic(GeneralBosonic):
         super().__init__(cov=cov, weight=weight, nmode=nmode, wires=wires, cutoff=cutoff, name=name)
         assert len(self.wires) == 1, f'{self.name} must act on one mode'
 
-    def forward(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
+    def forward(self, x: list[torch.Tensor]) -> list[torch.Tensor]:
         cov = x[0]
         batch = cov.shape[0]
         return super().forward(x, cov.new_zeros(batch, 2))

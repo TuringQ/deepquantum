@@ -4,7 +4,6 @@ Utilities
 
 import gzip
 import pickle
-from typing import Optional
 
 import numpy as np
 import psutil
@@ -43,7 +42,7 @@ def save_adj(filename, data):
     np.save('./data/' + filename + '.npy', data)
     return
 
-def mem_to_chunksize(device: torch.device, dtype: torch.dtype) -> Optional[int]:
+def mem_to_chunksize(device: torch.device, dtype: torch.dtype) -> int | None:
     """Return the chunk size of vmap according to device free memory and dtype.
     
     Note: Currently only optimized for permanent and complex dtype.
@@ -86,6 +85,6 @@ def mem_to_chunksize(device: torch.device, dtype: torch.dtype) -> Optional[int]:
     dqp.perm_chunksize_dict[device, dtype] = chunksize
     return chunksize
 
-def set_perm_chunksize(device: torch.device, dtype: torch.dtype, chunksize: Optional[int]) -> None:
+def set_perm_chunksize(device: torch.device, dtype: torch.dtype, chunksize: int | None) -> None:
     """Set the global chunk size for permanent calculations."""
     dqp.perm_chunksize_dict[device, dtype] = chunksize

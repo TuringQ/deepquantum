@@ -1,9 +1,9 @@
 import random
 
-import deepquantum as dq
-import pytest
 import torch
-from deepquantum.qmath import slice_state_vector, get_prob_mps
+
+import deepquantum as dq
+from deepquantum.qmath import get_prob_mps, slice_state_vector
 
 
 def test_cir_get_prob():

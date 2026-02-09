@@ -2,9 +2,9 @@
 Ansatze: various photonic quantum circuits
 """
 
-from typing import Any, Dict, List, Optional
-
 import copy
+from typing import Any
+
 import networkx as nx
 import numpy as np
 import torch
@@ -22,7 +22,7 @@ class Clements(QumodeCircuit):
         self,
         nmode: int,
         init_state: Any,
-        cutoff: Optional[int] = None,
+        cutoff: int | None = None,
         basis: bool = True,
         phi_first: bool = True,
         noise: bool = False,
@@ -48,7 +48,7 @@ class Clements(QumodeCircuit):
             for wire in self.wires:
                 self.ps(wire, encode=True)
 
-    def dict2data(self, angle_dict: Dict, dtype = torch.float) -> torch.Tensor:
+    def dict2data(self, angle_dict: dict, dtype = torch.float) -> torch.Tensor:
         """Convert the dictionary of angles to the input data for the circuit."""
         angle_dict = angle_dict.copy()
         for key in angle_dict.keys():
@@ -103,7 +103,7 @@ class GaussianBosonSampling(QumodeCircuit):
         nmode: int,
         squeezing: Any,
         unitary: Any,
-        cutoff: Optional[int] = None,
+        cutoff: int | None = None,
         backend: str = 'gaussian',
         basis: bool = True,
         detector: str = 'pnrd',
@@ -132,8 +132,8 @@ class GBS_Graph(GaussianBosonSampling):
     def __init__(
         self,
         adj_mat: Any,
-        cutoff: Optional[int] = None,
-        mean_photon_num: Optional[int] = None,
+        cutoff: int | None = None,
+        mean_photon_num: int | None = None,
         detector: str = 'pnrd',
         noise: bool = False,
         mu: float = 0,
@@ -173,7 +173,7 @@ class GBS_Graph(GaussianBosonSampling):
         return sol_re
 
     @staticmethod
-    def postselect(samples: Dict, nodes_list: List) -> List:
+    def postselect(samples: dict, nodes_list: list) -> list:
         """Postselect the results with the fixed node subgraph."""
         dic_list = [{} for _ in range(len(nodes_list))]
         for key in samples.keys():
@@ -187,7 +187,7 @@ class GBS_Graph(GaussianBosonSampling):
         return dic_list
 
     @staticmethod
-    def graph_density(graph: nx.Graph, samples: Dict) -> Dict:
+    def graph_density(graph: nx.Graph, samples: dict) -> dict:
         """Get all subgraph densities."""
         samples_ = copy.deepcopy(samples)
         for key in samples_.keys():

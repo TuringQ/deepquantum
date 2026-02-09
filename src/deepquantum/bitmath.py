@@ -2,7 +2,6 @@
 Bit-twiddling functions of unsigned integers
 """
 
-from typing import List, Union
 
 import torch
 
@@ -21,33 +20,33 @@ def log_base2(number: int) -> int:
 
 
 # See https://arxiv.org/abs/2311.01512 Alg.1
-def get_bit(number: Union[int, torch.Tensor], bit_index: int) -> Union[int, torch.Tensor]:
+def get_bit(number: int | torch.Tensor, bit_index: int) -> int | torch.Tensor:
     return (number >> bit_index) & 1
 
 
-def flip_bit(number: Union[int, torch.Tensor], bit_index: int) -> Union[int, torch.Tensor]:
+def flip_bit(number: int | torch.Tensor, bit_index: int) -> int | torch.Tensor:
     return number ^ (1 << bit_index)
 
 
-def flip_bits(number: Union[int, torch.Tensor], bit_indices: List[int]) -> Union[int, torch.Tensor]:
+def flip_bits(number: int | torch.Tensor, bit_indices: list[int]) -> int | torch.Tensor:
     for bit_index in bit_indices:
         number = flip_bit(number, bit_index)
     return number
 
 
-def insert_bit(number: Union[int, torch.Tensor], bit_index: int, bit_value: int) -> Union[int, torch.Tensor]:
+def insert_bit(number: int | torch.Tensor, bit_index: int, bit_value: int) -> int | torch.Tensor:
     left = (number >> bit_index) << (bit_index + 1)
     middle = bit_value << bit_index
     right = number & ((1 << bit_index) - 1)
     return left | middle | right
 
 
-def all_bits_are_one(number: int, bit_indices: List[int]) -> bool:
+def all_bits_are_one(number: int, bit_indices: list[int]) -> bool:
     for i in bit_indices:
         if not get_bit(number, i):
             return False
     return True
 
 
-def get_bit_mask(bit_indices: List[int]) -> int:
+def get_bit_mask(bit_indices: list[int]) -> int:
     return flip_bits(0, bit_indices)

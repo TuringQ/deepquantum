@@ -3,15 +3,14 @@ Adjoint differentiation
 """
 
 from copy import deepcopy
-from typing import Tuple
 from typing import TYPE_CHECKING
 
 import torch
 from torch import nn
 from torch.autograd import Function
 
-from .distributed import dist_one_targ_gate, dist_many_ctrl_one_targ_gate, dist_many_targ_gate, inner_product_dist
-from .gate import SingleGate, CombinedSingleGate
+from .distributed import dist_many_ctrl_one_targ_gate, dist_many_targ_gate, dist_one_targ_gate, inner_product_dist
+from .gate import CombinedSingleGate, SingleGate
 from .operation import Gate
 from .state import DistributedQubitState
 
@@ -46,7 +45,7 @@ class AdjointExpectation(Function):
         return inner_product_dist(ctx.state_lambda, ctx.state_phi).real
 
     @staticmethod
-    def backward(ctx, grad_out: torch.Tensor) -> Tuple[None, ...]:
+    def backward(ctx, grad_out: torch.Tensor) -> tuple[None, ...]:
         parameters = [*ctx.saved_tensors]
         grads = []
         idx = 1

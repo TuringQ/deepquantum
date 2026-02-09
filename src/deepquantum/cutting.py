@@ -4,14 +4,13 @@ Circuit cutting
 
 import bisect
 from collections import defaultdict
-from collections.abc import Sequence, Hashable
-from typing import Callable, Dict, List, Optional, Tuple
+from collections.abc import Callable, Hashable, Sequence
 from uuid import uuid4
 
-from networkx import Graph, connected_components
+from networkx import connected_components, Graph
 from torch import nn
 
-from .gate import Barrier, WireCut, Move
+from .gate import Barrier, Move, WireCut
 from .layer import Observable
 from .operation import GateQPD
 from .qpd import DoubleGateQPD
@@ -19,10 +18,10 @@ from .qpd import DoubleGateQPD
 
 def transform_cut2move(
     operators: nn.Sequential,
-    cut_lst: List[Tuple[int, int]],
-    observables: Optional[nn.ModuleList] = None,
+    cut_lst: list[tuple[int, int]],
+    observables: nn.ModuleList | None = None,
     qpd_form: bool = False
-) -> Tuple[nn.Sequential, Optional[nn.ModuleList]]:
+) -> tuple[nn.Sequential, nn.ModuleList | None]:
     """Transform ``WireCut`` to ``Move`` and expand the observables accordingly."""
     nqubit = operators[0].nqubit
     cuts_per_qubit = defaultdict(list)
@@ -64,7 +63,7 @@ def partition_labels(
     operators: nn.Sequential,
     ignore: Callable = lambda x: False,
     keep_idle_wires: bool = False
-) -> List[Optional[int]]:
+) -> list[int | None]:
     """Generate partition labels from the connectivity of a quantum circuit."""
     nqubit = operators[0].nqubit
     graph = Graph()
@@ -96,7 +95,7 @@ def partition_labels(
     return qubit_labels
 
 
-def map_qubit(qubit_labels: Sequence[Hashable]) -> Tuple[List[Tuple], Dict[Hashable, List]]:
+def map_qubit(qubit_labels: Sequence[Hashable]) -> tuple[list[tuple], dict[Hashable, list]]:
     """Generate a qubit map given a qubit partitioning."""
     qubit_map = []
     label2qubits_dict = defaultdict(list)
@@ -110,7 +109,7 @@ def map_qubit(qubit_labels: Sequence[Hashable]) -> Tuple[List[Tuple], Dict[Hasha
     return qubit_map, dict(label2qubits_dict)
 
 
-def label_operators(operators: nn.Sequential, qubit_map: Sequence[Tuple]) -> Dict[Hashable, List]:
+def label_operators(operators: nn.Sequential, qubit_map: Sequence[tuple]) -> dict[Hashable, list]:
     """Generate a list of operators for each partition of the circuit."""
     unique_labels = set([label for label, _ in qubit_map if label is not None])
     label2ops_dict = {label: [] for label in unique_labels}
@@ -133,7 +132,7 @@ def split_barriers(operators: nn.Sequential) -> nn.Sequential:
     for i, op in enumerate(operators):
         wires = op.wires + op.controls
         nwire = len(wires)
-        if nwire == 1 or (not type(op) is Barrier):
+        if nwire == 1 or (type(op) is not Barrier):
             continue
         barrier_uuid = f'Barrier_uuid={uuid4()}'
         operators[i] = Barrier(op.nqubit, wires[0], barrier_uuid)
@@ -178,7 +177,7 @@ def get_qpd_operators(operators: nn.Sequential, qubit_labels: Sequence[Hashable]
     return operators
 
 
-def separate_operators(operators: nn.Sequential, qubit_labels: Optional[Sequence[Hashable]] = None) -> Dict:
+def separate_operators(operators: nn.Sequential, qubit_labels: Sequence[Hashable] | None = None) -> dict:
     """Separate the circuit into its disconnected components."""
     nqubit = operators[0].nqubit
     operators = split_barriers(operators)
@@ -203,7 +202,7 @@ def separate_operators(operators: nn.Sequential, qubit_labels: Optional[Sequence
     return label2sub_dict
 
 
-def decompose_observables(observables: nn.ModuleList, qubit_labels: Sequence[Hashable]) -> Dict:
+def decompose_observables(observables: nn.ModuleList, qubit_labels: Sequence[Hashable]) -> dict:
     """Decompose the observables with respect to qubit partition labels."""
     qubit_map, label2qubits_dict = map_qubit(qubit_labels)
     label2obs_dict = {}
@@ -228,9 +227,9 @@ def decompose_observables(observables: nn.ModuleList, qubit_labels: Sequence[Has
 
 def partition_problem(
     operators: nn.Sequential,
-    qubit_labels: Optional[Sequence[Hashable]] = None,
-    observables: Optional[nn.ModuleList] = None
-) -> Tuple[Dict, Optional[Dict]]:
+    qubit_labels: Sequence[Hashable] | None = None,
+    observables: nn.ModuleList | None = None
+) -> tuple[dict, dict | None]:
     """Separate the circuit and observables."""
     if qubit_labels is None:
         qubit_labels = partition_labels(operators, lambda op: isinstance(op, DoubleGateQPD))

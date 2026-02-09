@@ -1,10 +1,11 @@
 import itertools
 
-import deepquantum as dq
 import numpy as np
 import strawberryfields as sf
 import torch
-from strawberryfields.ops import Fock, Rgate, BSgate, LossChannel
+from strawberryfields.ops import BSgate, Fock, LossChannel, Rgate
+
+import deepquantum as dq
 
 
 def test_loss_fock_basis_True():

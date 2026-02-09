@@ -5,9 +5,9 @@ Photonic quantum circuit
 import itertools
 import random
 import warnings
-from collections import defaultdict, Counter
+from collections import Counter, defaultdict
 from copy import copy, deepcopy
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 import torch
@@ -15,24 +15,65 @@ from torch import nn, vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 import deepquantum.photonic as dqp
+
 from ..qmath import get_prob_mps, inner_product_mps, is_positive_definite, sample_sc_mcmc
 from ..state import MatrixProductState
 from .channel import PhotonLoss
 from .decompose import UnitaryDecomposer
 from .distributed import measure_dist
 from .draw import DrawCircuit
-from .gate import PhaseShift, BeamSplitter, MZI, BeamSplitterTheta, BeamSplitterPhi, BeamSplitterSingle, UAnyGate
-from .gate import Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum
-from .gate import QuadraticPhase, ControlledX, ControlledZ, CubicPhase, Kerr, CrossKerr, DelayBS, DelayMZI, Barrier
+from .gate import (
+    Barrier,
+    BeamSplitter,
+    BeamSplitterPhi,
+    BeamSplitterSingle,
+    BeamSplitterTheta,
+    ControlledX,
+    ControlledZ,
+    CrossKerr,
+    CubicPhase,
+    DelayBS,
+    DelayMZI,
+    Displacement,
+    DisplacementMomentum,
+    DisplacementPosition,
+    Kerr,
+    MZI,
+    PhaseShift,
+    QuadraticPhase,
+    Squeezing,
+    Squeezing2,
+    UAnyGate,
+)
 from .hafnian_ import hafnian
-from .measurement import Homodyne, Generaldyne
-from .operation import Operation, Gate, Channel, Delay
-from .qmath import fock_combinations, permanent, product_factorial, sort_dict_fock_basis, sub_matrix
-from .qmath import measure_fock_tensor, sample_homodyne_fock, sample_reject_bosonic
-from .qmath import photon_number_mean_var_cv, photon_number_mean_var_fock, quadrature_mean_fock
-from .qmath import quadrature_to_ladder, shift_func, align_shape, williamson
-from .state import FockState, GaussianState, BosonicState, CatState, GKPState, DistributedFockState
-from .state import combine_bosonic_states
+from .measurement import Generaldyne, Homodyne
+from .operation import Channel, Delay, Gate, Operation
+from .qmath import (
+    align_shape,
+    fock_combinations,
+    measure_fock_tensor,
+    permanent,
+    photon_number_mean_var_cv,
+    photon_number_mean_var_fock,
+    product_factorial,
+    quadrature_mean_fock,
+    quadrature_to_ladder,
+    sample_homodyne_fock,
+    sample_reject_bosonic,
+    shift_func,
+    sort_dict_fock_basis,
+    sub_matrix,
+    williamson,
+)
+from .state import (
+    BosonicState,
+    CatState,
+    combine_bosonic_states,
+    DistributedFockState,
+    FockState,
+    GaussianState,
+    GKPState,
+)
 from .torontonian_ import torontonian
 
 
@@ -69,14 +110,14 @@ class QumodeCircuit(Operation):
         self,
         nmode: int,
         init_state: Any,
-        cutoff: Optional[int] = None,
+        cutoff: int | None = None,
         backend: str = 'fock',
         basis: bool = True,
         den_mat: bool = False,
         detector: str = 'pnrd',
-        name: Optional[str] = None,
+        name: str | None = None,
         mps: bool = False,
-        chi: Optional[int] = None,
+        chi: int | None = None,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1
@@ -212,13 +253,13 @@ class QumodeCircuit(Operation):
     # pylint: disable=arguments-renamed
     def forward(
         self,
-        data: Optional[torch.Tensor] = None,
+        data: torch.Tensor | None = None,
         state: Any = None,
-        is_prob: Optional[bool] = None,
-        detector: Optional[str] = None,
+        is_prob: bool | None = None,
+        detector: str | None = None,
         sort: bool = True,
         stepwise: bool = False
-    ) -> Union[torch.Tensor, Dict, List[torch.Tensor]]:
+    ) -> torch.Tensor | dict | list[torch.Tensor]:
         """Perform a forward pass of the photonic quantum circuit and return the final-state-related result.
 
         Args:
@@ -245,11 +286,11 @@ class QumodeCircuit(Operation):
 
     def _forward_fock(
         self,
-        data: Optional[torch.Tensor] = None,
+        data: torch.Tensor | None = None,
         state: Any = None,
-        is_prob: Optional[bool] = None,
+        is_prob: bool | None = None,
         sort: bool = True
-    ) -> Union[torch.Tensor, Dict, List[torch.Tensor]]:
+    ) -> torch.Tensor | dict | list[torch.Tensor]:
         """Perform a forward pass based on the Fock backend.
 
         Args:
@@ -324,10 +365,10 @@ class QumodeCircuit(Operation):
 
     def _forward_helper_basis(
         self,
-        data: Optional[torch.Tensor] = None,
-        state: Optional[torch.Tensor] = None,
-        is_prob: Optional[bool] = None
-    ) -> Union[torch.Tensor, Dict]:
+        data: torch.Tensor | None = None,
+        state: torch.Tensor | None = None,
+        is_prob: bool | None = None
+    ) -> torch.Tensor | dict:
         """Perform a forward pass for one sample if the input is a Fock basis state."""
         self.encode(data)
         unitary = self.get_unitary()
@@ -356,10 +397,10 @@ class QumodeCircuit(Operation):
 
     def _forward_helper_tensor(
         self,
-        data: Optional[torch.Tensor] = None,
-        state: Union[torch.Tensor, List[torch.Tensor], None] = None,
-        is_prob: Optional[bool] = None
-    ) -> Union[torch.Tensor, List[torch.Tensor]]:
+        data: torch.Tensor | None = None,
+        state: torch.Tensor | list[torch.Tensor] | None = None,
+        is_prob: bool | None = None
+    ) -> torch.Tensor | list[torch.Tensor]:
         """Perform a forward pass for one sample if the input is a Fock state tensor."""
         self.encode(data)
         if state is None:
@@ -383,12 +424,12 @@ class QumodeCircuit(Operation):
 
     def _forward_cv(
         self,
-        data: Optional[torch.Tensor] = None,
+        data: torch.Tensor | None = None,
         state: Any = None,
-        is_prob: Optional[bool] = None,
-        detector: Optional[str] = None,
+        is_prob: bool | None = None,
+        detector: str | None = None,
         stepwise: bool = False
-    ) -> Union[List[torch.Tensor], Dict]:
+    ) -> list[torch.Tensor] | dict:
         """Perform a forward pass based on the Gaussian (Bosonic) backend.
 
         Args:
@@ -454,10 +495,10 @@ class QumodeCircuit(Operation):
 
     def _forward_helper_gaussian(
         self,
-        data: Optional[torch.Tensor] = None,
-        state: Optional[List[torch.Tensor]] = None,
+        data: torch.Tensor | None = None,
+        state: list[torch.Tensor] | None = None,
         stepwise: bool = False
-    ) -> List[torch.Tensor]:
+    ) -> list[torch.Tensor]:
         """Perform a forward pass for one sample if the input is a Gaussian state."""
         if self._lossy:
             stepwise = True
@@ -486,9 +527,9 @@ class QumodeCircuit(Operation):
         self,
         cov: torch.Tensor,
         mean: torch.Tensor,
-        weight: Optional[torch.Tensor] = None,
-        detector: Optional[str] = None
-    ) -> Dict:
+        weight: torch.Tensor | None = None,
+        detector: str | None = None
+    ) -> dict:
         """Get the probabilities of all possible final states for Gaussian (Bosonic) backend by different detectors.
 
         Args:
@@ -615,7 +656,7 @@ class QumodeCircuit(Operation):
                               dtype=torch.long, device=init_state.device)
         return states
 
-    def _get_odd_even_fock_basis(self, detector: Optional[str] = None) -> Union[Tuple[List, List], List]:
+    def _get_odd_even_fock_basis(self, detector: str | None = None) -> tuple[list, list] | list:
         """Split the Fock basis into the odd and even photon number parts."""
         if detector is None:
             detector = self.detector
@@ -664,7 +705,7 @@ class QumodeCircuit(Operation):
                 self._out_fock_basis = self._get_all_fock_basis(state[0])
         return state
 
-    def _prepare_unroll_dict(self) -> Dict[int, List]:
+    def _prepare_unroll_dict(self) -> dict[int, list]:
         """Create a dictionary that maps spatial modes to concurrent modes."""
         if self._unroll_dict is None:
             self._unroll_dict = defaultdict(list)
@@ -678,7 +719,7 @@ class QumodeCircuit(Operation):
                 start += 1
         return self._unroll_dict
 
-    def _unroll_init_state(self, state: List[torch.Tensor]) -> List[torch.Tensor]:
+    def _unroll_init_state(self, state: list[torch.Tensor]) -> list[torch.Tensor]:
         """Unroll the initial state from spatial modes to concurrent modes."""
         idx = torch.tensor([value[-1] for value in self._unroll_dict.values()])
         idx = torch.cat([idx, idx + self._nmode_tdm])
@@ -798,7 +839,7 @@ class QumodeCircuit(Operation):
             cir.barrier()
         return cir
 
-    def _shift_state(self, state: List[torch.Tensor], nstep: int = 1, reverse: bool = False) -> List[torch.Tensor]:
+    def _shift_state(self, state: list[torch.Tensor], nstep: int = 1, reverse: bool = False) -> list[torch.Tensor]:
         """Shift the state according to ``nstep``, which is equivalent to shifting the TDM circuit."""
         cov, mean = state
         idx_shift = []
@@ -817,7 +858,7 @@ class QumodeCircuit(Operation):
         mean = mean[..., idx_shift, :]
         return [cov, mean]
 
-    def encode(self, data: Optional[torch.Tensor]) -> None:
+    def encode(self, data: torch.Tensor | None) -> None:
         """Encode the input data into the photonic quantum circuit parameters.
 
         This method iterates over the ``encoders`` of the circuit and initializes their parameters
@@ -930,7 +971,7 @@ class QumodeCircuit(Operation):
         self,
         final_state: Any,
         init_state: Any = None,
-        unitary: Optional[torch.Tensor] = None
+        unitary: torch.Tensor | None = None
     ) -> torch.Tensor:
         """Get the transfer amplitude between the final state and the initial state.
 
@@ -982,7 +1023,7 @@ class QumodeCircuit(Operation):
         self,
         final_state: Any,
         refer_state: Any = None,
-        unitary: Optional[torch.Tensor] = None
+        unitary: torch.Tensor | None = None
     ) -> torch.Tensor:
         """Get the probability of the final state related to the reference state.
 
@@ -1036,7 +1077,7 @@ class QumodeCircuit(Operation):
         self,
         final_state: Any,
         init_state: Any = None,
-        unitary: Optional[torch.Tensor] = None
+        unitary: torch.Tensor | None = None
     ) -> torch.Tensor:
         """Get the transfer probability between the final state and the initial state for the Fock backend.
 
@@ -1094,8 +1135,8 @@ class QumodeCircuit(Operation):
         cov: torch.Tensor,
         mean: torch.Tensor,
         detector: str = 'pnrd',
-        purity: Optional[bool] = None,
-        loop: Optional[bool] = None
+        purity: bool | None = None,
+        loop: bool | None = None
     ) -> torch.Tensor:
         """Get the probabilities of the final states for Gaussian backend."""
         if loop is None:
@@ -1166,7 +1207,7 @@ class QumodeCircuit(Operation):
             prob = p_vac * torontonian(sub_mat, sub_gamma)
         return abs(prob.real).squeeze()
 
-    def _get_prob_mps(self, final_state: Any, wires: Union[int, List[int], None] = None) -> torch.Tensor:
+    def _get_prob_mps(self, final_state: Any, wires: int | list[int] | None = None) -> torch.Tensor:
         """Get the probability of the given bit string for MPS.
 
         Args:
@@ -1192,10 +1233,10 @@ class QumodeCircuit(Operation):
         self,
         shots: int = 1024,
         with_prob: bool = False,
-        wires: Union[int, List[int], None] = None,
-        detector: Optional[str] = None,
+        wires: int | list[int] | None = None,
+        detector: str | None = None,
         mcmc: bool = False
-    ) -> Union[Dict, List[Dict], None]:
+    ) -> dict | list[dict] | None:
         """Measure the final state.
 
         Args:
@@ -1228,7 +1269,7 @@ class QumodeCircuit(Operation):
             results = results[0]
         return results
 
-    def _prob_dict_to_measure_result(self, prob_dict: Dict, shots: int, with_prob: bool) -> Dict:
+    def _prob_dict_to_measure_result(self, prob_dict: dict, shots: int, with_prob: bool) -> dict:
         """Get the measurement result from the dictionary of probabilities."""
         samples = random.choices(list(prob_dict.keys()), list(prob_dict.values()), k=shots)
         results = dict(Counter(samples))
@@ -1236,7 +1277,7 @@ class QumodeCircuit(Operation):
             results = {key: (value, prob_dict[key]) for key, value in results.items()}
         return results
 
-    def _measure_fock(self, shots: int, with_prob: bool, wires: List[int], mcmc: bool) -> List[Dict]:
+    def _measure_fock(self, shots: int, with_prob: bool, wires: list[int], mcmc: bool) -> list[dict]:
         """Measure the final state for Fock backend."""
         if isinstance(self.state, torch.Tensor):
             if self.basis:
@@ -1244,16 +1285,16 @@ class QumodeCircuit(Operation):
             else:
                 assert not mcmc, "Final states have been calculated, we don't need mcmc!"
                 return self._measure_fock_tensor(shots, with_prob, wires)
-        elif isinstance(self.state, Dict):
+        elif isinstance(self.state, dict):
             assert not mcmc, "Final states have been calculated, we don't need mcmc!"
             return self._measure_dict(shots, with_prob, wires)
-        elif isinstance(self.state, List):
+        elif isinstance(self.state, list):
             assert not mcmc, "Final states have been calculated, we don't need mcmc!"
             return self._measure_mps(shots, with_prob, wires)
         else:
             assert False, 'Check your forward function or input!'
 
-    def _measure_fock_unitary(self, shots: int, with_prob: bool, wires: List[int], mcmc: bool) -> List[Dict]:
+    def _measure_fock_unitary(self, shots: int, with_prob: bool, wires: list[int], mcmc: bool) -> list[dict]:
         """Measure the final state according to the unitary matrix for Fock backend."""
         if self.state.ndim == 2:
             self.state = self.state.unsqueeze(0)
@@ -1312,9 +1353,9 @@ class QumodeCircuit(Operation):
         self,
         init_state: torch.Tensor,
         unitary: torch.Tensor,
-        wires: Union[int, List[int], None] = None,
-        final_states: Optional[torch.Tensor] = None
-    ) -> Dict:
+        wires: int | list[int] | None = None,
+        final_states: torch.Tensor | None = None
+    ) -> dict:
         """VMAP helper for measuring the final state according to the unitary matrix for Fock backend.
 
         Returns:
@@ -1337,7 +1378,7 @@ class QumodeCircuit(Operation):
         prob_dict = {key: sum(value) for key, value in prob_dict.items()}
         return prob_dict
 
-    def _measure_dict(self, shots: int, with_prob: bool, wires: List[int]) -> List[Dict]:
+    def _measure_dict(self, shots: int, with_prob: bool, wires: list[int]) -> list[dict]:
         """Measure the final state according to the dictionary of amplitudes or probabilities."""
         if self._with_delay:
             wires = [self._unroll_dict[wire][-1] for wire in wires]
@@ -1364,7 +1405,7 @@ class QumodeCircuit(Operation):
             all_results.append(results)
         return all_results
 
-    def _measure_fock_tensor(self, shots: int, with_prob: bool, wires: List[int]) -> List[Dict]:
+    def _measure_fock_tensor(self, shots: int, with_prob: bool, wires: list[int]) -> list[dict]:
         """Measure the final state according to Fock state tensor for Fock backend."""
         all_results = []
         if self.state.is_complex():
@@ -1394,7 +1435,7 @@ class QumodeCircuit(Operation):
             all_results.append(results)
         return all_results
 
-    def _measure_mps(self, shots: int, with_prob: bool, wires: List[int]) -> List[Dict]:
+    def _measure_mps(self, shots: int, with_prob: bool, wires: list[int]) -> list[dict]:
         """Measure the final state according to MPS."""
         all_results = []
         samples = []
@@ -1427,14 +1468,14 @@ class QumodeCircuit(Operation):
         self,
         shots: int,
         with_prob: bool,
-        wires: List[int],
+        wires: list[int],
         detector: str,
         mcmc: bool
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """Measure the final state for Gaussian backend."""
-        if isinstance(self.state, List):
+        if isinstance(self.state, list):
             return self._measure_gaussian_state(shots, with_prob, wires, detector, mcmc)
-        elif isinstance(self.state, Dict):
+        elif isinstance(self.state, dict):
             assert not mcmc, "Final states have been calculated, we don't need mcmc!"
             print('Automatically using the default detector!')
             return self._measure_dict(shots, with_prob, wires)
@@ -1445,10 +1486,10 @@ class QumodeCircuit(Operation):
         self,
         shots: int,
         with_prob: bool,
-        wires: List[int],
+        wires: list[int],
         detector: str,
         mcmc: bool
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """Measure the final state according to Gaussian state for Gaussian backend.
 
         See https://arxiv.org/pdf/2108.01622
@@ -1553,7 +1594,7 @@ class QumodeCircuit(Operation):
             sample = torch.randint(0, self.cutoff, [nmode])
         return sample
 
-    def _generate_chain_sample(self, wires: Union[int, List[int], None] = None) -> torch.Tensor:
+    def _generate_chain_sample(self, wires: int | list[int] | None = None) -> torch.Tensor:
         """Generate batched random samples via chain rule.
 
         Args:
@@ -1584,7 +1625,7 @@ class QumodeCircuit(Operation):
             sample = self._generate_chain_sample_gaussian(wires)
         return sample
 
-    def _generate_chain_sample_gaussian(self, wires: List[int]) -> torch.Tensor:
+    def _generate_chain_sample_gaussian(self, wires: list[int]) -> torch.Tensor:
         """Generate batched random samples via chain rule for Gaussian backend.
 
         See https://research-information.bris.ac.uk/en/studentTheses/classical-simulations-of-gaussian-boson-sampling
@@ -1656,8 +1697,8 @@ class QumodeCircuit(Operation):
 
     def photon_number_mean_var(
         self,
-        wires: Union[int, List[int], None] = None
-    ) -> Optional[Tuple[torch.Tensor, torch.Tensor]]:
+        wires: int | list[int] | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor] | None:
         """Get the expectation value and variance of the photon number operator.
 
         Args:
@@ -1710,8 +1751,8 @@ class QumodeCircuit(Operation):
 
     def quadrature_mean(
         self,
-        wires: Union[int, List[int], None] = None,
-        phi: Optional[Any] = None
+        wires: int | list[int] | None = None,
+        phi: Any | None = None
     ) -> torch.Tensor:
         r"""Get the expectation value of the quadratuere operator :math:`\hat{X}\cos\phi + \hat{P}\sin\phi`.
 
@@ -1772,8 +1813,8 @@ class QumodeCircuit(Operation):
         self,
         cov: torch.Tensor,
         mean: torch.Tensor,
-        wires: List[int]
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        wires: list[int]
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Get the local covariance matrices and mean vectors of a Gaussian state according to the wires to measure."""
         def extract_blocks(mat: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
             """Extract specified blocks from the input tensor.
@@ -1812,8 +1853,8 @@ class QumodeCircuit(Operation):
     def measure_homodyne(
         self,
         shots: int = 10,
-        wires: Union[int, List[int], None] = None
-    ) -> Optional[torch.Tensor]:
+        wires: int | list[int] | None = None
+    ) -> torch.Tensor | None:
         """Get the homodyne measurement results.
 
         If ``self.measurements`` is specified via ``self.homodyne``, return the results of
@@ -1896,7 +1937,7 @@ class QumodeCircuit(Operation):
         """Get the max number of gates on the wires."""
         return max(self.depth)
 
-    def draw(self, filename: Optional[str] = None, unroll: bool = False):
+    def draw(self, filename: str | None = None, unroll: bool = False):
         """Visualize the photonic quantum circuit.
 
         Args:
@@ -1962,7 +2003,7 @@ class QumodeCircuit(Operation):
         self,
         op: Operation,
         encode: bool = False,
-        wires: Union[int, List[int], None] = None
+        wires: int | list[int] | None = None
     ) -> None:
         """A method that adds an operation to the photonic quantum circuit.
 
@@ -2029,8 +2070,8 @@ class QumodeCircuit(Operation):
         wires: int,
         inputs: Any = None,
         encode: bool = False,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         """Add a phase shifter."""
         requires_grad = not encode
@@ -2046,11 +2087,11 @@ class QumodeCircuit(Operation):
 
     def bs(
         self,
-        wires: List[int],
+        wires: list[int],
         inputs: Any = None,
         encode: bool = False,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         """Add a beam splitter."""
         requires_grad = not encode
@@ -2066,12 +2107,12 @@ class QumodeCircuit(Operation):
 
     def mzi(
         self,
-        wires: List[int],
+        wires: list[int],
         inputs: Any = None,
         phi_first: bool = True,
         encode: bool = False,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         """Add a Mach-Zehnder interferometer."""
         requires_grad = not encode
@@ -2087,11 +2128,11 @@ class QumodeCircuit(Operation):
 
     def bs_theta(
         self,
-        wires: List[int],
+        wires: list[int],
         inputs: Any = None,
         encode: bool = False,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         r"""Add a beam splitter with fixed :math:`\phi` at :math:`\pi/2`."""
         requires_grad = not encode
@@ -2107,11 +2148,11 @@ class QumodeCircuit(Operation):
 
     def bs_phi(
         self,
-        wires: List[int],
+        wires: list[int],
         inputs: Any = None,
         encode: bool = False,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         r"""Add a beam splitter with fixed :math:`\theta` at :math:`\pi/4`."""
         requires_grad = not encode
@@ -2127,11 +2168,11 @@ class QumodeCircuit(Operation):
 
     def bs_rx(
         self,
-        wires: List[int],
+        wires: list[int],
         inputs: Any = None,
         encode: bool = False,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         """Add an Rx-type beam splitter."""
         requires_grad = not encode
@@ -2147,11 +2188,11 @@ class QumodeCircuit(Operation):
 
     def bs_ry(
         self,
-        wires: List[int],
+        wires: list[int],
         inputs: Any = None,
         encode: bool = False,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         """Add an Ry-type beam splitter."""
         requires_grad = not encode
@@ -2167,11 +2208,11 @@ class QumodeCircuit(Operation):
 
     def bs_h(
         self,
-        wires: List[int],
+        wires: list[int],
         inputs: Any = None,
         encode: bool = False,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         """Add an H-type beam splitter."""
         requires_grad = not encode
@@ -2185,7 +2226,7 @@ class QumodeCircuit(Operation):
                                 convention='h', requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma)
         self.add(bs, encode=encode)
 
-    def dc(self, wires: List[int], mu: Optional[float] = None, sigma: Optional[float] = None) -> None:
+    def dc(self, wires: list[int], mu: float | None = None, sigma: float | None = None) -> None:
         """Add a directional coupler."""
         theta = torch.pi / 2
         if mu is None:
@@ -2196,7 +2237,7 @@ class QumodeCircuit(Operation):
                                 convention='rx', requires_grad=False, noise=self.noise, mu=mu, sigma=sigma)
         self.add(bs)
 
-    def h(self, wires: List[int], mu: Optional[float] = None, sigma: Optional[float] = None) -> None:
+    def h(self, wires: list[int], mu: float | None = None, sigma: float | None = None) -> None:
         """Add a photonic Hadamard gate."""
         theta = torch.pi / 2
         if mu is None:
@@ -2210,8 +2251,8 @@ class QumodeCircuit(Operation):
     def any(
         self,
         unitary: Any,
-        wires: Union[int, List[int], None] = None,
-        minmax: Optional[List[int]] = None,
+        wires: int | list[int] | None = None,
+        minmax: list[int] | None = None,
         name: str = 'uany'
     ) -> None:
         """Add an arbitrary unitary gate."""
@@ -2222,10 +2263,10 @@ class QumodeCircuit(Operation):
     def clements(
         self,
         unitary: Any,
-        wires: Union[int, List[int], None] = None,
-        minmax: Optional[List[int]] = None,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        wires: int | list[int] | None = None,
+        minmax: list[int] | None = None,
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         """Add the Clements architecture of the unitary matrix.
 
@@ -2272,8 +2313,8 @@ class QumodeCircuit(Operation):
         r: Any = None,
         theta: Any = None,
         encode: bool = False,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         """Add a squeezing gate."""
         requires_grad = not encode
@@ -2297,12 +2338,12 @@ class QumodeCircuit(Operation):
 
     def s2(
         self,
-        wires: List[int],
+        wires: list[int],
         r: Any = None,
         theta: Any = None,
         encode: bool = False,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         """Add a two-mode squeezing gate."""
         requires_grad = not encode
@@ -2330,8 +2371,8 @@ class QumodeCircuit(Operation):
         r: Any = None,
         theta: Any = None,
         encode: bool = False,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         """Add a displacement gate."""
         requires_grad = not encode
@@ -2358,8 +2399,8 @@ class QumodeCircuit(Operation):
         wires: int,
         inputs: Any = None,
         encode: bool = False,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         """Add a position displacement gate."""
         requires_grad = not encode
@@ -2379,8 +2420,8 @@ class QumodeCircuit(Operation):
         wires: int,
         inputs: Any = None,
         encode: bool = False,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         """Add a momentum displacement gate."""
         requires_grad = not encode
@@ -2401,8 +2442,8 @@ class QumodeCircuit(Operation):
         inputs: Any = None,
         encode: bool = False,
         inv_mode: bool = False,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         """Add a rotation gate."""
         requires_grad = not encode
@@ -2416,7 +2457,7 @@ class QumodeCircuit(Operation):
                        requires_grad=requires_grad, noise=self.noise, mu=mu, sigma=sigma, inv_mode=inv_mode)
         self.add(r, encode=encode)
 
-    def f(self, wires: int, mu: Optional[float] = None, sigma: Optional[float] = None) -> None:
+    def f(self, wires: int, mu: float | None = None, sigma: float | None = None) -> None:
         """Add a Fourier gate."""
         theta = torch.pi / 2
         if mu is None:
@@ -2432,8 +2473,8 @@ class QumodeCircuit(Operation):
         wires: int,
         inputs: Any = None,
         encode: bool = False,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         """Add a quadratic phase gate."""
         requires_grad = not encode
@@ -2449,11 +2490,11 @@ class QumodeCircuit(Operation):
 
     def cx(
         self,
-        wires: List[int],
+        wires: list[int],
         inputs: Any = None,
         encode: bool = False,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         """Add a controlled-X gate."""
         requires_grad = not encode
@@ -2469,11 +2510,11 @@ class QumodeCircuit(Operation):
 
     def cz(
         self,
-        wires: List[int],
+        wires: list[int],
         inputs: Any = None,
         encode: bool = False,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         """Add a controlled-Z gate."""
         requires_grad = not encode
@@ -2492,8 +2533,8 @@ class QumodeCircuit(Operation):
         wires: int,
         inputs: Any = None,
         encode: bool = False,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         """Add a cubic phase gate."""
         requires_grad = not encode
@@ -2512,8 +2553,8 @@ class QumodeCircuit(Operation):
         wires: int,
         inputs: Any = None,
         encode: bool = False,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         """Add a Kerr gate."""
         requires_grad = not encode
@@ -2529,11 +2570,11 @@ class QumodeCircuit(Operation):
 
     def ck(
         self,
-        wires: List[int],
+        wires: list[int],
         inputs: Any = None,
         encode: bool = False,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         """Add a cross-Kerr gate."""
         requires_grad = not encode
@@ -2554,9 +2595,9 @@ class QumodeCircuit(Operation):
         inputs: Any = None,
         convention: str = 'bs',
         encode: bool = False,
-        loop_gates: Optional[List] = None,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        loop_gates: list | None = None,
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         """Add a delay loop."""
         requires_grad = not encode
@@ -2581,8 +2622,8 @@ class QumodeCircuit(Operation):
         wires: int,
         phi: Any = None,
         eps: float = 2e-4,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         """Add a homodyne measurement."""
         if mu is None:
@@ -2597,8 +2638,8 @@ class QumodeCircuit(Operation):
         self,
         wires: int,
         eps: float = 2e-4,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         """Add a homodyne measurement for quadrature x."""
         phi = 0.
@@ -2614,8 +2655,8 @@ class QumodeCircuit(Operation):
         self,
         wires: int,
         eps: float = 2e-4,
-        mu: Optional[float] = None,
-        sigma: Optional[float] = None
+        mu: float | None = None,
+        sigma: float | None = None
     ) -> None:
         """Add a homodyne measurement for quadrature p."""
         phi = np.pi / 2
@@ -2697,7 +2738,7 @@ class QumodeCircuit(Operation):
                           requires_grad=requires_grad)
         self.add(loss, encode=encode)
 
-    def barrier(self, wires: Union[int, List[int], None] = None) -> None:
+    def barrier(self, wires: int | list[int] | None = None) -> None:
         """Add a barrier."""
         br = Barrier(nmode=self.nmode, wires=wires, cutoff=self.cutoff)
         self.add(br)
@@ -2713,7 +2754,7 @@ class DistributedQumodeCircuit(QumodeCircuit):
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
         name (str or None, optional): The name of the circuit. Default: ``None``
     """
-    def __init__(self, nmode: int, init_state: Any, cutoff: Optional[int] = None, name: Optional[str] = None) -> None:
+    def __init__(self, nmode: int, init_state: Any, cutoff: int | None = None, name: str | None = None) -> None:
         super().__init__(nmode, init_state, cutoff, backend='fock', basis=False, den_mat=False,
                          detector='pnrd', name=name, mps=False, chi=None, noise=False, mu=0, sigma=0.1)
 
@@ -2729,8 +2770,8 @@ class DistributedQumodeCircuit(QumodeCircuit):
     @torch.no_grad()
     def forward(
         self,
-        data: Optional[torch.Tensor] = None,
-        state: Optional[DistributedFockState] = None
+        data: torch.Tensor | None = None,
+        state: DistributedFockState | None = None
     ) -> DistributedFockState:
         """Perform a forward pass of the photonic quantum circuit and return the final state.
 
@@ -2755,9 +2796,9 @@ class DistributedQumodeCircuit(QumodeCircuit):
         self,
         shots: int = 1024,
         with_prob: bool = False,
-        wires: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
         block_size: int = 2 ** 24
-    ) -> Union[Dict, None]:
+    ) -> dict | None:
         """Measure the final state.
 
         Args:

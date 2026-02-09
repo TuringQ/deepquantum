@@ -4,7 +4,7 @@ import time
 import numpy as np
 import piquasso
 import torch
-from piquasso._math.torontonian import torontonian, loop_torontonian
+from piquasso._math.torontonian import torontonian
 from tqdm import tqdm
 
 # Print version
@@ -44,5 +44,5 @@ for n in tqdm(n_list):
 with open('torontonian_'+platform+'_results.data', 'w') as f:
     json.dump(results, f)
 
-with open('torontonian_'+platform+'_results.data', 'r') as f:
+with open('torontonian_'+platform+'_results.data') as f:
     print(json.load(f))

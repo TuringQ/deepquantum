@@ -1,6 +1,5 @@
-import torch
 
-import json
+import torch
 from tqdm import tqdm
 
 n_list = [2, 6, 10, 14, 18]
@@ -10,8 +9,8 @@ number_of_sequence = 1000
 device = 'cpu'
 
 import numpy as np
-from thewalrus.random import random_covariance
 from thewalrus.quantum.conversions import Amat, Xmat
+from thewalrus.random import random_covariance
 
 np.random.seed(42)
 

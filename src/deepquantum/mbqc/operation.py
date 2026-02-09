@@ -2,7 +2,6 @@
 Base classes
 """
 
-from typing import List, Optional, Union
 
 from torch import nn
 
@@ -19,15 +18,15 @@ class Operation(nn.Module):
     """
     def __init__(
         self,
-        name: Optional[str] = None,
-        nodes: Union[int, List[int], None] = None
+        name: str | None = None,
+        nodes: int | list[int] | None = None
     ) -> None:
         super().__init__()
         self.name = name
         self.nodes = nodes
         self.npara = 0
 
-    def _convert_indices(self, indices: Union[int, List[int]]) -> List[int]:
+    def _convert_indices(self, indices: int | list[int]) -> list[int]:
         """Convert and check the indices of the modes."""
         if isinstance(indices, int):
             indices = [indices]
@@ -47,7 +46,7 @@ class Command(Operation):
     def __init__(
         self,
         name: str,
-        nodes: Union[int, List[int]]
+        nodes: int | list[int]
     ) -> None:
         nodes = self._convert_indices(nodes)
         super().__init__(name=name, nodes=nodes)

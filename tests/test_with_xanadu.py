@@ -1,11 +1,11 @@
-import deepquantum as dq
 import numpy as np
-import pytest
 import strawberryfields as sf
 import thewalrus
 import torch
-from deepquantum.photonic import quadrature_to_ladder, hafnian, torontonian
-from strawberryfields.ops import Sgate, BSgate, Rgate, MeasureHomodyne, Dgate, Fock
+from strawberryfields.ops import BSgate, Dgate, Fock, MeasureHomodyne, Rgate, Sgate
+
+import deepquantum as dq
+from deepquantum.photonic import hafnian, quadrature_to_ladder, torontonian
 
 
 def test_hafnian():
