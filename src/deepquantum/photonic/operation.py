@@ -28,6 +28,7 @@ class Operation(nn.Module):
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
+
     def __init__(
         self,
         name: str | None = None,
@@ -37,7 +38,7 @@ class Operation(nn.Module):
         den_mat: bool = False,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
         super().__init__()
         self.name = name
@@ -98,6 +99,7 @@ class Gate(Operation):
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
+
     def __init__(
         self,
         name: str | None = None,
@@ -107,7 +109,7 @@ class Gate(Operation):
         den_mat: bool = False,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
         self.nmode = nmode
         if wires is None:
@@ -115,8 +117,9 @@ class Gate(Operation):
         wires = self._convert_indices(wires)
         if cutoff is None:
             cutoff = 2
-        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff,
-                         den_mat=den_mat, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat, noise=noise, mu=mu, sigma=sigma
+        )
 
     def update_matrix(self) -> torch.Tensor:
         """Update the local unitary matrix acting on creation operators."""
@@ -143,13 +146,13 @@ class Gate(Operation):
     def op_state_tensor(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass for state tensors."""
         nt = len(self.wires)
-        matrix = self.update_matrix_state().reshape(self.cutoff ** nt, self.cutoff ** nt)
+        matrix = self.update_matrix_state().reshape(self.cutoff**nt, self.cutoff**nt)
         return evolve_state(x, matrix, self.nmode, self.wires, self.cutoff)
 
     def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass for density matrices."""
         nt = len(self.wires)
-        matrix = self.update_matrix_state().reshape(self.cutoff ** nt, self.cutoff ** nt)
+        matrix = self.update_matrix_state().reshape(self.cutoff**nt, self.cutoff**nt)
         return evolve_den_mat(x, matrix, self.nmode, self.wires, self.cutoff)
 
     def update_transform_xp(self) -> tuple[torch.Tensor, torch.Tensor]:
@@ -210,8 +213,8 @@ class Gate(Operation):
         mat = self.update_matrix_state()
         # transform gate from (out1, out2, ..., in1, in2 ...) to (out1, in1, out2, in2, ...)
         order = list(np.arange(2 * nindex).reshape((2, nindex)).T.flatten())
-        mat = mat.reshape([self.cutoff] * 2 * nindex).permute(order).reshape([self.cutoff ** 2] * nindex)
-        main_tensors = state_to_tensors(mat, nsite=nindex, qudit=self.cutoff ** 2)
+        mat = mat.reshape([self.cutoff] * 2 * nindex).permute(order).reshape([self.cutoff**2] * nindex)
+        main_tensors = state_to_tensors(mat, nsite=nindex, qudit=self.cutoff**2)
         # each tensor is in shape of (i, a, b, j)
         tensors = []
         previous_i = None
@@ -251,13 +254,12 @@ class Gate(Operation):
     def op_dist_state(self, x: DistributedFockState) -> DistributedFockState:
         """Perform a forward pass for a distributed Fock state tensor."""
         nt = len(self.wires)
-        matrix = self.update_matrix_state().reshape(self.cutoff ** nt, self.cutoff ** nt)
+        matrix = self.update_matrix_state().reshape(self.cutoff**nt, self.cutoff**nt)
         targets = [self.nmode - wire - 1 for wire in self.wires]
         return dist_gate(x, targets, matrix)
 
     def forward(
-        self,
-        x: torch.Tensor | list[torch.Tensor] | MatrixProductState | DistributedFockState
+        self, x: torch.Tensor | list[torch.Tensor] | MatrixProductState | DistributedFockState
     ) -> torch.Tensor | list[torch.Tensor] | MatrixProductState | DistributedFockState:
         """Perform a forward pass."""
         if isinstance(x, DistributedFockState):
@@ -286,6 +288,7 @@ class Channel(Operation):
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
     """
+
     def __init__(
         self,
         name: str | None = None,
@@ -308,7 +311,7 @@ class Channel(Operation):
     def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass for density matrices."""
         nt = len(self.wires)
-        matrix = self.update_matrix_state().reshape(-1, self.cutoff ** nt, self.cutoff ** nt)
+        matrix = self.update_matrix_state().reshape(-1, self.cutoff**nt, self.cutoff**nt)
         x = vmap(evolve_den_mat, in_dims=(None, 0, None, None, None))(x, matrix, self.nmode, self.wires, self.cutoff)
         return x.sum(0)
 
@@ -359,9 +362,10 @@ class Delay(Operation):
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
+
     def __init__(
         self,
-        name = 'Delay',
+        name='Delay',
         ntau: int = 1,
         nmode: int = 1,
         wires: int | list[int] | None = None,
@@ -369,7 +373,7 @@ class Delay(Operation):
         den_mat: bool = False,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
         self.nmode = nmode
         if wires is None:
@@ -377,8 +381,9 @@ class Delay(Operation):
         wires = self._convert_indices(wires)
         if cutoff is None:
             cutoff = 2
-        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
-                         noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat, noise=noise, mu=mu, sigma=sigma
+        )
         assert len(self.wires) == 1, f'{self.name} must act on one mode'
         self.ntau = ntau
         self.gates = nn.Sequential()
@@ -396,12 +401,11 @@ class Delay(Operation):
             if inputs is None:
                 gate.init_para()
             else:
-                gate.init_para(inputs[count:count+gate.npara])
+                gate.init_para(inputs[count : count + gate.npara])
             count += gate.npara
 
     def forward(
-        self,
-        x: torch.Tensor | list[torch.Tensor] | MatrixProductState | DistributedFockState
+        self, x: torch.Tensor | list[torch.Tensor] | MatrixProductState | DistributedFockState
     ) -> torch.Tensor | list[torch.Tensor] | MatrixProductState | DistributedFockState:
         """Perform a forward pass."""
         return self.gates(x)

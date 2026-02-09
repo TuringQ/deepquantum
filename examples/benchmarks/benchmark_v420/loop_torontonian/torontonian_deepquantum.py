@@ -11,8 +11,9 @@ print(dq.__version__)
 
 device = 'cpu'
 
+
 def torontonian_dq(n, l):
-    A = torch.load(f"tor_matrix_{n}_{1000}.pt").to(device)
+    A = torch.load(f'tor_matrix_{n}_{1000}.pt').to(device)
 
     def get_torontonian_dq(matrix):
         trials = 10
@@ -22,13 +23,14 @@ def torontonian_dq(n, l):
         torch.vmap(torontonian)(A[0:1], gamma)
         time0 = time.time()
         for i in range(trials):
-            gamma = torch.diagonal(A[i*l:(i+1)*l], dim1=1, dim2=2)
-            results = torch.vmap(torontonian)(A[i*l:(i+1)*l], gamma)
+            gamma = torch.diagonal(A[i * l : (i + 1) * l], dim1=1, dim2=2)
+            results = torch.vmap(torontonian)(A[i * l : (i + 1) * l], gamma)
         time1 = time.time()
         ts = (time1 - time0) / trials
         return ts
 
     return get_torontonian_dq(A)
+
 
 results = {}
 
@@ -39,12 +41,12 @@ l_list = [1, 10, 100, 1000]
 
 for n in tqdm(n_list):
     for l in tqdm(l_list):
-        print(n,l)
+        print(n, l)
         ts = torontonian_dq(n, l)
-        results[str(n)+'+'+str(l)] = ts
+        results[str(n) + '+' + str(l)] = ts
 
-with open('loop_torontonian_'+platform+'_results.data', 'w') as f:
+with open('loop_torontonian_' + platform + '_results.data', 'w') as f:
     json.dump(results, f)
 
-with open('loop_torontonian_'+platform+'_results.data') as f:
+with open('loop_torontonian_' + platform + '_results.data') as f:
     print(json.load(f))

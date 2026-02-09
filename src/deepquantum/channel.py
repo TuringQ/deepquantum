@@ -33,16 +33,18 @@ class BitFlip(Channel):
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nqubit: int = 1,
         wires: int | list[int] | None = None,
         tsr_mode: bool = False,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
-        super().__init__(inputs=inputs, name='BitFlip', nqubit=nqubit, wires=wires, tsr_mode=tsr_mode,
-                         requires_grad=requires_grad)
+        super().__init__(
+            inputs=inputs, name='BitFlip', nqubit=nqubit, wires=wires, tsr_mode=tsr_mode, requires_grad=requires_grad
+        )
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local Kraus matrices acting on density matrices."""
@@ -74,16 +76,18 @@ class PhaseFlip(Channel):
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nqubit: int = 1,
         wires: int | list[int] | None = None,
         tsr_mode: bool = False,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
-        super().__init__(inputs=inputs, name='PhaseFlip', nqubit=nqubit, wires=wires, tsr_mode=tsr_mode,
-                         requires_grad=requires_grad)
+        super().__init__(
+            inputs=inputs, name='PhaseFlip', nqubit=nqubit, wires=wires, tsr_mode=tsr_mode, requires_grad=requires_grad
+        )
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local Kraus matrices acting on density matrices."""
@@ -118,16 +122,23 @@ class Depolarizing(Channel):
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nqubit: int = 1,
         wires: int | list[int] | None = None,
         tsr_mode: bool = False,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
-        super().__init__(inputs=inputs, name='Depolarizing', nqubit=nqubit, wires=wires, tsr_mode=tsr_mode,
-                         requires_grad=requires_grad)
+        super().__init__(
+            inputs=inputs,
+            name='Depolarizing',
+            nqubit=nqubit,
+            wires=wires,
+            tsr_mode=tsr_mode,
+            requires_grad=requires_grad,
+        )
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local Kraus matrices acting on density matrices."""
@@ -164,16 +175,18 @@ class Pauli(Channel):
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nqubit: int = 1,
         wires: int | list[int] | None = None,
         tsr_mode: bool = False,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
-        super().__init__(inputs=inputs, name='Pauli', nqubit=nqubit, wires=wires, tsr_mode=tsr_mode,
-                         requires_grad=requires_grad)
+        super().__init__(
+            inputs=inputs, name='Pauli', nqubit=nqubit, wires=wires, tsr_mode=tsr_mode, requires_grad=requires_grad
+        )
         self.npara = 4
 
     @property
@@ -195,7 +208,7 @@ class Pauli(Channel):
         theta = self.inputs_to_tensor(theta).reshape(-1)
         prob = torch.sin(theta) ** 2
         prob = prob / prob.sum()
-        mat1 = torch.sqrt(prob[0:1]) * mat_i.to(prob.device) # avoid scalar Tensor
+        mat1 = torch.sqrt(prob[0:1]) * mat_i.to(prob.device)  # avoid scalar Tensor
         mat2 = torch.sqrt(prob[1:2]) * mat_x.to(prob.device)
         mat3 = torch.sqrt(prob[2:3]) * mat_y.to(prob.device)
         mat4 = torch.sqrt(prob[3:4]) * mat_z.to(prob.device)
@@ -225,23 +238,30 @@ class AmplitudeDamping(Channel):
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nqubit: int = 1,
         wires: int | list[int] | None = None,
         tsr_mode: bool = False,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
-        super().__init__(inputs=inputs, name='AmplitudeDamping', nqubit=nqubit, wires=wires, tsr_mode=tsr_mode,
-                         requires_grad=requires_grad)
+        super().__init__(
+            inputs=inputs,
+            name='AmplitudeDamping',
+            nqubit=nqubit,
+            wires=wires,
+            tsr_mode=tsr_mode,
+            requires_grad=requires_grad,
+        )
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local Kraus matrices acting on density matrices."""
         theta = self.inputs_to_tensor(theta).reshape(-1)
         prob = torch.sin(theta) ** 2
-        m0 = torch.tensor([0.], dtype=prob.dtype, device=prob.device)
-        m1 = torch.tensor([1.], dtype=prob.dtype, device=prob.device)
+        m0 = torch.tensor([0.0], dtype=prob.dtype, device=prob.device)
+        m1 = torch.tensor([1.0], dtype=prob.dtype, device=prob.device)
         mat1 = torch.stack([m1, m0, m0, torch.sqrt(1 - prob)]).reshape(2, 2)
         mat2 = torch.stack([m0, torch.sqrt(prob), m0, m0]).reshape(2, 2)
         return torch.stack([mat1, mat2]) + 0j
@@ -270,23 +290,30 @@ class PhaseDamping(Channel):
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nqubit: int = 1,
         wires: int | list[int] | None = None,
         tsr_mode: bool = False,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
-        super().__init__(inputs=inputs, name='PhaseDamping', nqubit=nqubit, wires=wires, tsr_mode=tsr_mode,
-                         requires_grad=requires_grad)
+        super().__init__(
+            inputs=inputs,
+            name='PhaseDamping',
+            nqubit=nqubit,
+            wires=wires,
+            tsr_mode=tsr_mode,
+            requires_grad=requires_grad,
+        )
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local Kraus matrices acting on density matrices."""
         theta = self.inputs_to_tensor(theta).reshape(-1)
         prob = torch.sin(theta) ** 2
-        m0 = torch.tensor([0.], dtype=prob.dtype, device=prob.device)
-        m1 = torch.tensor([1.], dtype=prob.dtype, device=prob.device)
+        m0 = torch.tensor([0.0], dtype=prob.dtype, device=prob.device)
+        m1 = torch.tensor([1.0], dtype=prob.dtype, device=prob.device)
         mat1 = torch.stack([m1, m0, m0, torch.sqrt(1 - prob)]).reshape(2, 2)
         mat2 = torch.stack([m0, m0, m0, torch.sqrt(prob)]).reshape(2, 2)
         return torch.stack([mat1, mat2]) + 0j
@@ -319,16 +346,23 @@ class GeneralizedAmplitudeDamping(Channel):
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nqubit: int = 1,
         wires: int | list[int] | None = None,
         tsr_mode: bool = False,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
-        super().__init__(inputs=inputs, name='GeneralizedAmplitudeDamping', nqubit=nqubit, wires=wires,
-                         tsr_mode=tsr_mode, requires_grad=requires_grad)
+        super().__init__(
+            inputs=inputs,
+            name='GeneralizedAmplitudeDamping',
+            nqubit=nqubit,
+            wires=wires,
+            tsr_mode=tsr_mode,
+            requires_grad=requires_grad,
+        )
         self.npara = 2
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
@@ -343,8 +377,8 @@ class GeneralizedAmplitudeDamping(Channel):
         """Get the local Kraus matrices acting on density matrices."""
         theta = self.inputs_to_tensor(theta).reshape(-1)
         prob = torch.sin(theta) ** 2
-        m0 = torch.tensor(0., dtype=prob.dtype, device=prob.device)
-        m1 = torch.tensor(1., dtype=prob.dtype, device=prob.device)
+        m0 = torch.tensor(0.0, dtype=prob.dtype, device=prob.device)
+        m1 = torch.tensor(1.0, dtype=prob.dtype, device=prob.device)
         mat1 = torch.sqrt(prob[0]) * torch.stack([m1, m0, m0, torch.sqrt(1 - prob[1])]).reshape(2, 2)
         mat2 = torch.sqrt(prob[0]) * torch.stack([m0, torch.sqrt(prob[1]), m0, m0]).reshape(2, 2)
         mat3 = torch.sqrt(1 - prob[0]) * torch.stack([torch.sqrt(1 - prob[1]), m0, m0, m1]).reshape(2, 2)

@@ -10,6 +10,7 @@ from tqdm import tqdm
 # Print version
 print(qml.__version__)
 
+
 def benchmark(f, *args, trials=1):
     # r = f(*args)
     time0 = time.time()
@@ -21,8 +22,9 @@ def benchmark(f, *args, trials=1):
 
     return r, ts
 
+
 def hessian_pennylane(n, l):
-    dev = qml.device("default.qubit", wires=n)
+    dev = qml.device('default.qubit', wires=n)
 
     params = pnp.array(np.ones(3 * n * l), requires_grad=True, dtype='float32')
 
@@ -43,6 +45,7 @@ def hessian_pennylane(n, l):
     hessian_fn = qml.jacobian(qml.grad(circuit))
     return benchmark(hessian_fn, params)
 
+
 results = {}
 n_list = [2, 6, 10, 14, 18, 22]
 
@@ -52,10 +55,10 @@ platform = 'pennylane'
 for n in tqdm(n_list):
     for l in tqdm(l_list):
         _, ts = hessian_pennylane(n, l)
-        results[f"{n}-{l}"] = ts
+        results[f'{n}-{l}'] = ts
 
-with open('hessian_'+platform+'_results.data', 'w') as f:
+with open('hessian_' + platform + '_results.data', 'w') as f:
     json.dump(results, f)
 
-with open('hessian_'+platform+'_results.data') as f:
+with open('hessian_' + platform + '_results.data') as f:
     print(json.load(f))

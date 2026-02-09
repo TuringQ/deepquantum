@@ -38,6 +38,7 @@ class Pattern(Operation):
 
     Ref: V. Danos, E. Kashefi and P. Panangaden. J. ACM 54.2 8 (2007)
     """
+
     def __init__(
         self,
         nodes_state: int | list[int] | None = None,
@@ -45,7 +46,7 @@ class Pattern(Operation):
         edges: list | None = None,
         nodes: int | list[int] | None = None,
         name: str | None = None,
-        reupload: bool = False
+        reupload: bool = False,
     ) -> None:
         super().__init__(name=name, nodes=None)
         self.reupload = reupload
@@ -117,12 +118,13 @@ class Pattern(Operation):
                 op.init_para(data[count:count_up])
             count = count_up
 
-    def add_graph(self,
+    def add_graph(
+        self,
         nodes_state: int | list[int] | None = None,
         state: Any = 'plus',
         edges: list | None = None,
         nodes: int | list[int] | None = None,
-        index: int | None = None
+        index: int | None = None,
     ) -> None:
         """Add a subgraph state to the graph state.
 
@@ -151,11 +153,7 @@ class Pattern(Operation):
         """Set the output sequence of the nodes."""
         self.nodes_out_seq = nodes
 
-    def add(
-        self,
-        op: Operation,
-        encode: bool = False
-    ) -> None:
+    def add(self, op: Operation, encode: bool = False) -> None:
         """A method that adds an operation to the MBQC pattern.
 
         Args:
@@ -185,18 +183,19 @@ class Pattern(Operation):
     def m(
         self,
         node: int,
-        angle: float = 0.,
+        angle: float = 0.0,
         plane: str = 'xy',
         t_domain: int | Iterable[int] | None = None,
         s_domain: int | Iterable[int] | None = None,
-        encode: bool = False
+        encode: bool = False,
     ) -> None:
         """Add a measurement command."""
         requires_grad = not encode
         if angle is not None:
             requires_grad = False
-        m = Measurement(nodes=node, angle=angle, plane=plane, t_domain=t_domain, s_domain=s_domain,
-                        requires_grad=requires_grad)
+        m = Measurement(
+            nodes=node, angle=angle, plane=plane, t_domain=t_domain, s_domain=s_domain, requires_grad=requires_grad
+        )
         self.add(m, encode=encode)
 
     def x(self, node: int, domain: int | Iterable[int] | None = None) -> None:
@@ -234,15 +233,18 @@ class Pattern(Operation):
         pos = multipartite_layout(g, subset_key='layer')
         draw_networkx_nodes(g, pos, nodelist=nodes_init, node_color='#1f78b4', node_shape='s')
         draw_networkx_nodes(g, pos, nodelist=nodes_measured, node_color='#1f78b4')
-        draw_networkx_nodes(g, pos, nodelist=list(set(g.nodes()) - set(nodes_measured)),
-                            node_color='#d7dde0', node_shape='o')
+        draw_networkx_nodes(
+            g, pos, nodelist=list(set(g.nodes()) - set(nodes_measured)), node_color='#d7dde0', node_shape='o'
+        )
         draw_networkx_edges(g, pos, g.edges(), arrows=False)
-        draw_networkx_edges(g, pos, edges_t_domain, arrows=True, style=':',
-                            edge_color='#4cd925', connectionstyle='arc3,rad=-0.2')
-        draw_networkx_edges(g, pos, edges_s_domain, arrows=True, style=':',
-                            edge_color='#db1d2c', connectionstyle='arc3,rad=0.2')
+        draw_networkx_edges(
+            g, pos, edges_t_domain, arrows=True, style=':', edge_color='#4cd925', connectionstyle='arc3,rad=-0.2'
+        )
+        draw_networkx_edges(
+            g, pos, edges_s_domain, arrows=True, style=':', edge_color='#db1d2c', connectionstyle='arc3,rad=0.2'
+        )
         draw_networkx_labels(g, pos)
-        plt.plot([], [], color='k',label='graph edge')
+        plt.plot([], [], color='k', label='graph edge')
         plt.plot([], [], ':', color='#4cd925', label='zflow')
         plt.plot([], [], ':', color='#db1d2c', label='xflow')
         plt.plot([], [], 's', color='#1f78b4', label='input nodes')
@@ -331,11 +333,11 @@ class Pattern(Operation):
 
         # Reconstruct command sequence in standard order
         self.commands = nn.Sequential(
-                    *n_list,
-                    *e_list,
-                    *m_list,
-                    *(Correction(nodes=node, basis='z', domain=domain) for node, domain in z_dict.items()),
-                    *(Correction(nodes=node, basis='x', domain=domain) for node, domain in x_dict.items())
+            *n_list,
+            *e_list,
+            *m_list,
+            *(Correction(nodes=node, basis='z', domain=domain) for node, domain in z_dict.items()),
+            *(Correction(nodes=node, basis='x', domain=domain) for node, domain in x_dict.items()),
         )
 
     def shift_signals(self) -> dict:

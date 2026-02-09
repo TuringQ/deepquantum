@@ -1,4 +1,3 @@
-
 import torch
 
 n_list = [2, 6, 10, 14]
@@ -6,6 +5,7 @@ l_list = [1, 10, 100]
 number_of_sequence = 1000
 
 device = 'cpu'
+
 
 def random_unitary(nmodes, dtype=torch.complex64, device=device):
     n = nmodes
@@ -25,6 +25,7 @@ def random_unitary(nmodes, dtype=torch.complex64, device=device):
 
     return U.to(dtype)
 
+
 def random_covariance(nmodes, dtype=torch.complex64, device=device):
     n = nmodes * 2
     """Generate a random covariance matrix of size n x n using only PyTorch."""
@@ -33,6 +34,7 @@ def random_covariance(nmodes, dtype=torch.complex64, device=device):
     D = torch.diag(d).to(U.dtype)
     cov = U @ D @ U.conj().T
     return cov.to(dtype)
+
 
 def random_hafnian_matrix(cov):
     """Generate a random matrix for hafnian calculation."""
@@ -57,13 +59,13 @@ def test_sequence_hafnian(nmode, number_of_sequence=64, device=device, start=Non
 
     # 判断文件是否存在，如果不存在，则保存矩阵U(复数)
     try:
-        U = torch.load(f"hafnian/hafnian_matrix_{nmode}_{number_of_sequence}.pt")
+        U = torch.load(f'hafnian/hafnian_matrix_{nmode}_{number_of_sequence}.pt')
         if start != None:
             U = U[start, end].to(device)
         else:
             U = U.to(device)
     except FileNotFoundError:
-        print(f"File hafnian_matrix_{nmode}_{number_of_sequence}.pt not found. Saving matrix U.")
+        print(f'File hafnian_matrix_{nmode}_{number_of_sequence}.pt not found. Saving matrix U.')
 
         cov = random_covariance(nmode, device=device)
         U = torch.zeros((number_of_sequence, nmode * 2, nmode * 2), dtype=cov.dtype, device=device)
@@ -75,7 +77,7 @@ def test_sequence_hafnian(nmode, number_of_sequence=64, device=device, start=Non
             # 把矩阵A添加到U中
             U[i] = A
         # Save the matrix U to a file
-        torch.save(U, f"hafnian/hafnian_matrix_{nmode}_{number_of_sequence}.pt")
+        torch.save(U, f'hafnian/hafnian_matrix_{nmode}_{number_of_sequence}.pt')
         print('done')
 
     return U

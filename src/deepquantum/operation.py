@@ -27,13 +27,14 @@ class Operation(nn.Module):
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
+
     def __init__(
         self,
         name: str | None = None,
         nqubit: int = 1,
         wires: int | list[int] | None = None,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
         super().__init__()
         self.name = name
@@ -46,22 +47,22 @@ class Operation(nn.Module):
     def tensor_rep(self, x: torch.Tensor) -> torch.Tensor:
         """Get the tensor representation of the state."""
         if self.den_mat:
-            assert x.shape[-1] == x.shape[-2] == 2 ** self.nqubit
+            assert x.shape[-1] == x.shape[-2] == 2**self.nqubit
             return x.reshape([-1] + [2] * 2 * self.nqubit)
         else:
             if x.ndim == 1:
-                assert x.shape[-1] == 2 ** self.nqubit
+                assert x.shape[-1] == 2**self.nqubit
             else:
-                assert x.shape[-1] == 2 ** self.nqubit or x.shape[-2] == 2 ** self.nqubit
+                assert x.shape[-1] == 2**self.nqubit or x.shape[-2] == 2**self.nqubit
             return x.reshape([-1] + [2] * self.nqubit)
 
     def vector_rep(self, x: torch.Tensor) -> torch.Tensor:
         """Get the vector representation of the state."""
-        return x.reshape(-1, 2 ** self.nqubit, 1)
+        return x.reshape(-1, 2**self.nqubit, 1)
 
     def matrix_rep(self, x: torch.Tensor) -> torch.Tensor:
         """Get the density matrix representation of the state."""
-        return x.reshape(-1, 2 ** self.nqubit, 2 ** self.nqubit)
+        return x.reshape(-1, 2**self.nqubit, 2**self.nqubit)
 
     def get_unitary(self) -> torch.Tensor:
         """Get the global unitary matrix."""
@@ -123,6 +124,7 @@ class Gate(Operation):
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
+
     # include default names in QASM
     _qasm_new_gate = ['c3x', 'c4x']
 
@@ -134,7 +136,7 @@ class Gate(Operation):
         controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
         self.nqubit = nqubit
         if wires is None:
@@ -217,7 +219,7 @@ class Gate(Operation):
         for i in controls:
             pm_shape.remove(i)
         pm_shape = wires + pm_shape + controls
-        x = x.permute(pm_shape).reshape(2 ** nt, -1, 2 ** nc)
+        x = x.permute(pm_shape).reshape(2**nt, -1, 2**nc)
         x = torch.cat([x[:, :, :-1], (matrix @ x[:, :, -1]).unsqueeze(-1)], dim=-1)
         x = x.reshape([2] * nt + [-1] + [2] * (self.nqubit - nt - nc) + [2] * nc)
         x = x.permute(inverse_permutation(pm_shape))
@@ -251,7 +253,7 @@ class Gate(Operation):
         for i in controls:
             pm_shape.remove(i)
         pm_shape = wires + pm_shape + controls
-        x = x.permute(pm_shape).reshape(2 ** nt, -1, 2 ** nc)
+        x = x.permute(pm_shape).reshape(2**nt, -1, 2**nc)
         x = torch.cat([x[:, :, :-1], (matrix @ x[:, :, -1]).unsqueeze(-1)], dim=-1)
         x = x.reshape([2] * nt + [-1] + [2] * (2 * self.nqubit - nt - nc) + [2] * nc)
         x = x.permute(inverse_permutation(pm_shape))
@@ -264,7 +266,7 @@ class Gate(Operation):
         for i in controls:
             pm_shape.remove(i)
         pm_shape = wires + pm_shape + controls
-        x = x.permute(pm_shape).reshape(2 ** nt, -1, 2 ** nc)
+        x = x.permute(pm_shape).reshape(2**nt, -1, 2**nc)
         x = torch.cat([x[:, :, :-1], (matrix.conj() @ x[:, :, -1]).unsqueeze(-1)], dim=-1)
         x = x.reshape([2] * nt + [-1] + [2] * (2 * self.nqubit - nt - nc) + [2] * nc)
         x = x.permute(inverse_permutation(pm_shape))
@@ -280,8 +282,7 @@ class Gate(Operation):
         return dist_many_targ_gate(x, targets, unitary)
 
     def forward(
-        self,
-        x: torch.Tensor | MatrixProductState | DistributedQubitState
+        self, x: torch.Tensor | MatrixProductState | DistributedQubitState
     ) -> torch.Tensor | MatrixProductState | DistributedQubitState:
         """Perform a forward pass."""
         if isinstance(x, MatrixProductState):
@@ -376,8 +377,8 @@ class Gate(Operation):
         # use shallow copy to share parameters
         gate_copy = copy(self)
         gate_copy.nqubit = nindex
-        gate_copy.wires = index_local[:len(gate_copy.wires)]
-        gate_copy.controls = index_local[len(gate_copy.wires):]
+        gate_copy.wires = index_local[: len(gate_copy.wires)]
+        gate_copy.controls = index_local[len(gate_copy.wires) :]
         u = gate_copy.get_unitary()
         # transform gate from (out1, out2, ..., in1, in2 ...) to (out1, in1, out2, in2, ...)
         order = list(np.arange(2 * nindex).reshape((2, nindex)).T.flatten())
@@ -434,13 +435,14 @@ class Layer(Operation):
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
+
     def __init__(
         self,
         name: str | None = None,
         nqubit: int = 1,
         wires: int | list[int] | list[list[int]] | None = None,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
         super().__init__(name=name, nqubit=nqubit, wires=None, den_mat=den_mat, tsr_mode=tsr_mode)
         if wires is None:
@@ -473,7 +475,7 @@ class Layer(Operation):
             if inputs is None:
                 gate.init_para()
             else:
-                gate.init_para(inputs[count:count+gate.npara])
+                gate.init_para(inputs[count : count + gate.npara])
             count += gate.npara
 
     def update_npara(self) -> None:
@@ -495,8 +497,7 @@ class Layer(Operation):
             gate.wires = self.wires[i]
 
     def forward(
-        self,
-        x: torch.Tensor | MatrixProductState | DistributedQubitState
+        self, x: torch.Tensor | MatrixProductState | DistributedQubitState
     ) -> torch.Tensor | MatrixProductState | DistributedQubitState:
         """Perform a forward pass."""
         if isinstance(x, (MatrixProductState, DistributedQubitState)):
@@ -559,6 +560,7 @@ class Channel(Operation):
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     # include default names in QASM
     _qasm_new_gate = []
 
@@ -569,7 +571,7 @@ class Channel(Operation):
         nqubit: int = 1,
         wires: int | list[int] | None = None,
         tsr_mode: bool = False,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
         self.nqubit = nqubit
         if wires is None:
@@ -673,6 +675,7 @@ class GateQPD(Gate):
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
+
     def __init__(
         self,
         bases: list[tuple[nn.Sequential, ...]],
@@ -682,7 +685,7 @@ class GateQPD(Gate):
         nqubit: int = 1,
         wires: int | list[int] | None = None,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
         self.nqubit = nqubit
         if wires is None:
@@ -747,6 +750,7 @@ class MeasureQPD(Operation):
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
     """
+
     def __init__(self, nqubit: int = 1, wires: int | list[int] | None = None) -> None:
         self.nqubit = nqubit
         if wires is None:

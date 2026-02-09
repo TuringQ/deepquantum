@@ -31,14 +31,14 @@ def test_loss_fock_basis_True():
     result = eng.run(prog)
 
     nmode = n
-    cir = dq.QumodeCircuit(nmode=nmode, init_state=[1,1,1], cutoff=4, backend='fock', basis=True)
+    cir = dq.QumodeCircuit(nmode=nmode, init_state=[1, 1, 1], cutoff=4, backend='fock', basis=True)
     cir.loss_t(0, transmittance[0])
     cir.ps(0, angles[0])
     cir.ps(1, angles[1])
-    cir.bs([0,2], [angles[2], angles[3]])
+    cir.bs([0, 2], [angles[2], angles[3]])
     cir.loss_t(0, transmittance[1])
     cir.loss_t(2, transmittance[2])
-    cir.bs([1,2], [angles[4], angles[5]])
+    cir.bs([1, 2], [angles[4], angles[5]])
     cir.loss_t(0, transmittance[3])
     cir.loss_t(1, transmittance[4])
     cir.loss_t(2, transmittance[5])
@@ -76,14 +76,16 @@ def test_loss_fock_basis_False():
     result = eng.run(prog)
 
     nmode = n
-    cir = dq.QumodeCircuit(nmode=nmode, init_state=[(1, [1,1,1])], cutoff=4, backend='fock', basis=False, den_mat=True)
+    cir = dq.QumodeCircuit(
+        nmode=nmode, init_state=[(1, [1, 1, 1])], cutoff=4, backend='fock', basis=False, den_mat=True
+    )
     cir.loss_t(0, transmittance[0])
     cir.ps(0, angles[0])
     cir.ps(1, angles[1])
-    cir.bs([0,2], [angles[2], angles[3]])
+    cir.bs([0, 2], [angles[2], angles[3]])
     cir.loss_t(0, transmittance[1])
     cir.loss_t(2, transmittance[2])
-    cir.bs([1,2], [angles[4], angles[5]])
+    cir.bs([1, 2], [angles[4], angles[5]])
     cir.loss_t(0, transmittance[3])
     cir.loss_t(1, transmittance[4])
     cir.loss_t(2, transmittance[5])
@@ -123,10 +125,10 @@ def test_loss_gaussian():
     cir.loss_t(0, transmittance[0])
     cir.ps(0, angles[0])
     cir.ps(1, angles[1])
-    cir.bs([0,1], [angles[2], angles[3]]) # only support adjacent wires for gaussian loss channel
+    cir.bs([0, 1], [angles[2], angles[3]])  # only support adjacent wires for gaussian loss channel
     cir.loss_t(0, transmittance[1])
     cir.loss_t(2, transmittance[2])
-    cir.bs([1,2], [angles[4], angles[5]])
+    cir.bs([1, 2], [angles[4], angles[5]])
     cir.loss_t(0, transmittance[3])
     cir.loss_t(1, transmittance[4])
     cir.loss_t(2, transmittance[5])

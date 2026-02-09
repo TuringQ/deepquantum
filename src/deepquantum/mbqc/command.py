@@ -19,6 +19,7 @@ class Node(Command):
     Args:
         nodes (int or List[int]): The indices of the nodes to prepare.
     """
+
     def __init__(self, nodes: int | list[int]) -> None:
         super().__init__(name='Node', nodes=nodes)
 
@@ -39,6 +40,7 @@ class Entanglement(Command):
         node1 (int): The first node index.
         node2 (int): The second node index.
     """
+
     def __init__(self, node1: int, node2: int) -> None:
         super().__init__(name='Entanglement', nodes=[node1, node2])
 
@@ -80,14 +82,15 @@ class Measurement(Command):
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     def __init__(
         self,
         nodes: int | list[int],
-        angle: Any = 0.,
+        angle: Any = 0.0,
         plane: str = 'xy',
         s_domain: int | Iterable[int] | None = None,
         t_domain: int | Iterable[int] | None = None,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
         super().__init__(name='Measurement', nodes=nodes)
         self.plane = plane.lower()
@@ -146,15 +149,15 @@ class Measurement(Command):
         else:
             qt = torch.zeros(init_state.shape[0], device=angle.device).reshape(-1, 1)
         if self.plane in ['xy', 'yx']:
-            alpha = (-1)**qs * angle + torch.pi * qt
+            alpha = (-1) ** qs * angle + torch.pi * qt
             # M^{XY,α} X^s Z^t = M^{XY,(-1)^s·α+tπ}
         elif self.plane in ['zx', 'xz']:
-            alpha = (-1)**(qs + qt) * angle + torch.pi * qs
+            alpha = (-1) ** (qs + qt) * angle + torch.pi * qs
             # M^{XZ,α} X^s Z^t = M^{XZ,(-1)^t((-1)^s·α+sπ)}
             #                  = M^{XZ,(-1)^{s+t}·α+(-1)^t·sπ}
             #                  = M^{XZ,(-1)^{s+t}·α+sπ}  (since (-1)^t·π ≡ π (mod 2π))
         elif self.plane in ['yz', 'zy']:
-            alpha = (-1)**qt * angle + torch.pi * (qs + qt)
+            alpha = (-1) ** qt * angle + torch.pi * (qs + qt)
             # positive Y axis as 0 angle
             # M^{YZ,α} X^s Z^t = M^{YZ,(-1)^t·α+(s+t)π)}
         cir = QubitCircuit(nqubit=nqubit)
@@ -164,11 +167,11 @@ class Measurement(Command):
         state = []
         if isinstance(rst, list):
             for i, d in enumerate(rst):
-                (k, _), = d.items()
+                ((k, _),) = d.items()
                 state.append(cir._slice_state_vector(state=final_state[i], wires=wire, bits=k))
                 sgs.measure_dict[self.nodes[0]].append(int(k))
         else:
-            (k, _), = rst.items()
+            ((k, _),) = rst.items()
             state.append(cir._slice_state_vector(state=final_state[0], wires=wire, bits=k))
             sgs.measure_dict[self.nodes[0]].append(int(k))
         state = torch.stack(state)
@@ -200,12 +203,8 @@ class Correction(Command):
         domain (Union[int, Iterable[int], None], optional): The indices of the nodes that contribute to signal domain s.
             Default: ``None``
     """
-    def __init__(
-        self,
-        nodes: int | list[int],
-        basis: str = 'x',
-        domain: int | Iterable[int] | None = None
-    ) -> None:
+
+    def __init__(self, nodes: int | list[int], basis: str = 'x', domain: int | Iterable[int] | None = None) -> None:
         super().__init__(name='Correction', nodes=nodes)
         self.basis = basis.lower()
         if domain is None:
@@ -237,9 +236,9 @@ class Correction(Command):
         theta = torch.pi * qs.to(init_state.real.dtype)
         cir = QubitCircuit(nqubit=nqubit)
         if self.basis == 'x':
-            cir.rx(wires=wire, encode=True) # global phase
+            cir.rx(wires=wire, encode=True)  # global phase
         elif self.basis == 'z':
-            cir.rz(wires=wire, encode=True) # global phase
+            cir.rz(wires=wire, encode=True)  # global phase
         else:
             raise ValueError(f'Invalid basis {self.basis}')
         state = cir(data=theta.reshape(-1, 1).squeeze(0), state=init_state.squeeze(0))

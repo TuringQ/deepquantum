@@ -9,6 +9,7 @@ from tqdm import tqdm
 # Print version
 print(dq.__version__)
 
+
 def benchmark(f, *args, trials=10):
     r = f(*args)
     time0 = time.time()
@@ -20,8 +21,8 @@ def benchmark(f, *args, trials=10):
 
     return r, ts
 
-def random_circuit_simulation(n_qubits, n_gates):
 
+def random_circuit_simulation(n_qubits, n_gates):
     random.seed(10)
 
     cir = dq.QubitCircuit(n_qubits)
@@ -32,22 +33,22 @@ def random_circuit_simulation(n_qubits, n_gates):
         lambda q: cir.x(q),
         lambda q: cir.rx(q, inputs=random.random() * 2 * torch.pi),
         lambda q: cir.ry(q, inputs=random.random() * 2 * torch.pi),
-        lambda q: cir.rz(q, inputs=random.random() * 2 * torch.pi)
+        lambda q: cir.rz(q, inputs=random.random() * 2 * torch.pi),
     ]
 
     for _ in range(n_gates):
         # 70% chance for single-qubit gate, 30% for CNOT
         if random.random() < 0.7:
             # Random single-qubit gate
-            qubit = random.randint(0, n_qubits-1)
+            qubit = random.randint(0, n_qubits - 1)
             random.choice(single_gates)(qubit)
         else:
             # Random CNOT
-            control = random.randint(0, n_qubits-1)
-            target = random.randint(0, n_qubits-1)
+            control = random.randint(0, n_qubits - 1)
+            target = random.randint(0, n_qubits - 1)
             # Ensure control and target are different
             while target == control:
-                target = random.randint(0, n_qubits-1)
+                target = random.randint(0, n_qubits - 1)
             cir.cnot(control=control, target=target)
 
     # Transpile circuit to measurement pattern
@@ -55,7 +56,9 @@ def random_circuit_simulation(n_qubits, n_gates):
 
     def simulation():
         state = pattern().full_state
+
     return benchmark(simulation)
+
 
 results = {}
 
@@ -69,8 +72,8 @@ for n in tqdm(n_list):
         _, ts = random_circuit_simulation(n, l)
         results[str(n) + '-' + str(l)] = ts
 
-with open('simulation_mbqc_'+platform+'_results.data', 'w') as f:
+with open('simulation_mbqc_' + platform + '_results.data', 'w') as f:
     json.dump(results, f)
 
-with open('simulation_mbqc_'+platform+'_results.data') as f:
+with open('simulation_mbqc_' + platform + '_results.data') as f:
     print(json.load(f))

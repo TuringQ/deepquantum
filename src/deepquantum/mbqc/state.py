@@ -26,18 +26,19 @@ class SubGraphState(nn.Module):
         edges (List or None, optional): Additional edges connecting the nodes in the subgraph state. Default: ``None``
         nodes (int, List[int] or None, optional): Additional nodes to include in the subgraph state. Default: ``None``
     """
+
     def __init__(
         self,
         nodes_state: int | list[int] | None = None,
         state: Any = 'plus',
         edges: list | None = None,
-        nodes: int | list[int] | None = None # primarily, for the single-node case
+        nodes: int | list[int] | None = None,  # primarily, for the single-node case
     ) -> None:
         super().__init__()
         self.nodes_out_seq = None
         self.set_graph(nodes_state, edges, nodes)
         self.set_state(state)
-        self.measure_dict = defaultdict(list) # record the measurement results: {node: batched_bit}
+        self.measure_dict = defaultdict(list)  # record the measurement results: {node: batched_bit}
 
     def to(self, arg: Any) -> 'SubGraphState':
         """Set dtype or device of the ``SubGraphState``."""
@@ -67,10 +68,10 @@ class SubGraphState(nn.Module):
         for i in self.nodes_state:
             nodes_bg.remove(i)
         nodes = self.nodes_state + nodes_bg
-        wires = [0] + list(map(lambda node: self.node2wire_dict[node] + 1, nodes)) # [0] for batch
-        plus = torch.tensor([[1], [1]], dtype=self.state.dtype, device=self.state.device) / 2 ** 0.5
+        wires = [0] + list(map(lambda node: self.node2wire_dict[node] + 1, nodes))  # [0] for batch
+        plus = torch.tensor([[1], [1]], dtype=self.state.dtype, device=self.state.device) / 2**0.5
         init_state = multi_kron([self.state] + [plus] * len(nodes_bg)).reshape([-1] + [2] * nqubit)
-        init_state = init_state.permute(inverse_permutation(wires)).reshape([-1, 2 ** nqubit])
+        init_state = init_state.permute(inverse_permutation(wires)).reshape([-1, 2**nqubit])
         cir = QubitCircuit(nqubit=nqubit, init_state=init_state)
         edges = list(filter(lambda edge: edge[2]['cz'], self.edges(data=True)))
         for edge in edges:
@@ -82,7 +83,7 @@ class SubGraphState(nn.Module):
         self,
         nodes_state: int | list[int] | None = None,
         edges: list | None = None,
-        nodes: int | list[int] | None = None
+        nodes: int | list[int] | None = None,
     ) -> None:
         """Set the graph structure for the subgraph state."""
         if nodes_state is None:
@@ -97,7 +98,7 @@ class SubGraphState(nn.Module):
             nodes = [nodes]
         graph = nx.Graph()
         if len(nodes_state) > 1:
-            nx.add_cycle(graph, nodes_state, cz=False) # 'cz' is the label for entanglement
+            nx.add_cycle(graph, nodes_state, cz=False)  # 'cz' is the label for entanglement
         else:
             graph.add_nodes_from(nodes_state)
         graph.add_edges_from(edges, cz=True)
@@ -111,9 +112,9 @@ class SubGraphState(nn.Module):
         nqubit = len(self.nodes_state)
         if isinstance(state, str):
             if state == 'plus':
-                state = torch.tensor([1, 1]) / 2 ** 0.5 + 0j
+                state = torch.tensor([1, 1]) / 2**0.5 + 0j
             elif state == 'minus':
-                state = torch.tensor([1, -1]) / 2 ** 0.5 + 0j
+                state = torch.tensor([1, -1]) / 2**0.5 + 0j
             elif state == 'zero':
                 state = torch.tensor([1, 0]) + 0j
             elif state == 'one':
@@ -218,12 +219,13 @@ class GraphState(nn.Module):
         nodes (int, List[int] or None, optional): Additional nodes to include in the initial graph state.
             Default: ``None``
     """
+
     def __init__(
         self,
         nodes_state: int | list[int] | None = None,
         state: Any = 'plus',
         edges: list | None = None,
-        nodes: int | list[int] | None = None
+        nodes: int | list[int] | None = None,
     ) -> None:
         super().__init__()
         sgs = SubGraphState(nodes_state, state, edges, nodes)
@@ -243,7 +245,7 @@ class GraphState(nn.Module):
         edges: list | None = None,
         nodes: int | list[int] | None = None,
         measure_dict: dict | None = None,
-        index: int | None = None
+        index: int | None = None,
     ) -> None:
         """Add a subgraph state to the graph state.
 

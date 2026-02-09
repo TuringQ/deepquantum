@@ -70,14 +70,14 @@ def poly_lambda(submat: torch.Tensor, int_partition: list, power: int, loop: boo
         traces.append(torch.trace(x))
     trace_list = torch.stack(traces)
     coeff = 0
-    if loop: # loop hafnian case
+    if loop:  # loop hafnian case
         v = torch.diag(submat)
         xv = x_mat @ v / 2
         # matrix power calculation
         diag_term = []
         x = xaz.new_ones(xaz.shape[-1]).diag()
         diag_term.append(v @ x @ xv)
-        for _ in range(power-1):
+        for _ in range(power - 1):
             x = x @ xaz
             diag_term.append(v @ x @ xv)
         diag_term = torch.stack(diag_term)

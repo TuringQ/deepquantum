@@ -20,7 +20,8 @@ class Optimizer:
             the target function. The keys of it should be consistent with inputs of ``target_func``.
         random_state (int): The random seed for this optimization process.
     """
-    def __init__(self, target_func, param_init, random_state = 0):
+
+    def __init__(self, target_func, param_init, random_state=0):
         self.target_func = target_func
         if isinstance(param_init, (list, np.ndarray)):
             self.param_dict = {}
@@ -34,8 +35,10 @@ class Optimizer:
         elif isinstance(param_init, dict):
             self.param_dict = copy.deepcopy(param_init)
         self.random_state = random_state
+
     def __str__(self) -> str:
         return 'Optimizer'
+
 
 class OptimizerBayesian(Optimizer):
     r"""Optimizer based on Bayesian optimization.
@@ -54,24 +57,17 @@ class OptimizerBayesian(Optimizer):
         so in this program the ``pbound`` (a parameter determining the search region in
         Bayesian-Optimization package) is fixed from 0 to :math:`2\pi`.
     """
-    def __init__(self, target_func, param_init, random_state = 0):
+
+    def __init__(self, target_func, param_init, random_state=0):
         super().__init__(target_func, param_init, random_state)
+
         def func_to_maximize(**param_dict: dict) -> float:
             return -self.target_func(**param_dict)
 
         self.pbounds = self.gen_pbounds()
         # BO 内置用法是最大化目标
-        self.optimizer = BayesianOptimization(
-            f = func_to_maximize,
-            pbounds = self.pbounds,
-            random_state = self.random_state
-        )
-        self.util = UtilityFunction(
-                    kind='ucb',
-                    kappa=2.576,
-                    xi=0.0,
-                    kappa_decay=1,
-                    kappa_decay_delay=0)
+        self.optimizer = BayesianOptimization(f=func_to_maximize, pbounds=self.pbounds, random_state=self.random_state)
+        self.util = UtilityFunction(kind='ucb', kappa=2.576, xi=0.0, kappa_decay=1, kappa_decay_delay=0)
         self.best_param_dict = copy.deepcopy(self.param_dict)
         self.best_target = -np.inf
         self.iter = 0
@@ -79,14 +75,14 @@ class OptimizerBayesian(Optimizer):
     def gen_pbounds(self) -> dict:
         pbounds = {}
         for key in self.param_dict.keys():
-            pbounds[key] = (0,np.pi*2)
+            pbounds[key] = (0, np.pi * 2)
         return pbounds
 
     def param_suggest(self) -> np.ndarray:
         self.util.update_params()
         x_probe = self.optimizer.suggest(self.util)
         # pylint: disable=protected-access
-        x = self.optimizer._space._as_array(x_probe) # a list
+        x = self.optimizer._space._as_array(x_probe)  # a list
         param_array = np.asarray(x).reshape(-1)
         return param_array
 
@@ -130,18 +126,12 @@ class OptimizerSPSA(Optimizer):
             the target function. The keys of it should be consistent with inputs of ``target_func``.
         random_state (int): The random seed for this optimization process.
     """
-    def __init__(self, target_func, param_init, random_state = 0):
+
+    def __init__(self, target_func, param_init, random_state=0):
         super().__init__(target_func, param_init, random_state)
         self.random_state_ori = np.random.get_state()
         np.random.seed(self.random_state)
-        self.hyperparam = {
-            'a': 1e-1,
-            'c': 1e-2,
-            'A': 200,
-            'nepoch': 2000,
-            'alpha': 0.602,
-            'gamma': 0.101
-        }
+        self.hyperparam = {'a': 1e-1, 'c': 1e-2, 'A': 200, 'nepoch': 2000, 'alpha': 0.602, 'gamma': 0.101}
         self.iter = 0
         self.nparam = len(param_init)
         self.best_param_dict = copy.deepcopy(self.param_dict)
@@ -195,7 +185,7 @@ class OptimizerSPSA(Optimizer):
             if isinstance(f1, torch.Tensor):
                 f1 = f1.item()
                 f2 = f2.item()
-            self.param_register([p1,p2], [f1,f2])
+            self.param_register([p1, p2], [f1, f2])
             if if_print:
                 print(step, '|', f1, f2)
         return list(self.best_param_dict.values())
@@ -216,7 +206,8 @@ class OptimizerFourier(Optimizer):
             (namely, gradient descent process).
         random_state (int): The random seed for this optimization process.
     """
-    def __init__(self, target_func, param_init, order = 5, lr = 0.1, random_state = 0):
+
+    def __init__(self, target_func, param_init, order=5, lr=0.1, random_state=0):
         super().__init__(target_func, param_init, random_state)
         self.iter = 0
         self.r = order
@@ -225,45 +216,47 @@ class OptimizerFourier(Optimizer):
         self.best_target = np.inf
         self.lr = lr
         self.a = self.gen_a()
-        self.u = np.zeros((2*order+1)*self.nparam)
+        self.u = np.zeros((2 * order + 1) * self.nparam)
         self.iter = 0
 
     def gen_a(self) -> np.ndarray:
-        a = np.zeros((2*self.r+1, 2*self.r+1))
-        mu = np.arange(2*self.r+1)
+        a = np.zeros((2 * self.r + 1, 2 * self.r + 1))
+        mu = np.arange(2 * self.r + 1)
         x_mu = 2 * np.pi * (mu - self.r) / (2 * self.r + 1)
-        a[:,0] = 1
-        a[:,1:self.r+1] = np.cos(x_mu.reshape(-1,1)@np.arange(1,self.r+1).reshape(1,-1))
-        a[:,self.r+1:2*self.r+2] = np.sin(x_mu.reshape(-1,1)@np.arange(1,self.r+1).reshape(1,-1))
+        a[:, 0] = 1
+        a[:, 1 : self.r + 1] = np.cos(x_mu.reshape(-1, 1) @ np.arange(1, self.r + 1).reshape(1, -1))
+        a[:, self.r + 1 : 2 * self.r + 2] = np.sin(x_mu.reshape(-1, 1) @ np.arange(1, self.r + 1).reshape(1, -1))
         return a
 
     def param_suggest(self) -> np.ndarray:
         tmp_param = np.asarray(list(self.param_dict.values()), dtype=float).reshape(1, -1)
-        mu = np.arange(2*self.r+1)
+        mu = np.arange(2 * self.r + 1)
         varied_param = 2 * np.pi * (mu - self.r) / (2 * self.r + 1)
-        param_array = np.repeat(tmp_param, self.nparam*(2*self.r+1), axis=0)
+        param_array = np.repeat(tmp_param, self.nparam * (2 * self.r + 1), axis=0)
         for param_id in range(self.nparam):
-            param_array[param_id*(2*self.r+1):(param_id+1)*(2*self.r+1), param_id] = varied_param
-        return  param_array
+            param_array[param_id * (2 * self.r + 1) : (param_id + 1) * (2 * self.r + 1), param_id] = varied_param
+        return param_array
 
     def param_register(self, param_array: np.ndarray, target: np.ndarray):
-        assert len(param_array)==(2*self.r+1)*self.nparam
-        assert len(target)==(2*self.r+1)*self.nparam
+        assert len(param_array) == (2 * self.r + 1) * self.nparam
+        assert len(target) == (2 * self.r + 1) * self.nparam
         # 求解线性方程组得出组合系数
         param = np.asarray(list(self.param_dict.values()))
         for param_id in range(self.nparam):
-            idx1 = param_id*(2*self.r+1)
-            idx2 = (1+param_id)*(2*self.r+1)
-            self.u[idx1:idx2] = np.linalg.solve(self.a,target[idx1:idx2])
+            idx1 = param_id * (2 * self.r + 1)
+            idx2 = (1 + param_id) * (2 * self.r + 1)
+            self.u[idx1:idx2] = np.linalg.solve(self.a, target[idx1:idx2])
 
         # 根据组合系数计算当前位置处的偏导数
         grad = np.zeros(self.nparam)
         for param_id in range(self.nparam):
             theta = param[param_id]
-            idx = 1+param_id*(2*self.r+1)
-            grad[param_id] = -(np.arange(1,self.r+1)*np.sin(theta*np.arange(1,self.r+1)))@\
-                            self.u[idx:self.r+idx]+(np.arange(1,self.r+1)*\
-                            np.cos(theta*np.arange(1,self.r+1)))@self.u[self.r+idx:self.r*2+idx]
+            idx = 1 + param_id * (2 * self.r + 1)
+            grad[param_id] = (
+                -(np.arange(1, self.r + 1) * np.sin(theta * np.arange(1, self.r + 1))) @ self.u[idx : self.r + idx]
+                + (np.arange(1, self.r + 1) * np.cos(theta * np.arange(1, self.r + 1)))
+                @ self.u[self.r + idx : self.r * 2 + idx]
+            )
         param_new = param - self.lr * grad
         self.param_dict = dict(zip(self.param_dict.keys(), param_new))
         if target.min() < self.best_target:

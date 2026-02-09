@@ -8,9 +8,10 @@ from tqdm import tqdm
 # Print version
 print(dq.__version__)
 
-def hafnian_batch_dq(n, l): # n modes 的数量 ， l batchsize
+
+def hafnian_batch_dq(n, l):  # n modes 的数量 ， l batchsize
     """Generate a random hafnian matrix and calculate its hafnian using DeepQuantum."""
-    A = test_sequence_hafnian(n, number_of_sequence=number_of_sequence).to('cuda') # （number_of_sequence=l， 2n， 2n）
+    A = test_sequence_hafnian(n, number_of_sequence=number_of_sequence).to('cuda')  # （number_of_sequence=l， 2n， 2n）
     print(A.device)
 
     def get_hafnian_batch_dq(A):
@@ -20,12 +21,13 @@ def hafnian_batch_dq(n, l): # n modes 的数量 ， l batchsize
         hafnian_batch(A[0:1])
         time0 = time.time()
         for i in tqdm(range(trials)):
-            results = hafnian_batch(A[i*l:(i+1)*l])
+            results = hafnian_batch(A[i * l : (i + 1) * l])
         time1 = time.time()
         ts = (time1 - time0) / trials
         return ts
 
     return get_hafnian_batch_dq(A)
+
 
 results = {}
 platform = 'deepquantum_gpu'
@@ -34,10 +36,10 @@ for n in tqdm(n_list):
     for l in l_list:
         print('n =', n, 'l =', l)
         ts = hafnian_batch_dq(n, l)
-        results[str(n)+'+'+str(l)] = ts
+        results[str(n) + '+' + str(l)] = ts
 
-with open('hafnian/hafnian_'+platform+'_results.data', 'w') as f:
+with open('hafnian/hafnian_' + platform + '_results.data', 'w') as f:
     json.dump(results, f)
 
-with open('hafnian/hafnian_'+platform+'_results.data') as f:
+with open('hafnian/hafnian_' + platform + '_results.data') as f:
     print(json.load(f))

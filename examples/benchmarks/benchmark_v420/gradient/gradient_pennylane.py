@@ -10,6 +10,7 @@ from tqdm import tqdm
 # Print version
 print(qml.__version__)
 
+
 def benchmark(f, *args, trials=10):
     r = f(*args)
     time0 = time.time()
@@ -21,8 +22,9 @@ def benchmark(f, *args, trials=10):
 
     return r, ts
 
+
 def grad_pennylane(n, l):
-    dev = qml.device("default.qubit", wires=n)
+    dev = qml.device('default.qubit', wires=n)
 
     params = pnp.array(np.ones(3 * n * l), requires_grad=True)
 
@@ -44,6 +46,7 @@ def grad_pennylane(n, l):
     grad_fn = qml.grad(circuit)
     return benchmark(grad_fn, params)
 
+
 results = {}
 platform = 'pennylane'
 
@@ -53,10 +56,10 @@ l_list = [1, 5, 10]
 for n in tqdm(n_list):
     for l in l_list:
         _, ts = grad_pennylane(n, l)
-        results[f"{n}-{l}"] = ts
+        results[f'{n}-{l}'] = ts
 
-with open('gradient_'+platform+'_results.data', 'w') as f:
+with open('gradient_' + platform + '_results.data', 'w') as f:
     json.dump(results, f)
 
-with open('gradient_'+platform+'_results.data') as f:
+with open('gradient_' + platform + '_results.data') as f:
     print(json.load(f))

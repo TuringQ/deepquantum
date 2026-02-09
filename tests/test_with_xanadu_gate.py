@@ -37,7 +37,7 @@ def test_cx_gate():
     result = eng.run(prog)
 
     cir = dq.QumodeCircuit(nmode=nmode, init_state='vac', cutoff=cutoff, backend='fock', basis=False)
-    cir.cx([0,1], params[0])
+    cir.cx([0, 1], params[0])
     cir.to(torch.double)
     state = cir()
 
@@ -56,7 +56,7 @@ def test_cz_gate():
     result = eng.run(prog)
 
     cir = dq.QumodeCircuit(nmode=nmode, init_state='vac', cutoff=cutoff, backend='fock', basis=False)
-    cir.cz([0,1], params[0])
+    cir.cz([0, 1], params[0])
     cir.to(torch.double)
     state = cir()
 
@@ -113,7 +113,7 @@ def test_cross_kerr_gate():
     result = eng.run(prog)
 
     cir = dq.QumodeCircuit(nmode=nmode, init_state='vac', cutoff=cutoff, backend='fock', basis=False)
-    cir.ck([0,1], params[0])
+    cir.ck([0, 1], params[0])
     cir.to(torch.double)
     state = cir()
 

@@ -2,7 +2,6 @@
 functions for torontonian
 """
 
-
 import torch
 
 from .qmath import get_powerset
@@ -54,8 +53,8 @@ def torontonian_batch(o_mat: torch.Tensor, gamma: torch.Tensor | None = None) ->
     assert o_mat.dim() == 3, 'Input tensor should be in batched size'
     assert o_mat.shape[-2] == o_mat.shape[-1]
     assert o_mat.shape[-1] % 2 == 0, 'Input matrix dimension should be even'
-    if gamma is None: # torontonian case
+    if gamma is None:  # torontonian case
         tors = torch.vmap(torontonian, in_dims=(0, None))(o_mat, gamma)
-    else: # loop torontonian case
+    else:  # loop torontonian case
         tors = torch.vmap(torontonian, in_dims=(0, 0))(o_mat, gamma)
     return tors

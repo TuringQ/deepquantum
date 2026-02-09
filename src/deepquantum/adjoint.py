@@ -29,13 +29,10 @@ class AdjointExpectation(Function):
         observable (Observable): The observable.
         *parameters (torch.Tensor): The parameters of the quantum circuit.
     """
+
     @staticmethod
     def forward(
-        ctx,
-        state: DistributedQubitState,
-        operators: nn.Sequential,
-        observable: 'Observable',
-        *parameters: torch.Tensor
+        ctx, state: DistributedQubitState, operators: nn.Sequential, observable: 'Observable', *parameters: torch.Tensor
     ) -> torch.Tensor:
         ctx.state_phi = state
         ctx.operators = operators
@@ -61,7 +58,7 @@ class AdjointExpectation(Function):
                 ctx.state_phi = gate_dagger(ctx.state_phi)
                 if gate.npara > 0:
                     if parameters[-idx].requires_grad:
-                        du_dx = gate.get_derivative(parameters[-idx]).unsqueeze(0).flatten(0, -3) # (npara, 2**n, 2**n)
+                        du_dx = gate.get_derivative(parameters[-idx]).unsqueeze(0).flatten(0, -3)  # (npara, 2**n, 2**n)
                         wires = gate.controls + gate.wires
                         targets = [gate.nqubit - wire - 1 for wire in wires]
                         grads_gate = []
@@ -71,8 +68,9 @@ class AdjointExpectation(Function):
                                 if len(gate.controls) == 0:
                                     state_mu = dist_one_targ_gate(state_mu, targets[0], mat)
                                 else:
-                                    state_mu = dist_many_ctrl_one_targ_gate(state_mu, targets[:-1], targets[-1], mat,
-                                                                            True)
+                                    state_mu = dist_many_ctrl_one_targ_gate(
+                                        state_mu, targets[:-1], targets[-1], mat, True
+                                    )
                             else:
                                 zeros = mat.new_zeros(2 ** len(wires) - 2 ** len(gate.wires)).diag_embed()
                                 matrix = torch.block_diag(zeros, mat)

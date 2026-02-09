@@ -20,14 +20,14 @@ def transform_cut2move(
     operators: nn.Sequential,
     cut_lst: list[tuple[int, int]],
     observables: nn.ModuleList | None = None,
-    qpd_form: bool = False
+    qpd_form: bool = False,
 ) -> tuple[nn.Sequential, nn.ModuleList | None]:
     """Transform ``WireCut`` to ``Move`` and expand the observables accordingly."""
     nqubit = operators[0].nqubit
     cuts_per_qubit = defaultdict(list)
     for idx, wire in cut_lst:
         cuts_per_qubit[wire].append(idx)
-    ncut_cum_lst = [] # ncut before the current qubit
+    ncut_cum_lst = []  # ncut before the current qubit
     ncut = 0
     for i in range(nqubit + 1):
         ncut_cum_lst.append(ncut)
@@ -60,9 +60,7 @@ def transform_cut2move(
 
 
 def partition_labels(
-    operators: nn.Sequential,
-    ignore: Callable = lambda x: False,
-    keep_idle_wires: bool = False
+    operators: nn.Sequential, ignore: Callable = lambda x: False, keep_idle_wires: bool = False
 ) -> list[int | None]:
     """Generate partition labels from the connectivity of a quantum circuit."""
     nqubit = operators[0].nqubit
@@ -73,7 +71,7 @@ def partition_labels(
             continue
         wires = op.wires + op.controls
         for i, wire1 in enumerate(wires):
-            for wire2 in wires[i+1:]:
+            for wire2 in wires[i + 1 :]:
                 graph.add_edge(wire1, wire2)
     qubit_subsets = list(connected_components(graph))
     qubit_subsets.sort(key=min)
@@ -84,9 +82,7 @@ def partition_labels(
             for wire in wires:
                 idle_wires.discard(wire)
         qubit_subsets = [
-            subset
-            for subset in qubit_subsets
-            if not (len(subset) == 1 and next(iter(subset)) in idle_wires)
+            subset for subset in qubit_subsets if not (len(subset) == 1 and next(iter(subset)) in idle_wires)
         ]
     qubit_labels = [None] * nqubit
     for i, subset in enumerate(qubit_subsets):
@@ -226,9 +222,7 @@ def decompose_observables(observables: nn.ModuleList, qubit_labels: Sequence[Has
 
 
 def partition_problem(
-    operators: nn.Sequential,
-    qubit_labels: Sequence[Hashable] | None = None,
-    observables: nn.ModuleList | None = None
+    operators: nn.Sequential, qubit_labels: Sequence[Hashable] | None = None, observables: nn.ModuleList | None = None
 ) -> tuple[dict, dict | None]:
     """Separate the circuit and observables."""
     if qubit_labels is None:

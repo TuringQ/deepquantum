@@ -18,6 +18,7 @@ from .state import FockState
 
 class Clements(QumodeCircuit):
     """Clements circuit."""
+
     def __init__(
         self,
         nmode: int,
@@ -27,10 +28,18 @@ class Clements(QumodeCircuit):
         phi_first: bool = True,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
-        super().__init__(nmode=nmode, init_state=init_state, cutoff=cutoff, basis=basis, name='Clements',
-                         noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            nmode=nmode,
+            init_state=init_state,
+            cutoff=cutoff,
+            basis=basis,
+            name='Clements',
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         self.phi_first = phi_first
         wires1 = self.wires[1::2]
         wires2 = self.wires[2::2]
@@ -48,7 +57,7 @@ class Clements(QumodeCircuit):
             for wire in self.wires:
                 self.ps(wire, encode=True)
 
-    def dict2data(self, angle_dict: dict, dtype = torch.float) -> torch.Tensor:
+    def dict2data(self, angle_dict: dict, dtype=torch.float) -> torch.Tensor:
         """Convert the dictionary of angles to the input data for the circuit."""
         angle_dict = angle_dict.copy()
         for key in angle_dict.keys():
@@ -69,11 +78,11 @@ class Clements(QumodeCircuit):
                 for j in range(len(wires1)):
                     wire = wires1[j] - 1
                     if self.phi_first:
-                        phi   = angle_dict[(wire, columns[wire])]
+                        phi = angle_dict[(wire, columns[wire])]
                         theta = angle_dict[(wire, columns[wire] + 1)]
                     else:
                         theta = angle_dict[(wire, columns[wire])]
-                        phi   = angle_dict[(wire, columns[wire] + 1)]
+                        phi = angle_dict[(wire, columns[wire] + 1)]
                     data.append(theta)
                     data.append(phi)
                     columns[wire] += 2
@@ -81,11 +90,11 @@ class Clements(QumodeCircuit):
                 for j in range(len(wires2)):
                     wire = wires2[j] - 1
                     if self.phi_first:
-                        phi   = angle_dict[(wire, columns[wire])]
+                        phi = angle_dict[(wire, columns[wire])]
                         theta = angle_dict[(wire, columns[wire] + 1)]
                     else:
                         theta = angle_dict[(wire, columns[wire])]
-                        phi   = angle_dict[(wire, columns[wire] + 1)]
+                        phi = angle_dict[(wire, columns[wire] + 1)]
                     data.append(theta)
                     data.append(phi)
                     columns[wire] += 2
@@ -98,6 +107,7 @@ class Clements(QumodeCircuit):
 
 class GaussianBosonSampling(QumodeCircuit):
     """Gaussian Boson Sampling circuit."""
+
     def __init__(
         self,
         nmode: int,
@@ -109,7 +119,7 @@ class GaussianBosonSampling(QumodeCircuit):
         detector: str = 'pnrd',
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
         if not isinstance(squeezing, torch.Tensor):
             squeezing = torch.tensor(squeezing).reshape(-1)
@@ -120,8 +130,18 @@ class GaussianBosonSampling(QumodeCircuit):
         assert is_unitary(unitary)
         if cutoff is None:
             cutoff = 3
-        super().__init__(nmode=nmode, init_state='vac', cutoff=cutoff, backend=backend, basis=basis,
-                         detector=detector, name='GBS', noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            nmode=nmode,
+            init_state='vac',
+            cutoff=cutoff,
+            backend=backend,
+            basis=basis,
+            detector=detector,
+            name='GBS',
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         for i in range(self.nmode):
             self.s(i, squeezing[i])
         self.clements(unitary)
@@ -129,6 +149,7 @@ class GaussianBosonSampling(QumodeCircuit):
 
 class GBS_Graph(GaussianBosonSampling):
     """Simulate Gaussian Boson Sampling for graph problems."""
+
     def __init__(
         self,
         adj_mat: Any,
@@ -137,7 +158,7 @@ class GBS_Graph(GaussianBosonSampling):
         detector: str = 'pnrd',
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
         if not isinstance(adj_mat, torch.Tensor):
             adj_mat = torch.tensor(adj_mat)
@@ -150,8 +171,18 @@ class GBS_Graph(GaussianBosonSampling):
         c = self.norm_factor_c(mean_photon_num, lambd)[0]
         lambda_c = lambd * c
         squeezing = np.arctanh(lambda_c)
-        super().__init__(nmode=nmode, squeezing=squeezing, unitary=unitary, cutoff=cutoff, backend='gaussian',
-                         basis=False, detector=detector, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            nmode=nmode,
+            squeezing=squeezing,
+            unitary=unitary,
+            cutoff=cutoff,
+            backend='gaussian',
+            basis=False,
+            detector=detector,
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         self.name = 'GBS_Graph'
         self.to(adj_mat.dtype)
 

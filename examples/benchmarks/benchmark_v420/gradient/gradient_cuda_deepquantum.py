@@ -8,6 +8,7 @@ from tqdm import tqdm
 # Print version
 print(dq.__version__)
 
+
 def benchmark(f, *args, trials=10):
     r = f(*args)
     time0 = time.time()
@@ -18,6 +19,7 @@ def benchmark(f, *args, trials=10):
     ts = (time1 - time0) / trials
 
     return r, ts
+
 
 def grad_dq(n, l):
     def get_grad_dq(params):
@@ -30,7 +32,7 @@ def grad_dq(n, l):
             cir.rxlayer(encode=True)
             cir.rzlayer(encode=True)
             cir.rxlayer(encode=True)
-        cir.observable(basis='x'*n)
+        cir.observable(basis='x' * n)
         cir.to('cuda')
         cir(data=params)
         exp = cir.expectation()
@@ -38,6 +40,7 @@ def grad_dq(n, l):
         return params.grad
 
     return benchmark(get_grad_dq, torch.ones([3 * n * l], requires_grad=True, device='cuda'))
+
 
 results = {}
 
@@ -51,8 +54,8 @@ for n in tqdm(n_list):
         _, ts = grad_dq(n, l)
         results[str(n) + '-' + str(l)] = ts
 
-with open('gradient_'+platform+'_results.data', 'w') as f:
+with open('gradient_' + platform + '_results.data', 'w') as f:
     json.dump(results, f)
 
-with open('gradient_'+platform+'_results.data') as f:
+with open('gradient_' + platform + '_results.data') as f:
     print(json.load(f))

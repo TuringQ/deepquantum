@@ -22,26 +22,27 @@ class QubitState(nn.Module):
             a tensor that represents a custom state vector or density matrix. Default: ``'zeros'``
         den_mat (bool, optional): Whether the state is a density matrix or not. Default: ``False``
     """
+
     def __init__(self, nqubit: int = 1, state: Any = 'zeros', den_mat: bool = False) -> None:
         super().__init__()
         self.nqubit = nqubit
         self.den_mat = den_mat
         if state == 'zeros':
-            state = torch.zeros((2 ** nqubit, 1), dtype=torch.cfloat)
+            state = torch.zeros((2**nqubit, 1), dtype=torch.cfloat)
             state[0] = 1
             if den_mat:
                 state = state @ state.mH
             self.register_buffer('state', state)
         elif state == 'equal':
-            state = torch.ones((2 ** nqubit, 1), dtype=torch.cfloat)
+            state = torch.ones((2**nqubit, 1), dtype=torch.cfloat)
             state = nn.functional.normalize(state, p=2, dim=-2)
             if den_mat:
                 state = state @ state.mH
             self.register_buffer('state', state)
         elif state in ('entangle', 'GHZ', 'ghz'):
-            state = torch.zeros((2 ** nqubit, 1), dtype=torch.cfloat)
-            state[0] = 1 / 2 ** 0.5
-            state[-1] = 1 / 2 ** 0.5
+            state = torch.zeros((2**nqubit, 1), dtype=torch.cfloat)
+            state[0] = 1 / 2**0.5
+            state[-1] = 1 / 2**0.5
             if den_mat:
                 state = state @ state.mH
             self.register_buffer('state', state)
@@ -50,7 +51,7 @@ class QubitState(nn.Module):
                 state = torch.tensor(state, dtype=torch.cfloat)
             ndim = state.ndim
             s = state.shape
-            if den_mat and s[-1] == 2 ** nqubit and is_density_matrix(state):
+            if den_mat and s[-1] == 2**nqubit and is_density_matrix(state):
                 self.register_buffer('state', state)
             else:
                 state = amplitude_encoding(data=state, nqubit=nqubit)
@@ -93,13 +94,14 @@ class MatrixProductState(nn.Module):
         qudit (int, optional): The local Hilbert space dimension of each qudit. Default: 2
         normalize (bool, optional): Whether to normalize the MPS after each operation. Default: ``True``
     """
+
     def __init__(
         self,
         nsite: int = 1,
         state: str | list[torch.Tensor] | list[int] = 'zeros',
         chi: int | None = None,
         qudit: int = 2,
-        normalize: bool = True
+        normalize: bool = True,
     ) -> None:
         super().__init__()
         if chi is None:
@@ -150,7 +152,7 @@ class MatrixProductState(nn.Module):
             elif isinstance(state[i], int):
                 assert 0 <= state[i] < self.qudit, 'Invalid input'
                 tensor = torch.zeros(self.qudit, dtype=torch.cfloat)
-                tensor[state[i]] = 1.
+                tensor[state[i]] = 1.0
                 # the bond dimension is 1
                 self.register_buffer(f'tensor{i}', tensor.reshape(1, self.qudit, 1))
 
@@ -180,14 +182,12 @@ class MatrixProductState(nn.Module):
                 s = tensors[i].shape
                 tmp = tensors[i].reshape(-1, s[-1])
                 tmp = tmp.mH @ tmp
-                err[i] = (tmp - torch.eye(tmp.shape[0], device=tmp.device,
-                                          dtype=tmp.dtype)).norm(p=1).item()
+                err[i] = (tmp - torch.eye(tmp.shape[0], device=tmp.device, dtype=tmp.dtype)).norm(p=1).item()
             for i in range(self.nsite - 1, self.center, -1):
                 s = tensors[i].shape
                 tmp = tensors[i].reshape(s[0], -1)
                 tmp = tmp @ tmp.mH
-                err[i] = (tmp - torch.eye(tmp.shape[0], device=tmp.device,
-                                          dtype=tmp.dtype)).norm(p=1).item()
+                err[i] = (tmp - torch.eye(tmp.shape[0], device=tmp.device, dtype=tmp.dtype)).norm(p=1).item()
             if prt:
                 print('Orthogonality check:')
                 print('=' * 35)
@@ -210,13 +210,11 @@ class MatrixProductState(nn.Module):
         for i in range(1, self.nsite):
             psi = torch.einsum('...abc,...cde->...abde', psi, tensors[i])
             s = psi.shape
-            psi = psi.reshape(-1, s[-4], s[-3]*s[-2], s[-1])
+            psi = psi.reshape(-1, s[-4], s[-3] * s[-2], s[-1])
         return psi.squeeze()
 
     def inner(
-        self,
-        tensors: Union[list[torch.Tensor], 'MatrixProductState'],
-        form: str = 'norm'
+        self, tensors: Union[list[torch.Tensor], 'MatrixProductState'], form: str = 'norm'
     ) -> torch.Tensor | list[torch.Tensor]:
         """Get the inner product with another matrix product state."""
         # form: 'log' or 'list'
@@ -232,7 +230,7 @@ class MatrixProductState(nn.Module):
         if tensors[self.center].ndim == 3:
             norm = tensors[self.center].norm()
         elif tensors[self.center].ndim == 4:
-            norm = tensors[self.center].norm(p=2, dim=[1,2,3], keepdim=True)
+            norm = tensors[self.center].norm(p=2, dim=[1, 2, 3], keepdim=True)
         self._buffers[f'tensor{self.center}'] = self._buffers[f'tensor{self.center}'] / norm
 
     def orthogonalize_left2right(self, site: int, dc: int = -1, normalize: bool = False) -> None:
@@ -264,7 +262,7 @@ class MatrixProductState(nn.Module):
             u, r = qr(tensors[site].reshape(batch, -1, shape[-1]))
         self._buffers[f'tensor{site}'] = u.reshape(batch, shape[-3], shape[-2], -1)
         if normalize:
-            norm = r.norm(dim=[-2,-1], keepdim=True)
+            norm = r.norm(dim=[-2, -1], keepdim=True)
             r = r / norm
         self._buffers[f'tensor{site + 1}'] = torch.einsum('...ab,...bcd->...acd', r, tensors[site + 1])
         if len(shape) == 3:
@@ -305,7 +303,7 @@ class MatrixProductState(nn.Module):
             l = r.mH
         self._buffers[f'tensor{site}'] = vh.reshape(batch, -1, shape[-2], shape[-1])
         if normalize:
-            norm = l.norm(dim=[-2,-1], keepdim=True)
+            norm = l.norm(dim=[-2, -1], keepdim=True)
             l = l / norm
         self._buffers[f'tensor{site - 1}'] = torch.einsum('...abc,...cd->...abd', tensors[site - 1], l)
         if len(shape) == 3:
@@ -325,13 +323,13 @@ class MatrixProductState(nn.Module):
     def apply_mpo(self, mpo: list[torch.Tensor], sites: list[int]) -> None:
         """Use TEBD algorithm to contract tensors (contract local states with local operators), i.e.,
 
-            >>>          a
-            >>>          |
-            >>>    i-----O-----j            a
-            >>>          |        ->        |
-            >>>          b             ik---X---jl
-            >>>          |
-            >>>    k-----T-----l
+        >>>          a
+        >>>          |
+        >>>    i-----O-----j            a
+        >>>          |        ->        |
+        >>>          b             ik---X---jl
+        >>>          |
+        >>>    k-----T-----l
         """
         assert len(mpo) == len(sites)
         for i, site in enumerate(sites):
@@ -353,6 +351,7 @@ class DistributedQubitState(nn.Module):
     Args:
         nqubit (int): The number of qubits in the state.
     """
+
     def __init__(self, nqubit: int) -> None:
         super().__init__()
         self.world_size = comm_get_world_size()

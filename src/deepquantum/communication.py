@@ -14,7 +14,7 @@ def setup_distributed(backend: str = 'nccl', port: str = '29500') -> tuple[int, 
         # These should be set by the launch script (e.g., torchrun)
         rank = int(os.environ['RANK'])
         world_size = int(os.environ['WORLD_SIZE'])
-        local_rank = int(os.environ['LOCAL_RANK']) # GPU id on the current node
+        local_rank = int(os.environ['LOCAL_RANK'])  # GPU id on the current node
     except KeyError:
         print('RANK, WORLD_SIZE, and LOCAL_RANK env vars must be set.')
         # Fallback for single-process testing (optional)

@@ -31,18 +31,27 @@ class PhotonLoss(Channel):
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nmode: int = 1,
         wires: int | list[int] | None = None,
         cutoff: int | None = None,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
         super().__init__(name='PhotonLoss', nmode=nmode, wires=wires, cutoff=cutoff)
         self.requires_grad = requires_grad
-        self.gate = BeamSplitterSingle(inputs=inputs, nmode=self.nmode + 1, wires=self.wires + [self.nmode],
-                                       cutoff=cutoff, den_mat=True, convention='h', requires_grad=requires_grad, noise=False)
+        self.gate = BeamSplitterSingle(
+            inputs=inputs,
+            nmode=self.nmode + 1,
+            wires=self.wires + [self.nmode],
+            cutoff=cutoff,
+            den_mat=True,
+            convention='h',
+            requires_grad=requires_grad,
+            noise=False,
+        )
         self.npara = 1
 
     @property
@@ -78,7 +87,7 @@ class PhotonLoss(Channel):
         g_t_sqrt = self.theta.new_ones(2).diag() * torch.cos(self.theta / 2)
         g_t = self.theta.new_ones(2).diag() * torch.cos(self.theta / 2) ** 2
         identity = self.theta.new_ones(2).diag()
-        sigma_h = self.theta.new_ones(2).diag() * dqp.hbar / (4 * dqp.kappa ** 2)
+        sigma_h = self.theta.new_ones(2).diag() * dqp.hbar / (4 * dqp.kappa**2)
         matrix_x = g_t_sqrt
         matrix_y = (identity - g_t) @ sigma_h
         self.matrix_x = matrix_x.detach()

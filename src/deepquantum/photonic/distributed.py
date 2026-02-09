@@ -17,7 +17,7 @@ from .state import DistributedFockState, FockState
 def get_pair_rank(rank: int, target_rank: int, new_digit: int, cutoff: int, ndigit: int) -> int:
     """Get the pair rank for communication."""
     digits = decimal_to_list(rank, cutoff, ndigit)
-    digits[-(target_rank+1)] = new_digit
+    digits[-(target_rank + 1)] = new_digit
     return list_to_decimal(digits, cutoff)
 
 
@@ -27,7 +27,7 @@ def get_digit(decimal: int, target: int, cutoff: int) -> int:
     if target >= len(digits):
         return 0
     else:
-        return digits[-(target+1)]
+        return digits[-(target + 1)]
 
 
 def local_gate(state: torch.Tensor, targets: list[int], matrix: torch.Tensor) -> torch.Tensor:
@@ -81,11 +81,7 @@ def dist_swap_gate(state: DistributedFockState, target1: int, target2: int):
     return state
 
 
-def dist_gate(
-    state: DistributedFockState,
-    targets: list[int],
-    matrix: torch.Tensor
-) -> DistributedFockState:
+def dist_gate(state: DistributedFockState, targets: list[int], matrix: torch.Tensor) -> DistributedFockState:
     """Apply a gate to a distributed Fock state tensor."""
     nt = len(targets)
     assert nt <= state.nmode_local
@@ -108,7 +104,7 @@ def measure_dist(
     shots: int = 1024,
     with_prob: bool = False,
     wires: int | list[int] | None = None,
-    block_size: int = 2 ** 24
+    block_size: int = 2**24,
 ) -> dict:
     """Measure a distributed Fock state tensor."""
     if isinstance(wires, int):
@@ -118,7 +114,7 @@ def measure_dist(
         targets = [state.nmode - wire - 1 for wire in wires]
         pm_shape = list(range(state.nmode_local))
         # Assume nmode_global < nmode_local
-        if nwires <= state.nmode_local: # All targets move to local modes
+        if nwires <= state.nmode_local:  # All targets move to local modes
             if max(targets) >= state.nmode_local:
                 targets_new = get_local_targets(targets, state.nmode_local)
                 for i in range(nwires):
@@ -142,7 +138,7 @@ def measure_dist(
                         results[k] = results[k], probs[index]
                 return results
             return {}
-        else: # All targets are sorted, then move to global modes
+        else:  # All targets are sorted, then move to global modes
             targets_sort = sorted(targets, reverse=True)
             wires_local = []
             for i, target in enumerate(targets_sort):
@@ -164,7 +160,7 @@ def measure_dist(
     blocks = torch.multinomial(probs_rank, shots, replacement=True)
     dist.broadcast(blocks, src=0)
     block_dict = Counter(blocks.cpu().numpy())
-    key_offset = state.rank * state.cutoff**(nwires - state.nmode_global)
+    key_offset = state.rank * state.cutoff ** (nwires - state.nmode_global)
     if state.rank in block_dict:
         samples = Counter(block_sample(probs, block_dict[state.rank], block_size))
         results = {FockState(decimal_to_list(k + key_offset, state.cutoff, nwires)): v for k, v in samples.items()}

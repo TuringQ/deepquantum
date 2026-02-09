@@ -17,5 +17,5 @@ for nmode in tqdm(n_list):
         # Generate a random covariance matrix
         U[j] = torch.tensor(unitary_group.rvs(nmode), device=device)
     # Save the matrix U to a file
-    torch.save(U, f"u_matrix_{nmode}_{number_of_sequence}.pt")
+    torch.save(U, f'u_matrix_{nmode}_{number_of_sequence}.pt')
 print('done')

@@ -2,7 +2,6 @@
 Bit-twiddling functions of unsigned integers
 """
 
-
 import torch
 
 

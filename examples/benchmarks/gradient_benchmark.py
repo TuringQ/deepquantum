@@ -68,7 +68,7 @@ def grad_qiskit(n, l, trials=2):
 def hessian_qiskit(n, l, trials=0):
     hamiltonian = reduce(xor, [X for _ in range(n)])
     wavefunction = QuantumCircuit(n)
-    params = ParameterVector("theta", length=3 * n * l)
+    params = ParameterVector('theta', length=3 * n * l)
     for j in range(l):
         for i in range(n - 1):
             wavefunction.cnot(i, i + 1)
@@ -166,7 +166,7 @@ def hessian_dq(n, l, trials=10):
     return benchmark(get_hs_dq, torch.ones([3 * n * l]))
 
 
-def grad_pyvqnet(n, l ,trials=10):
+def grad_pyvqnet(n, l, trials=10):
     def pqctest(param):
         machine = pq.CPUQVM()
         machine.init_qvm()
@@ -182,7 +182,7 @@ def grad_pyvqnet(n, l ,trials=10):
         prog = pq.QProg()
         prog.insert(circuit)
         Xn_string = ', '.join([f'X{i}' for i in range(n)])
-        pauli_dict  = {Xn_string:1.}
+        pauli_dict = {Xn_string: 1.0}
         exp = expval(machine, prog, pauli_dict, qubits)
         return exp
 
@@ -190,6 +190,7 @@ def grad_pyvqnet(n, l ,trials=10):
         return grad(pqctest, values)
 
     return benchmark(get_grad, np.ones([3 * n * l]), trials=trials)
+
 
 results = {}
 

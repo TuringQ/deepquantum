@@ -9,6 +9,7 @@ from tqdm import tqdm
 # Print version
 print(dq.__version__)
 
+
 def benchmark(f, *args, trials=10):
     # r = f(*args)
     time0 = time.time()
@@ -20,6 +21,7 @@ def benchmark(f, *args, trials=10):
 
     return r, ts
 
+
 def hessian_dq(n, l):
     def f(params):
         cir = dq.QubitCircuit(n)
@@ -29,7 +31,7 @@ def hessian_dq(n, l):
             cir.rxlayer(encode=True)
             cir.rzlayer(encode=True)
             cir.rxlayer(encode=True)
-        cir.observable(basis='x'*n)
+        cir.observable(basis='x' * n)
         cir(data=params)
         return cir.expectation()
 
@@ -37,6 +39,7 @@ def hessian_dq(n, l):
         return hessian(f, x)
 
     return benchmark(get_hs_dq, torch.ones([3 * n * l]))
+
 
 results = {}
 
@@ -50,8 +53,8 @@ for n in tqdm(n_list):
         _, ts = hessian_dq(n, l)
         results[str(n) + '-' + str(l)] = ts
 
-with open('hessian_'+platform+'_results.data', 'w') as f:
+with open('hessian_' + platform + '_results.data', 'w') as f:
     json.dump(results, f)
 
-with open('hessian_'+platform+'_results.data') as f:
+with open('hessian_' + platform + '_results.data') as f:
     print(json.load(f))
