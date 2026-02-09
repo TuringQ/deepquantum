@@ -1,3 +1,5 @@
+extend = '../pyproject.toml'
+
 [lint.isort]
 known-first-party = []
 known-third-party = ['deepquantum']
