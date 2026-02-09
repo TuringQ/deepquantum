@@ -272,6 +272,7 @@ class MatrixProductState(nn.Module):
             self._buffers[f'tensor{site}'] = tensors[site].squeeze(0)
             self._buffers[f'tensor{site + 1}'] = tensors[site + 1].squeeze(0)
 
+    # ruff: noqa: E741
     def orthogonalize_right2left(self, site: int, dc: int = -1, normalize: bool = False) -> None:
         r"""Orthogonalize the tensor at ``site`` and update the next one at ``site`` - 1.
 

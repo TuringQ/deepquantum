@@ -203,10 +203,10 @@ class SVD(torch.autograd.Function):
 
         j = f * (uh @ du)
         k = f * (vh @ dv)
-        l = (vh @ dv).diagonal(dim1=-2, dim2=-1).diag_embed()
+        l = (vh @ dv).diagonal(dim1=-2, dim2=-1).diag_embed() # noqa: E741
         s_inv = safe_inverse(s).diag_embed()
-        # pylint: disable=line-too-long
-        da = u @ (ds.diag_embed() + (j + j.mH) @ s.diag_embed() + s.diag_embed() @ (k + k.mH) + s_inv @ (l.mH - l) / 2) @ vh
+        mat_s = s.diag_embed()
+        da = u @ (ds.diag_embed() + (j + j.mH) @ mat_s + mat_s @ (k + k.mH) + s_inv @ (l.mH - l) / 2) @ vh
         if m > ns:
             da += (torch.eye(m, dtype=du.dtype, device=du.device) - u @ uh) @ du @ s_inv @ vh
         if n > ns:
