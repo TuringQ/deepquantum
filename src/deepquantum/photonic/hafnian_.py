@@ -27,7 +27,7 @@ def integer_partition(remaining: int, max_num: int) -> list:
     return result
 
 
-def count_unique_permutations(nums: list | np.array) -> np.float64:
+def count_unique_permutations(nums: list | np.ndarray) -> np.float64:
     """Count the number of unique permutations of a list of numbers."""
     total_permutations = factorial(len(nums))
     num_counts = Counter(nums)
