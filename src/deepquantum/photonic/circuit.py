@@ -11,7 +11,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-import torch._C._functorch as _functorch
 from torch import nn, vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
 
@@ -84,7 +83,7 @@ class QumodeCircuit(Operation):
     ) -> None:
         super().__init__(name=name, nmode=nmode, wires=list(range(nmode)), cutoff=cutoff, den_mat=den_mat,
                          noise=noise, mu=mu, sigma=sigma)
-        self.backend = backend
+        self.backend = backend.lower()
         self.basis = basis
         self.detector = detector.lower()
         self.mps = mps
@@ -93,26 +92,29 @@ class QumodeCircuit(Operation):
         self.operators = nn.Sequential()
         self.encoders = []
         self.measurements = nn.ModuleList()
+        self.wires_homodyne = []
         self.state = None
         self.state_measured = None
         self.ndata = 0
         self.depth = np.array([0] * nmode)
 
-        self._bosonic_states = None # list of initial Bosonic states
         self._lossy = False
         self._nloss = 0
-        self._is_batch_expand = False # whether batch states are expanded out of photons conservation
-        self._expand_state = None # expanded state (init_state + lossy + batch expand)
-        self._all_fock_basis = None
-
+        # Fock basis state
+        self._is_batch_expanded = False # whether to expand batched states (add a mode) to align photon numbers
+        self._init_state_forward = None # prepared initial state in forward() (init_state + nloss + batch expansion)
+        self._out_fock_basis = None # the output Fock basis states
+        self._reset_fock_basis = True # whether to recompute the output Fock basis states in forward()
+        self._init_state_sample = None # for _sample_mcmc_fock()
+        # Bosonic
+        self._bosonic_states = None # list of initial Bosonic states
         # TDM
-        self._if_delayloop = False
+        self._with_delay = False
         self._nmode_tdm = self.nmode
         self._ntau_dict = defaultdict(list) # {wire: [tau1, tau2, ...]}
         self._unroll_dict = None # {wire_space: [wires_delay_n, ..., wires_delay_1, wire_space_concurrent]}
         self._operators_tdm = None
         self._measurements_tdm = None
-        self.wires_homodyne = []
 
     def set_init_state(self, init_state: Any) -> None:
         """Set the initial state of the circuit."""
@@ -173,22 +175,22 @@ class QumodeCircuit(Operation):
         cir.operators = self.operators + rhs.operators
         cir.encoders = self.encoders + rhs.encoders
         cir.measurements = rhs.measurements
+        cir.wires_homodyne = rhs.wires_homodyne
         cir.npara = self.npara + rhs.npara
         cir.ndata = self.ndata + rhs.ndata
         cir.depth = self.depth + rhs.depth
 
-        cir._bosonic_states = self._bosonic_states
         cir._lossy = self._lossy or rhs._lossy
         cir._nloss = self._nloss + rhs._nloss
+        cir._bosonic_states = self._bosonic_states
 
-        cir._if_delayloop = self._if_delayloop or rhs._if_delayloop
+        cir._with_delay = self._with_delay or rhs._with_delay
         cir._nmode_tdm = self._nmode_tdm + rhs._nmode_tdm - self.nmode
         cir._ntau_dict = defaultdict(list)
         for key, value in self._ntau_dict.items():
             cir._ntau_dict[key].extend(value)
         for key, value in rhs._ntau_dict.items():
             cir._ntau_dict[key].extend(value)
-        cir.wires_homodyne = rhs.wires_homodyne
         return cir
 
     def to(self, arg: Any) -> 'QumodeCircuit':
@@ -266,21 +268,18 @@ class QumodeCircuit(Operation):
             assert not is_prob
         if state is None:
             state = self.init_state
-        else:
-            if self.basis:
-                self.init_state = FockState(state, nmode=self.nmode, cutoff=self.cutoff, basis=self.basis)
         if isinstance(state, MatrixProductState):
             assert not self.basis
             state = state.tensors
         elif isinstance(state, FockState):
             state = state.state
         elif not isinstance(state, torch.Tensor):
-            state = FockState(state=state, nmode=self.nmode, cutoff=self.cutoff, basis=self.basis).state
+            state = FockState(state, self.nmode, self.cutoff, self.basis, self.den_mat).state
         # preprocessing of batched initial states
         if self.basis:
-            self._is_batch_expand = False # reset
-            self._expand_state = None # reset
-            state = self._prepare_expand_state(state, cal_all_fock_basis=self._all_fock_basis is None)
+            self._is_batch_expanded = False # reset
+            state = self._prepare_init_state(state, reset_fock_basis=self._reset_fock_basis)
+            self._init_state_forward = state
         if self.ndata == 0:
             data = None
         if data is None or data.ndim == 1:
@@ -338,8 +337,8 @@ class QumodeCircuit(Operation):
             if state is None:
                 state = self.init_state.state
             out_dict = defaultdict(float)
-            final_states = self._all_fock_basis
-            if self._is_batch_expand:
+            final_states = self._out_fock_basis
+            if self._is_batch_expanded:
                 unitary = torch.block_diag(unitary, torch.eye(1, dtype=unitary.dtype, device=unitary.device))
             sub_mats = vmap(sub_matrix, in_dims=(None, None, 0))(unitary, state, final_states)
             per_norms = self._get_permanent_norms(state, final_states).to(unitary.dtype)
@@ -424,7 +423,7 @@ class QumodeCircuit(Operation):
             weight = state.weight
         else:
             weight = None
-        if self._if_delayloop:
+        if self._with_delay:
             self._prepare_unroll_dict()
             cov, mean = self._unroll_init_state([cov, mean])
             self._unroll_circuit()
@@ -445,7 +444,7 @@ class QumodeCircuit(Operation):
             self.state = [cov, mean] # for checking purity
             self.state = self._forward_cv_prob(cov, mean, weight, detector)
         else:
-            if self._if_delayloop:
+            if self._with_delay:
                 cov, mean = self._shift_state([cov, mean])
             if self.backend == 'gaussian':
                 self.state = [cov, mean]
@@ -463,7 +462,7 @@ class QumodeCircuit(Operation):
         if self._lossy:
             stepwise = True
         self.encode(data)
-        if self._if_delayloop:
+        if self._with_delay:
             operators = self._operators_tdm
         else:
             operators = self.operators
@@ -572,21 +571,21 @@ class QumodeCircuit(Operation):
             probs = torch.cat(prob_lst)
         return probs
 
-    def set_fock_basis(self, state: Any = None) -> None:
-        """Set output fock basis states manually.
+    def set_fock_basis(self, state: Any = None, reset_in_forward: bool = False) -> None:
+        """Set the output Fock basis states.
 
-        By default it will generate all fock basis states according to the inital state.
+        By default it will generate all Fock basis states according to the inital state.
 
         Args:
-            state (Any, optional): The output fock basis states. Default: ``None``
+            state (Any, optional): The output Fock basis states. Default: ``None``
+            reset_in_forward (bool, optional): Whether to recompute the output Fock basis states in the forward pass.
+                Default: ``False``
         """
         assert self.basis
-        assert self.init_state.state.ndim == 1, 'Manually settings for batched init_state are not needed.'
+        assert self.init_state.state.ndim == 1, 'Manual setting for batched initial states is not allowed.'
         if state is None:
-            state = self.init_state.state
-            if self._lossy:
-                state = torch.cat([state, state.new_zeros(self._nloss)], dim=-1)
-            self._all_fock_basis = self._get_all_fock_basis(state)
+            if not reset_in_forward: # avoid double calculation of the output Fock basis states
+                self._prepare_init_state(self.init_state.state, reset_fock_basis=True)
         else:
             state = FockState(state).state
             if state.ndim == 1:
@@ -594,21 +593,21 @@ class QumodeCircuit(Operation):
             assert torch.all(state.sum(dim=-1) == state[0].sum(dim=-1)), \
                 "The number of photons must be the same and equal to initial states."
             assert state.shape[-1] == self.nmode + self._nloss, \
-                'Please fill in right number of modes (including all ancilla modes in lossy case.)'
-            self._all_fock_basis = state
+                'Please fill in the right number of modes (including all ancilla modes in lossy case.)'
+            self._out_fock_basis = state
+        self._reset_fock_basis = reset_in_forward
 
     def get_fock_basis(self) -> torch.Tensor:
-        """Get output fock basis states according to the current settings."""
-        if self._all_fock_basis is None:
-            state = self.init_state.state
-            self._prepare_expand_state(state, cal_all_fock_basis=True)
-        return self._all_fock_basis
+        """Get the output Fock basis states according to the current settings."""
+        if self._out_fock_basis is None:
+            self._prepare_init_state(self.init_state.state, reset_fock_basis=True)
+        return self._out_fock_basis
 
     def _get_all_fock_basis(self, init_state: torch.Tensor) -> torch.Tensor:
-        """Calculate all possible fock basis states according to the initial state."""
+        """Calculate all possible Fock basis states according to the initial state."""
         nphoton = torch.max(torch.sum(init_state, dim=-1))
         nmode = len(init_state)
-        if self._if_delayloop:
+        if self._with_delay:
             nancilla = nmode - self._nmode_tdm
         else:
             nancilla = nmode - self.nmode
@@ -617,10 +616,10 @@ class QumodeCircuit(Operation):
         return states
 
     def _get_odd_even_fock_basis(self, detector: Optional[str] = None) -> Union[Tuple[List, List], List]:
-        """Split the fock basis into the odd and even photon number parts."""
+        """Split the Fock basis into the odd and even photon number parts."""
         if detector is None:
             detector = self.detector
-        if self._if_delayloop:
+        if self._with_delay:
             nmode = self._nmode_tdm
         else:
             nmode = self.nmode
@@ -645,13 +644,13 @@ class QumodeCircuit(Operation):
             state_lst = [torch.stack(i) for i in list(dic_temp.values())]
             return state_lst
 
-    def _prepare_expand_state(self, state: torch.Tensor, cal_all_fock_basis: bool = False) -> torch.Tensor:
+    def _prepare_init_state(self, state: torch.Tensor, reset_fock_basis: bool = False) -> torch.Tensor:
         """Check and expand the Fock state if necessary."""
         if state.ndim == 1:
             if self._lossy:
                 state = torch.cat([state, state.new_zeros(self._nloss)], dim=-1)
-            if cal_all_fock_basis:
-                self._all_fock_basis = self._get_all_fock_basis(state)
+            if reset_fock_basis:
+                self._out_fock_basis = self._get_all_fock_basis(state)
         elif state.ndim == 2:
             if self._lossy:
                 state = torch.cat([state, state.new_zeros(state.shape[0], self._nloss)], dim=-1)
@@ -660,11 +659,9 @@ class QumodeCircuit(Operation):
             # expand the Fock state if the photon number is not conserved
             if any(nphoton < max_photon for nphoton in nphotons):
                 state = torch.cat([state, max_photon - nphotons], dim=-1)
-                self._is_batch_expand = True
-            if cal_all_fock_basis:
-                self._all_fock_basis = self._get_all_fock_basis(state[0])
-        if self._lossy or self._is_batch_expand:
-            self._expand_state = state
+                self._is_batch_expanded = True
+            if reset_fock_basis:
+                self._out_fock_basis = self._get_all_fock_basis(state[0])
         return state
 
     def _prepare_unroll_dict(self) -> Dict[int, List]:
@@ -841,7 +838,7 @@ class QumodeCircuit(Operation):
     def get_unitary(self) -> torch.Tensor:
         """Get the unitary matrix of the photonic quantum circuit."""
         u = None
-        if self._if_delayloop:
+        if self._with_delay:
             operators = self._operators_tdm
         else:
             operators = self.operators
@@ -871,7 +868,7 @@ class QumodeCircuit(Operation):
                     u_local = op.update_matrix()
             u_update = u[idx_r[:, None], idx_c]
             new_val = u_local @ u_update
-            u = u.index_put((idx_r[:, None], idx_c), new_val)
+            u = u.index_put([idx_r[:, None], idx_c], new_val)
         if u is None:
             return torch.eye(self.nmode, dtype=torch.cfloat)
         else:
@@ -880,7 +877,7 @@ class QumodeCircuit(Operation):
     def get_symplectic(self) -> torch.Tensor:
         """Get the symplectic matrix of the photonic quantum circuit."""
         s = None
-        if self._if_delayloop:
+        if self._with_delay:
             operators = self._operators_tdm
             nmode = self._nmode_tdm
         else:
@@ -901,7 +898,7 @@ class QumodeCircuit(Operation):
         """Get the final mean value of the Gaussian state in ``xxpp`` order."""
         if not isinstance(init_mean, torch.Tensor):
             init_mean = torch.tensor(init_mean)
-        if self._if_delayloop:
+        if self._with_delay:
             operators = self._operators_tdm
             nmode = self._nmode_tdm
         else:
@@ -999,15 +996,12 @@ class QumodeCircuit(Operation):
         assert max(final_state) < self.cutoff, 'The number of photons in the final state must be less than cutoff'
         if self.backend == 'fock':
             if refer_state is None:
-                if self._expand_state is not None:
-                    refer_state = self._expand_state
-                else:
-                    refer_state = self._prepare_expand_state(self.init_state.state)
+                refer_state = self._prepare_init_state(self.init_state.state)
             if unitary is None:
                 unitary = self.get_unitary()
             else:
                 assert unitary.ndim == 2, 'The unitary matrix must be 2D'
-            if self._is_batch_expand:
+            if self._is_batch_expanded:
                 identity = torch.eye(1, dtype=unitary.dtype, device=unitary.device)
                 unitary = torch.block_diag(unitary, identity)
             nmode = final_state.shape[-1]
@@ -1030,7 +1024,7 @@ class QumodeCircuit(Operation):
                 rst = list(rst.values())[0]
             return rst
         elif self.backend == 'gaussian':
-            if self._if_delayloop:
+            if self._with_delay:
                 nmode = self._nmode_tdm
             else:
                 nmode = self.nmode
@@ -1052,8 +1046,8 @@ class QumodeCircuit(Operation):
             unitary (torch.Tensor or None, optional): The unitary matrix. Default: ``None``
         """
         if init_state is None: # when mcmc
-            nmode = self.nmode + self._nloss + self._is_batch_expand
-            init_state = FockState(state=self._init_state, nmode=nmode, cutoff=self.cutoff, basis=self.basis)
+            nmode = self.nmode + self._nloss + self._is_batch_expanded
+            init_state = FockState(state=self._init_state_sample, nmode=nmode, cutoff=self.cutoff, basis=self.basis)
         if unitary is None: # when mcmc
             unitary = self._unitary
         amplitude = self.get_amplitude(final_state, init_state, unitary)
@@ -1264,12 +1258,12 @@ class QumodeCircuit(Operation):
         if self.state.ndim == 2:
             self.state = self.state.unsqueeze(0)
         batch = self.state.shape[0]
-        init_state = self.init_state.state if self._expand_state is None else self._expand_state
+        init_state = self._init_state_forward
         if init_state.ndim == 1:
             init_state = init_state.unsqueeze(0)
         batch_init = init_state.shape[0]
         unitary = self.state
-        if self._is_batch_expand:
+        if self._is_batch_expanded:
             identity = torch.eye(1, dtype=self.state.dtype, device=self.state.device)
             unitary = vmap(torch.block_diag, in_dims=(0, None))(self.state, identity)
         all_results = []
@@ -1327,7 +1321,7 @@ class QumodeCircuit(Operation):
             Dict: A dictionary of probabilities for final states.
         """
         if final_states is None:
-            final_states = self._all_fock_basis
+            final_states = self._out_fock_basis
         sub_mats = vmap(sub_matrix, in_dims=(None, None, 0))(unitary, init_state, final_states)
         per_norms = self._get_permanent_norms(init_state, final_states).to(unitary.dtype)
         rst = vmap(self._get_prob_fock_vmap)(sub_mats, per_norms)
@@ -1345,7 +1339,7 @@ class QumodeCircuit(Operation):
 
     def _measure_dict(self, shots: int, with_prob: bool, wires: List[int]) -> List[Dict]:
         """Measure the final state according to the dictionary of amplitudes or probabilities."""
-        if self._if_delayloop:
+        if self._with_delay:
             wires = [self._unroll_dict[wire][-1] for wire in wires]
         all_results = []
         batch = len(self.state[list(self.state.keys())[0]])
@@ -1420,9 +1414,9 @@ class QumodeCircuit(Operation):
 
     def _sample_mcmc_fock(self, shots: int, init_state: torch.Tensor, unitary: torch.Tensor, num_chain: int):
         """Sample the output states for Fock backend via SC-MCMC method."""
-        self._init_state = init_state
+        self._init_state_sample = init_state
         self._unitary = unitary
-        self._all_fock_basis = self._get_all_fock_basis(init_state)
+        self._out_fock_basis = self._get_all_fock_basis(init_state)
         merged_samples = sample_sc_mcmc(prob_func=self._get_prob_fock,
                                         proposal_sampler=self._proposal_sampler,
                                         shots=shots,
@@ -1459,7 +1453,7 @@ class QumodeCircuit(Operation):
 
         See https://arxiv.org/pdf/2108.01622
         """
-        assert not self._if_delayloop, 'Currently Fock measurement is not supported with delay loops'
+        assert not self._with_delay, 'Currently Fock measurement is not supported with delay loops'
         cov, mean = self.state
         batch = cov.shape[0]
         all_results = []
@@ -1542,14 +1536,14 @@ class QumodeCircuit(Operation):
         """The proposal sampler for MCMC sampling."""
         if self.backend == 'fock':
             assert self.basis, 'Currently NOT supported.'
-            sample = self._all_fock_basis[torch.randint(0, len(self._all_fock_basis), (1,))[0]]
+            sample = self._out_fock_basis[torch.randint(0, len(self._out_fock_basis), (1,))[0]]
         elif self.backend == 'gaussian':
             sample = self._generate_rand_sample(self.detector)
         return tuple(sample.tolist())
 
     def _generate_rand_sample(self, detector: str = 'pnrd'):
         """Generate a random sample according to uniform proposal distribution."""
-        if self._if_delayloop:
+        if self._with_delay:
             nmode = self._nmode_tdm
         else:
             nmode = self.nmode
@@ -1676,7 +1670,7 @@ class QumodeCircuit(Operation):
         if wires is None:
             wires = self.wires
         wires = sorted(self._convert_indices(wires))
-        if self._if_delayloop:
+        if self._with_delay:
             wires = [self._unroll_dict[wire][-1] for wire in wires]
         if self.backend == 'fock':
             assert not self.basis
@@ -1804,7 +1798,7 @@ class QumodeCircuit(Operation):
             return out.reshape(mat.shape[0], nblock, block_size, -1)
 
         indices = []
-        if self._if_delayloop:
+        if self._with_delay:
             nmode = self._nmode_tdm
         else:
             nmode = self.nmode
@@ -1839,7 +1833,7 @@ class QumodeCircuit(Operation):
             return
         assert isinstance(self.state, (list, torch.Tensor)), 'NOT valid when "is_prob" is True'
         if len(self.measurements) > 0:
-            if self._if_delayloop:
+            if self._with_delay:
                 measurements = self._measurements_tdm
             else:
                 measurements = self.measurements
@@ -1909,7 +1903,7 @@ class QumodeCircuit(Operation):
             filename (str or None, optional): The path for saving the figure.
             unroll (bool, optional): Whether to draw the unrolled circuit.
         """
-        if self._if_delayloop and unroll:
+        if self._with_delay and unroll:
             self._prepare_unroll_dict()
             self._unroll_circuit()
             nmode = self._nmode_tdm
@@ -1999,19 +1993,19 @@ class QumodeCircuit(Operation):
             self.operators += op.operators
             self.encoders  += op.encoders
             self.measurements = op.measurements
+            self.wires_homodyne = op.wires_homodyne
             self.npara += op.npara
             self.ndata += op.ndata
             self.depth += op.depth
             self._lossy = self._lossy or op._lossy
             self._nloss += op._nloss
-            self._if_delayloop = self._if_delayloop or op._if_delayloop
+            self._with_delay = self._with_delay or op._with_delay
             self._nmode_tdm += op._nmode_tdm - self.nmode
             for key, value in op._ntau_dict.items():
                 self._ntau_dict[key].extend(value)
             self._unroll_dict = None
             self._operators_tdm = None
             self._measurements_tdm = None
-            self.wires_homodyne = op.wires_homodyne
         elif isinstance(op, (Gate, Channel, Delay)):
             self.operators.append(op)
             for i in op.wires:
@@ -2023,7 +2017,7 @@ class QumodeCircuit(Operation):
             else:
                 self.npara += op.npara
             if isinstance(op, Delay):
-                self._if_delayloop = True
+                self._with_delay = True
                 self._nmode_tdm += op.ntau
                 self._ntau_dict[op.wires[0]].append(op.ntau)
         elif isinstance(op, Homodyne):
