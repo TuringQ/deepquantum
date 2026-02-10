@@ -193,7 +193,7 @@ class SubGraphState(nn.Module):
         """
         if self.nodes_out_seq is None:
             wires = inverse_permutation(np.argsort(self.nodes).tolist())
-            self.node2wire_dict = {node: wire for node, wire in zip(self.nodes, wires)}
+            self.node2wire_dict = {node: wire for node, wire in zip(self.nodes, wires, strict=True)}
         else:
             self.node2wire_dict = {node: i for i, node in enumerate(self.nodes_out_seq)}
         return self.node2wire_dict

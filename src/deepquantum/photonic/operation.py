@@ -218,7 +218,7 @@ class Gate(Operation):
         # each tensor is in shape of (i, a, b, j)
         tensors = []
         previous_i = None
-        for i, main_tensor in zip(index_sort, main_tensors):
+        for i, main_tensor in zip(index_sort, main_tensors, strict=True):
             # insert identities in the middle
             if previous_i is not None:
                 for _ in range(previous_i + 1, i):

@@ -195,7 +195,7 @@ def qasm3_to_cir(qasm_string: str) -> QubitCircuit:
                     break
                 open_braces += lines[brace_scan_index].count('{')
                 open_braces -= lines[brace_scan_index].count('}')
-            body_lines = [l.strip() for l in lines[body_start_index:brace_scan_index]]
+            body_lines = [l_.strip() for l_ in lines[body_start_index:brace_scan_index]]
             i = brace_scan_index + 1
             try:
                 header_content = header_line[3:].strip()
@@ -257,10 +257,14 @@ def qasm3_to_cir(qasm_string: str) -> QubitCircuit:
     def _process_qasm_lines(
         lines_to_process: list[str],
         circuit_obj: QubitCircuit,
-        scope: dict[str, Any] = {},
-        external_controls: list[int] = [],
+        scope: dict[str, Any] | None = None,
+        external_controls: list[int] | None = None,
         is_inverted: bool = False,
     ):
+        if scope is None:
+            scope = {}
+        if external_controls is None:
+            external_controls = []
         gate_pattern = re.compile(r'((?:(?:inv|ctrl|pow\s*\(.*?\))\s*@\s*)*)(\w+)(?:\((.*?)\))?\s+(.*?);')
         processing_order = reversed(lines_to_process) if is_inverted else lines_to_process
         for line in processing_order:
@@ -330,7 +334,7 @@ def qasm3_to_cir(qasm_string: str) -> QubitCircuit:
                     if len(gate_qubits_actual_str) != len(definition.qubits):
                         print(f"Warning: Mismatched qubit count for gate '{gate_name}'.")
                         continue
-                    qubit_map = dict(zip(definition.qubits, gate_qubits_actual_str))
+                    qubit_map = dict(zip(definition.qubits, gate_qubits_actual_str, strict=True))
                     eval_scope = {'pi': np.pi, 'np': np}
                     eval_scope.update(scope)
                     call_params_evaluated = (
@@ -340,7 +344,7 @@ def qasm3_to_cir(qasm_string: str) -> QubitCircuit:
                         print(f"Warning: Mismatched parameter count for gate '{gate_name}'.")
                         continue
                     new_scope = scope.copy()
-                    new_scope.update(zip(definition.params, call_params_evaluated))
+                    new_scope.update(zip(definition.params, call_params_evaluated, strict=True))
                     expanded_body = []
                     for body_line in definition.body:
                         new_line = body_line

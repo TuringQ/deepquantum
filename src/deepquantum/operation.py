@@ -387,7 +387,7 @@ class Gate(Operation):
         # each tensor is in shape of (i, a, b, j)
         tensors = []
         previous_i = None
-        for i, main_tensor in zip(index_sort, main_tensors):
+        for i, main_tensor in zip(index_sort, main_tensors, strict=True):
             # insert identities in the middle
             if previous_i is not None:
                 for _ in range(previous_i + 1, i):
@@ -428,8 +428,8 @@ class Layer(Operation):
     Args:
         name (str, optional): The name of the layer. Default: ``None``
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
+        wires (int | list[int] | list[list[int]] | None, optional): The indices of the qubits that
+            the quantum operation acts on. Default: ``None``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
@@ -532,7 +532,6 @@ class Layer(Operation):
     def _qasm(self) -> str:
         lst = []
         for gate in self.gates:
-            # pylint: disable=protected-access
             lst.append(gate._qasm())
         return ''.join(lst)
 

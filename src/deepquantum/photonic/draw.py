@@ -94,7 +94,7 @@ class DrawCircuit:
                 theta = op.theta.item()
                 try:
                     phi = op.phi.item()
-                except:
+                except Exception:
                     phi = None
                 order = max(depth[op.wires[0]], depth[op.wires[1]])
                 self.draw_bs(name, order, op.wires, theta, phi)

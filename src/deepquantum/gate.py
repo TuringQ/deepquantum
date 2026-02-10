@@ -1211,7 +1211,6 @@ class SGate(SingleGate):
         elif len(self.controls) == 1:
             qasm_str1 = ''
             qasm_str2 = f'cs q{self.controls},q{self.wires};\n'
-            # pylint: disable=protected-access
             if 'cs' not in Gate._qasm_new_gate:
                 qasm_str1 = 'gate cs q0,q1 { p(pi/4) q0; cx q0,q1; p(-pi/4) q1; cx q0,q1; p(pi/4) q1; }\n'
                 Gate._qasm_new_gate.append('cs')
@@ -1304,7 +1303,6 @@ class SDaggerGate(SingleGate):
         elif len(self.controls) == 1:
             qasm_str1 = ''
             qasm_str2 = f'csdg q{self.controls},q{self.wires};\n'
-            # pylint: disable=protected-access
             if 'csdg' not in Gate._qasm_new_gate:
                 qasm_str1 = 'gate csdg q0,q1 { p(-pi/4) q0; cx q0,q1; p(pi/4) q1; cx q0,q1; p(-pi/4) q1; }\n'
                 Gate._qasm_new_gate.append('csdg')
@@ -1854,7 +1852,6 @@ class ProjectionJ(ParametricSingleGate):
                 qasm_lst2.append(f'q[{wire}],')
             qasm_str1 = ''.join(qasm_lst1)[:-1] + ';\n'
             qasm_str2 = ''.join(qasm_lst2)[:-1] + ';\n'
-            # pylint: disable=protected-access
             if name not in Gate._qasm_new_gate:
                 Gate._qasm_new_gate.append(name)
                 return qasm_str1 + self._qasm_cond_measure() + qasm_str2
@@ -1980,7 +1977,6 @@ class CombinedSingleGate(SingleGate):
     def _qasm(self) -> str:
         lst = []
         for gate in self.gates:
-            # pylint: disable=protected-access
             lst.append(gate._qasm())
         return ''.join(lst)
 
@@ -2159,7 +2155,6 @@ class ImaginarySwap(DoubleGate):
     def _qasm(self) -> str:
         qasm_str1 = ''
         qasm_str2 = f'iswap q[{self.wires[0]}],q[{self.wires[1]}];\n'
-        # pylint: disable=protected-access
         if 'iswap' not in Gate._qasm_new_gate:
             qasm_str1 = 'gate iswap q0,q1 { s q0; s q1; h q0; cx q0,q1; cx q1,q0; h q1; }\n'
             Gate._qasm_new_gate.append('iswap')
@@ -2321,10 +2316,13 @@ class Ryy(ParametricDoubleGate):
             theta = self.theta
         qasm_str1 = ''
         qasm_str2 = f'ryy({theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
-        # pylint: disable=protected-access
         if 'ryy' not in Gate._qasm_new_gate:
-            # pylint: disable=line-too-long
-            qasm_str1 = 'gate ryy(param0) q0,q1 { rx(pi/2) q0; rx(pi/2) q1; cx q0,q1; rz(param0) q1; cx q0,q1; rx(-pi/2) q0; rx(-pi/2) q1; }\n'
+            qasm_str1 = (
+                'gate ryy(param0) q0,q1 { '
+                'rx(pi/2) q0; rx(pi/2) q1; cx q0,q1; '
+                'rz(param0) q1; cx q0,q1; '
+                'rx(-pi/2) q0; rx(-pi/2) q1; }\n'
+            )
             Gate._qasm_new_gate.append('ryy')
         if self.condition:
             return qasm_str1 + self._qasm_cond_measure() + qasm_str2
@@ -2485,7 +2483,6 @@ class Rxy(ParametricDoubleGate):
                 qasm_lst2.append(f'q[{wire}],')
             qasm_str1 = ''.join(qasm_lst1)[:-1] + ';\n'
             qasm_str2 = ''.join(qasm_lst2)[:-1] + ';\n'
-            # pylint: disable=protected-access
             if name not in Gate._qasm_new_gate:
                 Gate._qasm_new_gate.append(name)
                 return qasm_str1 + self._qasm_cond_measure() + qasm_str2
@@ -2577,7 +2574,6 @@ class ReconfigurableBeamSplitter(ParametricDoubleGate):
                 qasm_lst2.append(f'q[{wire}],')
             qasm_str1 = ''.join(qasm_lst1)[:-1] + ';\n'
             qasm_str2 = ''.join(qasm_lst2)[:-1] + ';\n'
-            # pylint: disable=protected-access
             if name not in Gate._qasm_new_gate:
                 Gate._qasm_new_gate.append(name)
                 return qasm_str1 + self._qasm_cond_measure() + qasm_str2
@@ -3096,7 +3092,7 @@ class HamiltonianGate(ArbitraryGate):
                 coeff = pair[0]
                 basis = pair[1][::2]
                 wires = pair[1][1::2]
-                for wire, key in zip(wires, basis):
+                for wire, key in zip(wires, basis, strict=True):
                     wire = int(wire)
                     key = key.lower()
                     lst[wire] = pauli_dict[key]

@@ -81,7 +81,6 @@ class OptimizerBayesian(Optimizer):
     def param_suggest(self) -> np.ndarray:
         self.util.update_params()
         x_probe = self.optimizer.suggest(self.util)
-        # pylint: disable=protected-access
         x = self.optimizer._space._as_array(x_probe)  # a list
         param_array = np.asarray(x).reshape(-1)
         return param_array
@@ -89,8 +88,7 @@ class OptimizerBayesian(Optimizer):
     def param_register(self, param_array: np.ndarray, target: float) -> None:
         for i in range(len(param_array)):
             x = param_array[i]
-            param_dict = dict(zip(self.param_dict.keys(), x))
-            # pylint: disable=protected-access
+            param_dict = dict(zip(self.param_dict.keys(), x, strict=True))
             if self.optimizer._space._constraint is None:
                 self.optimizer._space.register(x, target[i])
             else:
@@ -163,15 +161,15 @@ class OptimizerSPSA(Optimizer):
         delta = param2 - param1
         grad = (target2 - target1) / delta
         param_new = 0.5 * (param1 + param2) - param_lr * grad
-        self.param_dict = dict(zip(self.param_dict.keys(), param_new))
+        self.param_dict = dict(zip(self.param_dict.keys(), param_new, strict=True))
         self.iter += 1
 
         if target1 < self.best_target:
-            self.best_param_dict = dict(zip(self.param_dict.keys(), param1))
+            self.best_param_dict = dict(zip(self.param_dict.keys(), param1, strict=True))
             self.best_target = target1
 
         if target2 < self.best_target:
-            self.best_param_dict = dict(zip(self.param_dict.keys(), param2))
+            self.best_param_dict = dict(zip(self.param_dict.keys(), param2, strict=True))
             self.best_target = target2
 
     def ori_random_state(self) -> None:
@@ -258,10 +256,10 @@ class OptimizerFourier(Optimizer):
                 @ self.u[self.r + idx : self.r * 2 + idx]
             )
         param_new = param - self.lr * grad
-        self.param_dict = dict(zip(self.param_dict.keys(), param_new))
+        self.param_dict = dict(zip(self.param_dict.keys(), param_new, strict=True))
         if target.min() < self.best_target:
             self.best_target = target.min()
-            self.best_param_dict = dict(zip(self.param_dict.keys(), param_array[target.argmin()]))
+            self.best_param_dict = dict(zip(self.param_dict.keys(), param_array[target.argmin()], strict=True))
         self.iter += 1
 
     def run(self, nstep: int, if_print: bool = False) -> list:

@@ -47,7 +47,7 @@ class UnitaryMapper:
         self.basis = self.create_basis(aux_pos)  # these basis is changed with aux_pos
 
         self.u_dim = self.nmode
-        y_var = symbols('y0:%d' % ((self.u_dim) ** 2))
+        y_var = symbols(f'y0:{self.u_dim**2}')
         y_mat = Matrix(np.array(y_var))
         y_mat = y_mat.reshape(self.u_dim, self.u_dim)  # for symbolic computation, the matrix to optimize
         self.y_var = y_var
@@ -78,7 +78,7 @@ class UnitaryMapper:
             # load the idx tensor dataf
             fn = path_2 + cur_sep + 'cache' + cur_sep + f'Idx_{nqubit}qb_{nmode}mode_aux_{aux[0]}{aux[1]}.pt'
             idx_ts = torch.load(fn, weights_only=True)
-        except:
+        except Exception:
             idx_ts = None
 
         self.idx_ts = idx_ts
@@ -114,9 +114,7 @@ class UnitaryMapper:
     ##############################
     # using symbolic computation finding indicies to avoid repeat computing
     def get_coeff_sym(self, input_state: torch.Tensor, output_states: list | None = None):
-        """
-        Return the transfer state coefficient in a symbolic way.
-        """
+        """Return the transfer state coefficient in a symbolic way."""
         if output_states is None:
             output_states = self.all_basis
         u = self.u
@@ -129,9 +127,7 @@ class UnitaryMapper:
         return dic_coeff
 
     def get_indx_coeff(self, coeff_i, all_inputs=None):
-        """
-        Get the index of y_var for given state transfer coefficients.
-        """
+        """Get the index of y_var for given state transfer coefficients."""
         index_coeff = {}
         if all_inputs is None:
             all_inputs = self.all_basis
@@ -156,9 +152,7 @@ class UnitaryMapper:
         return index_coeff, temp_ts2
 
     def indx_eqs(self):
-        """
-        Get the dictinonary of indices of y_mat for each nonlinear equations for n modes.
-        """
+        """Get the dictinonary of indices of y_mat for each nonlinear equations for n modes."""
         all_inputs = self.all_basis
         all_outputs = list(map(self.get_coeff_sym, all_inputs))
         indices = list(map(self.get_indx_coeff, all_outputs))
@@ -197,11 +191,10 @@ class UnitaryMapper:
         return temp_mat
 
     def f_real(self, y):
-        """
-        Construct :math:`2^{nqubit}*2^{nqubit}` equations for :math:`n*n` matrix y, obtain real solutions for real part of u_gate.
+        """Construct equations to obtain real solutions for the real part of the target quantum gate.
 
         Args:
-            y: an array with :math:`n^2` element
+            y: Input matrix/array with :math:`n^2` elements, where :math:`n = 2^{nqubit}`.
         """
         transfer_mat = self.get_transfer_mat(y)
         u_gate = self.ugate * self.success  # the target quantum gate with probability
@@ -213,21 +206,16 @@ class UnitaryMapper:
         return eqs_list
 
     def f_real_unitary(self, y):
-        """
-        Return the quantum gate constrains and the unitary constrains.
-        """
+        """Return the quantum gate constrains and the unitary constrains."""
         eqs_1 = self.f_real(y)
         mat_y = torch.tensor(y).view(self.nmode, self.nmode)
         eqs_2 = self.unitary_constrains(mat_y)
         eqs = eqs_1 + eqs_2
-
         return eqs
 
     @staticmethod
     def unitary_constrains(u_temp: torch.Tensor):
-        """
-        Return :math:`n^2` equations for :math:`n*n` matrix with unitary condition.
-        """
+        """Return :math:`n^2` equations for :math:`n*n` matrix with unitary condition."""
         u_size = u_temp.size()
         u_temp_conj = u_temp.conj()
         u_temp_dag = u_temp_conj.transpose(0, 1)
@@ -274,7 +262,7 @@ class UnitaryMapper:
 
         eqs_all = eqs_real_list + eqs_imag_list
         if num_paras > len(eqs_all):  # if # parameters > # equations
-            for t in range(num_paras - len(eqs_all)):
+            for _ in range(num_paras - len(eqs_all)):
                 extra_eq = y[0] * y[1] - y[0] * y[1]
                 eqs_all.append(extra_eq)
         return eqs_all
@@ -461,25 +449,17 @@ class UnitaryMapper:
             len_ticks: number of ticks in colorbar
             cl: color of plotting
         """
-        plt.rcParams['figure.figsize'] = (8, 8)
-        step = (vmax - vmin) / (len_ticks - 1)
-        ticks_ = [0] * len_ticks
-        for i in range(len_ticks):
-            ticks_[i] = vmin + i * step
-        # print(ticks_)
-        ax = plt.matshow(np.array(unitary).real, vmax=vmax, vmin=vmin, cmap=cl)
-        cb = plt.colorbar(fraction=0.03, ticks=ticks_)
-        plt.title('U_real', fontsize=fs)
-        plt.xticks(fontsize=fs - 1)
-        plt.yticks(fontsize=fs - 1)
-        cb.ax.tick_params(labelsize=fs - 6)
-
-        ax1 = plt.matshow(np.array(unitary).imag, vmax=vmax, vmin=vmin, cmap=cl)
-        cb1 = plt.colorbar(fraction=0.03, ticks=ticks_)
-        plt.title('U_imag', fontsize=fs)
-        plt.xticks(fontsize=fs - 1)
-        plt.yticks(fontsize=fs - 1)
-        cb1.ax.tick_params(labelsize=fs - 6)
+        u_np = np.asarray(unitary)
+        ticks = np.linspace(vmin, vmax, len_ticks)
+        plots = [('Real', u_np.real), ('Imag', u_np.imag)]
+        for title_suffix, data in plots:
+            fig, ax = plt.subplots(figsize=(8, 8))
+            im = ax.matshow(data, vmax=vmax, vmin=vmin, cmap=cl)
+            ax.set_title(f'U_{title_suffix}', fontsize=fs)
+            ax.tick_params(axis='both', labelsize=fs - 1)
+            cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, ticks=ticks)
+            cb.ax.tick_params(labelsize=fs - 6)
+        plt.show()
 
     @staticmethod
     def is_unitary(u_temp):

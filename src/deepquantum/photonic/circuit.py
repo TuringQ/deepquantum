@@ -275,7 +275,6 @@ class QumodeCircuit(Operation):
                 bs.to(arg)
         return self
 
-    # pylint: disable=arguments-renamed
     def forward(
         self,
         data: torch.Tensor | None = None,
@@ -600,7 +599,7 @@ class QumodeCircuit(Operation):
         # if weight is not None:
         #     probs = probs.reshape(weight.shape[0], weight.shape[1], -1) # (batch, ncomb, nfock)
         #     probs = (probs * weight.unsqueeze(-1)).sum(1).real
-        return dict(zip(keys, probs.mT))
+        return dict(zip(keys, probs.mT, strict=True))
 
     def _forward_gaussian_prob_helper(self, cov, mean, basis, detector, purity, loop):
         prob_lst = []
@@ -698,7 +697,7 @@ class QumodeCircuit(Operation):
             final_states = torch.tensor(list(itertools.product(range(2), repeat=nmode)))
             keys = torch.sum(final_states, dim=1)
             dic_temp = defaultdict(list)
-            for state, s in zip(final_states, keys):
+            for state, s in zip(final_states, keys, strict=True):
                 dic_temp[s.item()].append(state)
             state_lst = [torch.stack(i) for i in list(dic_temp.values())]
             return state_lst
@@ -1311,7 +1310,7 @@ class QumodeCircuit(Operation):
             assert not mcmc, "Final states have been calculated, we don't need mcmc!"
             return self._measure_mps(shots, with_prob, wires)
         else:
-            assert False, 'Check your forward function or input!'
+            raise ValueError('Check your forward function or input!')
 
     def _measure_fock_unitary(self, shots: int, with_prob: bool, wires: list[int], mcmc: bool) -> list[dict]:
         """Measure the final state according to the unitary matrix for Fock backend."""
@@ -1465,7 +1464,7 @@ class QumodeCircuit(Operation):
             samples_j = [tuple(sample[j].tolist()) for sample in samples]
             samples_j = dict(Counter(samples_j))
             keys = list(map(FockState, samples_j.keys()))
-            results = dict(zip(keys, samples_j.values()))
+            results = dict(zip(keys, samples_j.values(), strict=True))
             if with_prob:
                 for k in results:
                     prob = self._get_prob_mps(k, wires)[j]
@@ -1492,7 +1491,7 @@ class QumodeCircuit(Operation):
             print('Automatically using the default detector!')
             return self._measure_dict(shots, with_prob, wires)
         else:
-            assert False, 'Check your forward function or input!'
+            raise ValueError('Check your forward function or input!')
 
     def _measure_gaussian_state(
         self, shots: int, with_prob: bool, wires: list[int], detector: str, mcmc: bool
@@ -2963,7 +2962,6 @@ class DistributedQumodeCircuit(QumodeCircuit):
             self.init_state = DistributedFockState(init_state, self.nmode, self.cutoff)
             self.cutoff = self.init_state.cutoff
 
-    # pylint: disable=arguments-renamed
     @torch.no_grad()
     def forward(
         self, data: torch.Tensor | None = None, state: DistributedFockState | None = None

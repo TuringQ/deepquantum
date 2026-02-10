@@ -382,7 +382,6 @@ class BosonicState(nn.Module):
             plot (bool, optional): Whether to plot the marginal function. Default: ``True``
             k (int, optional): The index of the marginal function within the batch to plot. Default: 0
         """
-        # pylint: disable=import-outside-toplevel
         from .gate import PhaseShift
 
         if isinstance(xrange, int):
@@ -467,6 +466,7 @@ class CatState(BosonicState):
         super().__init__(state, nmode, cutoff)
 
 
+# ruff: noqa: E741
 class GKPState(BosonicState):
     r"""Finite-energy single-mode GKP state.
 
@@ -702,7 +702,7 @@ def combine_tensors(tensors: list[torch.Tensor], ndim_ds: int = 2) -> torch.Tens
     # Get number of tensors and their shapes
     n = len(tensors)
     shape_lst = [tensor.shape for tensor in tensors]
-    len_lst, hs, ws = map(list, zip(*shape_lst))
+    len_lst, hs, ws = map(list, zip(*shape_lst, strict=True))
     size_h = sum(hs)
     if ndim_ds == 1:
         size_w = ws[0]

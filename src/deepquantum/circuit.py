@@ -192,7 +192,6 @@ class QubitCircuit(Operation):
             self.observables.to(arg)
         return self
 
-    # pylint: disable=arguments-renamed
     def forward(
         self,
         data: torch.Tensor | None = None,
@@ -413,7 +412,7 @@ class QubitCircuit(Operation):
             device = self.state[0].device
             for observable in self.observables:
                 cir_basis = QubitCircuit(nqubit=self.nqubit, den_mat=self.den_mat, mps=self.mps, chi=self.chi)
-                for wire, basis in zip(observable.wires, observable.basis):
+                for wire, basis in zip(observable.wires, observable.basis, strict=True):
                     if basis == 'x':
                         cir_basis.h(wire)
                     elif basis == 'y':
@@ -649,7 +648,6 @@ class QubitCircuit(Operation):
 
     def _qasm(self):
         """Get QASM of the quantum circuit for visualization."""
-        # pylint: disable=protected-access
         qasm_lst = ['OPENQASM 2.0;\n' + 'include "qelib1.inc";\n']
         if self.wires_measure == self.wires_condition == []:
             qasm_lst.append(f'qreg q[{self.nqubit}];\n')
@@ -745,7 +743,7 @@ class QubitCircuit(Operation):
             pattern.ndata += len(gate.idx_enc)
         else:
             pattern.npara += gate.nancilla
-        for wire, node in zip(gate.wires, gate.nodes):
+        for wire, node in zip(gate.wires, gate.nodes, strict=True):
             self.wire2node_dict[wire] = node
         return pattern
 
@@ -1678,7 +1676,6 @@ class DistributedQubitCircuit(QubitCircuit):
         elif isinstance(init_state, DistributedQubitState):
             self.init_state = init_state
 
-    # pylint: disable=arguments-renamed
     @torch.no_grad()
     def forward(
         self, data: torch.Tensor | None = None, state: DistributedQubitState | None = None
@@ -1772,7 +1769,7 @@ class DistributedQubitCircuit(QubitCircuit):
             device = self.state.amps.device
             for observable in self.observables:
                 cir_basis = DistributedQubitCircuit(self.nqubit)
-                for wire, basis in zip(observable.wires, observable.basis):
+                for wire, basis in zip(observable.wires, observable.basis, strict=True):
                     if basis == 'x':
                         cir_basis.h(wire)
                     elif basis == 'y':

@@ -197,15 +197,15 @@ def ladder_ops(cutoff: int, dtype=torch.cfloat, device='cpu') -> tuple[torch.Ten
     return a, ad
 
 
-def shift_func(l: list, nstep: int) -> list:
+def shift_func(lst: list, nstep: int) -> list:
     """Shift a list by a number of steps.
 
     If ``nstep`` is positive, it shifts to the left.
     """
-    if len(l) <= 1:
-        return l
-    nstep = nstep % len(l)
-    return l[nstep:] + l[:nstep]
+    if len(lst) <= 1:
+        return lst
+    nstep = nstep % len(lst)
+    return lst[nstep:] + lst[:nstep]
 
 
 def xxpp_to_xpxp(matrix: torch.Tensor) -> torch.Tensor:
@@ -482,7 +482,6 @@ def measure_fock_tensor(
             measured)
         block_size (int, optional): The block size for sampling. Default: 2 ** 24
     """
-    # pylint: disable=import-outside-toplevel
     from .state import FockState
 
     shape = state.shape

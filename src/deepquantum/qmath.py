@@ -172,12 +172,10 @@ class SVD(torch.autograd.Function):
 
     generate_vmap_rule = True
 
-    # pylint: disable=arguments-renamed
     @staticmethod
     def forward(a):
         u, s, vh = torch.linalg.svd(a, full_matrices=False)
         s = s.to(u.dtype)
-        # ctx.save_for_backward(u, s, vh)
         return u, s, vh
 
     # setup_context is responsible for calling methods and/or assigning to
@@ -285,7 +283,6 @@ class QR(torch.autograd.Function):
 
     generate_vmap_rule = True
 
-    # pylint: disable=arguments-renamed
     @staticmethod
     def forward(a):
         q, r = torch.linalg.qr(a, mode='reduced')
@@ -835,7 +832,6 @@ def expectation(
         torch.Tensor: The expectation value of the observable on the quantum state. It is a scalar tensor
         with real values.
     """
-    # pylint: disable=import-outside-toplevel
     if isinstance(state, list):
         from .state import MatrixProductState
 
