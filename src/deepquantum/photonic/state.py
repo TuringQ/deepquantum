@@ -41,10 +41,7 @@ class FockState(nn.Module):
             if state in ('vac', 'zeros'):
                 state = [0] * nmode
             # Process Fock basis state
-            if not isinstance(state, torch.Tensor):
-                state = torch.tensor(state, dtype=torch.long)
-            else:
-                state = state.long()
+            state = torch.tensor(state, dtype=torch.long) if not isinstance(state, torch.Tensor) else state.long()
             if state.ndim == 1:
                 state = state.unsqueeze(0)
             assert state.ndim == 2
@@ -68,10 +65,7 @@ class FockState(nn.Module):
             # Process Fock state tensor
             if isinstance(state, torch.Tensor):  # with the dimension of batch size
                 if nmode is None:
-                    if den_mat:
-                        nmode = (state.ndim - 1) // 2
-                    else:
-                        nmode = state.ndim - 1
+                    nmode = (state.ndim - 1) // 2 if den_mat else state.ndim - 1
                 if cutoff is None:
                     cutoff = state.shape[-1]
                 self.nmode = nmode
@@ -384,10 +378,7 @@ class BosonicState(nn.Module):
         """
         from .gate import PhaseShift
 
-        if isinstance(xrange, int):
-            xlist = [-xrange, xrange]
-        else:
-            xlist = xrange
+        xlist = [-xrange, xrange] if isinstance(xrange, int) else xrange
         xlist.append(npoints)
         assert len(xlist) == 3
         xvec = torch.linspace(*xlist)

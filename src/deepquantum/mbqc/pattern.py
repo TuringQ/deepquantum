@@ -9,7 +9,7 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from networkx import draw_networkx_edges, draw_networkx_labels, draw_networkx_nodes, MultiDiGraph, multipartite_layout
+from networkx import MultiDiGraph, draw_networkx_edges, draw_networkx_labels, draw_networkx_nodes, multipartite_layout
 from torch import nn
 
 from .command import Correction, Entanglement, Measurement, Node
@@ -82,10 +82,9 @@ class Pattern(Operation):
         self.encode(data)
         self.state = self.commands(self.state)
         self.state.set_nodes_out_seq(self.nodes_out_seq)
-        if data is not None:
-            if data.ndim == 2:
-                # for plotting the last data
-                self.encode(data[-1])
+        if data is not None and data.ndim == 2:
+            # for plotting the last data
+            self.encode(data[-1])
         return self.state
 
     def encode(self, data: torch.Tensor | None) -> None:
@@ -384,7 +383,7 @@ class Pattern(Operation):
                         signal_dict[op.nodes[0]] = s_domain
                         t_domain ^= s_domain
                         s_domain = set()
-                elif op.plane in ['yz', 'zy']:
+                elif op.plane in ['yz', 'zy']:  # noqa: SIM102
                     # positive Y axis as 0 angle
                     # M^{YZ,α} X^s Z^t = M^{YZ,(-1)^t·α+(s+t)π)}
                     #                  = S^s M^{YZ,(-1)^t·α+tπ}

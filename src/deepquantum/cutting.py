@@ -7,7 +7,7 @@ from collections import defaultdict
 from collections.abc import Callable, Hashable, Sequence
 from uuid import uuid4
 
-from networkx import connected_components, Graph
+from networkx import Graph, connected_components
 from torch import nn
 
 from .gate import Barrier, Move, WireCut
@@ -47,10 +47,7 @@ def transform_cut2move(
         op.set_controls(new_controls)
         if isinstance(op, WireCut):
             move = Move(nqubit=new_nqubit, wires=[op.wires[0], op.wires[0] + 1], tsr_mode=op.tsr_mode)
-            if qpd_form:
-                operators[i] = move.qpd()
-            else:
-                operators[i] = move
+            operators[i] = move.qpd() if qpd_form else move
     if observables is not None:
         for ob in observables:
             ob.set_nqubit(new_nqubit)
@@ -198,8 +195,10 @@ def separate_operators(operators: nn.Sequential, qubit_labels: Sequence[Hashable
     return label2sub_dict
 
 
-def decompose_observables(observables: nn.ModuleList, qubit_labels: Sequence[Hashable]) -> dict:
+def decompose_observables(observables: nn.ModuleList | None, qubit_labels: Sequence[Hashable]) -> dict | None:
     """Decompose the observables with respect to qubit partition labels."""
+    if observables is None:
+        return None
     qubit_map, label2qubits_dict = map_qubit(qubit_labels)
     label2obs_dict = {}
     for label, qubits in label2qubits_dict.items():
@@ -237,8 +236,5 @@ def partition_problem(
             operators_qpd.insert(i + 1, gate2)
             gate_label += 1
     label2sub_dict = separate_operators(nn.Sequential(*operators_qpd), qubit_labels)
-    if observables is not None:
-        label2obs_dict = decompose_observables(observables, qubit_labels)
-    else:
-        label2obs_dict = None
+    label2obs_dict = decompose_observables(observables, qubit_labels)
     return label2sub_dict, label2obs_dict

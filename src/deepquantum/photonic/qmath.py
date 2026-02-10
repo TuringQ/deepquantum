@@ -666,14 +666,8 @@ def fock_to_wigner(
     reduced_dm = partial_trace(rho, nmode, trace_lst, cutoff)  # (batch, cutoff, cutoff)
     if reduced_dm.ndim == 2:
         reduced_dm = reduced_dm.unsqueeze(0)
-    if isinstance(xrange, int):
-        xlist = [-xrange, xrange]
-    else:
-        xlist = xrange
-    if isinstance(prange, int):
-        plist = [-prange, prange]
-    else:
-        plist = prange
+    xlist = [-xrange, xrange] if isinstance(xrange, int) else xrange
+    plist = [-prange, prange] if isinstance(prange, int) else prange
     if isinstance(npoints, int):
         xlist.append(npoints)
         plist.append(npoints)
@@ -738,14 +732,8 @@ def cv_to_wigner(
         normalize (bool, optional): Whether to normalize the Wigner function. Default: ``True``
     """
     cov, mean = state[:2]
-    if isinstance(xrange, int):
-        xlist = [-xrange, xrange]
-    else:
-        xlist = xrange
-    if isinstance(prange, int):
-        plist = [-prange, prange]
-    else:
-        plist = prange
+    xlist = [-xrange, xrange] if isinstance(xrange, int) else xrange
+    plist = [-prange, prange] if isinstance(prange, int) else prange
     if isinstance(npoints, int):
         xlist.append(npoints)
         plist.append(npoints)

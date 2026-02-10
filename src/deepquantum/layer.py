@@ -205,10 +205,7 @@ class U3Layer(ParametricSingleLayer):
             name='U3Layer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad
         )
         for i, wire in enumerate(self.wires):
-            if inputs is None:
-                thetas = None
-            else:
-                thetas = inputs[3 * i : 3 * i + 3]
+            thetas = None if inputs is None else inputs[3 * i : 3 * i + 3]
             u3 = U3Gate(
                 inputs=thetas, nqubit=nqubit, wires=wire, den_mat=den_mat, tsr_mode=True, requires_grad=requires_grad
             )
@@ -354,10 +351,7 @@ class RxLayer(ParametricSingleLayer):
             name='RxLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad
         )
         for i, wire in enumerate(self.wires):
-            if inputs is None:
-                theta = None
-            else:
-                theta = inputs[i]
+            theta = None if inputs is None else inputs[i]
             rx = Rx(
                 inputs=theta, nqubit=nqubit, wires=wire, den_mat=den_mat, tsr_mode=True, requires_grad=requires_grad
             )
@@ -395,10 +389,7 @@ class RyLayer(ParametricSingleLayer):
             name='RyLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad
         )
         for i, wire in enumerate(self.wires):
-            if inputs is None:
-                theta = None
-            else:
-                theta = inputs[i]
+            theta = None if inputs is None else inputs[i]
             ry = Ry(
                 inputs=theta, nqubit=nqubit, wires=wire, den_mat=den_mat, tsr_mode=True, requires_grad=requires_grad
             )
@@ -436,10 +427,7 @@ class RzLayer(ParametricSingleLayer):
             name='RzLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad
         )
         for i, wire in enumerate(self.wires):
-            if inputs is None:
-                theta = None
-            else:
-                theta = inputs[i]
+            theta = None if inputs is None else inputs[i]
             rz = Rz(
                 inputs=theta, nqubit=nqubit, wires=wire, den_mat=den_mat, tsr_mode=True, requires_grad=requires_grad
             )

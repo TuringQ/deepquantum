@@ -134,8 +134,7 @@ class ControlledMultiplier(Ansatz):
         )
         iqft = qft.inverse()
         self.add(qft)
-        k = 0
-        for i in range(minmax1[1], minmax1[0] - 1, -1):  # the significant bit in |x> is reversed in Fig.6
+        for k, i in enumerate(range(minmax1[1], minmax1[0] - 1, -1)):  # the significant bit in |x> is reversed in Fig.6
             if debug and 2**k * a >= 2 * mod:
                 print(f'The number 2^{k}*{a} in {self.name} may be too large, unless the control qubit {i} is 0.')
             pma = PhiModularAdder(
@@ -151,7 +150,6 @@ class ControlledMultiplier(Ansatz):
                 debug=debug,
             )
             self.add(pma)
-            k += 1
         self.add(iqft)
 
 
@@ -405,11 +403,9 @@ class PhiAdder(Ansatz):
         bits = int_to_bitstring(number, len(self.wires), debug=debug)
         for i, wire in enumerate(self.wires):
             phi = 0
-            k = 0
-            for j in range(i, len(bits)):
+            for k, j in enumerate(range(i, len(bits))):
                 if bits[j] == '1':
                     phi += torch.pi / 2**k
-                k += 1
             if phi != 0:
                 self.p(wires=wire, inputs=phi, controls=self.controls)
 
@@ -791,10 +787,7 @@ class RandomCircuitG3(Ansatz):
         self.gate_set = ['CNOT', 'H', 'T']
         for _ in range(ngate):
             gate = random.sample(self.gate_set, 1)[0]
-            if gate == 'CNOT':
-                wire = random.sample(self.wires, 2)
-            else:
-                wire = random.sample(self.wires, 1)
+            wire = random.sample(self.wires, 2) if gate == 'CNOT' else random.sample(self.wires, 1)
             if gate == 'CNOT':
                 self.cnot(wire[0], wire[1])
             elif gate == 'H':
@@ -846,8 +839,7 @@ class ShorCircuit(Ansatz):
         ancilla = list(range(ncount + nreg, nqubit))
         self.hlayer(list(range(ncount)))
         self.x(ncount + nreg - 1)
-        n = 0
-        for i in range(ncount - 1, -1, -1):
+        for n, i in enumerate(range(ncount - 1, -1, -1)):
             # Compute a^{2^n} (mod N) by repeated squaring
             an = a
             for _ in range(n):
@@ -865,7 +857,6 @@ class ShorCircuit(Ansatz):
                 debug=debug,
             )
             self.add(cua)
-            n += 1
         iqft = QuantumFourierTransform(
             nqubit=nqubit, minmax=minmax1, den_mat=self.den_mat, mps=self.mps, chi=self.chi
         ).inverse()
@@ -906,10 +897,8 @@ class ShorCircuitFor15(Ansatz):
         minmax = [0, ncount - 1]
         self.hlayer(list(range(ncount)))
         self.x(ncount + nreg - 1)
-        n = 0
-        for i in range(ncount - 1, -1, -1):
+        for n, i in enumerate(range(ncount - 1, -1, -1)):
             self.cua(a, 2**n, i)
-            n += 1
         iqft = QuantumFourierTransform(
             nqubit=nqubit, minmax=minmax, den_mat=self.den_mat, mps=self.mps, chi=self.chi
         ).inverse()

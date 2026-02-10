@@ -278,10 +278,7 @@ class GraphState(nn.Module):
         """The combined graph state of all subgraph states."""
         graph = None
         for subgraph in self.subgraphs:
-            if graph is None:
-                graph = subgraph
-            else:
-                graph = graph.compose(subgraph, relabel=True)
+            graph = subgraph if graph is None else graph.compose(subgraph, relabel=True)
         graph.set_nodes_out_seq(self.nodes_out_seq)
         return graph
 

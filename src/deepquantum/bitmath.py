@@ -41,10 +41,7 @@ def insert_bit(number: int | torch.Tensor, bit_index: int, bit_value: int) -> in
 
 
 def all_bits_are_one(number: int, bit_indices: list[int]) -> bool:
-    for i in bit_indices:
-        if not get_bit(number, i):
-            return False
-    return True
+    return all(get_bit(number, i) for i in bit_indices)
 
 
 def get_bit_mask(bit_indices: list[int]) -> int:

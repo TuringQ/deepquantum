@@ -229,10 +229,7 @@ class PhaseShift(SingleGate):
         self.update_transform_xp()
 
     def extra_repr(self) -> str:
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
+        theta = -self.theta if self.inv_mode else self.theta
         return f'wires={self.wires}, theta={theta.item()}'
 
 

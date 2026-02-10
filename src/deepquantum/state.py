@@ -249,10 +249,7 @@ class MatrixProductState(nn.Module):
         assert site < self.nsite - 1
         tensors = self.tensors
         shape = tensors[site].shape
-        if len(shape) == 3:
-            batch = 1
-        else:
-            batch = shape[0]
+        batch = 1 if len(shape) == 3 else shape[0]
         if_trun = 0 < dc < shape[-1]
         if if_trun:
             u, s, vh = svd(tensors[site].reshape(batch, -1, shape[-1]))
@@ -288,10 +285,7 @@ class MatrixProductState(nn.Module):
         assert site > 0
         tensors = self.tensors
         shape = tensors[site].shape
-        if len(shape) == 3:
-            batch = 1
-        else:
-            batch = shape[0]
+        batch = 1 if len(shape) == 3 else shape[0]
         if_trun = 0 < dc < shape[-3]
         if if_trun:
             u, s, vh = svd(tensors[site].reshape(batch, shape[-3], -1))

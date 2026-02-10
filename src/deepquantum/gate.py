@@ -342,10 +342,7 @@ class ArbitraryGate(Gate):
 
     def inverse(self) -> 'ArbitraryGate':
         """Get the inversed gate."""
-        if isinstance(self.name, str):
-            name = self.name + '_dagger'
-        else:
-            name = self.name
+        name = self.name + '_dagger' if isinstance(self.name, str) else self.name
         gate = copy(self)
         gate.inv_mode = not self.inv_mode
         gate.name = name
@@ -410,10 +407,7 @@ class ParametricSingleGate(SingleGate):
 
     def update_matrix(self) -> torch.Tensor:
         """Update the local unitary matrix."""
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
+        theta = -self.theta if self.inv_mode else self.theta
         matrix = self.get_matrix(theta)
         self.matrix = matrix.detach()
         return matrix
@@ -440,10 +434,7 @@ class ParametricSingleGate(SingleGate):
         return gate
 
     def extra_repr(self) -> str:
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
+        theta = -self.theta if self.inv_mode else self.theta
         s = f'wires={self.wires}, theta={theta.item()}'
         if self.controls == []:
             return s
@@ -509,10 +500,7 @@ class ParametricDoubleGate(DoubleGate):
 
     def update_matrix(self) -> torch.Tensor:
         """Update the local unitary matrix."""
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
+        theta = -self.theta if self.inv_mode else self.theta
         matrix = self.get_matrix(theta)
         self.matrix = matrix.detach()
         return matrix
@@ -539,10 +527,7 @@ class ParametricDoubleGate(DoubleGate):
         return gate
 
     def extra_repr(self) -> str:
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
+        theta = -self.theta if self.inv_mode else self.theta
         s = f'wires={self.wires}, theta={theta.item()}'
         if self.controls == []:
             return s
@@ -777,10 +762,7 @@ class PhaseShift(ParametricSingleGate):
         return torch.block_diag(m1, e_it).reshape(2, 2)
 
     def _qasm(self) -> str:
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
+        theta = -self.theta if self.inv_mode else self.theta
         if self.condition:
             return self._qasm_cond_measure() + f'p({theta.item()}) q{self.wires};\n'
         if self.controls == []:
@@ -1506,10 +1488,7 @@ class Rx(ParametricSingleGate):
         return torch.stack([cos, -isin, -isin, cos]).reshape(2, 2)
 
     def _qasm(self) -> str:
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
+        theta = -self.theta if self.inv_mode else self.theta
         if self.condition:
             return self._qasm_cond_measure() + f'rx({theta.item()}) q{self.wires};\n'
         if self.controls == []:
@@ -1606,10 +1585,7 @@ class Ry(ParametricSingleGate):
         return torch.stack([cos, -sin, sin, cos]).reshape(2, 2) + 0j
 
     def _qasm(self) -> str:
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
+        theta = -self.theta if self.inv_mode else self.theta
         if self.condition:
             return self._qasm_cond_measure() + f'ry({theta.item()}) q{self.wires};\n'
         if self.controls == []:
@@ -1707,10 +1683,7 @@ class Rz(ParametricSingleGate):
         return torch.stack([e_m_it, e_it]).reshape(-1).diag_embed().reshape(2, 2)
 
     def _qasm(self) -> str:
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
+        theta = -self.theta if self.inv_mode else self.theta
         if self.condition:
             return self._qasm_cond_measure() + f'rz({theta.item()}) q{self.wires};\n'
         if self.controls == []:
@@ -1913,10 +1886,7 @@ class CombinedSingleGate(SingleGate):
         """Get the local unitary matrix."""
         matrix = None
         for gate in self.gates:
-            if matrix is None:
-                matrix = gate.update_matrix()
-            else:
-                matrix = gate.update_matrix() @ matrix
+            matrix = gate.update_matrix() if matrix is None else gate.update_matrix() @ matrix
         return matrix
 
     def update_matrix(self) -> torch.Tensor:
@@ -2232,10 +2202,7 @@ class Rxx(ParametricDoubleGate):
         return m1 + m2
 
     def _qasm(self) -> str:
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
+        theta = -self.theta if self.inv_mode else self.theta
         if self.condition:
             return self._qasm_cond_measure() + f'rxx({theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
         if self.controls == []:
@@ -2310,10 +2277,7 @@ class Ryy(ParametricDoubleGate):
         return m1 + m2
 
     def _qasm(self) -> str:
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
+        theta = -self.theta if self.inv_mode else self.theta
         qasm_str1 = ''
         qasm_str2 = f'ryy({theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
         if 'ryy' not in Gate._qasm_new_gate:
@@ -2396,10 +2360,7 @@ class Rzz(ParametricDoubleGate):
         return torch.stack([e_m_it, e_it, e_it, e_m_it]).reshape(-1).diag_embed().reshape(4, 4)
 
     def _qasm(self) -> str:
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
+        theta = -self.theta if self.inv_mode else self.theta
         if self.condition:
             return self._qasm_cond_measure() + f'rzz({theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
         if self.controls == []:
@@ -2952,10 +2913,7 @@ class LatentGate(ArbitraryGate):
 
     def update_matrix(self) -> torch.Tensor:
         """Update the local unitary matrix."""
-        if self.inv_mode:
-            latent = self.latent.mH
-        else:
-            latent = self.latent
+        latent = self.latent.mH if self.inv_mode else self.latent
         matrix = self.get_matrix(latent)
         assert matrix.shape[-1] == matrix.shape[-2] == 2 ** len(self.wires)
         self.matrix = matrix.detach()
@@ -3119,10 +3077,7 @@ class HamiltonianGate(ArbitraryGate):
 
     def update_matrix(self) -> torch.Tensor:
         """Update the local unitary matrix."""
-        if self.inv_mode:
-            t = -self.t
-        else:
-            t = self.t
+        t = -self.t if self.inv_mode else self.t
         matrix = self.get_matrix(self.ham_tsr, t)
         assert matrix.shape[-1] == matrix.shape[-2] == 2 ** len(self.wires)
         self.matrix = matrix.detach()

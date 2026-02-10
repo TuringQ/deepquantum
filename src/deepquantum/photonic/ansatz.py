@@ -60,7 +60,7 @@ class Clements(QumodeCircuit):
     def dict2data(self, angle_dict: dict, dtype=torch.float) -> torch.Tensor:
         """Convert the dictionary of angles to the input data for the circuit."""
         angle_dict = angle_dict.copy()
-        for key in angle_dict.keys():
+        for key in angle_dict:
             angle = angle_dict[key]
             if not isinstance(angle, torch.Tensor):
                 angle = torch.tensor(angle)
@@ -147,7 +147,7 @@ class GaussianBosonSampling(QumodeCircuit):
         self.clements(unitary)
 
 
-class GBS_Graph(GaussianBosonSampling):
+class GraphGBS(GaussianBosonSampling):
     """Simulate Gaussian Boson Sampling for graph problems."""
 
     def __init__(
@@ -183,7 +183,7 @@ class GBS_Graph(GaussianBosonSampling):
             mu=mu,
             sigma=sigma,
         )
-        self.name = 'GBS_Graph'
+        self.name = 'GraphGBS'
         self.to(adj_mat.dtype)
 
     @staticmethod
@@ -207,11 +207,8 @@ class GBS_Graph(GaussianBosonSampling):
     def postselect(samples: dict, nodes_list: list) -> list:
         """Postselect the results with the fixed node subgraph."""
         dic_list = [{} for _ in range(len(nodes_list))]
-        for key in samples.keys():
-            if isinstance(key, FockState):
-                temp = sum(key.state.tolist())
-            else:
-                temp = sum(key)
+        for key in samples:
+            temp = sum(key.state.tolist()) if isinstance(key, FockState) else sum(key)
             if temp in nodes_list:
                 temp_idx = nodes_list.index(temp)
                 dic_list[temp_idx][key] = samples[key]
@@ -221,7 +218,7 @@ class GBS_Graph(GaussianBosonSampling):
     def graph_density(graph: nx.Graph, samples: dict) -> dict:
         """Get all subgraph densities."""
         samples_ = copy.deepcopy(samples)
-        for key in samples_.keys():
+        for key in samples_:
             temp_prob = copy.deepcopy(samples_[key])
             if isinstance(key, FockState):
                 idx = torch.nonzero(key.state).squeeze()

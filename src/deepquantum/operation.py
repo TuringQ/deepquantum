@@ -195,10 +195,7 @@ class Gate(Operation):
     def op_state(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass for state vectors."""
         matrix = self.update_matrix()
-        if self.controls == []:
-            x = self.op_state_base(x=x, matrix=matrix)
-        else:
-            x = self.op_state_control(x=x, matrix=matrix)
+        x = self.op_state_base(x, matrix) if self.controls == [] else self.op_state_control(x, matrix)
         if not self.tsr_mode:
             x = self.vector_rep(x).squeeze(0)
         return x
@@ -228,10 +225,7 @@ class Gate(Operation):
     def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass for density matrices."""
         matrix = self.update_matrix()
-        if self.controls == []:
-            x = self.op_den_mat_base(x=x, matrix=matrix)
-        else:
-            x = self.op_den_mat_control(x=x, matrix=matrix)
+        x = self.op_den_mat_base(x, matrix) if self.controls == [] else self.op_den_mat_control(x, matrix)
         if not self.tsr_mode:
             x = self.matrix_rep(x).squeeze(0)
         return x
@@ -326,11 +320,8 @@ class Gate(Operation):
 
     def _qasm_customized(self, name: str) -> str:
         """Get QASM for multi-controlled gates."""
-        name = name.lower()
-        if len(self.controls) > 2:
-            name = f'c{len(self.controls)}' + name
-        else:
-            name = 'c' * len(self.controls) + name
+        prefix = f'c{len(self.controls)}' if len(self.controls) > 2 else 'c' * len(self.controls)
+        name = prefix + name.lower()
         qasm_lst1 = [f'opaque {name} ']
         qasm_lst2 = [f'{name} ']
         for i, wire in enumerate(self.controls + self.wires):
@@ -462,10 +453,7 @@ class Layer(Operation):
         """Get the global unitary matrix."""
         u = None
         for gate in self.gates:
-            if u is None:
-                u = gate.get_unitary()
-            else:
-                u = gate.get_unitary() @ u
+            u = gate.get_unitary() if u is None else gate.get_unitary() @ u
         return u
 
     def init_para(self, inputs: Any = None) -> None:
@@ -734,10 +722,7 @@ class GateQPD(Gate):
         for ops in self.bases[self.idx]:
             x = ops(x)
         if not self.tsr_mode:
-            if self.den_mat:
-                x = self.matrix_rep(x).squeeze(0)
-            else:
-                x = self.vector_rep(x).squeeze(0)
+            x = self.matrix_rep(x).squeeze(0) if self.den_mat else self.vector_rep(x).squeeze(0)
         return x
 
 

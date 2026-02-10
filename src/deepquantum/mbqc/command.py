@@ -134,10 +134,7 @@ class Measurement(Command):
         if init_state.ndim == 2:
             init_state = init_state.unsqueeze(0)
         wire = sgs.node2wire_dict[self.nodes[0]]
-        if self.angle.ndim == 0:
-            angle = self.angle.unsqueeze(0)
-        else:
-            angle = self.angle
+        angle = self.angle.unsqueeze(0) if self.angle.ndim == 0 else self.angle
         if len(self.s_domain) != 0:
             qs = sum(map(lambda s: torch.tensor(sgs.measure_dict[s], device=angle.device), self.s_domain))
             qs = qs.reshape(-1, 1)

@@ -68,11 +68,11 @@ from .qmath import (
 from .state import (
     BosonicState,
     CatState,
-    combine_bosonic_states,
     DistributedFockState,
     FockState,
-    GaussianState,
     GKPState,
+    GaussianState,
+    combine_bosonic_states,
 )
 from .torontonian_ import torontonian
 
@@ -471,18 +471,15 @@ class QumodeCircuit(Operation):
                 state = self.init_state
         elif not isinstance(state, (GaussianState, BosonicState)):
             nmode = self.nmode
-            if self._nmode_tdm is not None and isinstance(state, list):
-                if isinstance(state[0], torch.Tensor) and state[0].shape[-1] // 2 == self._nmode_tdm:
-                    nmode = self._nmode_tdm
+            is_list_of_tensors = isinstance(state, list) and state and isinstance(state[0], torch.Tensor)
+            if is_list_of_tensors and state[0].shape[-1] == 2 * self._nmode_tdm:
+                nmode = self._nmode_tdm
             if self.backend == 'gaussian':
                 state = GaussianState(state=state, nmode=nmode, cutoff=self.cutoff)
             elif self.backend == 'bosonic':
                 state = BosonicState(state=state, nmode=nmode, cutoff=self.cutoff)
         cov, mean = state.cov, state.mean
-        if self.backend == 'bosonic':
-            weight = state.weight
-        else:
-            weight = None
+        weight = state.weight if self.backend == 'bosonic' else None
         if self._with_delay:
             self._prepare_unroll_dict()
             cov, mean = self._unroll_init_state([cov, mean])
@@ -519,18 +516,10 @@ class QumodeCircuit(Operation):
         if self._lossy:
             stepwise = True
         self.encode(data)
-        if self._with_delay:
-            operators = self._operators_tdm
-        else:
-            operators = self.operators
-        if state is None:
-            cov = self.init_state.cov
-            mean = self.init_state.mean
-        else:
-            cov, mean = state
-        if self.backend == 'bosonic':
-            if cov.ndim == 3:
-                cov = cov.unsqueeze(0)
+        operators = self._operators_tdm if self._with_delay else self.operators
+        cov, mean = (self.init_state.cov, self.init_state.mean) if state is None else state
+        if self.backend == 'bosonic' and cov.ndim == 3:
+            cov = cov.unsqueeze(0)
         if stepwise:
             cov, mean = operators([cov, mean])
         else:
@@ -662,10 +651,7 @@ class QumodeCircuit(Operation):
         """Calculate all possible Fock basis states according to the initial state."""
         nphoton = torch.max(torch.sum(init_state, dim=-1))
         nmode = len(init_state)
-        if self._with_delay:
-            nancilla = nmode - self._nmode_tdm
-        else:
-            nancilla = nmode - self.nmode
+        nancilla = nmode - self._nmode_tdm if self._with_delay else nmode - self.nmode
         states = torch.tensor(
             fock_combinations(nmode, nphoton, self.cutoff, nancilla=nancilla),
             dtype=torch.long,
@@ -677,10 +663,7 @@ class QumodeCircuit(Operation):
         """Split the Fock basis into the odd and even photon number parts."""
         if detector is None:
             detector = self.detector
-        if self._with_delay:
-            nmode = self._nmode_tdm
-        else:
-            nmode = self.nmode
+        nmode = self._nmode_tdm if self._with_delay else self.nmode
         if detector == 'pnrd':
             max_photon = nmode * (self.cutoff - 1)
             odd_lst = []
@@ -815,28 +798,20 @@ class QumodeCircuit(Operation):
             ndelay = np.array([0] * self.nmode)  # counter of delay loops for each mode
             for op in self.operators:
                 encode = op in self.encoders
+                is_deep = use_deepcopy or encode
                 if isinstance(op, Delay):
                     wire = op.wires[0]
                     ndelay[wire] += 1
                     idx_delay = -ndelay[wire] - 1
                     wire1 = self._unroll_dict[wire][idx_delay][i % op.ntau]
-                    if i == 0:
-                        wire2 = self._unroll_dict[wire][-1]
-                    else:
-                        wire2 = self._nmode_tdm + self.nmode * (i - 1) + wire
-                    if use_deepcopy or encode:
-                        op_tdm = deepcopy(op.gates[0])
-                    else:
-                        op_tdm = copy(op.gates[0])
+                    wire2 = self._unroll_dict[wire][-1] if i == 0 else self._nmode_tdm + self.nmode * (i - 1) + wire
+                    op_tdm = deepcopy(op.gates[0]) if is_deep else copy(op.gates[0])
                     op_tdm.nmode = nmode
                     op_tdm.wires = [wire1, wire2]
                     cir.add(op_tdm, encode=encode)
                     if len(op.gates) > 1:
                         for gate in op.gates[1:]:
-                            if use_deepcopy or encode:
-                                op_gate = deepcopy(gate)
-                            else:
-                                op_gate = copy(gate)
+                            op_gate = deepcopy(gate) if is_deep else copy(gate)
                             op_gate.nmode = nmode
                             op_gate.wires = [wire1]
                             if isinstance(gate, PhotonLoss):
@@ -844,10 +819,7 @@ class QumodeCircuit(Operation):
                                 cir._nloss += 1
                             cir.add(op_gate, encode=encode)
                 else:
-                    if use_deepcopy or encode:
-                        op_tdm = deepcopy(op)
-                    else:
-                        op_tdm = copy(op)
+                    op_tdm = deepcopy(op) if is_deep else copy(op)
                     op_tdm.nmode = nmode
                     if i == 0:
                         op_tdm.wires = [self._unroll_dict[wire][-1] for wire in op.wires]
@@ -908,10 +880,7 @@ class QumodeCircuit(Operation):
     def get_unitary(self) -> torch.Tensor:
         """Get the unitary matrix of the photonic quantum circuit."""
         u = None
-        if self._with_delay:
-            operators = self._operators_tdm
-        else:
-            operators = self.operators
+        operators = self._operators_tdm if self._with_delay else self.operators
         nloss = 0
         for op in operators:
             if isinstance(op, Barrier):
@@ -956,10 +925,7 @@ class QumodeCircuit(Operation):
         for op in operators:
             if isinstance(op, Barrier):
                 continue
-            if s is None:
-                s = op.get_symplectic()
-            else:
-                s = op.get_symplectic() @ s
+            s = op.get_symplectic() if s is None else op.get_symplectic() @ s
         if s is None:
             return torch.eye(2 * nmode, dtype=torch.float)
         return s
@@ -1090,10 +1056,7 @@ class QumodeCircuit(Operation):
                 rst = list(rst.values())[0]
             return rst
         elif self.backend == 'gaussian':
-            if self._with_delay:
-                nmode = self._nmode_tdm
-            else:
-                nmode = self.nmode
+            nmode = self._nmode_tdm if self._with_delay else self.nmode
             if refer_state is None:
                 refer_state = GaussianState(self.state, nmode=nmode, cutoff=self.cutoff)
             return self._get_prob_gaussian(final_state, refer_state)
@@ -1214,10 +1177,7 @@ class QumodeCircuit(Operation):
                 sub_mat = sub_gamma
             else:
                 sub_mat[torch.arange(len(sub_gamma)), torch.arange(len(sub_gamma))] = sub_gamma
-            if purity:
-                haf = abs(hafnian(sub_mat, loop=loop)) ** 2
-            else:
-                haf = hafnian(sub_mat, loop=loop)
+            haf = abs(hafnian(sub_mat, loop=loop)) ** 2 if purity else hafnian(sub_mat, loop=loop)
             prob = p_vac * haf / product_factorial(final_state).to(device=haf.device, dtype=haf.dtype)
         elif detector == 'threshold':
             final_state_double = torch.cat([final_state, final_state])
@@ -1235,10 +1195,7 @@ class QumodeCircuit(Operation):
         """
         if isinstance(final_state, FockState):
             final_state = final_state.state.tolist()
-        if wires is None:
-            wires = list(range(self.nmode))
-        else:
-            wires = self._convert_indices(wires)
+        wires = list(range(self.nmode)) if wires is None else self._convert_indices(wires)
         assert len(final_state) == len(wires)
         state = copy(self.state)
         if self.state[0].ndim == 3:
@@ -1278,10 +1235,7 @@ class QumodeCircuit(Operation):
         if self.backend == 'fock':
             results = self._measure_fock(shots, with_prob, wires, mcmc)
         elif self.backend == 'gaussian':
-            if detector is None:
-                detector = self.detector
-            else:
-                detector = detector.lower()
+            detector = self.detector if detector is None else detector.lower()
             results = self._measure_gaussian(shots, with_prob, wires, detector, mcmc)
         if len(results) == 1:
             results = results[0]
@@ -1341,7 +1295,7 @@ class QumodeCircuit(Operation):
                     for k in samples_i:
                         prob = self._get_prob_fock(k)
                         samples_i[k] = samples_i[k], prob
-                for key in samples_i.keys():
+                for key in samples_i:
                     state_b = [key[wire] for wire in wires]
                     state_b = FockState(state=state_b)
                     results[state_b].append(samples_i[key])
@@ -1390,7 +1344,7 @@ class QumodeCircuit(Operation):
         for i in range(len(final_states)):
             final_state = FockState(state=final_states[i])
             state_dict[final_state] = rst[i]
-        for key in state_dict.keys():
+        for key in state_dict:
             state_b = key.state[wires]
             state_b = FockState(state=state_b)
             prob_dict[state_b].append(state_dict[key])
@@ -1403,13 +1357,11 @@ class QumodeCircuit(Operation):
             wires = [self._unroll_dict[wire][-1] for wire in wires]
         all_results = []
         batch = len(self.state[list(self.state.keys())[0]])
-        if self.backend == 'fock' and any(value.dtype.is_complex for value in self.state.values()):
-            is_prob = False
-        else:
-            is_prob = True
+        is_complex = any(v.dtype.is_complex for v in self.state.values())
+        is_prob = not (self.backend == 'fock' and is_complex)
         for i in range(batch):
             prob_dict = defaultdict(list)
-            for key in self.state.keys():
+            for key in self.state:
                 if wires == self.wires:
                     state_b = key
                 else:
@@ -1535,11 +1487,8 @@ class QumodeCircuit(Operation):
                         idx = torch.cat([wires_, wires_ + self.nmode])
                         prob = self._get_prob_gaussian(k, [cov[i][idx[:, None], idx], mean[i][idx, :]])
                     samples_i[k] = samples_i[k], prob
-            for key in samples_i.keys():
-                if mcmc:
-                    state_b = [key[wire] for wire in wires]
-                else:
-                    state_b = list(key)
+            for key in samples_i:
+                state_b = [key[wire] for wire in wires] if mcmc else list(key)
                 state_b = FockState(state=state_b)
                 results[state_b].append(samples_i[key])
             if with_prob:
@@ -1592,10 +1541,7 @@ class QumodeCircuit(Operation):
 
     def _generate_rand_sample(self, detector: str = 'pnrd'):
         """Generate a random sample according to uniform proposal distribution."""
-        if self._with_delay:
-            nmode = self._nmode_tdm
-        else:
-            nmode = self.nmode
+        nmode = self._nmode_tdm if self._with_delay else self.nmode
         if detector == 'threshold':
             sample = torch.randint(0, 2, [nmode])
         elif detector == 'pnrd':
@@ -1840,10 +1786,7 @@ class QumodeCircuit(Operation):
             return out.reshape(mat.shape[0], nblock, block_size, -1)
 
         indices = []
-        if self._with_delay:
-            nmode = self._nmode_tdm
-        else:
-            nmode = self.nmode
+        nmode = self._nmode_tdm if self._with_delay else self.nmode
         for wire in wires:
             indices.append([wire] + [wire + nmode])
         indices = torch.tensor(indices, device=cov.device)
@@ -1871,10 +1814,7 @@ class QumodeCircuit(Operation):
             return
         assert isinstance(self.state, (list, torch.Tensor)), 'NOT valid when "is_prob" is True'
         if len(self.measurements) > 0:
-            if self._with_delay:
-                measurements = self._measurements_tdm
-            else:
-                measurements = self.measurements
+            measurements = self._measurements_tdm if self._with_delay else self.measurements
             samples = []
             if self.backend == 'fock':
                 assert not self.basis
@@ -1885,10 +1825,7 @@ class QumodeCircuit(Operation):
             else:
                 batch = self.state[0].shape[0]
                 self.state_measured = []
-                if self.backend == 'bosonic':
-                    state = align_shape(*self.state)
-                else:
-                    state = self.state
+                state = align_shape(*self.state) if self.backend == 'bosonic' else self.state
                 for s in state:  # [cov, mean, weight]
                     shape = s.shape
                     self.state_measured.append(torch.stack([s] * shots).reshape(-1, *shape[1:]))

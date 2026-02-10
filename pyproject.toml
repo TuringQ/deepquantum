@@ -80,7 +80,7 @@ line-length = 120
 quote-style = 'single'
 
 [tool.ruff.lint]
-select = ['E', 'W', 'F', 'I', 'B', 'UP']
+select = ['E', 'W', 'F', 'I', 'B', 'UP', 'N', 'A', 'SIM']
 
 [tool.ruff.lint.extend-per-file-ignores]
 '__init__.py' = ['F401']
@@ -88,3 +88,4 @@ select = ['E', 'W', 'F', 'I', 'B', 'UP']
 
 [tool.ruff.lint.isort]
 order-by-type = false
+case-sensitive = true

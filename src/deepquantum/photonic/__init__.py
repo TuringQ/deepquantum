@@ -20,7 +20,7 @@ from . import (
     torontonian_,
     utils,
 )
-from .ansatz import Clements, GaussianBosonSampling, GBS_Graph
+from .ansatz import Clements, GaussianBosonSampling, GraphGBS
 from .channel import PhotonLoss
 from .circuit import DistributedQumodeCircuit, QumodeCircuit
 from .decompose import UnitaryDecomposer
@@ -64,7 +64,7 @@ from .qmath import (
     xpxp_to_xxpp,
     xxpp_to_xpxp,
 )
-from .state import BosonicState, CatState, DistributedFockState, FockState, FockStateBosonic, GaussianState, GKPState
+from .state import BosonicState, CatState, DistributedFockState, FockState, FockStateBosonic, GKPState, GaussianState
 from .tdm import QumodeCircuitTDM
 from .torontonian_ import torontonian
 from .utils import set_hbar, set_kappa, set_perm_chunksize

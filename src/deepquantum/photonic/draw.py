@@ -83,10 +83,7 @@ class DrawCircuit:
         for op in ops:
             if isinstance(op, BeamSplitter):
                 if isinstance(op, MZI):
-                    if op.phi_first:
-                        name = 'MZI-PT'
-                    else:
-                        name = 'MZI-TP'
+                    name = 'MZI-PT' if op.phi_first else 'MZI-TP'
                 elif isinstance(op, BeamSplitterSingle):
                     name = 'BS-' + op.convention.upper()
                 else:
@@ -127,10 +124,7 @@ class DrawCircuit:
             elif isinstance(op, (Squeezing, Displacement)):
                 para_dic = {'r': op.r.item(), 'θ': op.theta.item()}
                 order = depth[op.wires[0]]
-                if isinstance(op, Squeezing):
-                    name_ = 'S'
-                else:
-                    name_ = 'D'
+                name_ = 'S' if isinstance(op, Squeezing) else 'D'
                 self.draw_sq(order, op.wires, para_dic, name=name_)
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
@@ -386,14 +380,12 @@ class DrawCircuit:
         )
         self.draw_.add(self.draw_.text(name, insert=(x + 40 + shift, y_up * 30 + 20), font_size=9))
 
-        k = 0
-        for key in para_dic.keys():
+        for k, key in enumerate(para_dic):
             self.draw_.add(
                 self.draw_.text(
                     key + '=' + str(np.round(para_dic[key], 3)), insert=(x + 55, y_up * 30 + 18 + 6 * k), font_size=7
                 )
             )
-            k += 1
 
     def draw_delay(self, order, wires, inputs=None):
         """
@@ -792,7 +784,7 @@ class DrawClements:
         """
         Plot mzi parameters for ``cssl`` case.
         """
-        for i in sort_mzi_dic.keys():
+        for i in sort_mzi_dic:
             if i[0] % 2 == 0:  # 0, 2, 4, 6..
                 temp_values = sort_mzi_dic[i]
                 len_ = len(temp_values)
@@ -831,7 +823,7 @@ class DrawClements:
         """
         Plot mzi parameters for ``cssr`` case.
         """
-        for i in sort_mzi_dic.keys():
+        for i in sort_mzi_dic:
             if i[0] % 2 == 0:  # 0, 2, 4, 6..
                 temp_values = sort_mzi_dic[i]
                 len_ = len(temp_values)

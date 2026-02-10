@@ -263,10 +263,7 @@ class QubitCircuit(Operation):
         if isinstance(state, QubitState):
             state = state.state
         x = self.operators(self.tensor_rep(state))
-        if self.den_mat:
-            x = self.matrix_rep(x)
-        else:
-            x = self.vector_rep(x)
+        x = self.matrix_rep(x) if self.den_mat else self.vector_rep(x)
         return x.squeeze(0)
 
     def encode(self, data: torch.Tensor | None) -> None:
@@ -479,10 +476,7 @@ class QubitCircuit(Operation):
         for op in self.operators:
             if isinstance(op, Barrier):
                 continue
-            if u is None:
-                u = op.get_unitary()
-            else:
-                u = op.get_unitary() @ u
+            u = op.get_unitary() if u is None else op.get_unitary() @ u
         if u is None:
             return torch.eye(2**self.nqubit, dtype=torch.cfloat)
         else:
@@ -519,11 +513,9 @@ class QubitCircuit(Operation):
             if len(wires) != self.nqubit:
                 if self.mps:
                     assert len(bits) == len(wires)
-                    idx = 0
                     state = copy(self.state)
-                    for i in wires:
-                        state[i] = state[i][:, [int(bits[idx])], :]
-                        idx += 1
+                    for i, wire in enumerate(wires):
+                        state[wire] = state[wire][:, [int(bits[i])], :]
                     return inner_product_mps(state, state).real
                 else:
                     state = self.state.reshape(-1)
@@ -549,18 +541,12 @@ class QubitCircuit(Operation):
             You should ONLY encode data onto the original circuit.
             If you want to encode data onto the inversed circuit, set ``encode`` to be ``True``.
         """
-        if isinstance(self.name, str):
-            name = self.name + '_inverse'
-        else:
-            name = self.name
+        name = self.name + '_inverse' if isinstance(self.name, str) else self.name
         cir = QubitCircuit(
             nqubit=self.nqubit, name=name, den_mat=self.den_mat, reupload=self.reupload, mps=self.mps, chi=self.chi
         )
         for op in reversed(self.operators):
-            if isinstance(op, Channel):
-                op_inv = op
-            else:
-                op_inv = op.inverse()
+            op_inv = op if isinstance(op, Channel) else op.inverse()
             cir.add(op_inv)
             if encode and op in self.encoders:
                 cir.encoders.append(op_inv)
@@ -636,10 +622,9 @@ class QubitCircuit(Operation):
                     if len(op.controls) > 0:
                         Gate._reset_qasm_new_gate()
                         raise ValueError(f'Too many control bits for {op.name}')
-                elif isinstance(op, single_control_gates):
-                    if len(op.controls) > 1:
-                        Gate._reset_qasm_new_gate()
-                        raise ValueError(f'Too many control bits for {op.name}')
+                elif isinstance(op, single_control_gates) and len(op.controls) > 1:
+                    Gate._reset_qasm_new_gate()
+                    raise ValueError(f'Too many control bits for {op.name}')
             qasm_lst.append(op._qasm())
         for wire in self.wires_measure:
             qasm_lst.append(f'measure q[{wire}] -> c[{wire}];\n')
@@ -750,10 +735,7 @@ class QubitCircuit(Operation):
     def transform_cut2move(self) -> 'QubitCircuit':
         """Transform ``WireCut`` to ``Move`` and expand the observables accordingly."""
         operators = deepcopy(self.operators)
-        if len(self.observables) == 0:
-            observables = None
-        else:
-            observables = deepcopy(self.observables)
+        observables = None if len(self.observables) == 0 else deepcopy(self.observables)
         operators, observables = transform_cut2move(operators, self._cut_lst, observables, False)
         cir = QubitCircuit(
             operators[0].nqubit,
@@ -772,10 +754,7 @@ class QubitCircuit(Operation):
     def get_subexperiments(self, qubit_labels: Sequence[Hashable] | None = None) -> tuple[dict, list[float]]:
         """Generate cutting subexperiments and their associated coefficients."""
         operators = deepcopy(self.operators)
-        if len(self.observables) == 0:
-            observables = None
-        else:
-            observables = deepcopy(self.observables)
+        observables = None if len(self.observables) == 0 else deepcopy(self.observables)
         operators, observables = transform_cut2move(operators, self._cut_lst, observables, True)
         label2sub_dict, label2obs_dict = partition_problem(operators, qubit_labels, observables)
         label2qpd_dict = defaultdict(list)  # {label: [idx, ...]}
@@ -812,21 +791,24 @@ class QubitCircuit(Operation):
                         new_ob.gates.extend(ob.gates)
                         obs.append(new_ob)
                 for op in sub_ops:
-                    if isinstance(op, SingleGateQPD):
-                        for i, idx in enumerate(combination):
-                            if op.label == gate_label_lst_sorted[i]:
-                                for ops in op.bases[idx]:
-                                    for gate in ops:
-                                        cir.add(gate)
-                                if observables is not None and len(op.bases[idx][0]) > 0:
-                                    if isinstance(op.bases[idx][0][-1], MeasureQPD):
-                                        pauliz = PauliZ(nqubit, op.wires, den_mat=op.den_mat, tsr_mode=True)
-                                        for new_ob in obs:
-                                            new_ob.wires = new_ob.wires + [op.wires]
-                                            new_ob.basis = new_ob.basis + 'z'
-                                            new_ob.gates.append(pauliz)
-                    else:
+                    if not isinstance(op, SingleGateQPD):
                         cir.add(op)
+                        continue
+                    for i, idx in enumerate(combination):
+                        if op.label != gate_label_lst_sorted[i]:
+                            continue
+                        for ops in op.bases[idx]:
+                            for gate in ops:
+                                cir.add(gate)
+                        if observables is None:
+                            continue
+                        if len(op.bases[idx][0]) == 0 or not isinstance(op.bases[idx][0][-1], MeasureQPD):
+                            continue
+                        pauliz = PauliZ(nqubit, op.wires, den_mat=op.den_mat, tsr_mode=True)
+                        for new_ob in obs:
+                            new_ob.wires = new_ob.wires + [op.wires]
+                            new_ob.basis = new_ob.basis + 'z'
+                            new_ob.gates.append(pauliz)
                 if observables is not None:
                     cir.observables = obs
                 subexperiments[label].append(cir)

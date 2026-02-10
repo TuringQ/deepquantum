@@ -146,9 +146,7 @@ def is_density_matrix(rho: torch.Tensor) -> bool:
         return False
     # Check if the eigenvalues of each matrix are non-negative
     positive_semi_definite = torch.all(torch.linalg.eig(rho)[0].real >= 0).item()
-    if not positive_semi_definite:
-        return False
-    return True
+    return positive_semi_definite
 
 
 def is_positive_definite(mat: torch.Tensor) -> bool:
@@ -442,12 +440,10 @@ def amplitude_encoding(data: Any, nqubit: int) -> torch.Tensor:
                 [0.0000+0.j],
                 [0.0000+0.j]]])
     """
-    if not isinstance(data, (torch.Tensor, nn.Parameter)):
+    if not isinstance(data, torch.Tensor):
         data = torch.tensor(data)
-    if data.ndim == 1 or (data.ndim == 2 and data.shape[-1] == 1):
-        batch = 1
-    else:
-        batch = data.shape[0]
+    is_single_state = data.ndim == 1 or (data.ndim == 2 and data.shape[-1] == 1)
+    batch = 1 if is_single_state else data.shape[0]
     data = data.reshape(batch, -1)
     size = data.shape[1]
     n = 2**nqubit
@@ -583,10 +579,8 @@ def measure(
     if den_mat:
         assert is_density_matrix(state), 'Please input density matrices'
         state = state.diagonal(dim1=-2, dim2=-1)
-    if state.ndim == 1 or (state.ndim == 2 and state.shape[-1] == 1):
-        batch = 1
-    else:
-        batch = state.shape[0]
+    is_single_state = state.ndim == 1 or (state.ndim == 2 and state.shape[-1] == 1)
+    batch = 1 if is_single_state else state.shape[0]
     state = state.reshape(batch, -1)
     assert is_power_of_two(state.shape[-1]), 'The length of the quantum state is not in the form of 2^n'
     n = int(np.log2(state.shape[-1]))
@@ -602,10 +596,7 @@ def measure(
     num_bits = len(wires) if wires else n
     results_tot = []
     for i in range(batch):
-        if den_mat:
-            probs = torch.abs(state[i])
-        else:
-            probs = torch.abs(state[i]) ** 2
+        probs = torch.abs(state[i]) if den_mat else torch.abs(state[i]) ** 2
         if wires is not None:
             probs = probs.reshape([2] * n).permute(pm_shape).reshape([2] * len(wires) + [-1]).sum(-1).reshape(-1)
         # Perform block sampling to reduce memory consumption

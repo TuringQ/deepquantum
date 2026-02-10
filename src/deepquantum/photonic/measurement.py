@@ -13,7 +13,7 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 import deepquantum.photonic as dqp
 
 from .gate import Displacement, PhaseShift
-from .operation import evolve_den_mat, evolve_state, Operation
+from .operation import Operation, evolve_den_mat, evolve_state
 from .qmath import sample_homodyne_fock, sample_reject_bosonic
 from .state import FockStateBosonic
 
@@ -329,10 +329,8 @@ class GeneralBosonic(Operation):
         mean_b = mean[..., idx, :]
 
         ncomb_j = self.weight.shape[-1]
-        if self.cov.shape[0] == 1:
-            cov_t = cov_b + self.cov.expand(ncomb_j, -1, -1)  # (batch, ncomb, ncomb_j, 2 * nwire, 2 * nwire)
-        else:
-            cov_t = cov_b + self.cov
+        # (batch, ncomb, ncomb_j, 2 * nwire, 2 * nwire)
+        cov_t = cov_b + self.cov.expand(ncomb_j, -1, -1) if self.cov.shape[0] == 1 else cov_b + self.cov
         cov_new = cov_t.flatten(-4, -3)  # (batch, ncomb_new, 2 * nwire, 2 * nwire)
         mean_new = mean_b.expand(-1, -1, ncomb_j, -1, -1).flatten(-4, -3)
         weight_new = (weight * self.weight).flatten(-2, -1)

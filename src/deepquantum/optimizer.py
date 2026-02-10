@@ -74,7 +74,7 @@ class OptimizerBayesian(Optimizer):
 
     def gen_pbounds(self) -> dict:
         pbounds = {}
-        for key in self.param_dict.keys():
+        for key in self.param_dict:
             pbounds[key] = (0, np.pi * 2)
         return pbounds
 
