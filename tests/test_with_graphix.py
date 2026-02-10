@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from graphix import command, Pattern
+from graphix import Pattern, command
 from graphix.fundamentals import Plane
 
 import deepquantum as dq

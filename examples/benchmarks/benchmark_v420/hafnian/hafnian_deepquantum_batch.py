@@ -1,8 +1,8 @@
 import time
 
 import deepquantum as dq
-from deepquantum.photonic.hafnian_ import hafnian_batch
 from GlobalHafnian import *
+from deepquantum.photonic.hafnian_ import hafnian_batch
 from tqdm import tqdm
 
 # Print version
