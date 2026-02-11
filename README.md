@@ -87,6 +87,7 @@ Below are some minimal examples to help you get started.
 
 ```python
 import deepquantum as dq
+
 cir = dq.QubitCircuit(2)
 cir.h(0)
 cir.cnot(0, 1)
@@ -113,10 +114,10 @@ print(cir.expectation())
 - Photonic quantum circuit with the Fock backend, based on Fock basis state
 
 ```python
-cir = dq.QumodeCircuit(2, [1,1])
-cir.dc([0,1])
+cir = dq.QumodeCircuit(2, [1, 1])
+cir.dc([0, 1])
 cir.ps(0, 0.1)
-cir.bs([0,1], [0.2,0.3])
+cir.bs([0, 1], [0.2, 0.3])
 print(cir())
 print(cir.measure())
 ```
@@ -124,10 +125,10 @@ print(cir.measure())
 - Photonic quantum circuit with the Fock backend, based on Fock state tensor
 
 ```python
-cir = dq.QumodeCircuit(2, [(1, [1,1])], basis=False)
-cir.dc([0,1])
+cir = dq.QumodeCircuit(2, [(1, [1, 1])], basis=False)
+cir.dc([0, 1])
 cir.ps(0, 0.1)
-cir.bs([0,1], [0.2,0.3])
+cir.bs([0, 1], [0.2, 0.3])
 print(cir())
 print(cir.measure())
 ```
@@ -138,7 +139,7 @@ print(cir.measure())
 cir = dq.QumodeCircuit(2, 'vac', cutoff=10, backend='gaussian')
 cir.s(0, 0.1)
 cir.d(1, 0.1)
-cir.bs([0,1], [0.2,0.3])
+cir.bs([0, 1], [0.2, 0.3])
 print(cir())
 print(cir.measure())
 print(cir.photon_number_mean_var(wires=0))
@@ -151,7 +152,7 @@ print(cir.measure_homodyne(wires=1))
 cir = dq.QumodeCircuit(2, 'vac', backend='bosonic')
 cir.cat(0, 0.5, 0.0)
 cir.gkp(1, 0.5, 0.5)
-cir.bs([0,1], [0.2,0.3])
+cir.bs([0, 1], [0.2, 0.3])
 print(cir())
 print(cir.photon_number_mean_var(wires=0))
 print(cir.measure_homodyne(wires=1))
@@ -167,7 +168,7 @@ pattern.e(1, 2)
 pattern.m(1)
 pattern.x(2, domain=1)
 # CNOT
-pattern.n([3,4])
+pattern.n([3, 4])
 pattern.e(2, 3)
 pattern.e(0, 3)
 pattern.e(3, 4)
@@ -196,10 +197,11 @@ print(cir() / pattern().full_state)
 
 ```python
 import torch
+
 # OMP_NUM_THREADS=2 torchrun --nproc_per_node=4 main.py
-backend = 'gloo' # for CPU
+backend = 'gloo'  # for CPU
 # torchrun --nproc_per_node=4 main.py
-backend = 'nccl' # for GPU
+backend = 'nccl'  # for GPU
 rank, world_size, local_rank = dq.setup_distributed(backend)
 if backend == 'nccl':
     device = f'cuda:{local_rank}'
@@ -229,9 +231,9 @@ dq.cleanup_distributed()
 
 ```python
 # OMP_NUM_THREADS=2 torchrun --nproc_per_node=4 main.py
-backend = 'gloo' # for CPU
+backend = 'gloo'  # for CPU
 # torchrun --nproc_per_node=4 main.py
-backend = 'nccl' # for GPU
+backend = 'nccl'  # for GPU
 rank, world_size, local_rank = dq.setup_distributed(backend)
 nmode = 4
 cutoff = 4
