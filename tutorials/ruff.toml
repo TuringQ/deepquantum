@@ -1,7 +1,7 @@
 extend = '../pyproject.toml'
 
 [lint]
-extend-ignore = ['E501']
+extend-ignore = ['E402', 'E501']
 
 [lint.isort]
 known-first-party = []

@@ -84,7 +84,6 @@ select = ['E', 'W', 'F', 'I', 'B', 'UP', 'N', 'A', 'SIM']
 
 [tool.ruff.lint.extend-per-file-ignores]
 '__init__.py' = ['F401']
-'tutorials/*.ipynb' = ['E402']
 
 [tool.ruff.lint.isort]
 order-by-type = false
