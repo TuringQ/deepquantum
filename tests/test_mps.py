@@ -57,8 +57,7 @@ def test_get_prob_mps():
     cir2.rxlayer(encode=True)
     sv = cir2(data=data).reshape([2] * n)
 
-    offset = 0
-    for i, b in zip(wires, bits):
+    for offset, i, b in enumerate(zip(wires, bits, strict=True)):
         prob0_sv = (slice_state_vector(sv, n - offset, [i - offset], '0', False).abs() ** 2).sum()
         prob1_sv = (slice_state_vector(sv, n - offset, [i - offset], '1', False).abs() ** 2).sum()
         probs_mps = get_prob_mps(mps, i)
@@ -66,4 +65,3 @@ def test_get_prob_mps():
         assert torch.allclose(prob1_sv, probs_mps[1])
         sv = slice_state_vector(sv, n - offset, [i - offset], b, False)
         mps[i] = mps[i][:, [int(b)], :]
-        offset += 1

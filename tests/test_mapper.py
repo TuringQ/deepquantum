@@ -14,9 +14,9 @@ def test_mapper():
     success = 1 / 3
     umap = dq.UnitaryMapper(nqubit=nqubit, nmode=nmode, ugate=ugate, success=success, aux=aux, aux_pos=aux_pos)
     basis = umap.basis
-    Re3 = umap.solve_eqs_real(total_trials=1, trials=10, precision=1e-5)  # for real solution
+    re = umap.solve_eqs_real(total_trials=1, trials=10, precision=1e-5)  # for real solution
     # check the result
-    cnot_test = Re3[0][0][0]
+    cnot_test = re[0][0][0]
     init_state = [1, 0, 1, 0, 0, 0]
     test_circuit = dq.QumodeCircuit(nmode=6, init_state=init_state, basis=True)
     test_circuit.any(cnot_test, list(range(6)))

@@ -216,10 +216,7 @@ def test_data_reupload_transpilation():
     # Transpile circuit to measurement pattern
     pattern = cir.pattern()
     # prepare batched input data
-    if n_para > 3:
-        para = torch.randn(batch_size, n_para - 2)
-    else:
-        para = torch.randn(batch_size, n_para)
+    para = torch.randn(batch_size, n_para - 2) if n_para > 3 else torch.randn(batch_size, n_para)
     # Execute both circuits
     state_cir = cir(data=para)
     state_pattern = pattern(data=-para).graph.full_state

@@ -21,55 +21,54 @@ def test_random_circuit():
         ini_state_pre[ini_state_pre.argmax()] += nmode - ini_state_pre.sum()
     ini_state = [int(i) for i in ini_state_pre]
     assert np.sum(ini_state_pre) == nmode
-    test_gate = pcvl.Circuit(nmode, name='test1')
-    dq_gate = dq.QumodeCircuit(nmode=nmode, init_state=ini_state, name='test', cutoff=sum(ini_state) + 1, basis=True)
+    cir_pcvl = pcvl.Circuit(nmode)
+    cir_dq = dq.QumodeCircuit(nmode=nmode, init_state=ini_state, cutoff=sum(ini_state) + 1, basis=True)
     encode = True
     for _ in range(ndevice):  # take the random circuit
         j = np.random.uniform(-1, 5)
         if 4 < j < 5:  # add H
             k = int(np.random.choice(np.arange(nmode - 1)))
             angle_1 = np.random.uniform(0, 2 * np.pi)
-            test_gate.add([k, k + 1], BS.H(angle_1))
-            dq_gate.bs_h([k, k + 1], angle_1)
+            cir_pcvl.add([k, k + 1], BS.H(angle_1))
+            cir_dq.bs_h([k, k + 1], angle_1)
         if 2 < j < 3:  # add Rx
             k = int(np.random.choice(np.arange(nmode - 1)))
             angle_1 = np.random.uniform(0, 2 * np.pi)
-            test_gate.add([k, k + 1], BS.Rx(angle_1))
-            dq_gate.bs_rx([k, k + 1], angle_1)
+            cir_pcvl.add([k, k + 1], BS.Rx(angle_1))
+            cir_dq.bs_rx([k, k + 1], angle_1)
         if 1 < j < 2:  # add Ry
             k = int(np.random.choice(np.arange(nmode - 1)))
             angle_1 = np.random.uniform(0, 2 * np.pi)
-            test_gate.add([k, k + 1], BS.Ry(angle_1))
-            dq_gate.bs_ry([k, k + 1], angle_1)
+            cir_pcvl.add([k, k + 1], BS.Ry(angle_1))
+            cir_dq.bs_ry([k, k + 1], angle_1)
         if 0 < j < 1:
             temp_1 = int(np.random.choice(np.arange(nmode)))
             angle_1 = np.random.uniform(0, 2 * np.pi)
-            test_gate.add((temp_1), comp.PS(angle_1))
-            dq_gate.ps([temp_1], angle_1, encode=encode)
+            cir_pcvl.add((temp_1), comp.PS(angle_1))
+            cir_dq.ps([temp_1], angle_1, encode=encode)
         else:
             k = int(np.random.choice(np.arange(nmode - 1)))
             angle_2 = np.random.uniform(0, 2 * np.pi)
-            test_gate.add((k, k + 1), BS.Rx(angle_2))
-            dq_gate.bs_theta([k, k + 1], angle_2 / 2, encode=encode)
+            cir_pcvl.add((k, k + 1), BS.Rx(angle_2))
+            cir_dq.bs_theta([k, k + 1], angle_2 / 2, encode=encode)
     backend = pcvl.BackendFactory().get_backend('Naive')
-    backend.set_circuit(test_gate)
+    backend.set_circuit(cir_pcvl)
     input_state = pcvl.BasicState(ini_state)
     backend.set_input_state(input_state)
     re1 = backend.evolve()
-    re2 = dq_gate(is_prob=False)
+    re2 = cir_dq(is_prob=False)
     # calculating the difference for two simu approach
     max_error = -1.0
-    for key in re1.keys():
+    for key in re1:
         key2 = list(key)
         key3 = dq.FockState(key2)
         tmp_error = abs(re2[key3] - re1[key])
-        # tmp_error = abs(re2[tuple(key2)] - re1[(key)])
         if tmp_error > max_error:
             max_error = tmp_error
     assert max_error < 1e-4
 
 
-def test_loss_fock_basis_True():
+def test_loss_fock_basis():
     n = 3
     angles = np.random.rand(6) * np.pi
     transmittance = np.random.rand(6)
@@ -106,9 +105,9 @@ def test_loss_fock_basis_True():
     cir.loss_t(2, transmittance[5])
     cir.to(torch.float64)
     state = cir(is_prob=True)
-    for key in state.keys():
+    for key in state:
         dq_prob = state[key]
         fock_lst = key.state.tolist()
         pcvl_prob = output[pcvl.BasicState(fock_lst)]
         err = abs(dq_prob - pcvl_prob)
-        assert err < 1e-4, f'key={key},dq_prob={dq_prob},pcvl_prob={pcvl_prob}'
+        assert err < 1e-4, f'key={key}, dq_prob={dq_prob}, pcvl_prob={pcvl_prob}'

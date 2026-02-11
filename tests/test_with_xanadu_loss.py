@@ -8,7 +8,7 @@ from strawberryfields.ops import BSgate, Fock, LossChannel, Rgate
 import deepquantum as dq
 
 
-def test_loss_fock_basis_True():
+def test_loss_fock_basis():
     n = 3
     angles = np.random.rand(6) * np.pi
     transmittance = np.random.rand(6)
@@ -45,7 +45,7 @@ def test_loss_fock_basis_True():
     # cir.to(torch.float64)
     state = cir(is_prob=True)
     err = 0
-    for key in state.keys():
+    for key in state:
         dq_prob = state[key]
         fock_st = key.state.tolist()
         sf_prob = result.state.fock_prob(fock_st)
@@ -53,7 +53,7 @@ def test_loss_fock_basis_True():
     assert err < 1e-6
 
 
-def test_loss_fock_basis_False():
+def test_loss_fock_tensor():
     n = 3
     angles = np.random.rand(6) * np.pi
     transmittance = np.random.rand(6)

@@ -38,9 +38,8 @@ def test_torontonian():
         cir.bs(wires=[i, i + 1])
     cir.to(torch.double)
 
-    covs, means = cir()
+    covs, _ = cir()
     cov_ladder = quadrature_to_ladder(covs[0])
-    mean_ladder = quadrature_to_ladder(means[0])
     q = cov_ladder + torch.eye(2 * nmode) / 2
     o_mat = torch.eye(2 * nmode) - torch.inverse(q)
     tor1 = torontonian(o_mat)
@@ -87,7 +86,7 @@ def test_gaussian_prob_random_circuit():
 
     test_prob = thewalrus.quantum.probabilities(mu=mean[0].squeeze().numpy(), cov=cov[0].numpy(), cutoff=5)
     error = []
-    for i in state.keys():
+    for i in state:
         idx = i.state.tolist()
         error.append(abs(test_prob[tuple(idx)] - state[i].item()))
     assert sum(error) < 1e-10
@@ -124,7 +123,7 @@ def test_measure_homodyne():
     cir.homodyne(wires=1, phi=phi[1])
     cir.to(torch.double)
     cir()
-    sample = cir.measure_homodyne()
+    cir.measure_homodyne()
     state = cir.state_measured
     err = abs(state[0] - result.state.cov()).max()  # compare the covariance matrix after the measurement
     assert err < 1e-6
@@ -153,7 +152,7 @@ def test_non_adjacent_bs_fock():
     cir.bs([1, 2], [angles[4], angles[5]])
     state = cir(is_prob=True)
     err = 0
-    for key in state.keys():
+    for key in state:
         dq_prob = state[key]
         fock_st = key.state.tolist()
         sf_prob = result.state.fock_prob(fock_st)

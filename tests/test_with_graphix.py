@@ -58,7 +58,7 @@ def test_batch_init_state():
     results = pat_dq.state.measure_dict
     for i in range(3):
         rst = {}
-        for key in results.keys():
+        for key in results:
             rst[key] = [results[key][i]]
 
         results_1 = 0
@@ -91,37 +91,37 @@ def test_standardize():
 
     while results_1 != results_2:
         pat_gx = Pattern([0])
-        for l in range(3):
-            pat_gx.add(command.N(1 + 2 * l))
-            pat_gx.add(command.N(2 + 2 * l))
-            pat_gx.add(command.E(nodes=(0 + 2 * l, 1 + 2 * l)))
-            pat_gx.add(command.E(nodes=(1 + 2 * l, 2 + 2 * l)))
-            if l == 0:
-                pat_gx.add(command.M(node=0 + 2 * l, angle=alpha[50]))
-                pat_gx.add(command.M(node=1 + 2 * l, angle=alpha[51], s_domain={0}))
+        for i in range(3):
+            pat_gx.add(command.N(1 + 2 * i))
+            pat_gx.add(command.N(2 + 2 * i))
+            pat_gx.add(command.E(nodes=(0 + 2 * i, 1 + 2 * i)))
+            pat_gx.add(command.E(nodes=(1 + 2 * i, 2 + 2 * i)))
+            if i == 0:
+                pat_gx.add(command.M(node=0 + 2 * i, angle=alpha[50]))
+                pat_gx.add(command.M(node=1 + 2 * i, angle=alpha[51], s_domain={0}))
             else:
-                pat_gx.add(command.M(node=0 + 2 * l, angle=alpha[2 * l], s_domain={2 * l - 1}))
-                pat_gx.add(command.M(node=1 + 2 * l, angle=alpha[2 * l + 1], s_domain={(2 * l - 1), 2 * l}))
-            pat_gx.add(command.X(node=2 + 2 * l, domain={0 + 2 * l, 1 + 2 * l}))
-            pat_gx.add(command.Z(node=2 + 2 * l, domain={1 + 2 * l}))
+                pat_gx.add(command.M(node=0 + 2 * i, angle=alpha[2 * i], s_domain={2 * i - 1}))
+                pat_gx.add(command.M(node=1 + 2 * i, angle=alpha[2 * i + 1], s_domain={(2 * i - 1), 2 * i}))
+            pat_gx.add(command.X(node=2 + 2 * i, domain={0 + 2 * i, 1 + 2 * i}))
+            pat_gx.add(command.Z(node=2 + 2 * i, domain={1 + 2 * i}))
         pat_gx.standardize()
         state = pat_gx.simulate_pattern(backend='statevector')
         results_1 = pat_gx.results
 
         pat_dq = dq.Pattern(nodes_state=[0])
-        for l in range(3):
-            pat_dq.n(1 + 2 * l)
-            pat_dq.n(2 + 2 * l)
-            pat_dq.e(0 + 2 * l, 1 + 2 * l)
-            pat_dq.e(1 + 2 * l, 2 + 2 * l)
-            if l == 0:
-                pat_dq.m(node=0 + 2 * l, angle=alpha[50] * torch.pi)
-                pat_dq.m(node=1 + 2 * l, angle=alpha[51] * torch.pi, s_domain=[0])
+        for i in range(3):
+            pat_dq.n(1 + 2 * i)
+            pat_dq.n(2 + 2 * i)
+            pat_dq.e(0 + 2 * i, 1 + 2 * i)
+            pat_dq.e(1 + 2 * i, 2 + 2 * i)
+            if i == 0:
+                pat_dq.m(node=0 + 2 * i, angle=alpha[50] * torch.pi)
+                pat_dq.m(node=1 + 2 * i, angle=alpha[51] * torch.pi, s_domain=[0])
             else:
-                pat_dq.m(node=0 + 2 * l, angle=alpha[2 * l] * torch.pi, s_domain=[2 * l - 1])
-                pat_dq.m(node=1 + 2 * l, angle=alpha[2 * l + 1] * torch.pi, s_domain=[2 * l - 1, 2 * l])
-            pat_dq.x(node=2 + 2 * l, domain=[0 + 2 * l, 1 + 2 * l])
-            pat_dq.z(node=2 + 2 * l, domain=[1 + 2 * l])
+                pat_dq.m(node=0 + 2 * i, angle=alpha[2 * i] * torch.pi, s_domain=[2 * i - 1])
+                pat_dq.m(node=1 + 2 * i, angle=alpha[2 * i + 1] * torch.pi, s_domain=[2 * i - 1, 2 * i])
+            pat_dq.x(node=2 + 2 * i, domain=[0 + 2 * i, 1 + 2 * i])
+            pat_dq.z(node=2 + 2 * i, domain=[1 + 2 * i])
         pat_dq.standardize()
         state2 = pat_dq().full_state
         results_2 = pat_dq.state.measure_dict
@@ -135,38 +135,38 @@ def test_signal_shifting():
 
     while results_1 != results_2:
         pat_gx = Pattern([0])
-        for l in range(3):
-            pat_gx.add(command.N(1 + 2 * l))
-            pat_gx.add(command.N(2 + 2 * l))
-            pat_gx.add(command.E(nodes=(0 + 2 * l, 1 + 2 * l)))
-            pat_gx.add(command.E(nodes=(1 + 2 * l, 2 + 2 * l)))
-            if l == 0:
-                pat_gx.add(command.M(node=0 + 2 * l, angle=alpha[50]))
-                pat_gx.add(command.M(node=1 + 2 * l, angle=alpha[51], s_domain={0}, t_domain={0}))
+        for i in range(3):
+            pat_gx.add(command.N(1 + 2 * i))
+            pat_gx.add(command.N(2 + 2 * i))
+            pat_gx.add(command.E(nodes=(0 + 2 * i, 1 + 2 * i)))
+            pat_gx.add(command.E(nodes=(1 + 2 * i, 2 + 2 * i)))
+            if i == 0:
+                pat_gx.add(command.M(node=0 + 2 * i, angle=alpha[50]))
+                pat_gx.add(command.M(node=1 + 2 * i, angle=alpha[51], s_domain={0}, t_domain={0}))
             else:
-                pat_gx.add(command.M(node=0 + 2 * l, angle=alpha[2 * l], s_domain={2 * l - 1}, t_domain={2 * l - 1}))
-                pat_gx.add(command.M(node=1 + 2 * l, angle=alpha[2 * l + 1], s_domain={(2 * l - 1), 2 * l}))
-            pat_gx.add(command.X(node=2 + 2 * l, domain={0 + 2 * l, 1 + 2 * l}))
-            pat_gx.add(command.Z(node=2 + 2 * l, domain={1 + 2 * l}))
+                pat_gx.add(command.M(node=0 + 2 * i, angle=alpha[2 * i], s_domain={2 * i - 1}, t_domain={2 * i - 1}))
+                pat_gx.add(command.M(node=1 + 2 * i, angle=alpha[2 * i + 1], s_domain={(2 * i - 1), 2 * i}))
+            pat_gx.add(command.X(node=2 + 2 * i, domain={0 + 2 * i, 1 + 2 * i}))
+            pat_gx.add(command.Z(node=2 + 2 * i, domain={1 + 2 * i}))
         pat_gx.standardize()
         pat_gx.shift_signals()
         state = pat_gx.simulate_pattern(backend='statevector')
         results_1 = pat_gx.results
 
         pat_dq = dq.Pattern(nodes_state=[0])
-        for l in range(3):
-            pat_dq.n(1 + 2 * l)
-            pat_dq.n(2 + 2 * l)
-            pat_dq.e(0 + 2 * l, 1 + 2 * l)
-            pat_dq.e(1 + 2 * l, 2 + 2 * l)
-            if l == 0:
-                pat_dq.m(node=0 + 2 * l, angle=alpha[50] * torch.pi)
-                pat_dq.m(node=1 + 2 * l, angle=alpha[51] * torch.pi, s_domain=[0], t_domain=[0])
+        for i in range(3):
+            pat_dq.n(1 + 2 * i)
+            pat_dq.n(2 + 2 * i)
+            pat_dq.e(0 + 2 * i, 1 + 2 * i)
+            pat_dq.e(1 + 2 * i, 2 + 2 * i)
+            if i == 0:
+                pat_dq.m(node=0 + 2 * i, angle=alpha[50] * torch.pi)
+                pat_dq.m(node=1 + 2 * i, angle=alpha[51] * torch.pi, s_domain=[0], t_domain=[0])
             else:
-                pat_dq.m(node=0 + 2 * l, angle=alpha[2 * l] * torch.pi, s_domain=[2 * l - 1], t_domain=[2 * l - 1])
-                pat_dq.m(node=1 + 2 * l, angle=alpha[2 * l + 1] * torch.pi, s_domain=[2 * l - 1, 2 * l])
-            pat_dq.x(node=2 + 2 * l, domain=[0 + 2 * l, 1 + 2 * l])
-            pat_dq.z(node=2 + 2 * l, domain=[1 + 2 * l])
+                pat_dq.m(node=0 + 2 * i, angle=alpha[2 * i] * torch.pi, s_domain=[2 * i - 1], t_domain=[2 * i - 1])
+                pat_dq.m(node=1 + 2 * i, angle=alpha[2 * i + 1] * torch.pi, s_domain=[2 * i - 1, 2 * i])
+            pat_dq.x(node=2 + 2 * i, domain=[0 + 2 * i, 1 + 2 * i])
+            pat_dq.z(node=2 + 2 * i, domain=[1 + 2 * i])
         pat_dq.standardize()
         pat_dq.shift_signals()
         state2 = pat_dq().full_state
@@ -181,48 +181,48 @@ def test_signal_shifting_plane_yz():
 
     while results_1 != results_2:
         pat_gx = Pattern([0])
-        for l in range(3):
-            pat_gx.add(command.N(1 + 2 * l))
-            pat_gx.add(command.N(2 + 2 * l))
-            pat_gx.add(command.E(nodes=(0 + 2 * l, 1 + 2 * l)))
-            pat_gx.add(command.E(nodes=(1 + 2 * l, 2 + 2 * l)))
-            if l == 0:
-                pat_gx.add(command.M(node=0 + 2 * l, angle=alpha[50]))
-                pat_gx.add(command.M(node=1 + 2 * l, angle=alpha[51], s_domain={0}, t_domain={0}))
+        for i in range(3):
+            pat_gx.add(command.N(1 + 2 * i))
+            pat_gx.add(command.N(2 + 2 * i))
+            pat_gx.add(command.E(nodes=(0 + 2 * i, 1 + 2 * i)))
+            pat_gx.add(command.E(nodes=(1 + 2 * i, 2 + 2 * i)))
+            if i == 0:
+                pat_gx.add(command.M(node=0 + 2 * i, angle=alpha[50]))
+                pat_gx.add(command.M(node=1 + 2 * i, angle=alpha[51], s_domain={0}, t_domain={0}))
             else:
                 pat_gx.add(
                     command.M(
-                        node=0 + 2 * l, angle=alpha[2 * l], s_domain={2 * l - 1}, t_domain={2 * l - 1}, plane=Plane.YZ
+                        node=0 + 2 * i, angle=alpha[2 * i], s_domain={2 * i - 1}, t_domain={2 * i - 1}, plane=Plane.YZ
                     )
                 )
-                pat_gx.add(command.M(node=1 + 2 * l, angle=alpha[2 * l + 1], s_domain={(2 * l - 1), 2 * l}))
-            pat_gx.add(command.X(node=2 + 2 * l, domain={0 + 2 * l, 1 + 2 * l}))
-            pat_gx.add(command.Z(node=2 + 2 * l, domain={1 + 2 * l}))
+                pat_gx.add(command.M(node=1 + 2 * i, angle=alpha[2 * i + 1], s_domain={(2 * i - 1), 2 * i}))
+            pat_gx.add(command.X(node=2 + 2 * i, domain={0 + 2 * i, 1 + 2 * i}))
+            pat_gx.add(command.Z(node=2 + 2 * i, domain={1 + 2 * i}))
         pat_gx.standardize()
         pat_gx.shift_signals()
         state = pat_gx.simulate_pattern(backend='statevector')
         results_1 = pat_gx.results
 
         pat_dq = dq.Pattern(nodes_state=[0])
-        for l in range(3):
-            pat_dq.n(1 + 2 * l)
-            pat_dq.n(2 + 2 * l)
-            pat_dq.e(0 + 2 * l, 1 + 2 * l)
-            pat_dq.e(1 + 2 * l, 2 + 2 * l)
-            if l == 0:
-                pat_dq.m(node=0 + 2 * l, angle=alpha[50] * torch.pi)
-                pat_dq.m(node=1 + 2 * l, angle=alpha[51] * torch.pi, s_domain=[0], t_domain=[0])
+        for i in range(3):
+            pat_dq.n(1 + 2 * i)
+            pat_dq.n(2 + 2 * i)
+            pat_dq.e(0 + 2 * i, 1 + 2 * i)
+            pat_dq.e(1 + 2 * i, 2 + 2 * i)
+            if i == 0:
+                pat_dq.m(node=0 + 2 * i, angle=alpha[50] * torch.pi)
+                pat_dq.m(node=1 + 2 * i, angle=alpha[51] * torch.pi, s_domain=[0], t_domain=[0])
             else:
                 pat_dq.m(
-                    node=0 + 2 * l,
-                    angle=torch.pi / 2 - alpha[2 * l] * torch.pi,
+                    node=0 + 2 * i,
+                    angle=torch.pi / 2 - alpha[2 * i] * torch.pi,
                     plane='yz',
-                    s_domain=[2 * l - 1],
-                    t_domain=[2 * l - 1],
+                    s_domain=[2 * i - 1],
+                    t_domain=[2 * i - 1],
                 )
-                pat_dq.m(node=1 + 2 * l, angle=alpha[2 * l + 1] * torch.pi, s_domain=[2 * l - 1, 2 * l])
-            pat_dq.x(node=2 + 2 * l, domain=[0 + 2 * l, 1 + 2 * l])
-            pat_dq.z(node=2 + 2 * l, domain=[1 + 2 * l])
+                pat_dq.m(node=1 + 2 * i, angle=alpha[2 * i + 1] * torch.pi, s_domain=[2 * i - 1, 2 * i])
+            pat_dq.x(node=2 + 2 * i, domain=[0 + 2 * i, 1 + 2 * i])
+            pat_dq.z(node=2 + 2 * i, domain=[1 + 2 * i])
         pat_dq.standardize()
         pat_dq.shift_signals()
         state2 = pat_dq().full_state
@@ -237,48 +237,48 @@ def test_signal_shifting_plane_xz():
 
     while results_1 != results_2:
         pat_gx = Pattern([0])
-        for l in range(3):
-            pat_gx.add(command.N(1 + 2 * l))
-            pat_gx.add(command.N(2 + 2 * l))
-            pat_gx.add(command.E(nodes=(0 + 2 * l, 1 + 2 * l)))
-            pat_gx.add(command.E(nodes=(1 + 2 * l, 2 + 2 * l)))
-            if l == 0:
-                pat_gx.add(command.M(node=0 + 2 * l, angle=alpha[50]))
-                pat_gx.add(command.M(node=1 + 2 * l, angle=alpha[51], s_domain={0}, t_domain={0}))
+        for i in range(3):
+            pat_gx.add(command.N(1 + 2 * i))
+            pat_gx.add(command.N(2 + 2 * i))
+            pat_gx.add(command.E(nodes=(0 + 2 * i, 1 + 2 * i)))
+            pat_gx.add(command.E(nodes=(1 + 2 * i, 2 + 2 * i)))
+            if i == 0:
+                pat_gx.add(command.M(node=0 + 2 * i, angle=alpha[50]))
+                pat_gx.add(command.M(node=1 + 2 * i, angle=alpha[51], s_domain={0}, t_domain={0}))
             else:
                 pat_gx.add(
                     command.M(
-                        node=0 + 2 * l, angle=alpha[2 * l], s_domain={2 * l - 1}, t_domain={2 * l - 1}, plane=Plane.XZ
+                        node=0 + 2 * i, angle=alpha[2 * i], s_domain={2 * i - 1}, t_domain={2 * i - 1}, plane=Plane.XZ
                     )
                 )
-                pat_gx.add(command.M(node=1 + 2 * l, angle=alpha[2 * l + 1], s_domain={(2 * l - 1), 2 * l}))
-            pat_gx.add(command.X(node=2 + 2 * l, domain={0 + 2 * l, 1 + 2 * l}))
-            pat_gx.add(command.Z(node=2 + 2 * l, domain={1 + 2 * l}))
+                pat_gx.add(command.M(node=1 + 2 * i, angle=alpha[2 * i + 1], s_domain={(2 * i - 1), 2 * i}))
+            pat_gx.add(command.X(node=2 + 2 * i, domain={0 + 2 * i, 1 + 2 * i}))
+            pat_gx.add(command.Z(node=2 + 2 * i, domain={1 + 2 * i}))
         pat_gx.standardize()
         pat_gx.shift_signals()
         state = pat_gx.simulate_pattern(backend='statevector')
         results_1 = pat_gx.results
 
         pat_dq = dq.Pattern(nodes_state=[0])
-        for l in range(3):
-            pat_dq.n(1 + 2 * l)
-            pat_dq.n(2 + 2 * l)
-            pat_dq.e(0 + 2 * l, 1 + 2 * l)
-            pat_dq.e(1 + 2 * l, 2 + 2 * l)
-            if l == 0:
-                pat_dq.m(node=0 + 2 * l, angle=alpha[50] * torch.pi)
-                pat_dq.m(node=1 + 2 * l, angle=alpha[51] * torch.pi, s_domain=[0], t_domain=[0])
+        for i in range(3):
+            pat_dq.n(1 + 2 * i)
+            pat_dq.n(2 + 2 * i)
+            pat_dq.e(0 + 2 * i, 1 + 2 * i)
+            pat_dq.e(1 + 2 * i, 2 + 2 * i)
+            if i == 0:
+                pat_dq.m(node=0 + 2 * i, angle=alpha[50] * torch.pi)
+                pat_dq.m(node=1 + 2 * i, angle=alpha[51] * torch.pi, s_domain=[0], t_domain=[0])
             else:
                 pat_dq.m(
-                    node=0 + 2 * l,
-                    angle=alpha[2 * l] * torch.pi,
+                    node=0 + 2 * i,
+                    angle=alpha[2 * i] * torch.pi,
                     plane='xz',
-                    s_domain=[2 * l - 1],
-                    t_domain=[2 * l - 1],
+                    s_domain=[2 * i - 1],
+                    t_domain=[2 * i - 1],
                 )
-                pat_dq.m(node=1 + 2 * l, angle=alpha[2 * l + 1] * torch.pi, s_domain=[2 * l - 1, 2 * l])
-            pat_dq.x(node=2 + 2 * l, domain=[0 + 2 * l, 1 + 2 * l])
-            pat_dq.z(node=2 + 2 * l, domain=[1 + 2 * l])
+                pat_dq.m(node=1 + 2 * i, angle=alpha[2 * i + 1] * torch.pi, s_domain=[2 * i - 1, 2 * i])
+            pat_dq.x(node=2 + 2 * i, domain=[0 + 2 * i, 1 + 2 * i])
+            pat_dq.z(node=2 + 2 * i, domain=[1 + 2 * i])
         pat_dq.standardize()
         pat_dq.shift_signals()
         state2 = pat_dq().full_state
