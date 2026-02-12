@@ -53,7 +53,7 @@ def random_circuit_transpilation(n_qubits, n_gates):
 
     # Transpile circuit to measurement pattern
     def transpile():
-        pattern = cir.pattern()
+        return cir.pattern()
 
     return benchmark(transpile)
 
@@ -61,14 +61,14 @@ def random_circuit_transpilation(n_qubits, n_gates):
 results = {}
 
 platform = 'deepquantum'
-n_list = [2, 5, 10, 20]
 
-l_list = [5, 10, 100]
+nqubits = [2, 5, 10, 20]
+ngates = [5, 10, 100]
 
-for n in tqdm(n_list):
-    for l in tqdm(l_list):
-        _, ts = random_circuit_transpilation(n, l)
-        results[str(n) + '-' + str(l)] = ts
+for n in tqdm(nqubits):
+    for ng in tqdm(ngates):
+        _, ts = random_circuit_transpilation(n, ng)
+        results[str(n) + '-' + str(ng)] = ts
 
 with open('transpile_mbqc_' + platform + '_results.data', 'w') as f:
     json.dump(results, f)

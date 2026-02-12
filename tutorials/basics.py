@@ -337,6 +337,7 @@ print(cir)
 #
 # DeepQuantum基于PyTorch，能够方便自然地实现量子模型和经典模型的混合计算。
 
+
 # %%
 class Net(nn.Module):
     def __init__(self, dim_in, nqubit) -> None:

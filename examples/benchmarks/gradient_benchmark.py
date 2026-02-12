@@ -1,5 +1,5 @@
 """
-Gradient evaluation comparison between qiskit, tensorcircuit and deepquantum
+Gradient evaluation comparison between qiskit, tensorcircuit, pyvqnet and deepquantum
 Modified from the implementation of tensorcircuit
 """
 
@@ -28,22 +28,19 @@ def benchmark(f, *args, trials=10):
     for _ in range(trials):
         r = f(*args)
     time2 = time.time()
-    if trials > 0:
-        time21 = (time2 - time1) / trials
-    else:
-        time21 = 0
+    time21 = (time2 - time1) / trials if trials > 0 else 0
     ts = (time1 - time0, time21)
-    print('staging time: %.6f s' % ts[0])
+    print(f'staging time: {ts[0]:.6f} s')
     if trials > 0:
-        print('running time: %.6f s' % ts[1])
+        print(f'running time: {ts[1]:.6f} s')
     return r, ts
 
 
-def grad_qiskit(n, l, trials=2):
+def grad_qiskit(n, layer, trials=2):
     hamiltonian = reduce(xor, [X for _ in range(n)])
     wavefunction = QuantumCircuit(n)
-    params = ParameterVector('theta', length=3 * n * l)
-    for j in range(l):
+    params = ParameterVector('theta', length=3 * n * layer)
+    for j in range(layer):
         for i in range(n - 1):
             wavefunction.cnot(i, i + 1)
         for i in range(n):
@@ -62,14 +59,14 @@ def grad_qiskit(n, l, trials=2):
         grad_result = grad.assign_parameters(value_dict).eval()
         return grad_result
 
-    return benchmark(get_grad_qiskit, np.ones([3 * n * l]), trials=trials)
+    return benchmark(get_grad_qiskit, np.ones([3 * n * layer]), trials=trials)
 
 
-def hessian_qiskit(n, l, trials=0):
+def hessian_qiskit(n, layer, trials=0):
     hamiltonian = reduce(xor, [X for _ in range(n)])
     wavefunction = QuantumCircuit(n)
-    params = ParameterVector('theta', length=3 * n * l)
-    for j in range(l):
+    params = ParameterVector('theta', length=3 * n * layer)
+    for j in range(layer):
         for i in range(n - 1):
             wavefunction.cnot(i, i + 1)
         for i in range(n):
@@ -88,13 +85,13 @@ def hessian_qiskit(n, l, trials=0):
         grad_result = grad.assign_parameters(value_dict).eval()
         return grad_result
 
-    return benchmark(get_hs_qiskit, np.ones([3 * n * l]), trials=trials)
+    return benchmark(get_hs_qiskit, np.ones([3 * n * layer]), trials=trials)
 
 
-def grad_tc(n, l, trials=10):
+def grad_tc(n, layer, trials=10):
     def f(params):
         c = tc.Circuit(n)
-        for j in range(l):
+        for j in range(layer):
             for i in range(n - 1):
                 c.cnot(i, i + 1)
             for i in range(n):
@@ -106,13 +103,13 @@ def grad_tc(n, l, trials=10):
         return tc.backend.real(c.expectation(*[[tc.gates.x(), [i]] for i in range(n)]))
 
     get_grad_tc = tc.backend.jit(tc.backend.grad(f))
-    return benchmark(get_grad_tc, tc.backend.ones([3 * n * l], dtype='float32'))
+    return benchmark(get_grad_tc, tc.backend.ones([3 * n * layer], dtype='float32'))
 
 
-def hessian_tc(n, l, trials=10):
+def hessian_tc(n, layer, trials=10):
     def f(params):
         c = tc.Circuit(n)
-        for j in range(l):
+        for j in range(layer):
             for i in range(n - 1):
                 c.cnot(i, i + 1)
             for i in range(n):
@@ -124,15 +121,15 @@ def hessian_tc(n, l, trials=10):
         return tc.backend.real(c.expectation(*[[tc.gates.x(), [i]] for i in range(n)]))
 
     get_hs_tc = tc.backend.jit(tc.backend.hessian(f))
-    return benchmark(get_hs_tc, tc.backend.ones([3 * n * l], dtype='float32'))
+    return benchmark(get_hs_tc, tc.backend.ones([3 * n * layer], dtype='float32'))
 
 
-def grad_dq(n, l, trials=10):
+def grad_dq(n, layer, trials=10):
     def get_grad_dq(params):
-        if params.grad != None:
+        if params.grad is not None:
             params.grad.zero_()
         cir = dq.QubitCircuit(n)
-        for j in range(l):
+        for _ in range(layer):
             for i in range(n - 1):
                 cir.cnot(i, i + 1)
             cir.rxlayer(encode=True)
@@ -144,13 +141,13 @@ def grad_dq(n, l, trials=10):
         exp.backward()
         return params.grad
 
-    return benchmark(get_grad_dq, torch.ones([3 * n * l], requires_grad=True))
+    return benchmark(get_grad_dq, torch.ones([3 * n * layer], requires_grad=True))
 
 
-def hessian_dq(n, l, trials=10):
+def hessian_dq(n, layer, trials=10):
     def f(params):
         cir = dq.QubitCircuit(n)
-        for j in range(l):
+        for _ in range(layer):
             for i in range(n - 1):
                 cir.cnot(i, i + 1)
             cir.rxlayer(encode=True)
@@ -163,16 +160,16 @@ def hessian_dq(n, l, trials=10):
     def get_hs_dq(x):
         return hessian(f, x)
 
-    return benchmark(get_hs_dq, torch.ones([3 * n * l]))
+    return benchmark(get_hs_dq, torch.ones([3 * n * layer]))
 
 
-def grad_pyvqnet(n, l, trials=10):
+def grad_pyvqnet(n, layer, trials=10):
     def pqctest(param):
         machine = pq.CPUQVM()
         machine.init_qvm()
         qubits = machine.qAlloc_many(n)
         circuit = pq.QCircuit()
-        for j in range(l):
+        for j in range(layer):
             for i in range(n - 1):
                 circuit.insert(pq.CNOT(qubits[i], qubits[i + 1]))
             for i in range(n):
@@ -181,46 +178,46 @@ def grad_pyvqnet(n, l, trials=10):
                 circuit.insert(pq.RX(qubits[i], param[3 * n * j + i + 2 * n]))
         prog = pq.QProg()
         prog.insert(circuit)
-        Xn_string = ', '.join([f'X{i}' for i in range(n)])
-        pauli_dict = {Xn_string: 1.0}
+        xn_string = ', '.join([f'X{i}' for i in range(n)])
+        pauli_dict = {xn_string: 1.0}
         exp = expval(machine, prog, pauli_dict, qubits)
         return exp
 
     def get_grad(values):
         return grad(pqctest, values)
 
-    return benchmark(get_grad, np.ones([3 * n * l]), trials=trials)
+    return benchmark(get_grad, np.ones([3 * n * layer]), trials=trials)
 
 
 results = {}
 
 for n in [4, 6, 8, 10, 12]:
-    for l in [2, 4, 6]:
-        _, ts = grad_qiskit(n, l)
-        results[str(n) + '-' + str(l) + '-' + 'grad' + '-qiskit'] = ts
-        _, ts = hessian_qiskit(n, l)
-        results[str(n) + '-' + str(l) + '-' + 'hs' + '-qiskit'] = ts
+    for layer in [2, 4, 6]:
+        _, ts = grad_qiskit(n, layer)
+        results[str(n) + '-' + str(layer) + '-' + 'grad' + '-qiskit'] = ts
+        _, ts = hessian_qiskit(n, layer)
+        results[str(n) + '-' + str(layer) + '-' + 'hs' + '-qiskit'] = ts
         with tc.runtime_backend('tensorflow'):
-            _, ts = grad_tc(n, l)
-            results[str(n) + '-' + str(l) + '-' + 'grad' + '-tc-tf'] = ts
-            _, ts = hessian_tc(n, l)
-            results[str(n) + '-' + str(l) + '-' + 'hs' + '-tc-tf'] = ts
+            _, ts = grad_tc(n, layer)
+            results[str(n) + '-' + str(layer) + '-' + 'grad' + '-tc-tf'] = ts
+            _, ts = hessian_tc(n, layer)
+            results[str(n) + '-' + str(layer) + '-' + 'hs' + '-tc-tf'] = ts
         with tc.runtime_backend('jax'):
-            _, ts = grad_tc(n, l)
-            results[str(n) + '-' + str(l) + '-' + 'grad' + '-tc-jax'] = ts
-            _, ts = hessian_tc(n, l)
-            results[str(n) + '-' + str(l) + '-' + 'hs' + '-tc-jax'] = ts
+            _, ts = grad_tc(n, layer)
+            results[str(n) + '-' + str(layer) + '-' + 'grad' + '-tc-jax'] = ts
+            _, ts = hessian_tc(n, layer)
+            results[str(n) + '-' + str(layer) + '-' + 'hs' + '-tc-jax'] = ts
         with tc.runtime_backend('pytorch'):
-            _, ts = grad_tc(n, l)
-            results[str(n) + '-' + str(l) + '-' + 'grad' + '-tc-pytorch'] = ts
-            # _, ts = hessian_tc(n, l)
-            # results[str(n) + '-' + str(l) + '-' + 'hs' + '-tc-pytorch'] = ts
-        _, ts = grad_dq(n, l)
-        results[str(n) + '-' + str(l) + '-' + 'grad' + '-dq'] = ts
-        _, ts = hessian_dq(n, l)
-        results[str(n) + '-' + str(l) + '-' + 'hs' + '-dq'] = ts
-        _, ts = grad_pyvqnet(n, l)
-        results[str(n) + '-' + str(l) + '-' + 'grad' + '-pyvqnet'] = ts
+            _, ts = grad_tc(n, layer)
+            results[str(n) + '-' + str(layer) + '-' + 'grad' + '-tc-pytorch'] = ts
+            # _, ts = hessian_tc(n, layer)
+            # results[str(n) + '-' + str(layer) + '-' + 'hs' + '-tc-pytorch'] = ts
+        _, ts = grad_dq(n, layer)
+        results[str(n) + '-' + str(layer) + '-' + 'grad' + '-dq'] = ts
+        _, ts = hessian_dq(n, layer)
+        results[str(n) + '-' + str(layer) + '-' + 'hs' + '-dq'] = ts
+        _, ts = grad_pyvqnet(n, layer)
+        results[str(n) + '-' + str(layer) + '-' + 'grad' + '-pyvqnet'] = ts
 
 # print(results)
 

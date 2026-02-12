@@ -23,13 +23,13 @@ def benchmark(f, *args, trials=10):
     return r, ts
 
 
-def grad_mindquantum(n, l):
+def grad_mindquantum(n, layer):
     sim = Simulator('mqvector_gpu', n)  # 选择 MindQuantum 矢量模拟器
-    params = [f'theta_{i}' for i in range(3 * n * l)]  # 参数名
+    params = [f'theta_{i}' for i in range(3 * n * layer)]  # 参数名
 
     # 构造量子线路
     circ = Circuit()
-    for j in range(l):
+    for j in range(layer):
         for i in range(n - 1):
             circ += X.on(i + 1, i)  # CNOT
         for i in range(n):
@@ -50,19 +50,20 @@ def grad_mindquantum(n, l):
         _, grad = grad_fn(values)
         return np.array(grad)
 
-    return benchmark(compute_grad, np.ones(3 * n * l, dtype=np.float32))
+    return benchmark(compute_grad, np.ones(3 * n * layer, dtype=np.float32))
 
 
 results = {}
+
 platform = 'mindquantum_gpu'
 
 n_list = [2, 6, 10, 14, 18, 22]
 l_list = [1, 5, 10]
 
 for n in tqdm(n_list):
-    for l in l_list:
-        _, ts = grad_mindquantum(n, l)
-        results[f'{n}-{l}'] = ts
+    for layer in l_list:
+        _, ts = grad_mindquantum(n, layer)
+        results[f'{n}-{layer}'] = ts
 
 with open('gradient_' + platform + '_results.data', 'w') as f:
     json.dump(results, f)

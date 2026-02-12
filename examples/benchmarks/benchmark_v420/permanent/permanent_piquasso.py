@@ -16,37 +16,36 @@ def _perm_pq(mat):
     return permanent(mat, r, r)
 
 
-def perm_pq(n, l):
-    A = torch.load(f'u_matrix_{n}_{1000}.pt').numpy()
+def perm_pq(nmode, batch_size):
+    mat_a = torch.load(f'u_matrix_{nmode}_{1000}.pt').numpy()
 
     def get_perm_pq(matrix):
         trials = 10
-        if l == 100 or l == 1000:
+        if batch_size == 100 or batch_size == 1000:
             trials = 1
-        np.vectorize(_perm_pq, signature='(n,n)->()')(A[0:1])
+        np.vectorize(_perm_pq, signature='(n,n)->()')(matrix[0:1])
         time0 = time.time()
         for i in range(trials):
-            results = np.vectorize(_perm_pq, signature='(n,n)->()')(A[i * l : (i + 1) * l])
-            # print(results)
+            np.vectorize(_perm_pq, signature='(n,n)->()')(matrix[i * batch_size : (i + 1) * batch_size])
         time1 = time.time()
         ts = (time1 - time0) / trials
         return ts
 
-    return get_perm_pq(A)
+    return get_perm_pq(mat_a)
 
 
 results = {}
 
 platform = 'piquasso'
 
-l_list = [1, 10, 100]
-n_list = [2, 6, 10, 14, 18, 22, 26, 30]
+nmodes = [2, 6, 10, 14, 18, 22, 26, 30]
+batch_sizes = [1, 10, 100]
 
-for n in tqdm(n_list):
-    for l in tqdm(l_list):
-        print(n, l)
-        ts = perm_pq(n, l)
-        results[str(n) + '+' + str(l)] = ts
+for n in tqdm(nmodes):
+    for bs in tqdm(batch_sizes):
+        print(n, bs)
+        ts = perm_pq(n, bs)
+        results[str(n) + '+' + str(bs)] = ts
 
 with open('permanent_' + platform + '_results.data', 'w') as f:
     json.dump(results, f)

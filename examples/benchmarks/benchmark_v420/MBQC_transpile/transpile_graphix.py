@@ -32,8 +32,6 @@ def random_circuit_transpilation(n_qubits, n_gates):
     ]
 
     # Add random number of gates (3-10)
-    n_gates = n_gates
-
     for _ in range(n_gates):
         # 70% chance for single-qubit gate, 20% for CNOT
         if random.random() < 0.7:
@@ -51,7 +49,7 @@ def random_circuit_transpilation(n_qubits, n_gates):
 
     # Transpile circuit to measurement pattern
     def transpile():
-        pattern = cir.transpile().pattern
+        return cir.transpile().pattern
 
     # Transpile circuit to measurement pattern
     return benchmark(transpile)
@@ -60,14 +58,14 @@ def random_circuit_transpilation(n_qubits, n_gates):
 results = {}
 
 platform = 'graphix'
-n_list = [2, 5, 10, 20]
 
-l_list = [5, 10, 100]
+nqubits = [2, 5, 10, 20]
+ngates = [5, 10, 100]
 
-for n in tqdm(n_list):
-    for l in tqdm(l_list):
-        _, ts = random_circuit_transpilation(n, l)
-        results[str(n) + '-' + str(l)] = ts
+for n in tqdm(nqubits):
+    for ng in tqdm(ngates):
+        _, ts = random_circuit_transpilation(n, ng)
+        results[str(n) + '-' + str(ng)] = ts
 
 with open('transpile_mbqc_' + platform + '_results.data', 'w') as f:
     json.dump(results, f)

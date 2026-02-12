@@ -1,42 +1,49 @@
+import json
 import time
 
 import deepquantum as dq
-from GlobalHafnian import *
+from GlobalHafnian import test_sequence_hafnian
 from deepquantum.photonic.hafnian_ import hafnian_batch
 from tqdm import tqdm
+
+number_of_sequence = 1000
 
 # Print version
 print(dq.__version__)
 
 
-def hafnian_batch_dq(n, l):  # n modes 的数量 ， l batchsize
+def hafnian_batch_dq(nmode, batch_size):
     """Generate a random hafnian matrix and calculate its hafnian using DeepQuantum."""
-    A = test_sequence_hafnian(n, number_of_sequence=number_of_sequence).to('cuda')  # （number_of_sequence=l， 2n， 2n）
-    print(A.device)
+    mat_a = test_sequence_hafnian(nmode, number_of_sequence=number_of_sequence).to('cuda')
+    print(mat_a.device)
 
-    def get_hafnian_batch_dq(A):
+    def get_hafnian_batch_dq(matrix):
         trials = 100
-        if l == 100 or l == 1000:
+        if batch_size == 100 or batch_size == 1000:
             trials = 1
-        hafnian_batch(A[0:1])
+        hafnian_batch(matrix[0:1])
         time0 = time.time()
         for i in tqdm(range(trials)):
-            results = hafnian_batch(A[i * l : (i + 1) * l])
+            hafnian_batch(matrix[i * batch_size : (i + 1) * batch_size])
         time1 = time.time()
         ts = (time1 - time0) / trials
         return ts
 
-    return get_hafnian_batch_dq(A)
+    return get_hafnian_batch_dq(mat_a)
 
 
 results = {}
+
 platform = 'deepquantum_gpu'
 
-for n in tqdm(n_list):
-    for l in l_list:
-        print('n =', n, 'l =', l)
-        ts = hafnian_batch_dq(n, l)
-        results[str(n) + '+' + str(l)] = ts
+nmodes = [2, 6, 10, 14]
+batch_sizes = [1, 10, 100]
+
+for n in tqdm(nmodes):
+    for bs in batch_sizes:
+        print(f'n={n}, bs={bs}')
+        ts = hafnian_batch_dq(n, bs)
+        results[str(n) + '+' + str(bs)] = ts
 
 with open('hafnian/hafnian_' + platform + '_results.data', 'w') as f:
     json.dump(results, f)

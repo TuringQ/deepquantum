@@ -32,8 +32,6 @@ def random_circuit_simulation(n_qubits, n_gates):
     ]
 
     # Add random number of gates (3-10)
-    n_gates = n_gates
-
     for _ in range(n_gates):
         # 70% chance for single-qubit gate, 20% for CNOT
         if random.random() < 0.7:
@@ -53,7 +51,7 @@ def random_circuit_simulation(n_qubits, n_gates):
     pattern = cir.transpile().pattern
 
     def simulate():
-        state_mbqc = pattern.simulate_pattern(backend='statevector', input_state=graphix.states.BasicStates.ZERO)
+        return pattern.simulate_pattern(backend='statevector', input_state=graphix.states.BasicStates.ZERO)
 
     # Transpile circuit to measurement pattern
     if n_qubits == 20 and n_gates == 100:
@@ -65,14 +63,14 @@ def random_circuit_simulation(n_qubits, n_gates):
 results = {}
 
 platform = 'graphix'
-n_list = [2, 5, 10, 20]
 
-l_list = [5, 10, 100]
+nqubits = [2, 5, 10, 20]
+ngates = [5, 10, 100]
 
-for n in tqdm(n_list):
-    for l in tqdm(l_list):
-        _, ts = random_circuit_simulation(n, l)
-        results[str(n) + '-' + str(l)] = ts
+for n in tqdm(nqubits):
+    for ng in tqdm(ngates):
+        _, ts = random_circuit_simulation(n, ng)
+        results[str(n) + '-' + str(ng)] = ts
 
 with open('simulate_mbqc_' + platform + '_results.data', 'w') as f:
     json.dump(results, f)

@@ -55,7 +55,7 @@ def random_circuit_simulation(n_qubits, n_gates):
     pattern = cir.pattern()
 
     def simulation():
-        state = pattern().full_state
+        return pattern().full_state
 
     return benchmark(simulation)
 
@@ -63,14 +63,14 @@ def random_circuit_simulation(n_qubits, n_gates):
 results = {}
 
 platform = 'deepquantum'
-n_list = [2, 5, 10, 20]
 
-l_list = [5, 10, 100]
+nqubits = [2, 5, 10, 20]
+ngates = [5, 10, 100]
 
-for n in tqdm(n_list):
-    for l in tqdm(l_list):
-        _, ts = random_circuit_simulation(n, l)
-        results[str(n) + '-' + str(l)] = ts
+for n in tqdm(nqubits):
+    for ng in tqdm(ngates):
+        _, ts = random_circuit_simulation(n, ng)
+        results[str(n) + '-' + str(ng)] = ts
 
 with open('simulation_mbqc_' + platform + '_results.data', 'w') as f:
     json.dump(results, f)

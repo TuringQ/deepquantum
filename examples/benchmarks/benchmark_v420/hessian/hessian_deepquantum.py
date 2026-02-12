@@ -22,10 +22,10 @@ def benchmark(f, *args, trials=10):
     return r, ts
 
 
-def hessian_dq(n, l):
+def hessian_dq(n, layer):
     def f(params):
         cir = dq.QubitCircuit(n)
-        for j in range(l):
+        for _ in range(layer):
             for i in range(n - 1):
                 cir.cnot(i, i + 1)
             cir.rxlayer(encode=True)
@@ -38,20 +38,20 @@ def hessian_dq(n, l):
     def get_hs_dq(x):
         return hessian(f, x)
 
-    return benchmark(get_hs_dq, torch.ones([3 * n * l]))
+    return benchmark(get_hs_dq, torch.ones([3 * n * layer]))
 
 
 results = {}
 
 platform = 'deepquantum'
-n_list = [2, 6, 10, 14, 18]
 
+n_list = [2, 6, 10, 14, 18]
 l_list = [1, 5, 10]
 
 for n in tqdm(n_list):
-    for l in tqdm(l_list):
-        _, ts = hessian_dq(n, l)
-        results[str(n) + '-' + str(l)] = ts
+    for layer in tqdm(l_list):
+        _, ts = hessian_dq(n, layer)
+        results[str(n) + '-' + str(layer)] = ts
 
 with open('hessian_' + platform + '_results.data', 'w') as f:
     json.dump(results, f)
