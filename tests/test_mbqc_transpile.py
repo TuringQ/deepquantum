@@ -1,8 +1,8 @@
 import random
 
-import deepquantum as dq
-import pytest
 import torch
+
+import deepquantum as dq
 
 
 def test_random_circuit_transpilation():
@@ -19,7 +19,7 @@ def test_random_circuit_transpilation():
         lambda q: cir.x(q),
         lambda q: cir.rx(q, inputs=torch.rand(1) * 2 * torch.pi),
         lambda q: cir.ry(q, inputs=torch.rand(1) * 2 * torch.pi),
-        lambda q: cir.rz(q, inputs=torch.rand(1) * 2 * torch.pi)
+        lambda q: cir.rz(q, inputs=torch.rand(1) * 2 * torch.pi),
     ]
 
     # Add random number of gates (3-10)
@@ -29,15 +29,15 @@ def test_random_circuit_transpilation():
         # 70% chance for single-qubit gate, 30% for CNOT
         if random.random() < 0.7:
             # Random single-qubit gate
-            qubit = random.randint(0, n_qubits-1)
+            qubit = random.randint(0, n_qubits - 1)
             random.choice(single_gates)(qubit)
         else:
             # Random CNOT
-            control = random.randint(0, n_qubits-1)
-            target = random.randint(0, n_qubits-1)
+            control = random.randint(0, n_qubits - 1)
+            target = random.randint(0, n_qubits - 1)
             # Ensure control and target are different
             while target == control:
-                target = random.randint(0, n_qubits-1)
+                target = random.randint(0, n_qubits - 1)
             cir.cnot(control=control, target=target)
 
     # Transpile circuit to measurement pattern
@@ -47,11 +47,7 @@ def test_random_circuit_transpilation():
     state_cir = cir()
     state_pattern = pattern()
     # Assert that both states are equal (up to global phase)
-    assert torch.allclose(
-        torch.abs(state_cir),
-        torch.abs(state_pattern.graph.full_state),
-        atol=1e-6
-    )
+    assert torch.allclose(torch.abs(state_cir), torch.abs(state_pattern.graph.full_state), atol=1e-6)
 
 
 def test_encode_transpilation():
@@ -68,13 +64,13 @@ def test_encode_transpilation():
         lambda q: cir.x(q),
         lambda q: cir.rx(q, inputs=torch.rand(1) * 2 * torch.pi),
         lambda q: cir.ry(q, inputs=torch.rand(1) * 2 * torch.pi),
-        lambda q: cir.rz(q, inputs=torch.rand(1) * 2 * torch.pi)
+        lambda q: cir.rz(q, inputs=torch.rand(1) * 2 * torch.pi),
     ]
 
     parametric_single_gates = [
-    lambda q: cir.rx(q, encode=True),
-    lambda q: cir.ry(q, encode=True),
-    lambda q: cir.rz(q, encode=True)
+        lambda q: cir.rx(q, encode=True),
+        lambda q: cir.ry(q, encode=True),
+        lambda q: cir.rz(q, encode=True),
     ]
 
     # Add random number of gates (3-10)
@@ -85,20 +81,20 @@ def test_encode_transpilation():
         random_number = random.random()
         if random_number < 0.3:
             # Random single-qubit gate
-            qubit = random.randint(0, n_qubits-1)
+            qubit = random.randint(0, n_qubits - 1)
             random.choice(single_gates)(qubit)
         elif random_number < 0.8:
             # Random parametric-single-qubit gate
-            qubit = random.randint(0, n_qubits-1)
+            qubit = random.randint(0, n_qubits - 1)
             random.choice(parametric_single_gates)(qubit)
             n_para += 1
         else:
             # Random CNOT
-            control = random.randint(0, n_qubits-1)
-            target = random.randint(0, n_qubits-1)
+            control = random.randint(0, n_qubits - 1)
+            target = random.randint(0, n_qubits - 1)
             # Ensure control and target are different
             while target == control:
-                target = random.randint(0, n_qubits-1)
+                target = random.randint(0, n_qubits - 1)
             cir.cnot(control=control, target=target)
 
     # Transpile circuit to measurement pattern
@@ -109,11 +105,7 @@ def test_encode_transpilation():
     state_cir = cir(data=para)
     state_pattern = pattern(data=-para)
     # Assert that both states are equal (up to global phase)
-    assert torch.allclose(
-        torch.abs(state_cir),
-        torch.abs(state_pattern.graph.full_state),
-        atol=1e-6
-    )
+    assert torch.allclose(torch.abs(state_cir), torch.abs(state_pattern.graph.full_state), atol=1e-6)
 
 
 def test_batch_data_transpilation():
@@ -130,13 +122,13 @@ def test_batch_data_transpilation():
         lambda q: cir.x(q),
         lambda q: cir.rx(q, inputs=torch.rand(1) * 2 * torch.pi),
         lambda q: cir.ry(q, inputs=torch.rand(1) * 2 * torch.pi),
-        lambda q: cir.rz(q, inputs=torch.rand(1) * 2 * torch.pi)
+        lambda q: cir.rz(q, inputs=torch.rand(1) * 2 * torch.pi),
     ]
 
     parametric_single_gates = [
-    lambda q: cir.rx(q, encode=True),
-    lambda q: cir.ry(q, encode=True),
-    lambda q: cir.rz(q, encode=True)
+        lambda q: cir.rx(q, encode=True),
+        lambda q: cir.ry(q, encode=True),
+        lambda q: cir.rz(q, encode=True),
     ]
 
     # Add random number of gates (3-10)
@@ -147,20 +139,20 @@ def test_batch_data_transpilation():
         random_number = random.random()
         if random_number < 0.3:
             # Random single-qubit gate
-            qubit = random.randint(0, n_qubits-1)
+            qubit = random.randint(0, n_qubits - 1)
             random.choice(single_gates)(qubit)
         elif random_number < 0.8:
             # Random parametric-single-qubit gate
-            qubit = random.randint(0, n_qubits-1)
+            qubit = random.randint(0, n_qubits - 1)
             random.choice(parametric_single_gates)(qubit)
             n_para += 1
         else:
             # Random CNOT
-            control = random.randint(0, n_qubits-1)
-            target = random.randint(0, n_qubits-1)
+            control = random.randint(0, n_qubits - 1)
+            target = random.randint(0, n_qubits - 1)
             # Ensure control and target are different
             while target == control:
-                target = random.randint(0, n_qubits-1)
+                target = random.randint(0, n_qubits - 1)
             cir.cnot(control=control, target=target)
 
     # Transpile circuit to measurement pattern
@@ -171,11 +163,7 @@ def test_batch_data_transpilation():
     state_cir = cir(data=para)
     state_pattern = pattern(data=-para).graph.full_state
     # Assert that both states are equal (up to global phase)
-    assert torch.allclose(
-        torch.abs(state_cir),
-        torch.abs(state_pattern),
-        atol=1e-6
-    )
+    assert torch.allclose(torch.abs(state_cir), torch.abs(state_pattern), atol=1e-6)
 
 
 def test_data_reupload_transpilation():
@@ -192,13 +180,13 @@ def test_data_reupload_transpilation():
         lambda q: cir.x(q),
         lambda q: cir.rx(q, inputs=torch.rand(1) * 2 * torch.pi),
         lambda q: cir.ry(q, inputs=torch.rand(1) * 2 * torch.pi),
-        lambda q: cir.rz(q, inputs=torch.rand(1) * 2 * torch.pi)
+        lambda q: cir.rz(q, inputs=torch.rand(1) * 2 * torch.pi),
     ]
 
     parametric_single_gates = [
-    lambda q: cir.rx(q, encode=True),
-    lambda q: cir.ry(q, encode=True),
-    lambda q: cir.rz(q, encode=True)
+        lambda q: cir.rx(q, encode=True),
+        lambda q: cir.ry(q, encode=True),
+        lambda q: cir.rz(q, encode=True),
     ]
 
     # Add random number of gates (3-10)
@@ -209,35 +197,28 @@ def test_data_reupload_transpilation():
         random_number = random.random()
         if random_number < 0.3:
             # Random single-qubit gate
-            qubit = random.randint(0, n_qubits-1)
+            qubit = random.randint(0, n_qubits - 1)
             random.choice(single_gates)(qubit)
         elif random_number < 0.8:
             # Random parametric-single-qubit gate
-            qubit = random.randint(0, n_qubits-1)
+            qubit = random.randint(0, n_qubits - 1)
             random.choice(parametric_single_gates)(qubit)
             n_para += 1
         else:
             # Random CNOT
-            control = random.randint(0, n_qubits-1)
-            target = random.randint(0, n_qubits-1)
+            control = random.randint(0, n_qubits - 1)
+            target = random.randint(0, n_qubits - 1)
             # Ensure control and target are different
             while target == control:
-                target = random.randint(0, n_qubits-1)
+                target = random.randint(0, n_qubits - 1)
             cir.cnot(control=control, target=target)
 
     # Transpile circuit to measurement pattern
     pattern = cir.pattern()
     # prepare batched input data
-    if n_para > 3:
-        para = torch.randn(batch_size, n_para-2)
-    else:
-        para = torch.randn(batch_size, n_para)
+    para = torch.randn(batch_size, n_para - 2) if n_para > 3 else torch.randn(batch_size, n_para)
     # Execute both circuits
     state_cir = cir(data=para)
     state_pattern = pattern(data=-para).graph.full_state
     # Assert that both states are equal (up to global phase)
-    assert torch.allclose(
-        torch.abs(state_cir),
-        torch.abs(state_pattern),
-        atol=1e-6
-    )
+    assert torch.allclose(torch.abs(state_cir), torch.abs(state_pattern), atol=1e-6)

@@ -47,16 +47,17 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-dev = ['pytest',
-       'perceval-quandela',
-       'strawberryfields',
-       'thewalrus',
-       'graphix==0.3.1',
-       'qutip',
-       'pennylane-sf',
+dev = ['graphix==0.3.1',
        'jupytext',
+       'pennylane-sf',
+       'perceval-quandela',
+       'pre-commit',
+       'pytest',
+       'qutip',
        'ruff',
-       'pre-commit']
+       'strawberryfields',
+       'thewalrus'
+]
 
 [project.urls]
 Homepage = 'https://deepquantum.turingq.com/'
@@ -80,8 +81,11 @@ line-length = 120
 quote-style = 'single'
 
 [tool.ruff.lint]
-select = ['E', 'W', 'F', 'I', 'B', 'UP']
+select = ['E', 'W', 'F', 'I', 'B', 'UP', 'N', 'A', 'SIM']
 
 [tool.ruff.lint.extend-per-file-ignores]
 '__init__.py' = ['F401']
-'tutorials/*.ipynb' = ['E402']
+
+[tool.ruff.lint.isort]
+order-by-type = false
+case-sensitive = true

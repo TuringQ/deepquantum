@@ -1,10 +1,7 @@
-"""
-Utilities
-"""
+"""Utilities"""
 
 import gzip
 import pickle
-from typing import Optional
 
 import numpy as np
 import psutil
@@ -17,35 +14,41 @@ def set_hbar(hbar: float) -> None:
     """Set the global reduced Planck constant."""
     dqp.hbar = hbar
 
+
 def set_kappa(kappa: float) -> None:
     """Set the global kappa."""
     dqp.kappa = kappa
 
+
 def load_sample(filename):
-    """load the sample data with the given filename"""
-    with gzip.open('./data/' + filename + '.pkl.gz','rb') as f:
+    """Load the sample data with the given filename"""
+    with gzip.open('./data/' + filename + '.pkl.gz', 'rb') as f:
         sample = pickle.load(f)
     return sample
 
+
 def save_sample(filename, data):
-    """save the sample data with the given filename"""
-    with gzip.open('./data/' + filename + '.pkl.gz','wb') as f:
+    """Save the sample data with the given filename"""
+    with gzip.open('./data/' + filename + '.pkl.gz', 'wb') as f:
         pickle.dump(data, f)
     return
 
+
 def load_adj(filename):
-    """load the adjacent matrix with the given filename"""
+    """Load the adjacent matrix with the given filename"""
     mat = np.load('./data/' + filename + '.npy')
     return mat
 
+
 def save_adj(filename, data):
-    """save the adjacent matrix with the given filename"""
+    """Save the adjacent matrix with the given filename"""
     np.save('./data/' + filename + '.npy', data)
     return
 
-def mem_to_chunksize(device: torch.device, dtype: torch.dtype) -> Optional[int]:
+
+def mem_to_chunksize(device: torch.device, dtype: torch.dtype) -> int | None:
     """Return the chunk size of vmap according to device free memory and dtype.
-    
+
     Note: Currently only optimized for permanent and complex dtype.
     """
     if (device, dtype) in dqp.perm_chunksize_dict:
@@ -86,6 +89,7 @@ def mem_to_chunksize(device: torch.device, dtype: torch.dtype) -> Optional[int]:
     dqp.perm_chunksize_dict[device, dtype] = chunksize
     return chunksize
 
-def set_perm_chunksize(device: torch.device, dtype: torch.dtype, chunksize: Optional[int]) -> None:
+
+def set_perm_chunksize(device: torch.device, dtype: torch.dtype, chunksize: int | None) -> None:
     """Set the global chunk size for permanent calculations."""
     dqp.perm_chunksize_dict[device, dtype] = chunksize

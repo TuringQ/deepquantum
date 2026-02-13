@@ -1,12 +1,8 @@
-"""
-Quasiprobability-decomposition gates
-"""
-
-from typing import List, Optional, Tuple
+"""Quasiprobability-decomposition gates"""
 
 from torch import nn
 
-from .gate import PauliX, Hadamard, SGate, SDaggerGate
+from .gate import Hadamard, PauliX, SDaggerGate, SGate
 from .operation import GateQPD, MeasureQPD
 
 
@@ -27,24 +23,33 @@ class SingleGateQPD(GateQPD):
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
+
     def __init__(
         self,
-        bases: List[Tuple[nn.Sequential, ...]],
-        coeffs: List[float],
-        label: Optional[int] = None,
-        name: Optional[str] = None,
+        bases: list[tuple[nn.Sequential, ...]],
+        coeffs: list[float],
+        label: int | None = None,
+        name: str | None = None,
         nqubit: int = 1,
-        wires: Optional[List[int]] = None,
+        wires: list[int] | None = None,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
         if wires is None:
             wires = [0]
         assert len(wires) == 1
         for basis in bases:
             assert len(basis) == 1
-        super().__init__(bases=bases, coeffs=coeffs, label=label, name=name, nqubit=nqubit, wires=wires,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
+        super().__init__(
+            bases=bases,
+            coeffs=coeffs,
+            label=label,
+            name=name,
+            nqubit=nqubit,
+            wires=wires,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+        )
 
 
 class DoubleGateQPD(GateQPD):
@@ -64,26 +69,35 @@ class DoubleGateQPD(GateQPD):
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
+
     def __init__(
         self,
-        bases: List[Tuple[nn.Sequential, ...]],
-        coeffs: List[float],
-        label: Optional[int] = None,
-        name: Optional[str] = None,
+        bases: list[tuple[nn.Sequential, ...]],
+        coeffs: list[float],
+        label: int | None = None,
+        name: str | None = None,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
+        wires: list[int] | None = None,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
         if wires is None:
             wires = [0, 1]
         assert len(wires) == 2
         for basis in bases:
             assert len(basis) == 2
-        super().__init__(bases=bases, coeffs=coeffs, label=label, name=name, nqubit=nqubit, wires=wires,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
+        super().__init__(
+            bases=bases,
+            coeffs=coeffs,
+            label=label,
+            name=name,
+            nqubit=nqubit,
+            wires=wires,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+        )
 
-    def decompose(self) -> Tuple[SingleGateQPD, SingleGateQPD]:
+    def decompose(self) -> tuple[SingleGateQPD, SingleGateQPD]:
         """Decompose the gate into two single-qubit QPD gates."""
         bases1 = []
         bases2 = []
@@ -91,10 +105,12 @@ class DoubleGateQPD(GateQPD):
             bases1.append(tuple([basis[0]]))
             bases2.append(tuple([basis[1]]))
         name = self.name + f'_label{self.label}_'
-        gate1 = SingleGateQPD(bases1, self.coeffs, self.label, name+'1', self.nqubit, [self.wires[0]],
-                              self.den_mat, self.tsr_mode)
-        gate2 = SingleGateQPD(bases2, self.coeffs, self.label, name+'2', self.nqubit, [self.wires[1]],
-                              self.den_mat, self.tsr_mode)
+        gate1 = SingleGateQPD(
+            bases1, self.coeffs, self.label, name + '1', self.nqubit, [self.wires[0]], self.den_mat, self.tsr_mode
+        )
+        gate2 = SingleGateQPD(
+            bases2, self.coeffs, self.label, name + '2', self.nqubit, [self.wires[1]], self.den_mat, self.tsr_mode
+        )
         return gate1, gate2
 
 
@@ -111,13 +127,14 @@ class MoveQPD(DoubleGateQPD):
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
+
     def __init__(
         self,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
-        label: Optional[int] = None,
+        wires: list[int] | None = None,
+        label: int | None = None,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
         if wires is None:
             wires = [0, 1]
@@ -140,14 +157,24 @@ class MoveQPD(DoubleGateQPD):
         prep_iplus = nn.Sequential(h2, s2)
         prep_iminus = nn.Sequential(x2, h2, s2)
 
-        bases = [(measure_i, prep_0),
-                 (measure_i, prep_1),
-                 (measure_x, prep_plus),
-                 (measure_x, prep_minus),
-                 (measure_y, prep_iplus),
-                 (measure_y, prep_iminus),
-                 (measure_z, prep_0),
-                 (measure_z, prep_1)]
+        bases = [
+            (measure_i, prep_0),
+            (measure_i, prep_1),
+            (measure_x, prep_plus),
+            (measure_x, prep_minus),
+            (measure_y, prep_iplus),
+            (measure_y, prep_iminus),
+            (measure_z, prep_0),
+            (measure_z, prep_1),
+        ]
         coeffs = [0.5, 0.5, 0.5, -0.5, 0.5, -0.5, 0.5, -0.5]
-        super().__init__(bases=bases, coeffs=coeffs, label=label, name='MoveQPD', nqubit=nqubit, wires=wires,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
+        super().__init__(
+            bases=bases,
+            coeffs=coeffs,
+            label=label,
+            name='MoveQPD',
+            nqubit=nqubit,
+            wires=wires,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+        )

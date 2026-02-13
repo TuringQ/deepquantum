@@ -1,6 +1,6 @@
-import deepquantum as dq
-import pytest
 import torch
+
+import deepquantum as dq
 
 
 def test_batched_fock_basis_states():
@@ -32,12 +32,12 @@ def test_batched_fock_basis_states():
         # test is_prob=None
         assert torch.equal(res1, re1[i])
 
-        for key in res2.keys():
+        for key in res2:
             # test is_prob=False
             assert torch.allclose(res2[key], re2[key][i], atol=1e-6)
 
-        for key in res3.keys():
-            # test is prob = True
+        for key in res3:
+            # test is prob=True
             assert torch.allclose(res3[key], re3[key][i], atol=1e-6)
 
 
@@ -70,11 +70,11 @@ def test_batched_fock_basis_states_and_data():
         # test is_prob=None
         assert torch.allclose(res1, re1[i], atol=1e-6)
 
-        for key in res2.keys():
+        for key in res2:
             # test is_prob=False
             assert torch.allclose(res2[key], re2[key][i], atol=1e-5)
 
-        for key in res3.keys():
+        for key in res3:
             # test is_prob=True
             assert torch.allclose(res3[key], re3[key][i], atol=1e-6)
 
@@ -113,6 +113,6 @@ def test_loss_batched_fock_basis_states():
         # test is_prob=None
         assert torch.equal(res1, re1[i])
 
-        for key in res2.keys():
-            # test is prob = True
+        for key in res2:
+            # test is prob=True
             assert torch.allclose(res2[key], re2[key][i], atol=1e-6)

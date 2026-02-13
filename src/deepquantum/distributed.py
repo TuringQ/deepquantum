@@ -1,21 +1,18 @@
-"""
-Distributed operations
-"""
+"""Distributed operations"""
 
 from collections import Counter
-from typing import Dict, List, Union
 
 import torch
 import torch.distributed as dist
 
-from .bitmath import log_base2, get_bit, flip_bit, flip_bits, all_bits_are_one, get_bit_mask
-from .communication import comm_get_world_size, comm_exchange_arrays
-from .qmath import evolve_state, block_sample, measure
+from .bitmath import all_bits_are_one, flip_bit, flip_bits, get_bit, get_bit_mask, log_base2
+from .communication import comm_exchange_arrays, comm_get_world_size
+from .qmath import block_sample, evolve_state, measure
 from .state import DistributedQubitState
 
 
 # The 0-th qubit is the rightmost in a ket for the `target`
-def local_gate(state: torch.Tensor, targets: List[int], matrix: torch.Tensor) -> torch.Tensor:
+def local_gate(state: torch.Tensor, targets: list[int], matrix: torch.Tensor) -> torch.Tensor:
     """Apply a gate to a state vector locally."""
     nqubit = log_base2(len(state))
     wires = [nqubit - target - 1 for target in targets]
@@ -24,11 +21,7 @@ def local_gate(state: torch.Tensor, targets: List[int], matrix: torch.Tensor) ->
 
 
 def local_many_ctrl_one_targ_gate(
-    state: torch.Tensor,
-    controls: List[int],
-    target: int,
-    matrix: torch.Tensor,
-    derivative: bool = False
+    state: torch.Tensor, controls: list[int], target: int, matrix: torch.Tensor, derivative: bool = False
 ) -> torch.Tensor:
     """Apply a multi-control single-qubit gate to a state vector locally.
 
@@ -37,7 +30,7 @@ def local_many_ctrl_one_targ_gate(
     indices = torch.arange(len(state), device=state.device)
     control_mask = torch.ones_like(indices, dtype=torch.bool)
     for control in controls:
-        control_mask &= (get_bit(indices, control) == 1)
+        control_mask &= get_bit(indices, control) == 1
     mask = control_mask & (get_bit(indices, target) == 0)
     # Indices where controls are 1 AND target is 0
     indices_0 = indices[mask]
@@ -79,11 +72,7 @@ def dist_one_targ_gate(state: DistributedQubitState, target: int, matrix: torch.
 
 
 def dist_many_ctrl_one_targ_gate(
-    state: DistributedQubitState,
-    controls: List[int],
-    target: int,
-    matrix: torch.Tensor,
-    derivative: bool = False
+    state: DistributedQubitState, controls: list[int], target: int, matrix: torch.Tensor, derivative: bool = False
 ) -> DistributedQubitState:
     """Apply a multi-control single-qubit gate or its derivative to a distributed state vector.
 
@@ -114,13 +103,9 @@ def dist_many_ctrl_one_targ_gate(
 
 
 def dist_ctrl_sub(
-    state: DistributedQubitState,
-    controls: List[int],
-    target: int,
-    matrix: torch.Tensor,
-    derivative: bool = False
+    state: DistributedQubitState, controls: list[int], target: int, matrix: torch.Tensor, derivative: bool = False
 ) -> DistributedQubitState:
-    """"A subroutine of `dist_many_ctrl_one_targ_gate`.
+    """A subroutine of `dist_many_ctrl_one_targ_gate`.
 
     See https://arxiv.org/abs/2311.01512 Alg.8
     """
@@ -129,11 +114,11 @@ def dist_ctrl_sub(
     indices = torch.arange(state.num_amps_per_node, device=state.amps.device)
     control_mask = torch.ones_like(indices, dtype=torch.bool)
     for control in controls:
-        control_mask &= (get_bit(indices, control) == 1)
+        control_mask &= get_bit(indices, control) == 1
     # Indices where controls are 1
     indices = indices[control_mask]
     send = state.amps[indices].contiguous()
-    recv = state.buffer[:len(send)]
+    recv = state.buffer[: len(send)]
     comm_exchange_arrays(send, recv, pair_rank)
     if derivative:
         state.amps.zero_()
@@ -165,16 +150,17 @@ def dist_swap_gate(state: DistributedQubitState, qb1: int, qb2: int):
         bit = 1 - get_bit(state.rank, qb2_rank)
         pair_rank = flip_bit(state.rank, qb2_rank)
         indices = torch.arange(state.num_amps_per_node, device=state.amps.device)
-        mask = (get_bit(indices, qb1) == bit)
+        mask = get_bit(indices, qb1) == bit
         indices = indices[mask]
         send = state.amps[indices].contiguous()
-        recv = state.buffer[:len(send)]
+        recv = state.buffer[: len(send)]
         comm_exchange_arrays(send, recv, pair_rank)
         state.amps[indices] = recv
     return state
 
 
-def get_local_targets(targets: List[int], nqubit_local: int) -> List[int]:
+def get_local_targets(targets: list[int], nqubit_local: int) -> list[int]:
+    """Map global target qubits to available local indices for distributed gates."""
     mask = get_bit_mask(targets)
     min_non_targ = 0
     while get_bit(mask, min_non_targ):
@@ -192,9 +178,7 @@ def get_local_targets(targets: List[int], nqubit_local: int) -> List[int]:
 
 
 def dist_many_targ_gate(
-    state: DistributedQubitState,
-    targets: List[int],
-    matrix: torch.Tensor
+    state: DistributedQubitState, targets: list[int], matrix: torch.Tensor
 ) -> DistributedQubitState:
     """Apply a multi-qubit gate to a distributed state vector.
 
@@ -222,9 +206,9 @@ def measure_dist(
     state: DistributedQubitState,
     shots: int = 1024,
     with_prob: bool = False,
-    wires: Union[int, List[int], None] = None,
-    block_size: int = 2 ** 24
-) -> Dict:
+    wires: int | list[int] | None = None,
+    block_size: int = 2**24,
+) -> dict:
     """Measure a distributed state vector."""
     if state.world_size == 1:
         return measure(state.amps, shots, with_prob, wires, False, block_size)
@@ -240,7 +224,7 @@ def measure_dist(
             targets = [state.nqubit - wire - 1 for wire in wires]
             pm_shape = list(range(nqubit_local))
             # Assume nqubit_global < nqubit_local
-            if num_bits <= nqubit_local: # All targets move to local qubits
+            if num_bits <= nqubit_local:  # All targets move to local qubits
                 if max(targets) >= nqubit_local:
                     targets_new = get_local_targets(targets, nqubit_local)
                     for i in range(num_bits):
@@ -263,7 +247,7 @@ def measure_dist(
                             results[k] = results[k], probs[index].item()
                     return results
                 return {}
-            else: # All targets are sorted, then move to global qubits
+            else:  # All targets are sorted, then move to global qubits
                 targets_sort = sorted(targets, reverse=True)
                 wires_local = []
                 for i, target in enumerate(targets_sort):

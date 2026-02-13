@@ -1,11 +1,9 @@
-"""
-Common functions
-"""
+"""Common functions"""
 
 import itertools
 import warnings
 from collections import Counter
-from typing import Dict, Generator, List, Optional, Tuple, Union
+from collections.abc import Generator
 
 import matplotlib.pyplot as plt
 import torch
@@ -14,14 +12,15 @@ from torch import vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 import deepquantum.photonic as dqp
-from ..qmath import list_to_decimal, decimal_to_list, is_unitary, partial_trace, block_sample
+
+from ..qmath import block_sample, decimal_to_list, is_unitary, list_to_decimal, partial_trace
 from .utils import mem_to_chunksize
 
 
-def dirac_ket(matrix: torch.Tensor) -> Dict:
+def dirac_ket(matrix: torch.Tensor) -> dict:
     """Convert the batched Fock state tensor to the dictionary of Dirac ket."""
     ket_dict = {}
-    for i in range(matrix.shape[0]): # consider batch i
+    for i in range(matrix.shape[0]):  # consider batch i
         state_i = matrix[i]
         abs_state = abs(state_i)
         # get the largest k values with abs(amplitudes)
@@ -43,8 +42,8 @@ def dirac_ket(matrix: torch.Tensor) -> Dict:
     return ket_dict
 
 
-def sort_dict_fock_basis(state_dict: Dict, idx: int = 0) -> Dict:
-    """Sort the dictionary of Fock basis states in the descending order of probs."""
+def sort_dict_fock_basis(state_dict: dict, idx: int = 0) -> dict:
+    """Sort the dictionary of Fock basis states in the descending order of probabilities."""
     sort_list = sorted(state_dict.items(), key=lambda t: abs(t[1][idx]), reverse=True)
     sorted_dict = {}
     for key, value in sort_list:
@@ -53,9 +52,9 @@ def sort_dict_fock_basis(state_dict: Dict, idx: int = 0) -> Dict:
 
 
 def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.Tensor) -> torch.Tensor:
-    """Get the submatrix for calculating the transfer amplitude and transfer probs from the given matrix,
-    the input state and the output state. The rows are chosen according to the output state and the columns
-    are chosen according to the input state.
+    """Get the submatrix for calculating the transfer amplitude and transfer probabilities.
+
+    The rows are chosen according to the output state and the columns are chosen according to the input state.
 
     Args:
         u (torch.Tensor): The unitary matrix.
@@ -63,7 +62,7 @@ def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.T
         output_state (torch.Tensor): The output state.
     """
     with warnings.catch_warnings():
-        warnings.filterwarnings('ignore') # local warning
+        warnings.filterwarnings('ignore')  # local warning
         u1 = torch.repeat_interleave(u, output_state, dim=0)
         u2 = torch.repeat_interleave(u1, input_state, dim=-1)
     return u2
@@ -84,12 +83,14 @@ def permanent(mat: torch.Tensor) -> torch.Tensor:
     if shape[0] == 2:
         return mat[0, 0] * mat[1, 1] + mat[0, 1] * mat[1, 0]
     if shape[0] == 3:
-        return (mat[0, 2] * mat[1, 1] * mat[2, 0]
-                + mat[0, 1] * mat[1, 2] * mat[2, 0]
-                + mat[0, 2] * mat[1, 0] * mat[2, 1]
-                + mat[0, 0] * mat[1, 2] * mat[2, 1]
-                + mat[0, 1] * mat[1, 0] * mat[2, 2]
-                + mat[0, 0] * mat[1, 1] * mat[2, 2])
+        return (
+            mat[0, 2] * mat[1, 1] * mat[2, 0]
+            + mat[0, 1] * mat[1, 2] * mat[2, 0]
+            + mat[0, 2] * mat[1, 0] * mat[2, 1]
+            + mat[0, 0] * mat[1, 2] * mat[2, 1]
+            + mat[0, 1] * mat[1, 0] * mat[2, 2]
+            + mat[0, 0] * mat[1, 1] * mat[2, 2]
+        )
     return permanent_ryser(mat)
 
 
@@ -101,7 +102,8 @@ def create_subset(num_coincidence: int) -> Generator[torch.Tensor, None, None]:
             comb_lst.append(list(comb))
         yield torch.tensor(comb_lst).reshape(len(comb_lst), k)
 
-def get_powerset(n: int) -> List:
+
+def get_powerset(n: int) -> list:
     r"""Get the powerset of :math:`\{0,1,...,n-1\}`."""
     powerset = []
     for k in range(n + 1):
@@ -114,6 +116,7 @@ def get_powerset(n: int) -> List:
 
 def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
     """Calculate the permanent by Ryser's formula."""
+
     def helper(subset: torch.Tensor, mat: torch.Tensor) -> torch.Tensor:
         num_elements = subset.numel()
         s = torch.sum(mat[:, subset], dim=-1)
@@ -132,10 +135,10 @@ def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
 
 def product_factorial(state: torch.Tensor) -> torch.Tensor:
     """Get the product of the factorial from the Fock state, i.e., :math:`|s_1,s_2,...s_n> -> s_1!s_2!...s_n!`."""
-    return torch.exp(torch.lgamma(state.double() + 1).sum(-1, keepdim=True)) # nature log gamma function
+    return torch.exp(torch.lgamma(state.double() + 1).sum(-1, keepdim=True))  # nature log gamma function
 
 
-def fock_combinations(nmode: int, nphoton: int, cutoff: Optional[int] = None, nancilla: int = 0) -> List:
+def fock_combinations(nmode: int, nphoton: int, cutoff: int | None = None, nancilla: int = 0) -> list:
     """Generate all possible combinations of Fock states for a given number of modes, photons, and cutoff.
 
     Args:
@@ -159,7 +162,8 @@ def fock_combinations(nmode: int, nphoton: int, cutoff: Optional[int] = None, na
     if cutoff is None:
         cutoff = nphoton + 1
     result = []
-    def backtrack(state: List[int], length: int, num_sum: int) -> None:
+
+    def backtrack(state: list[int], length: int, num_sum: int) -> None:
         """A helper function that uses backtracking to generate all possible Fock states.
 
         Args:
@@ -183,23 +187,23 @@ def fock_combinations(nmode: int, nphoton: int, cutoff: Optional[int] = None, na
     return result
 
 
-def ladder_ops(cutoff: int, dtype = torch.cfloat, device = 'cpu') -> Tuple[torch.Tensor, torch.Tensor]:
+def ladder_ops(cutoff: int, dtype=torch.cfloat, device='cpu') -> tuple[torch.Tensor, torch.Tensor]:
     """Get the matrix representation of the annihilation and creation operators."""
     sqrt = torch.arange(1, cutoff, dtype=dtype, device=device) ** 0.5
     a = torch.diag(sqrt, diagonal=1)
-    ad = a.mH # share the memory
+    ad = a.mH  # share the memory
     return a, ad
 
 
-def shift_func(l: List, nstep: int) -> List:
+def shift_func(lst: list, nstep: int) -> list:
     """Shift a list by a number of steps.
 
     If ``nstep`` is positive, it shifts to the left.
     """
-    if len(l) <= 1:
-        return l
-    nstep = nstep % len(l)
-    return l[nstep:] + l[:nstep]
+    if len(lst) <= 1:
+        return lst
+    nstep = nstep % len(lst)
+    return lst[nstep:] + lst[:nstep]
 
 
 def xxpp_to_xpxp(matrix: torch.Tensor) -> torch.Tensor:
@@ -233,15 +237,14 @@ def quadrature_to_ladder(tensor: torch.Tensor, symplectic: bool = False) -> torc
     nmode = tensor.shape[-2] // 2
     tensor = tensor + 0j
     identity = torch.eye(nmode, dtype=tensor.dtype, device=tensor.device)
-    omega = torch.cat([torch.cat([identity, identity * 1j], dim=-1),
-                       torch.cat([identity, identity * -1j], dim=-1)])
+    omega = torch.cat([torch.cat([identity, identity * 1j], dim=-1), torch.cat([identity, identity * -1j], dim=-1)])
     if tensor.shape[-1] == 2 * nmode:
         if symplectic:
-            return omega @ tensor @ omega.mH / 2 # inversed omega
+            return omega @ tensor @ omega.mH / 2  # inversed omega
         else:
-            return omega @ tensor @ omega.mH * dqp.kappa ** 2 / dqp.hbar
+            return omega @ tensor @ omega.mH * dqp.kappa**2 / dqp.hbar
     elif tensor.shape[-1] == 1:
-        return omega @ tensor * dqp.kappa / dqp.hbar ** 0.5
+        return omega @ tensor * dqp.kappa / dqp.hbar**0.5
 
 
 def ladder_to_quadrature(tensor: torch.Tensor, symplectic: bool = False) -> torch.Tensor:
@@ -255,32 +258,29 @@ def ladder_to_quadrature(tensor: torch.Tensor, symplectic: bool = False) -> torc
     nmode = tensor.shape[-2] // 2
     tensor = tensor + 0j
     identity = torch.eye(nmode, dtype=tensor.dtype, device=tensor.device)
-    omega = torch.cat([torch.cat([identity, identity], dim=-1),
-                       torch.cat([identity * -1j, identity * 1j], dim=-1)])
+    omega = torch.cat([torch.cat([identity, identity], dim=-1), torch.cat([identity * -1j, identity * 1j], dim=-1)])
     if tensor.shape[-1] == 2 * nmode:
         if symplectic:
-            return (omega @ tensor @ omega.mH).real / 2 # inversed omega
+            return (omega @ tensor @ omega.mH).real / 2  # inversed omega
         else:
-            return (omega @ tensor @ omega.mH).real * dqp.hbar / (4 * dqp.kappa ** 2)
+            return (omega @ tensor @ omega.mH).real * dqp.hbar / (4 * dqp.kappa**2)
     elif tensor.shape[-1] == 1:
-        return (omega @ tensor).real * dqp.hbar ** 0.5 / (2 * dqp.kappa)
+        return (omega @ tensor).real * dqp.hbar**0.5 / (2 * dqp.kappa)
 
 
-def _photon_number_mean_var_gaussian(cov: torch.Tensor, mean: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+def _photon_number_mean_var_gaussian(cov: torch.Tensor, mean: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """Get the expectation value and variance of the photon number for single-mode Gaussian states."""
-    coef = dqp.kappa ** 2 / dqp.hbar
+    coef = dqp.kappa**2 / dqp.hbar
     cov = cov.reshape(-1, 2, 2)
     mean = mean.reshape(-1, 2, 1)
     exp = coef * (vmap(torch.trace)(cov) + (mean.mT @ mean).squeeze()) - 1 / 2
-    var = coef ** 2 * (vmap(torch.trace)(cov @ cov) + 2 * (mean.mT @ cov.to(mean.dtype) @ mean).squeeze()) * 2 - 1 / 4
+    var = coef**2 * (vmap(torch.trace)(cov @ cov) + 2 * (mean.mT @ cov.to(mean.dtype) @ mean).squeeze()) * 2 - 1 / 4
     return exp, var
 
 
 def _photon_number_mean_var_bosonic(
-    cov: torch.Tensor,
-    mean: torch.Tensor,
-    weight: torch.Tensor
-) -> Tuple[torch.Tensor, torch.Tensor]:
+    cov: torch.Tensor, mean: torch.Tensor, weight: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Get the expectation value and variance of the photon number for single-mode Bosonic states."""
     shape_cov = cov.shape
     shape_mean = mean.shape
@@ -290,7 +290,7 @@ def _photon_number_mean_var_bosonic(
     exp_gaussian = exp_gaussian.reshape(shape_cov[:2])
     var_gaussian = var_gaussian.reshape(shape_cov[:2])
     exp = (weight * exp_gaussian).sum(-1)
-    var = (weight * var_gaussian).sum(-1) + (weight * exp_gaussian ** 2).sum(-1) - exp ** 2
+    var = (weight * var_gaussian).sum(-1) + (weight * exp_gaussian**2).sum(-1) - exp**2
     zeros = cov.new_zeros(1)
     assert torch.allclose(exp.imag, zeros, atol=1e-6)
     assert torch.allclose(var.imag, zeros, atol=1e-6)
@@ -298,27 +298,21 @@ def _photon_number_mean_var_bosonic(
 
 
 def photon_number_mean_var_cv(
-    cov: torch.Tensor,
-    mean: torch.Tensor,
-    weight: Optional[torch.Tensor] = None
-) -> Tuple[torch.Tensor, torch.Tensor]:
+    cov: torch.Tensor, mean: torch.Tensor, weight: torch.Tensor | None = None
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Get the expectation value and variance of the photon number for single-mode Gaussian (Bosonic) states."""
     if weight is None:
-        return  _photon_number_mean_var_gaussian(cov, mean)
+        return _photon_number_mean_var_gaussian(cov, mean)
     else:
         return _photon_number_mean_var_bosonic(cov, mean, weight)
 
 
 def photon_number_mean_var_fock(
-    state: torch.Tensor,
-    nmode: int,
-    cutoff: int,
-    wires: List[int],
-    den_mat: bool = False
-) -> Tuple[torch.Tensor, torch.Tensor]:
+    state: torch.Tensor, nmode: int, cutoff: int, wires: list[int], den_mat: bool = False
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Get the expectation value and variance of the photon number for Fock state tensors."""
     if den_mat:
-        rho = state.reshape(-1, cutoff ** nmode, cutoff ** nmode)
+        rho = state.reshape(-1, cutoff**nmode, cutoff**nmode)
         prob = torch.diagonal(rho, dim1=1, dim2=2).reshape([-1] + [cutoff] * nmode)
     else:
         if state.ndim == nmode:
@@ -328,52 +322,48 @@ def photon_number_mean_var_fock(
     num_exp_list = []
     var_list = []
     for i in wires:
-        p_i = torch.sum(prob, dim=[j+1 for j in range(nmode) if j != i])
-        num_exp = (num_op * p_i).sum(dim=-1) # (batch,)
-        num2_exp = ((num_op ** 2) * p_i).sum(dim=-1) # (batch,)
-        var = num2_exp  - num_exp ** 2
+        p_i = torch.sum(prob, dim=[j + 1 for j in range(nmode) if j != i])
+        num_exp = (num_op * p_i).sum(dim=-1)  # (batch,)
+        num2_exp = ((num_op**2) * p_i).sum(dim=-1)  # (batch,)
+        var = num2_exp - num_exp**2
         num_exp_list.append(num_exp)
         var_list.append(var)
     return torch.stack(num_exp_list).real, torch.stack(var_list).real
 
 
 def quadrature_mean_fock(
-    state: torch.Tensor,
-    nmode: int,
-    cutoff: int,
-    wires: List[int],
-    den_mat: bool = False
+    state: torch.Tensor, nmode: int, cutoff: int, wires: list[int], den_mat: bool = False
 ) -> torch.Tensor:
     """Get the expectation value of the quadrature x for Fock state tensors."""
-    coef = 2 * dqp.kappa ** 2 / dqp.hbar
+    coef = 2 * dqp.kappa**2 / dqp.hbar
     factor = torch.sqrt(torch.arange(1, cutoff, device=state.device, dtype=state.real.dtype) / 2)
     mean = []
     if den_mat:
-        state = state.reshape(-1, cutoff ** nmode, cutoff ** nmode)
+        state = state.reshape(-1, cutoff**nmode, cutoff**nmode)
         for wire in wires:
             trace_lst = [i for i in range(nmode) if i != wire]
-            reduced_dm = partial_trace(state, nmode, trace_lst, cutoff) # (batch, cutoff, cutoff)
+            reduced_dm = partial_trace(state, nmode, trace_lst, cutoff)  # (batch, cutoff, cutoff)
             reduced_dm = reduced_dm.reshape(-1, cutoff, cutoff)
-            off_diag = reduced_dm.diagonal(offset=1, dim1=1, dim2=2) # rho_{n, n+1}
-            term = factor * 2 * off_diag.real # only with real part contribution
+            off_diag = reduced_dm.diagonal(offset=1, dim1=1, dim2=2)  # rho_{n, n+1}
+            term = factor * 2 * off_diag.real  # only with real part contribution
             mean.append(term.sum(dim=1))
     else:
         if state.ndim == nmode:
             state = state.unsqueeze(0)
         factor = factor.view([1, -1] + [1] * (nmode - 1))
         for wire in wires:
-            pm_shape = list(range(1, nmode+1))
-            pm_shape.remove(wire+1)
-            pm_shape = [0] + [wire+1] + pm_shape
+            pm_shape = list(range(1, nmode + 1))
+            pm_shape.remove(wire + 1)
+            pm_shape = [0] + [wire + 1] + pm_shape
             state_i = state.permute(pm_shape)
-            cn = state_i[:, :-1, ...] # n
-            cn1 = state_i[:, 1:, ...] # n+1
+            cn = state_i[:, :-1, ...]  # n
+            cn1 = state_i[:, 1:, ...]  # n+1
             term = factor * 2 * (cn.conj() * cn1).real
             mean.append(term.sum(dim=tuple(range(1, nmode + 1))))
     return coef ** (-0.5) * torch.stack(mean)
 
 
-def takagi(a: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+def takagi(a: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """Tagaki decomposition for a symmetric complex matrix.
 
     See https://math.stackexchange.com/questions/2026110/
@@ -384,13 +374,13 @@ def takagi(a: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         a_2[:size, size:] = a.imag
         a_2[size:, :size] = a.imag
     s, u = torch.linalg.eigh(a_2)
-    diag = s[size:] # s already sorted
+    diag = s[size:]  # s already sorted
     v = u[:, size:][size:] + 1j * u[:, size:][:size]
     if is_unitary(v):
         return v, diag
-    else: # consider degeneracy case
+    else:  # consider degeneracy case
         idx_zero = torch.where(abs(s) < 1e-5)[0]
-        idx_max  = max(idx_zero) + 1
+        idx_max = max(idx_zero) + 1
         temp = abs(u[:size, idx_max:]) ** 2 + abs(u[size:, idx_max:]) ** 2
         sum_rhalf = temp.sum(1)
         idx_lt_1 = torch.where(abs(sum_rhalf - 1) > 1e-6)[0]
@@ -414,7 +404,7 @@ def sqrtm_herm(mat: torch.Tensor) -> torch.Tensor:
     return mat_q @ lambd.sqrt().diag_embed().to(mat_q.dtype) @ mat_q.mH
 
 
-def schur_anti_symm_even(mat: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+def schur_anti_symm_even(mat: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     r"""Schur decomposition for a real antisymmetric and even-dimensional matrix.
 
     This function decomposes a real antisymmetric matrix :math:`A` into the form :math:`A = O T O^T`,
@@ -429,17 +419,17 @@ def schur_anti_symm_even(mat: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]
     idx1 = torch.arange(0, n, 2, device=mat.device)
     idx2 = torch.arange(1, n, 2, device=mat.device)
     # positive value is above the diagonal and in ascending order
-    mat_t[idx1, idx2] = lambd[n//2:]
-    mat_t[idx2, idx1] = -lambd[n//2:]
+    mat_t[idx1, idx2] = lambd[n // 2 :]
+    mat_t[idx2, idx1] = -lambd[n // 2 :]
     mat_o = torch.zeros_like(mat)
-    mat_o[:, ::2] = u[:, n//2:].real
-    mat_o[:, 1::2] = u[:, n//2:].imag
+    mat_o[:, ::2] = u[:, n // 2 :].real
+    mat_o[:, 1::2] = u[:, n // 2 :].imag
     norm = torch.linalg.vector_norm(mat_o, dim=0, keepdim=True)
     mat_o = mat_o / norm
     return mat_t, mat_o
 
 
-def williamson(cov: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+def williamson(cov: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """Williamson decomposition.
 
     This function decomposes a real symmetric and even-dimensional positive definite matrix :math:`V`
@@ -452,12 +442,12 @@ def williamson(cov: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     nmode = cov.shape[-1] // 2
     omega = cov.new_ones(nmode)
     omega = torch.cat([-omega, omega]).diag_embed()
-    omega = omega.reshape(2, nmode, 2 * nmode).flip(0).reshape(2 * nmode, 2 * nmode) # symplectic form
+    omega = omega.reshape(2, nmode, 2 * nmode).flip(0).reshape(2 * nmode, 2 * nmode)  # symplectic form
     vals = torch.linalg.eigvalsh(cov)
     assert torch.all(vals > 0), 'Matrix must be positive definite.'
     cov_sqrt = sqrtm_herm(cov)
     cov_sqrt_inv = cov_sqrt.inverse()
-    psi = cov_sqrt_inv @ omega @ cov_sqrt_inv # antisymmetric
+    psi = cov_sqrt_inv @ omega @ cov_sqrt_inv  # antisymmetric
     mat_t, o_tilde = schur_anti_symm_even(psi)
     idx_perm = torch.arange(2 * nmode, device=cov.device).reshape(nmode, 2).T.flatten()
     mat_t_xxpp = mat_t[:, idx_perm][idx_perm]
@@ -474,9 +464,9 @@ def measure_fock_tensor(
     state: torch.Tensor,
     shots: int = 1024,
     with_prob: bool = False,
-    wires: Union[int, List[int], None] = None,
-    block_size: int = 2 ** 24
-) -> Union[Dict, List[Dict]]:
+    wires: int | list[int] | None = None,
+    block_size: int = 2**24,
+) -> dict | list[dict]:
     r"""Measure the batched Fock state tensors.
 
     Args:
@@ -490,8 +480,8 @@ def measure_fock_tensor(
             measured)
         block_size (int, optional): The block size for sampling. Default: 2 ** 24
     """
-    # pylint: disable=import-outside-toplevel
     from .state import FockState
+
     shape = state.shape
     batch = shape[0]
     cutoff = shape[-1]
@@ -534,39 +524,35 @@ def sample_homodyne_fock(
     shots: int = 1,
     den_mat: bool = False,
     x_range: float = 15,
-    nbin: int = 100000
+    nbin: int = 100000,
 ) -> torch.Tensor:
     """Get the samples of homodyne measurement for batched Fock state tensors on one mode."""
-    coef = 2 * dqp.kappa ** 2 / dqp.hbar
+    coef = 2 * dqp.kappa**2 / dqp.hbar
     if den_mat:
-        state = state.reshape(-1, cutoff ** nmode, cutoff ** nmode)
+        state = state.reshape(-1, cutoff**nmode, cutoff**nmode)
     else:
-        state = state.reshape(-1, cutoff ** nmode, 1)
+        state = state.reshape(-1, cutoff**nmode, 1)
         state = state @ state.mH
     trace_lst = [i for i in range(nmode) if i != wire]
-    reduced_dm = partial_trace(state, nmode, trace_lst, cutoff) # (batch, cutoff, cutoff)
-    orders = torch.arange(cutoff, dtype=state.real.dtype, device=state.device).reshape(-1, 1) # (cutoff, 1)
+    reduced_dm = partial_trace(state, nmode, trace_lst, cutoff)  # (batch, cutoff, cutoff)
+    orders = torch.arange(cutoff, dtype=state.real.dtype, device=state.device).reshape(-1, 1)  # (cutoff, 1)
     # with dimension \sqrt{m\omega\hbar}
-    xs = torch.linspace(-x_range, x_range, nbin, dtype=state.real.dtype, device=state.device) # (nbin)
-    h_vals = torch.special.hermite_polynomial_h(coef ** 0.5 * xs, orders) #（cutoff, nbin)
+    xs = torch.linspace(-x_range, x_range, nbin, dtype=state.real.dtype, device=state.device)  # (nbin)
+    h_vals = torch.special.hermite_polynomial_h(coef**0.5 * xs, orders)  # （cutoff, nbin)
     # H_n / \sqrt{2^n * n!}
-    h_vals = h_vals / torch.sqrt(2 ** orders * torch.exp(torch.lgamma(orders.double() + 1))).to(orders.dtype)
-    h_mat = h_vals.reshape(1, cutoff, nbin) * h_vals.reshape(cutoff, 1, nbin) # (cutoff, cutoff, nbin)
-    h_terms = reduced_dm.unsqueeze(-1) * h_mat # (batch, cutoff, cutoff, nbin)
-    probs = (h_terms.sum(dim=[-3, -2]) * torch.exp(-coef * xs ** 2)).real # (batch, nbin)
+    h_vals = h_vals / torch.sqrt(2**orders * torch.exp(torch.lgamma(orders.double() + 1))).to(orders.dtype)
+    h_mat = h_vals.reshape(1, cutoff, nbin) * h_vals.reshape(cutoff, 1, nbin)  # (cutoff, cutoff, nbin)
+    h_terms = reduced_dm.unsqueeze(-1) * h_mat  # (batch, cutoff, cutoff, nbin)
+    probs = (h_terms.sum(dim=[-3, -2]) * torch.exp(-coef * xs**2)).real  # (batch, nbin)
     probs = abs(probs)
     probs[probs < 1e-10] = 0
-    indices = torch.multinomial(probs.reshape(-1, nbin), num_samples=shots, replacement=True) # (batch, shots)
+    indices = torch.multinomial(probs.reshape(-1, nbin), num_samples=shots, replacement=True)  # (batch, shots)
     samples = xs[indices]
-    return samples.unsqueeze(-1) # (batch, shots, 1)
+    return samples.unsqueeze(-1)  # (batch, shots, 1)
 
 
 def sample_reject_bosonic(
-    cov: torch.Tensor,
-    mean: torch.Tensor,
-    weight: torch.Tensor,
-    cov_m: torch.Tensor,
-    shots: int
+    cov: torch.Tensor, mean: torch.Tensor, weight: torch.Tensor, cov_m: torch.Tensor, shots: int
 ) -> torch.Tensor:
     """Get the samples of the Bosonic states via rejection sampling.
 
@@ -592,25 +578,25 @@ def sample_reject_bosonic(
         cov_rest = cov[batches]
         mean_rest = mean[batches]
         cov_t = cov_m + cov_rest
-        m0 = torch.multinomial(c_tilde[batches], 1).reshape(-1) # (batch)
+        m0 = torch.multinomial(c_tilde[batches], 1).reshape(-1)  # (batch)
         cov_m0 = cov[batches, m0]
         mean_m0 = mean[batches, m0].squeeze(-1).real
-        dist_g = MultivariateNormal(mean_rest.squeeze(-1).real, cov_t) # (batch, ncomb, 2 * nmode)
-        r0 = MultivariateNormal(mean_m0, cov_m + cov_m0).sample([shots_tmp]) # (shots, batch, 2 * nmode)
-        prob_g = dist_g.log_prob(r0.unsqueeze(-2)).exp() # (shots, batch, ncomb, 2 * nmode) -> (shots, batch, ncomb)
-        g_r0 = (c_tilde[batches] * prob_g).sum(-1) # (shots, batch)
+        dist_g = MultivariateNormal(mean_rest.squeeze(-1).real, cov_t)  # (batch, ncomb, 2 * nmode)
+        r0 = MultivariateNormal(mean_m0, cov_m + cov_m0).sample([shots_tmp])  # (shots, batch, 2 * nmode)
+        prob_g = dist_g.log_prob(r0.unsqueeze(-2)).exp()  # (shots, batch, ncomb, 2 * nmode) -> (shots, batch, ncomb)
+        g_r0 = (c_tilde[batches] * prob_g).sum(-1)  # (shots, batch)
         y0 = torch.rand_like(g_r0) * g_r0
-        rm = r0.unsqueeze(-1).unsqueeze(-3) # (shots, batch, 2 * nmode) -> (shots, batch, 1, 2 * nmode, 1)
+        rm = r0.unsqueeze(-1).unsqueeze(-3)  # (shots, batch, 2 * nmode) -> (shots, batch, 1, 2 * nmode, 1)
         # (shots, batch, ncomb)
         exp_imag = torch.exp((rm - mean_rest.real).mT @ torch.linalg.solve(cov_t, mean_rest.imag) * 1j).squeeze()
         # Eq.(70-71)
-        p_r0 = (weight[batches] * exp_real[batches] * prob_g * exp_imag).sum(-1) # (shots, batch)
+        p_r0 = (weight[batches] * exp_real[batches] * prob_g * exp_imag).sum(-1)  # (shots, batch)
         assert torch.allclose(p_r0.imag, p_r0.imag.new_zeros(1))
-        idx_shots, idx_batch = torch.where((y0 <= p_r0.real))
+        idx_shots, idx_batch = torch.where(y0 <= p_r0.real)
         batches_done = []
         for i in range(len(batches)):
             idx = batches[i]
-            rst[idx] = torch.cat([rst[idx], r0[idx_shots[idx_batch==i], i]]) # (shots, 2 * nmode)
+            rst[idx] = torch.cat([rst[idx], r0[idx_shots[idx_batch == i], i]])  # (shots, 2 * nmode)
             count_shots[idx] = len(rst[idx])
             if count_shots[idx] >= shots:
                 batches_done.append(idx)
@@ -618,10 +604,10 @@ def sample_reject_bosonic(
         for i in batches_done:
             batches.remove(i)
         shots_tmp = shots - min(count_shots)
-    return torch.stack(rst) # (batch, shots, 2 * nmode)
+    return torch.stack(rst)  # (batch, shots, 2 * nmode)
 
 
-def align_shape(cov: torch.Tensor, mean: torch.Tensor, weight: torch.Tensor) -> List[torch.Tensor]:
+def align_shape(cov: torch.Tensor, mean: torch.Tensor, weight: torch.Tensor) -> list[torch.Tensor]:
     """Align the shape for Bosonic state."""
     ncomb = weight.shape[-1]
     if cov.ndim == mean.ndim == 4 and weight.ndim == 2:
@@ -645,47 +631,40 @@ def fock_to_wigner(
     nmode: int,
     cutoff: int,
     den_mat: bool = False,
-    xrange: Union[int, List] = 10,
-    prange: Union[int, List] = 10,
-    npoints: Union[int, List] = 100,
+    xrange: int | list = 10,
+    prange: int | list = 10,
+    npoints: int | list = 100,
     plot: bool = True,
-    k: int = 0
+    k: int = 0,
 ) -> torch.Tensor:
-    """Compute the Wigner function W(q, p) from a Fock state tensor or density matrix
-    using the iterative method.
+    """Get the discretized Wigner function of the specified mode from a Fock state using the iterative method.
 
     See https://qutip.org/docs/4.7/modules/qutip/wigner.html
 
     Args:
         state (torch.Tensor): The input Fock state tensor or density matrix.
-        wire (int): The wigner function for given wire.
+        wire (int): The Wigner function for the given wire.
         nmode (int): The mode number of the Fock state.
         cutoff (int): The Fock space truncation.
         den_mat (bool, optional): Whether to use density matrix representation. Only valid for Fock state tensor.
             Default: ``False``
-        xrange (int or List, optional): The range of quadrature q. Default: 10
+        xrange (int or List, optional): The range of quadrature x. Default: 10
         prange (int or List, optional): The range of quadrature p. Default: 10
         npoints (int or List, optional): The number of discretization points for quadratures. Default: 100
-        plot (bool, optional): Whether to plot the wigner function. Default: ``True``
+        plot (bool, optional): Whether to plot the Wigner function. Default: ``True``
         k (int, optional): The index of the Wigner function within the batch to plot. Default: 0
     """
     if den_mat:
-        rho = state.reshape(-1, cutoff ** nmode, cutoff ** nmode)
+        rho = state.reshape(-1, cutoff**nmode, cutoff**nmode)
     else:
-        state = state.reshape(-1, cutoff ** nmode, 1)
+        state = state.reshape(-1, cutoff**nmode, 1)
         rho = state @ state.mH
     trace_lst = [i for i in range(nmode) if i != wire]
-    reduced_dm = partial_trace(rho, nmode, trace_lst, cutoff) # (batch, cutoff, cutoff)
+    reduced_dm = partial_trace(rho, nmode, trace_lst, cutoff)  # (batch, cutoff, cutoff)
     if reduced_dm.ndim == 2:
         reduced_dm = reduced_dm.unsqueeze(0)
-    if isinstance(xrange, int):
-        xlist = [-xrange, xrange]
-    else:
-        xlist = xrange
-    if isinstance(prange, int):
-        plist = [-prange, prange]
-    else:
-        plist = prange
+    xlist = [-xrange, xrange] if isinstance(xrange, int) else xrange
+    plist = [-prange, prange] if isinstance(prange, int) else prange
     if isinstance(npoints, int):
         xlist.append(npoints)
         plist.append(npoints)
@@ -695,10 +674,10 @@ def fock_to_wigner(
     assert len(xlist) == len(plist) == 3
     xvec = torch.linspace(*xlist, dtype=state.real.dtype, device=state.device)
     pvec = torch.linspace(*plist, dtype=state.real.dtype, device=state.device)
-    coef = 2 * dqp.kappa ** 2 / dqp.hbar
+    coef = 2 * dqp.kappa**2 / dqp.hbar
     xlist, plist = torch.meshgrid(xvec, pvec, indexing='ij')
     # alpha = (sqrt(2) * kappa / sqrt(hbar)) * (q + i p) / sqrt(2)
-    alpha = coef ** 0.5 * (xlist + 1.0j * plist) / 2 ** 0.5
+    alpha = coef**0.5 * (xlist + 1.0j * plist) / 2**0.5
     w_list = xlist.new_zeros(cutoff, xlist.shape[-2], xlist.shape[-1]) * 1j
     w_00 = coef * torch.exp(-2 * abs(alpha) ** 2) / torch.pi
     w_list[0] = w_00
@@ -706,19 +685,19 @@ def fock_to_wigner(
     # First row: W_{0i}
     for i in range(1, cutoff):
         # For numerical stability, it is recommended to use cutoff < 80
-        w_list[i] = 2 * alpha * w_list[i-1] / rho.new_tensor(i).sqrt()
+        w_list[i] = 2 * alpha * w_list[i - 1] / rho.new_tensor(i).sqrt()
         w += 2 * (reduced_dm[:, 0, i].reshape(-1, 1, 1) * w_list[i]).real
     # Remaining rows: W_{ij}, i ≥ 1
     for i in range(1, cutoff):
         # Diagonal element W_{ii}
-        sqrt_i = i ** 0.5
+        sqrt_i = i**0.5
         temp = w_list[i].clone()
-        w_list[i] = (2 * alpha.conj() * temp - sqrt_i * w_list[i-1]) / sqrt_i
+        w_list[i] = (2 * alpha.conj() * temp - sqrt_i * w_list[i - 1]) / sqrt_i
         w += reduced_dm[:, i, i].reshape(-1, 1, 1) * w_list[i]
         # Off-diagonal elements W_{ij}, j > i
-        for j in range(i+1, cutoff):
-            sqrt_j = j ** 0.5
-            temp2 = (2 * alpha * w_list[j-1] - sqrt_i * temp) / sqrt_j
+        for j in range(i + 1, cutoff):
+            sqrt_j = j**0.5
+            temp2 = (2 * alpha * w_list[j - 1] - sqrt_i * temp) / sqrt_j
             temp = w_list[j].clone()
             w_list[j] = temp2
             w += 2 * (reduced_dm[:, i, j].reshape(-1, 1, 1) * w_list[j]).real
@@ -728,36 +707,30 @@ def fock_to_wigner(
 
 
 def cv_to_wigner(
-    state: List,
+    state: list,
     wire: int,
-    xrange: Union[int, List] = 10,
-    prange: Union[int, List] = 10,
-    npoints: Union[int, List] = 100,
+    xrange: int | list = 10,
+    prange: int | list = 10,
+    npoints: int | list = 100,
     plot: bool = True,
     k: int = 0,
-    normalize: bool = True
+    normalize: bool = True,
 ):
-    """Get the discretized Wigner function of the specified mode.
+    """Get the discretized Wigner function of the specified mode from a CV state.
 
     Args:
-        state (List): The input Gaussianstate or BosonicState.
-        wire (int): The wigner function for given wire.
-        xrange (int or List, optional): The range of quadrature q. Default: 10
+        state (List): The input ``Gaussianstate`` or ``BosonicState``.
+        wire (int): The Wigner function for the given wire.
+        xrange (int or List, optional): The range of quadrature x. Default: 10
         prange (int or List, optional): The range of quadrature p. Default: 10
         npoints (int or List, optional): The number of discretization points for quadratures. Default: 100
-        plot (bool, optional): Whether to plot the wigner function. Default: ``True``
+        plot (bool, optional): Whether to plot the Wigner function. Default: ``True``
         k (int, optional): The index of the Wigner function within the batch to plot. Default: 0
         normalize (bool, optional): Whether to normalize the Wigner function. Default: ``True``
     """
     cov, mean = state[:2]
-    if isinstance(xrange, int):
-        xlist = [-xrange, xrange]
-    else:
-        xlist = xrange
-    if isinstance(prange, int):
-        plist = [-prange, prange]
-    else:
-        plist = prange
+    xlist = [-xrange, xrange] if isinstance(xrange, int) else xrange
+    plist = [-prange, prange] if isinstance(prange, int) else prange
     if isinstance(npoints, int):
         xlist.append(npoints)
         plist.append(npoints)
@@ -769,7 +742,7 @@ def cv_to_wigner(
     pvec = torch.linspace(*plist, dtype=cov.dtype, device=cov.device)
     grid_x, grid_y = torch.meshgrid(xvec, pvec, indexing='ij')
     coords = torch.stack([grid_x.reshape(-1), grid_y.reshape(-1)]).mT
-    coords2 = coords.unsqueeze(1).unsqueeze(2) # (npoints, 1, 1, 2)
+    coords2 = coords.unsqueeze(1).unsqueeze(2)  # (npoints, 1, 1, 2)
     coords3 = coords.unsqueeze(-1).unsqueeze(-3)
     if not isinstance(wire, torch.Tensor):
         wire = torch.tensor(wire).reshape(1)
@@ -787,34 +760,30 @@ def cv_to_wigner(
         weight = state[-1]
     cov, mean, weight = align_shape(cov, mean, weight)
     nmode = cov.shape[-1] // 2
-    idx = torch.cat([wire, wire + nmode]) # xxpp order
-    cov  = cov[..., idx[:, None], idx]
-    mean = mean[..., idx, :] + 0j # for Gaussian state
-    gauss_b = MultivariateNormal(mean.squeeze(-1).real, cov) # mean shape: (batch, ncomb, 2)
-    prob_g = gauss_b.log_prob(coords2).exp() # (npoints, batch, ncomb)
-    exp_real = torch.exp(mean.imag.mT @ torch.linalg.solve(cov, mean.imag) / 2).squeeze(-2, -1) # (batch, ncomb)
+    idx = torch.cat([wire, wire + nmode])  # xxpp order
+    cov = cov[..., idx[:, None], idx]
+    mean = mean[..., idx, :] + 0j  # for Gaussian state
+    gauss_b = MultivariateNormal(mean.squeeze(-1).real, cov)  # mean shape: (batch, ncomb, 2)
+    prob_g = gauss_b.log_prob(coords2).exp()  # (npoints, batch, ncomb)
+    exp_real = torch.exp(mean.imag.mT @ torch.linalg.solve(cov, mean.imag) / 2).squeeze(-2, -1)  # (batch, ncomb)
     # (batch, npoints, ncomb)
-    exp_imag = torch.exp((coords3 - mean.real.unsqueeze(1)).mT @
-                         torch.linalg.solve(cov, mean.imag).unsqueeze(1) * 1j).squeeze(-2, -1)
+    exp_imag = torch.exp(
+        (coords3 - mean.real.unsqueeze(1)).mT @ torch.linalg.solve(cov, mean.imag).unsqueeze(1) * 1j
+    ).squeeze(-2, -1)
     wigner_vals = exp_real.unsqueeze(-2) * prob_g.permute(1, 0, 2) * exp_imag * weight.unsqueeze(-2)
     wigner_vals = wigner_vals.sum(dim=2).reshape(-1, len(xvec), len(pvec)).real
     if normalize:
         # normalize the wigner function
         dx = xvec[1] - xvec[0]
         dp = pvec[1] - pvec[0]
-        total_integral = torch.sum(wigner_vals, dim=[1,2]) * dx * dp
+        total_integral = torch.sum(wigner_vals, dim=[1, 2]) * dx * dp
         wigner_vals = wigner_vals / total_integral.reshape(-1, 1, 1)
     if plot:
         plot_wigner(wigner_vals, xvec, pvec, k)
     return wigner_vals
 
 
-def plot_wigner(
-    wigner: torch.Tensor,
-    xvec: torch.Tensor,
-    pvec: torch.Tensor,
-    k: int = 0
-):
+def plot_wigner(wigner: torch.Tensor, xvec: torch.Tensor, pvec: torch.Tensor, k: int = 0):
     """Plot a 2D contour and a 3D surface of a discretized Wigner function W(x, p).
 
     Args:

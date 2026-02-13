@@ -1,10 +1,7 @@
-"""
-functions for hafnian
-"""
+"""Functions for Hafnian"""
 
 from collections import Counter
-from functools import lru_cache
-from typing import List, Union
+from functools import cache
 
 import numpy as np
 import torch
@@ -13,8 +10,8 @@ from scipy.special import factorial
 from .qmath import get_powerset
 
 
-@lru_cache(maxsize=None)
-def integer_partition(remaining: int, max_num: int) -> List:
+@cache
+def integer_partition(remaining: int, max_num: int) -> list:
     """Generate all unique integer partitions of m using integers up to n."""
     if remaining == 0:
         return [[]]
@@ -28,7 +25,7 @@ def integer_partition(remaining: int, max_num: int) -> List:
     return result
 
 
-def count_unique_permutations(nums: Union[List, np.array]) -> np.float64:
+def count_unique_permutations(nums: list | np.ndarray) -> np.float64:
     """Count the number of unique permutations of a list of numbers."""
     total_permutations = factorial(len(nums))
     num_counts = Counter(nums)
@@ -52,7 +49,7 @@ def get_submat_haf(a: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
     return submat
 
 
-def poly_lambda(submat: torch.Tensor, int_partition: List, power: int, loop: bool = False) -> torch.Tensor:
+def poly_lambda(submat: torch.Tensor, int_partition: list, power: int, loop: bool = False) -> torch.Tensor:
     """Get the coefficient of the polynomial.
 
     See https://arxiv.org/abs/1805.12498 Eq.(3.26) (noting that Eq.(3.26) contains a typo) and
@@ -71,14 +68,14 @@ def poly_lambda(submat: torch.Tensor, int_partition: List, power: int, loop: boo
         traces.append(torch.trace(x))
     trace_list = torch.stack(traces)
     coeff = 0
-    if loop: # loop hafnian case
+    if loop:  # loop hafnian case
         v = torch.diag(submat)
         xv = x_mat @ v / 2
         # matrix power calculation
         diag_term = []
         x = xaz.new_ones(xaz.shape[-1]).diag()
         diag_term.append(v @ x @ xv)
-        for _ in range(power-1):
+        for _ in range(power - 1):
             x = x @ xaz
             diag_term.append(v @ x @ xv)
         diag_term = torch.stack(diag_term)

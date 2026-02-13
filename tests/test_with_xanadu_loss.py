@@ -1,13 +1,14 @@
 import itertools
 
-import deepquantum as dq
 import numpy as np
 import strawberryfields as sf
 import torch
-from strawberryfields.ops import Fock, Rgate, BSgate, LossChannel
+from strawberryfields.ops import BSgate, Fock, LossChannel, Rgate
+
+import deepquantum as dq
 
 
-def test_loss_fock_basis_True():
+def test_loss_fock_basis():
     n = 3
     angles = np.random.rand(6) * np.pi
     transmittance = np.random.rand(6)
@@ -30,21 +31,21 @@ def test_loss_fock_basis_True():
     result = eng.run(prog)
 
     nmode = n
-    cir = dq.QumodeCircuit(nmode=nmode, init_state=[1,1,1], cutoff=4, backend='fock', basis=True)
+    cir = dq.QumodeCircuit(nmode=nmode, init_state=[1, 1, 1], cutoff=4, backend='fock', basis=True)
     cir.loss_t(0, transmittance[0])
     cir.ps(0, angles[0])
     cir.ps(1, angles[1])
-    cir.bs([0,2], [angles[2], angles[3]])
+    cir.bs([0, 2], [angles[2], angles[3]])
     cir.loss_t(0, transmittance[1])
     cir.loss_t(2, transmittance[2])
-    cir.bs([1,2], [angles[4], angles[5]])
+    cir.bs([1, 2], [angles[4], angles[5]])
     cir.loss_t(0, transmittance[3])
     cir.loss_t(1, transmittance[4])
     cir.loss_t(2, transmittance[5])
     # cir.to(torch.float64)
     state = cir(is_prob=True)
     err = 0
-    for key in state.keys():
+    for key in state:
         dq_prob = state[key]
         fock_st = key.state.tolist()
         sf_prob = result.state.fock_prob(fock_st)
@@ -52,7 +53,7 @@ def test_loss_fock_basis_True():
     assert err < 1e-6
 
 
-def test_loss_fock_basis_False():
+def test_loss_fock_tensor():
     n = 3
     angles = np.random.rand(6) * np.pi
     transmittance = np.random.rand(6)
@@ -75,14 +76,16 @@ def test_loss_fock_basis_False():
     result = eng.run(prog)
 
     nmode = n
-    cir = dq.QumodeCircuit(nmode=nmode, init_state=[(1, [1,1,1])], cutoff=4, backend='fock', basis=False, den_mat=True)
+    cir = dq.QumodeCircuit(
+        nmode=nmode, init_state=[(1, [1, 1, 1])], cutoff=4, backend='fock', basis=False, den_mat=True
+    )
     cir.loss_t(0, transmittance[0])
     cir.ps(0, angles[0])
     cir.ps(1, angles[1])
-    cir.bs([0,2], [angles[2], angles[3]])
+    cir.bs([0, 2], [angles[2], angles[3]])
     cir.loss_t(0, transmittance[1])
     cir.loss_t(2, transmittance[2])
-    cir.bs([1,2], [angles[4], angles[5]])
+    cir.bs([1, 2], [angles[4], angles[5]])
     cir.loss_t(0, transmittance[3])
     cir.loss_t(1, transmittance[4])
     cir.loss_t(2, transmittance[5])
@@ -122,10 +125,10 @@ def test_loss_gaussian():
     cir.loss_t(0, transmittance[0])
     cir.ps(0, angles[0])
     cir.ps(1, angles[1])
-    cir.bs([0,1], [angles[2], angles[3]]) # only support adjacent wires for gaussian loss channel
+    cir.bs([0, 1], [angles[2], angles[3]])  # only support adjacent wires for gaussian loss channel
     cir.loss_t(0, transmittance[1])
     cir.loss_t(2, transmittance[2])
-    cir.bs([1,2], [angles[4], angles[5]])
+    cir.bs([1, 2], [angles[4], angles[5]])
     cir.loss_t(0, transmittance[3])
     cir.loss_t(1, transmittance[4])
     cir.loss_t(2, transmittance[5])

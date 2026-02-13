@@ -1,8 +1,4 @@
-"""
-Base classes
-"""
-
-from typing import List, Optional, Union
+"""Base classes for MBQC operations"""
 
 from torch import nn
 
@@ -17,17 +13,14 @@ class Operation(nn.Module):
         nodes (int, List[int] or None, optional): The indices of the nodes that the quantum operation acts on.
             Default: ``None``
     """
-    def __init__(
-        self,
-        name: Optional[str] = None,
-        nodes: Union[int, List[int], None] = None
-    ) -> None:
+
+    def __init__(self, name: str | None = None, nodes: int | list[int] | None = None) -> None:
         super().__init__()
         self.name = name
         self.nodes = nodes
         self.npara = 0
 
-    def _convert_indices(self, indices: Union[int, List[int]]) -> List[int]:
+    def _convert_indices(self, indices: int | list[int]) -> list[int]:
         """Convert and check the indices of the modes."""
         if isinstance(indices, int):
             indices = [indices]
@@ -44,11 +37,8 @@ class Command(Operation):
         name (str): The name of the command.
         nodes (int or List[int]): The indices of the nodes that the command acts on.
     """
-    def __init__(
-        self,
-        name: str,
-        nodes: Union[int, List[int]]
-    ) -> None:
+
+    def __init__(self, name: str, nodes: int | list[int]) -> None:
         nodes = self._convert_indices(nodes)
         super().__init__(name=name, nodes=nodes)
 

@@ -1,8 +1,6 @@
-"""
-Quantum states
-"""
+"""Quantum states"""
 
-from typing import Any, List, Optional, Union
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,9 +9,10 @@ from scipy.special import comb
 from torch import nn, vmap
 
 import deepquantum.photonic as dqp
+
 from ..communication import comm_get_rank, comm_get_world_size
 from ..qmath import is_power, list_to_decimal, multi_kron
-from .qmath import dirac_ket, xpxp_to_xxpp, xxpp_to_xpxp, fock_to_wigner, cv_to_wigner
+from .qmath import cv_to_wigner, dirac_ket, fock_to_wigner, xpxp_to_xxpp, xxpp_to_xpxp
 
 
 class FockState(nn.Module):
@@ -29,13 +28,9 @@ class FockState(nn.Module):
         den_mat (bool, optional): Whether to use density matrix representation. Only valid for Fock state tensor.
             Default: ``False``
     """
+
     def __init__(
-        self,
-        state: Any,
-        nmode: Optional[int] = None,
-        cutoff: Optional[int] = None,
-        basis: bool = True,
-        den_mat: bool = False
+        self, state: Any, nmode: int | None = None, cutoff: int | None = None, basis: bool = True, den_mat: bool = False
     ) -> None:
         super().__init__()
         self.basis = basis
@@ -44,10 +39,7 @@ class FockState(nn.Module):
             if state in ('vac', 'zeros'):
                 state = [0] * nmode
             # Process Fock basis state
-            if not isinstance(state, torch.Tensor):
-                state = torch.tensor(state, dtype=torch.long)
-            else:
-                state = state.long()
+            state = torch.tensor(state, dtype=torch.long) if not isinstance(state, torch.Tensor) else state.long()
             if state.ndim == 1:
                 state = state.unsqueeze(0)
             assert state.ndim == 2
@@ -71,10 +63,7 @@ class FockState(nn.Module):
             # Process Fock state tensor
             if isinstance(state, torch.Tensor):  # with the dimension of batch size
                 if nmode is None:
-                    if den_mat:
-                        nmode = (state.ndim - 1) // 2
-                    else:
-                        nmode = state.ndim - 1
+                    nmode = (state.ndim - 1) // 2 if den_mat else state.ndim - 1
                 if cutoff is None:
                     cutoff = state.shape[-1]
                 self.nmode = nmode
@@ -84,7 +73,7 @@ class FockState(nn.Module):
                 # Process Fock state tensor from Fock basis states
                 assert isinstance(state, list)
                 if all(isinstance(i, int) for i in state):
-                    state = [(1., state)]
+                    state = [(1.0, state)]
                 assert all(isinstance(i, tuple) for i in state)
                 nphoton = 0
                 # Determine the number of photons and modes
@@ -104,7 +93,7 @@ class FockState(nn.Module):
                     state_ts[fock_basis] = amp
                 state_ts = state_ts.unsqueeze(0)  # add additional batch size
                 if den_mat:
-                    state_ts = state_ts.reshape([self.cutoff ** self.nmode, 1])
+                    state_ts = state_ts.reshape([self.cutoff**self.nmode, 1])
                     state_ts = (state_ts @ state_ts.mH).reshape([-1] + [self.cutoff] * 2 * self.nmode)
             if den_mat:
                 assert state_ts.ndim == 2 * self.nmode + 1
@@ -128,11 +117,11 @@ class FockState(nn.Module):
     def wigner(
         self,
         wire: int,
-        xrange: Union[int, List] = 10,
-        prange: Union[int, List] = 10,
-        npoints: Union[int, List] = 100,
+        xrange: int | list = 10,
+        prange: int | list = 10,
+        npoints: int | list = 100,
         plot: bool = True,
-        k: int = 0
+        k: int = 0,
     ):
         """Get the discretized Wigner function of the specified mode.
 
@@ -204,17 +193,13 @@ class GaussianState(nn.Module):
         nmode (int or None, optional): The number of modes in the state. Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
     """
-    def __init__(
-        self,
-        state: Union[str, List] = 'vac',
-        nmode: Optional[int] = None,
-        cutoff: Optional[int] = None
-    ) -> None:
+
+    def __init__(self, state: str | list = 'vac', nmode: int | None = None, cutoff: int | None = None) -> None:
         super().__init__()
         if state == 'vac':
             if nmode is None:
                 nmode = 1
-            cov = torch.eye(2 * nmode) * dqp.hbar / (4 * dqp.kappa ** 2)
+            cov = torch.eye(2 * nmode) * dqp.hbar / (4 * dqp.kappa**2)
             mean = torch.zeros(2 * nmode, 1)
         elif isinstance(state, list):
             cov = state[0]
@@ -229,7 +214,8 @@ class GaussianState(nn.Module):
         mean = mean.reshape(-1, 2 * nmode, 1)
         assert cov.ndim == mean.ndim == 3
         assert cov.shape[-2] == cov.shape[-1] == 2 * nmode, (
-            'The shape of the covariance matrix should be (2*nmode, 2*nmode)')
+            'The shape of the covariance matrix should be (2*nmode, 2*nmode)'
+        )
         assert mean.shape[-2] == 2 * nmode, 'The length of the mean vector should be 2*nmode'
         self.register_buffer('cov', cov)
         self.register_buffer('mean', mean)
@@ -239,24 +225,24 @@ class GaussianState(nn.Module):
         self.cutoff = cutoff
         self.is_pure = self.check_purity()
 
-    def check_purity(self, rtol = 1e-5, atol = 1e-8):
+    def check_purity(self, rtol=1e-5, atol=1e-8):
         """Check if the Gaussian state is pure state
 
         See https://arxiv.org/pdf/quant-ph/0503237.pdf Eq.(2.5)
         """
-        purity = 1 / torch.sqrt(torch.det(4 * dqp.kappa ** 2 / dqp.hbar * self.cov))
+        purity = 1 / torch.sqrt(torch.det(4 * dqp.kappa**2 / dqp.hbar * self.cov))
         unity = torch.tensor(1.0, dtype=purity.dtype, device=purity.device)
         return torch.allclose(purity, unity, rtol=rtol, atol=atol)
 
     def wigner(
         self,
         wire: int,
-        xrange: Union[int, List] = 10,
-        prange: Union[int, List] = 10,
-        npoints: Union[int, List] = 100,
+        xrange: int | list = 10,
+        prange: int | list = 10,
+        npoints: int | list = 100,
         plot: bool = True,
         k: int = 0,
-        normalize: bool = True
+        normalize: bool = True,
     ):
         """Get the discretized Wigner function of the specified mode.
 
@@ -284,17 +270,13 @@ class BosonicState(nn.Module):
         nmode (int or None, optional): The number of modes in the state. Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
     """
-    def __init__(
-        self,
-        state: Union[str, List] = 'vac',
-        nmode: Optional[int] = None,
-        cutoff: Optional[int] = None
-    ) -> None:
+
+    def __init__(self, state: str | list = 'vac', nmode: int | None = None, cutoff: int | None = None) -> None:
         super().__init__()
         if state == 'vac':
             if nmode is None:
                 nmode = 1
-            cov = torch.eye(2 * nmode) * dqp.hbar / (4 * dqp.kappa ** 2)
+            cov = torch.eye(2 * nmode) * dqp.hbar / (4 * dqp.kappa**2)
             mean = torch.zeros(2 * nmode, 1) + 0j
             weight = torch.tensor([1]) + 0j
         elif isinstance(state, list):
@@ -325,7 +307,8 @@ class BosonicState(nn.Module):
         assert cov.ndim == mean.ndim == 4
         assert cov.shape[0] == mean.shape[0]
         assert cov.shape[-2] == cov.shape[-1] == 2 * nmode, (
-            'The shape of the covariance matrix should be (2*nmode, 2*nmode)')
+            'The shape of the covariance matrix should be (2*nmode, 2*nmode)'
+        )
         assert mean.shape[-2] == 2 * nmode, 'The length of the mean vector should be 2*nmode'
         self.register_buffer('cov', cov)
         self.register_buffer('mean', mean)
@@ -358,12 +341,12 @@ class BosonicState(nn.Module):
     def wigner(
         self,
         wire: int,
-        xrange: Union[int, List] = 10,
-        prange: Union[int, List] = 10,
-        npoints: Union[int, List] = 100,
+        xrange: int | list = 10,
+        prange: int | list = 10,
+        npoints: int | list = 100,
         plot: bool = True,
         k: int = 0,
-        normalize: bool = True
+        normalize: bool = True,
     ):
         """Get the discretized Wigner function of the specified mode.
 
@@ -379,13 +362,7 @@ class BosonicState(nn.Module):
         return cv_to_wigner([self.cov, self.mean, self.weight], wire, xrange, prange, npoints, plot, k, normalize)
 
     def marginal(
-        self,
-        wire: int,
-        phi: float = 0.,
-        xrange: Union[int, List] = 10,
-        npoints: int = 100,
-        plot: bool = True,
-        k: int = 0
+        self, wire: int, phi: float = 0.0, xrange: int | list = 10, npoints: int = 100, plot: bool = True, k: int = 0
     ):
         r"""Get the discretized marginal distribution of the specified mode along :math:`x\cos\phi + p\sin\phi`.
 
@@ -397,28 +374,25 @@ class BosonicState(nn.Module):
             plot (bool, optional): Whether to plot the marginal function. Default: ``True``
             k (int, optional): The index of the marginal function within the batch to plot. Default: 0
         """
-        # pylint: disable=import-outside-toplevel
         from .gate import PhaseShift
-        if isinstance(xrange, int):
-            xlist = [-xrange, xrange]
-        else:
-            xlist = xrange
+
+        xlist = [-xrange, xrange] if isinstance(xrange, int) else xrange
         xlist.append(npoints)
         assert len(xlist) == 3
         xvec = torch.linspace(*xlist)
         if not isinstance(wire, torch.Tensor):
             wire = torch.tensor(wire).reshape(1)
-        idx = torch.cat([wire, wire + self.nmode]) # xxpp order
-        cov  = self.cov[..., idx[:, None], idx]
+        idx = torch.cat([wire, wire + self.nmode])  # xxpp order
+        cov = self.cov[..., idx[:, None], idx]
         mean = self.mean[..., idx, :]
         r = PhaseShift(inputs=-phi, nmode=1, wires=[0], cutoff=self.cutoff)
         r.to(cov.dtype).to(cov.device)
-        cov, mean = r([cov, mean]) # (batch, ncomb, 2, 2)
+        cov, mean = r([cov, mean])  # (batch, ncomb, 2, 2)
         cov = cov[..., 0, 0].unsqueeze(1)
         mean = mean[..., 0, 0].unsqueeze(1)
-        prefactor = 1 / (torch.sqrt(2 * torch.pi * cov)) # (batch, 1, ncomb)
+        prefactor = 1 / (torch.sqrt(2 * torch.pi * cov))  # (batch, 1, ncomb)
         # (batch, npoints, ncomb)
-        log_marg_vals = torch.log(self.weight.unsqueeze(1) * prefactor) - 0.5 * (xvec.reshape(-1, 1) - mean)**2 / cov
+        log_marg_vals = torch.log(self.weight.unsqueeze(1) * prefactor) - 0.5 * (xvec.reshape(-1, 1) - mean) ** 2 / cov
         marginal_vals = torch.exp(log_marg_vals).sum(2).real
         if plot:
             plt.subplots(1, 1, figsize=(12, 10))
@@ -443,7 +417,8 @@ class CatState(BosonicState):
             cat state, and ``p=1`` an odd cat state. Default: 1
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
     """
-    def __init__(self, r: Any = None, theta: Any = None, p: int = 1, cutoff: Optional[int] = None) -> None:
+
+    def __init__(self, r: Any = None, theta: Any = None, p: int = 1, cutoff: int | None = None) -> None:
         nmode = 1
         covs = torch.eye(2) * dqp.hbar / (4 * dqp.kappa**2)
         if r is None:
@@ -458,10 +433,18 @@ class CatState(BosonicState):
             p = torch.tensor(p, dtype=torch.long)
         real_part = r * torch.cos(theta)
         imag_part = r * torch.sin(theta)
-        means = torch.stack([torch.stack([real_part, imag_part]),
-                            -torch.stack([real_part, imag_part]),
-                             torch.stack([imag_part, -real_part]) * 1j,
-                            -torch.stack([imag_part, -real_part]) * 1j]) * dqp.hbar**0.5 / dqp.kappa
+        means = (
+            torch.stack(
+                [
+                    torch.stack([real_part, imag_part]),
+                    -torch.stack([real_part, imag_part]),
+                    torch.stack([imag_part, -real_part]) * 1j,
+                    -torch.stack([imag_part, -real_part]) * 1j,
+                ]
+            )
+            * dqp.hbar**0.5
+            / dqp.kappa
+        )
         temp = torch.exp(-2 * r**2)
         w0 = 0.5 / (1 + temp * torch.cos(p * torch.pi))
         w1 = w0
@@ -472,6 +455,7 @@ class CatState(BosonicState):
         super().__init__(state, nmode, cutoff)
 
 
+# ruff: noqa: E741
 class GKPState(BosonicState):
     r"""Finite-energy single-mode GKP state.
 
@@ -487,13 +471,14 @@ class GKPState(BosonicState):
         epsilon (float, optional): The finite energy damping parameter. Default: 0.05
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
     """
+
     def __init__(
         self,
         theta: Any = None,
         phi: Any = None,
         amp_cutoff: float = 0.1,
         epsilon: float = 0.05,
-        cutoff: Optional[int] = None
+        cutoff: int | None = None,
     ) -> None:
         nmode = 1
         if theta is None:
@@ -527,7 +512,7 @@ class GKPState(BosonicState):
         weights = weights[filt] + 0j
         weights /= torch.sum(weights)
         means = means[filt]
-        means = means * torch.exp(-epsilon) / (1 + exp_eps) * (torch.pi * dqp.hbar / 2)**0.5 / dqp.kappa + 0j
+        means = means * torch.exp(-epsilon) / (1 + exp_eps) * (torch.pi * dqp.hbar / 2) ** 0.5 / dqp.kappa + 0j
         covs = torch.eye(2) * dqp.hbar / (4 * dqp.kappa**2) * (1 - exp_eps) / (1 + exp_eps)
         state = [covs, means, weights]
         super().__init__(state, nmode, cutoff)
@@ -593,9 +578,9 @@ class GKPState(BosonicState):
         result[mask5_4] = torch.sin(theta[mask5_4]) * torch.sin(phi[mask5_4])
 
         exp_eps = torch.exp(-2 * self.epsilon)
-        prefactor = torch.exp(-0.25 * torch.pi * (l**2 + k**2) * (1 - exp_eps)/(1 + exp_eps))
+        prefactor = torch.exp(-0.25 * torch.pi * (l**2 + k**2) * (1 - exp_eps) / (1 + exp_eps))
 
-        weight = result * prefactor # update coefficient
+        weight = result * prefactor  # update coefficient
         return weight
 
 
@@ -609,12 +594,13 @@ class FockStateBosonic(BosonicState):
         r (float, optional): The quality parameter for the approximation. Default: 0.05
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
     """
-    def __init__(self, n: int, r: Any = 0.05, cutoff: Optional[int] = None) -> None:
-        assert r ** 2 < 1 / n, 'NOT a physical state'
+
+    def __init__(self, n: int, r: Any = 0.05, cutoff: int | None = None) -> None:
+        assert r**2 < 1 / n, 'NOT a physical state'
         nmode = 1
         m = np.arange(n + 1)
         combs = comb(n, m)
-        weight = (1 - n * r**2) / (1 - (n - m) * r**2) * combs * (-1)**(n - m)
+        weight = (1 - n * r**2) / (1 - (n - m) * r**2) * combs * (-1) ** (n - m)
         weight = torch.tensor(weight / weight.sum(), dtype=torch.float) + 0j
         mean = torch.zeros([n + 1, 2, 1]) + 0j
         m = torch.tensor(m).reshape(-1, 1, 1)
@@ -635,7 +621,8 @@ class DistributedFockState(nn.Module):
         nmode (int or None, optional): The number of modes in the state. Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
     """
-    def __init__(self, state: Any, nmode: Optional[int] = None, cutoff: Optional[int] = None) -> None:
+
+    def __init__(self, state: Any, nmode: int | None = None, cutoff: int | None = None) -> None:
         super().__init__()
         self.world_size = comm_get_world_size()
         self.rank = comm_get_rank()
@@ -644,7 +631,7 @@ class DistributedFockState(nn.Module):
             state = [(1, [0] * nmode)]
         assert isinstance(state, list)
         if all(isinstance(i, int) for i in state):
-            state = [(1., state)]
+            state = [(1.0, state)]
         assert all(isinstance(i, tuple) for i in state)
         nphoton = 0
         for s in state:
@@ -653,14 +640,14 @@ class DistributedFockState(nn.Module):
                 nmode = len(s[1])
         if cutoff is None:
             cutoff = nphoton + 1
-        self.state = state # list of tuples
+        self.state = state  # list of tuples
         self.nmode = nmode
         self.cutoff = cutoff
         assert is_power(self.world_size, self.cutoff)
-        assert cutoff ** nmode >= self.world_size
+        assert cutoff**nmode >= self.world_size
         self.nmode_global = int(np.round(np.emath.logn(self.cutoff, self.world_size)))
         self.nmode_local = self.nmode - self.nmode_global
-        self.num_amps_per_node = self.cutoff ** self.nmode_local
+        self.num_amps_per_node = self.cutoff**self.nmode_local
         amps = torch.zeros([self.cutoff] * self.nmode_local, dtype=torch.cfloat)
         buffer = torch.zeros_like(amps)
         self.register_buffer('amps', amps)
@@ -686,13 +673,13 @@ class DistributedFockState(nn.Module):
         self.buffer.zero_()
         for s in self.state:
             amp = s[0]
-            rank = list_to_decimal(s[1][:self.nmode_global], self.cutoff)
+            rank = list_to_decimal(s[1][: self.nmode_global], self.cutoff)
             if self.rank == rank:
-                fock_basis = tuple(s[1][self.nmode_global:])
+                fock_basis = tuple(s[1][self.nmode_global :])
                 self.amps[fock_basis] = amp
 
 
-def combine_tensors(tensors: List[torch.Tensor], ndim_ds: int = 2) -> torch.Tensor:
+def combine_tensors(tensors: list[torch.Tensor], ndim_ds: int = 2) -> torch.Tensor:
     """Combine a list of 3D tensors for Bosonic states according to the dimension of direct sum.
 
     Args:
@@ -704,7 +691,7 @@ def combine_tensors(tensors: List[torch.Tensor], ndim_ds: int = 2) -> torch.Tens
     # Get number of tensors and their shapes
     n = len(tensors)
     shape_lst = [tensor.shape for tensor in tensors]
-    len_lst, hs, ws = map(list, zip(*shape_lst))
+    len_lst, hs, ws = map(list, zip(*shape_lst, strict=True))
     size_h = sum(hs)
     if ndim_ds == 1:
         size_w = ws[0]
@@ -714,7 +701,7 @@ def combine_tensors(tensors: List[torch.Tensor], ndim_ds: int = 2) -> torch.Tens
     expanded_tensors = []
     for i in range(n):
         # Insert new dimensions and expand for combination
-        view_shape = [1] * n + list(tensors[i].shape[1:]) # tensors[i]: (len_i, h_i, w_i)
+        view_shape = [1] * n + list(tensors[i].shape[1:])  # tensors[i]: (len_i, h_i, w_i)
         view_shape[i] = tensors[i].shape[0]
         expand_shape = len_lst + list(tensors[i].shape[1:])
         expanded = tensors[i].view(*view_shape).expand(*expand_shape)
@@ -730,15 +717,15 @@ def combine_tensors(tensors: List[torch.Tensor], ndim_ds: int = 2) -> torch.Tens
         h, w = hs[i], ws[i]
         row_start = row_offsets[i]
         if ndim_ds == 1:
-            result[..., row_start:row_start+h, :w] = expanded_tensors[i]
+            result[..., row_start : row_start + h, :w] = expanded_tensors[i]
         elif ndim_ds == 2:
             col_start = col_offsets[i]
-            result[..., row_start:row_start+h, col_start:col_start+w] = expanded_tensors[i]
+            result[..., row_start : row_start + h, col_start : col_start + w] = expanded_tensors[i]
     # Flatten result to (len_1*len_2*...*len_n, size_h, size_w)
     return result.view(-1, size_h, size_w)
 
 
-def combine_bosonic_states(states: List[BosonicState], cutoff: Optional[int] = None) -> BosonicState:
+def combine_bosonic_states(states: list[BosonicState], cutoff: int | None = None) -> BosonicState:
     """Combine multiple Bosonic states into a single state.
 
     Args:

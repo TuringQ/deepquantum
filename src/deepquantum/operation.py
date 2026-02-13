@@ -1,17 +1,15 @@
-"""
-Base classes
-"""
+"""Base classes for quantum operations"""
 
 from copy import copy
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 import torch
 from torch import nn, vmap
 
 from .distributed import dist_many_targ_gate
-from .qmath import inverse_permutation, state_to_tensors, evolve_state, evolve_den_mat
-from .state import MatrixProductState, DistributedQubitState
+from .qmath import evolve_den_mat, evolve_state, inverse_permutation, state_to_tensors
+from .state import DistributedQubitState, MatrixProductState
 
 
 class Operation(nn.Module):
@@ -27,13 +25,14 @@ class Operation(nn.Module):
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
+
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
         super().__init__()
         self.name = name
@@ -46,22 +45,22 @@ class Operation(nn.Module):
     def tensor_rep(self, x: torch.Tensor) -> torch.Tensor:
         """Get the tensor representation of the state."""
         if self.den_mat:
-            assert x.shape[-1] == x.shape[-2] == 2 ** self.nqubit
+            assert x.shape[-1] == x.shape[-2] == 2**self.nqubit
             return x.reshape([-1] + [2] * 2 * self.nqubit)
         else:
             if x.ndim == 1:
-                assert x.shape[-1] == 2 ** self.nqubit
+                assert x.shape[-1] == 2**self.nqubit
             else:
-                assert x.shape[-1] == 2 ** self.nqubit or x.shape[-2] == 2 ** self.nqubit
+                assert x.shape[-1] == 2**self.nqubit or x.shape[-2] == 2**self.nqubit
             return x.reshape([-1] + [2] * self.nqubit)
 
     def vector_rep(self, x: torch.Tensor) -> torch.Tensor:
         """Get the vector representation of the state."""
-        return x.reshape(-1, 2 ** self.nqubit, 1)
+        return x.reshape(-1, 2**self.nqubit, 1)
 
     def matrix_rep(self, x: torch.Tensor) -> torch.Tensor:
         """Get the density matrix representation of the state."""
-        return x.reshape(-1, 2 ** self.nqubit, 2 ** self.nqubit)
+        return x.reshape(-1, 2**self.nqubit, 2**self.nqubit)
 
     def get_unitary(self) -> torch.Tensor:
         """Get the global unitary matrix."""
@@ -75,7 +74,7 @@ class Operation(nn.Module):
         """Set the number of qubits of the ``Operation``."""
         self.nqubit = nqubit
 
-    def set_wires(self, wires: Union[int, List[int]]) -> None:
+    def set_wires(self, wires: int | list[int]) -> None:
         """Set the wires of the ``Operation``."""
         self.wires = self._convert_indices(wires)
 
@@ -89,7 +88,7 @@ class Operation(nn.Module):
             else:
                 return self.vector_rep(x)
 
-    def _convert_indices(self, indices: Union[int, List[int]]) -> List[int]:
+    def _convert_indices(self, indices: int | list[int]) -> list[int]:
         """Convert and check the indices of the qubits."""
         if isinstance(indices, int):
             indices = [indices]
@@ -100,7 +99,7 @@ class Operation(nn.Module):
         assert len(set(indices)) == len(indices), 'Invalid input'
         return indices
 
-    def _check_minmax(self, minmax: List[int]) -> None:
+    def _check_minmax(self, minmax: list[int]) -> None:
         """Check the minimum and maximum indices of the qubits."""
         assert isinstance(minmax, list)
         assert len(minmax) == 2
@@ -123,18 +122,19 @@ class Gate(Operation):
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
+
     # include default names in QASM
     _qasm_new_gate = ['c3x', 'c4x']
 
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
         self.nqubit = nqubit
         if wires is None:
@@ -170,7 +170,7 @@ class Gate(Operation):
             super().to(arg)
         return self
 
-    def set_controls(self, controls: Union[int, List[int]]) -> None:
+    def set_controls(self, controls: int | list[int]) -> None:
         """Set the control wires of the ``Operation``."""
         self.controls = self._convert_indices(controls)
 
@@ -193,10 +193,7 @@ class Gate(Operation):
     def op_state(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass for state vectors."""
         matrix = self.update_matrix()
-        if self.controls == []:
-            x = self.op_state_base(x=x, matrix=matrix)
-        else:
-            x = self.op_state_control(x=x, matrix=matrix)
+        x = self.op_state_base(x, matrix) if self.controls == [] else self.op_state_control(x, matrix)
         if not self.tsr_mode:
             x = self.vector_rep(x).squeeze(0)
         return x
@@ -217,7 +214,7 @@ class Gate(Operation):
         for i in controls:
             pm_shape.remove(i)
         pm_shape = wires + pm_shape + controls
-        x = x.permute(pm_shape).reshape(2 ** nt, -1, 2 ** nc)
+        x = x.permute(pm_shape).reshape(2**nt, -1, 2**nc)
         x = torch.cat([x[:, :, :-1], (matrix @ x[:, :, -1]).unsqueeze(-1)], dim=-1)
         x = x.reshape([2] * nt + [-1] + [2] * (self.nqubit - nt - nc) + [2] * nc)
         x = x.permute(inverse_permutation(pm_shape))
@@ -226,10 +223,7 @@ class Gate(Operation):
     def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass for density matrices."""
         matrix = self.update_matrix()
-        if self.controls == []:
-            x = self.op_den_mat_base(x=x, matrix=matrix)
-        else:
-            x = self.op_den_mat_control(x=x, matrix=matrix)
+        x = self.op_den_mat_base(x, matrix) if self.controls == [] else self.op_den_mat_control(x, matrix)
         if not self.tsr_mode:
             x = self.matrix_rep(x).squeeze(0)
         return x
@@ -251,7 +245,7 @@ class Gate(Operation):
         for i in controls:
             pm_shape.remove(i)
         pm_shape = wires + pm_shape + controls
-        x = x.permute(pm_shape).reshape(2 ** nt, -1, 2 ** nc)
+        x = x.permute(pm_shape).reshape(2**nt, -1, 2**nc)
         x = torch.cat([x[:, :, :-1], (matrix @ x[:, :, -1]).unsqueeze(-1)], dim=-1)
         x = x.reshape([2] * nt + [-1] + [2] * (2 * self.nqubit - nt - nc) + [2] * nc)
         x = x.permute(inverse_permutation(pm_shape))
@@ -264,7 +258,7 @@ class Gate(Operation):
         for i in controls:
             pm_shape.remove(i)
         pm_shape = wires + pm_shape + controls
-        x = x.permute(pm_shape).reshape(2 ** nt, -1, 2 ** nc)
+        x = x.permute(pm_shape).reshape(2**nt, -1, 2**nc)
         x = torch.cat([x[:, :, :-1], (matrix.conj() @ x[:, :, -1]).unsqueeze(-1)], dim=-1)
         x = x.reshape([2] * nt + [-1] + [2] * (2 * self.nqubit - nt - nc) + [2] * nc)
         x = x.permute(inverse_permutation(pm_shape))
@@ -280,9 +274,8 @@ class Gate(Operation):
         return dist_many_targ_gate(x, targets, unitary)
 
     def forward(
-        self,
-        x: Union[torch.Tensor, MatrixProductState, DistributedQubitState]
-    ) -> Union[torch.Tensor, MatrixProductState, DistributedQubitState]:
+        self, x: torch.Tensor | MatrixProductState | DistributedQubitState
+    ) -> torch.Tensor | MatrixProductState | DistributedQubitState:
         """Perform a forward pass."""
         if isinstance(x, MatrixProductState):
             return self.op_mps(x)
@@ -301,7 +294,7 @@ class Gate(Operation):
         """Get the inversed gate."""
         return self
 
-    def qpd(self, label: Optional[int] = None) -> 'Gate':
+    def qpd(self, label: int | None = None) -> 'Gate':
         """Get the quasiprobability-decomposition representation."""
         return self
 
@@ -325,11 +318,8 @@ class Gate(Operation):
 
     def _qasm_customized(self, name: str) -> str:
         """Get QASM for multi-controlled gates."""
-        name = name.lower()
-        if len(self.controls) > 2:
-            name = f'c{len(self.controls)}' + name
-        else:
-            name = 'c' * len(self.controls) + name
+        prefix = f'c{len(self.controls)}' if len(self.controls) > 2 else 'c' * len(self.controls)
+        name = prefix + name.lower()
         qasm_lst1 = [f'opaque {name} ']
         qasm_lst2 = [f'{name} ']
         for i, wire in enumerate(self.controls + self.wires):
@@ -346,7 +336,7 @@ class Gate(Operation):
     def _qasm(self) -> str:
         return self._qasm_customized(self.name)
 
-    def get_mpo(self) -> Tuple[List[torch.Tensor], int]:
+    def get_mpo(self) -> tuple[list[torch.Tensor], int]:
         r"""Convert gate to MPO form with identities at empty sites.
 
         Note:
@@ -376,8 +366,8 @@ class Gate(Operation):
         # use shallow copy to share parameters
         gate_copy = copy(self)
         gate_copy.nqubit = nindex
-        gate_copy.wires = index_local[:len(gate_copy.wires)]
-        gate_copy.controls = index_local[len(gate_copy.wires):]
+        gate_copy.wires = index_local[: len(gate_copy.wires)]
+        gate_copy.controls = index_local[len(gate_copy.wires) :]
         u = gate_copy.get_unitary()
         # transform gate from (out1, out2, ..., in1, in2 ...) to (out1, in1, out2, in2, ...)
         order = list(np.arange(2 * nindex).reshape((2, nindex)).T.flatten())
@@ -386,7 +376,7 @@ class Gate(Operation):
         # each tensor is in shape of (i, a, b, j)
         tensors = []
         previous_i = None
-        for i, main_tensor in zip(index_sort, main_tensors):
+        for i, main_tensor in zip(index_sort, main_tensors, strict=True):
             # insert identities in the middle
             if previous_i is not None:
                 for _ in range(previous_i + 1, i):
@@ -427,20 +417,21 @@ class Layer(Operation):
     Args:
         name (str, optional): The name of the layer. Default: ``None``
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (int, List[int], List[List[int]] or None, optional): The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
+        wires (int | list[int] | list[list[int]] | None, optional): The indices of the qubits that
+            the quantum operation acts on. Default: ``None``
         den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
+
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], List[List[int]], None] = None,
+        wires: int | list[int] | list[list[int]] | None = None,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
         super().__init__(name=name, nqubit=nqubit, wires=None, den_mat=den_mat, tsr_mode=tsr_mode)
         if wires is None:
@@ -460,10 +451,7 @@ class Layer(Operation):
         """Get the global unitary matrix."""
         u = None
         for gate in self.gates:
-            if u is None:
-                u = gate.get_unitary()
-            else:
-                u = gate.get_unitary() @ u
+            u = gate.get_unitary() if u is None else gate.get_unitary() @ u
         return u
 
     def init_para(self, inputs: Any = None) -> None:
@@ -473,7 +461,7 @@ class Layer(Operation):
             if inputs is None:
                 gate.init_para()
             else:
-                gate.init_para(inputs[count:count+gate.npara])
+                gate.init_para(inputs[count : count + gate.npara])
             count += gate.npara
 
     def update_npara(self) -> None:
@@ -488,16 +476,15 @@ class Layer(Operation):
         for gate in self.gates:
             gate.nqubit = nqubit
 
-    def set_wires(self, wires: Union[int, List[int], List[List[int]]]) -> None:
+    def set_wires(self, wires: int | list[int] | list[list[int]]) -> None:
         """Set the wires of the ``Layer``."""
         self.wires = self._convert_indices(wires)
         for i, gate in enumerate(self.gates):
             gate.wires = self.wires[i]
 
     def forward(
-        self,
-        x: Union[torch.Tensor, MatrixProductState, DistributedQubitState]
-    ) -> Union[torch.Tensor, MatrixProductState, DistributedQubitState]:
+        self, x: torch.Tensor | MatrixProductState | DistributedQubitState
+    ) -> torch.Tensor | MatrixProductState | DistributedQubitState:
         """Perform a forward pass."""
         if isinstance(x, (MatrixProductState, DistributedQubitState)):
             return self.gates(x)
@@ -515,7 +502,7 @@ class Layer(Operation):
         """Get the inversed layer."""
         return self
 
-    def _convert_indices(self, indices: Union[int, List]) -> List[List[int]]:
+    def _convert_indices(self, indices: int | list) -> list[list[int]]:
         if isinstance(indices, int):
             indices = [[indices]]
         assert isinstance(indices, list), 'Invalid input type'
@@ -531,11 +518,10 @@ class Layer(Operation):
     def _qasm(self) -> str:
         lst = []
         for gate in self.gates:
-            # pylint: disable=protected-access
             lst.append(gate._qasm())
         return ''.join(lst)
 
-    def pattern(self, nodes: List[List[int]], ancilla: List[List[int]]) -> nn.Sequential:
+    def pattern(self, nodes: list[list[int]], ancilla: list[list[int]]) -> nn.Sequential:
         """Get the MBQC pattern."""
         assert len(nodes) == len(ancilla) == len(self.gates)
         cmds = nn.Sequential()
@@ -559,17 +545,18 @@ class Channel(Operation):
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     # include default names in QASM
     _qasm_new_gate = []
 
     def __init__(
         self,
         inputs: Any = None,
-        name: Optional[str] = None,
+        name: str | None = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
         tsr_mode: bool = False,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
         self.nqubit = nqubit
         if wires is None:
@@ -673,16 +660,17 @@ class GateQPD(Gate):
         tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
+
     def __init__(
         self,
-        bases: List[Tuple[nn.Sequential, ...]],
-        coeffs: List[float],
-        label: Optional[int] = None,
-        name: Optional[str] = None,
+        bases: list[tuple[nn.Sequential, ...]],
+        coeffs: list[float],
+        label: int | None = None,
+        name: str | None = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
         self.nqubit = nqubit
         if wires is None:
@@ -710,7 +698,7 @@ class GateQPD(Gate):
                 for op in ops:
                     op.nqubit = nqubit
 
-    def set_wires(self, wires: Union[int, List[int]]) -> None:
+    def set_wires(self, wires: int | list[int]) -> None:
         """Set the wires of the ``GateQPD``."""
         self.wires = self._convert_indices(wires)
         for basis in self.bases:
@@ -718,7 +706,7 @@ class GateQPD(Gate):
                 for op in ops:
                     op.set_wires(self.wires[i])
 
-    def forward(self, x: torch.Tensor, idx: Optional[int] = None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, idx: int | None = None) -> torch.Tensor:
         """Perform a forward pass.
 
         Args:
@@ -732,10 +720,7 @@ class GateQPD(Gate):
         for ops in self.bases[self.idx]:
             x = ops(x)
         if not self.tsr_mode:
-            if self.den_mat:
-                x = self.matrix_rep(x).squeeze(0)
-            else:
-                x = self.vector_rep(x).squeeze(0)
+            x = self.matrix_rep(x).squeeze(0) if self.den_mat else self.vector_rep(x).squeeze(0)
         return x
 
 
@@ -747,7 +732,8 @@ class MeasureQPD(Operation):
         wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
             Default: ``None``
     """
-    def __init__(self, nqubit: int = 1, wires: Union[int, List[int], None] = None) -> None:
+
+    def __init__(self, nqubit: int = 1, wires: int | list[int] | None = None) -> None:
         self.nqubit = nqubit
         if wires is None:
             wires = [0]

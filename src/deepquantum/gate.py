@@ -1,18 +1,15 @@
-"""
-Quantum gates
-"""
+"""Quantum gates"""
 
 from copy import copy
-from typing import Any, List, Optional, Tuple, Union
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import torch
 from torch import nn
 from torch.autograd.functional import jacobian
 
-from .distributed import dist_one_targ_gate, dist_many_ctrl_one_targ_gate, dist_swap_gate
+from .distributed import dist_many_ctrl_one_targ_gate, dist_one_targ_gate, dist_swap_gate
 from .operation import Gate
-from .qmath import multi_kron, is_unitary, inverse_permutation, evolve_state, svd
+from .qmath import evolve_state, inverse_permutation, is_unitary, multi_kron, svd
 from .state import DistributedQubitState
 
 if TYPE_CHECKING:
@@ -35,18 +32,26 @@ class SingleGate(Gate):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
-        super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls, condition=condition,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
+        super().__init__(
+            name=name,
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+        )
         assert len(self.wires) == 1
         # MBQC
         self.nancilla = 2
@@ -97,30 +102,38 @@ class DoubleGate(Gate):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
         if wires is None:
             wires = [0, 1]
         assert len(wires) == 2
-        super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls, condition=condition,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
+        super().__init__(
+            name=name,
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+        )
 
     def get_unitary(self) -> torch.Tensor:
         """Get the global unitary matrix."""
         matrix = self.update_matrix()
         identity = torch.eye(2, dtype=matrix.dtype, device=matrix.device)
         zerozero = torch.tensor([[1, 0], [0, 0]], dtype=matrix.dtype, device=matrix.device)
-        zeroone  = torch.tensor([[0, 1], [0, 0]], dtype=matrix.dtype, device=matrix.device)
-        onezero  = torch.tensor([[0, 0], [1, 0]], dtype=matrix.dtype, device=matrix.device)
-        oneone   = torch.tensor([[0, 0], [0, 1]], dtype=matrix.dtype, device=matrix.device)
+        zeroone = torch.tensor([[0, 1], [0, 0]], dtype=matrix.dtype, device=matrix.device)
+        onezero = torch.tensor([[0, 0], [1, 0]], dtype=matrix.dtype, device=matrix.device)
+        oneone = torch.tensor([[0, 0], [0, 1]], dtype=matrix.dtype, device=matrix.device)
         if self.controls == []:
             lst1 = [identity] * self.nqubit
             lst2 = [identity] * self.nqubit
@@ -165,8 +178,14 @@ class DoubleGate(Gate):
 
             lst6[self.wires[0]] = oneone
             lst6[self.wires[1]] = matrix[2:4, 2:4]
-            return multi_kron(lst1) - multi_kron(lst2) + \
-                   multi_kron(lst3) + multi_kron(lst4) + multi_kron(lst5) + multi_kron(lst6)
+            return (
+                multi_kron(lst1)
+                - multi_kron(lst2)
+                + multi_kron(lst3)
+                + multi_kron(lst4)
+                + multi_kron(lst5)
+                + multi_kron(lst6)
+            )
 
 
 class DoubleControlGate(DoubleGate):
@@ -183,23 +202,25 @@ class DoubleControlGate(DoubleGate):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
+        wires: list[int] | None = None,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
-        super().__init__(name=name, nqubit=nqubit, wires=wires, controls=None, condition=False,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
+        super().__init__(
+            name=name, nqubit=nqubit, wires=wires, controls=None, condition=False, den_mat=den_mat, tsr_mode=tsr_mode
+        )
 
     def get_unitary(self) -> torch.Tensor:
         """Get the global unitary matrix."""
         matrix = self.update_matrix()
         identity = torch.eye(2, dtype=matrix.dtype, device=matrix.device)
         zerozero = torch.tensor([[1, 0], [0, 0]], dtype=matrix.dtype, device=matrix.device)
-        oneone   = torch.tensor([[0, 0], [0, 1]], dtype=matrix.dtype, device=matrix.device)
+        oneone = torch.tensor([[0, 0], [0, 1]], dtype=matrix.dtype, device=matrix.device)
         lst1 = [identity] * self.nqubit
         lst2 = [identity] * self.nqubit
 
@@ -226,49 +247,58 @@ class TripleGate(Gate):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         nqubit: int = 3,
-        wires: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
         if wires is None:
             wires = [0, 1, 2]
         assert len(wires) == 3
-        super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls, condition=condition,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
+        super().__init__(
+            name=name,
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+        )
 
 
 class ArbitraryGate(Gate):
     r"""A base class for customized gates.
 
-     Args:
-        name (str or None, optional): The name of the gate. Default: ``None``
-        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
-        minmax (List[int] or None, optional): The minimum and maximum indices of the qubits that the quantum
-            operation acts on. Only valid when ``wires`` is ``None``. Default: ``None``
-        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
-        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
-            Default: ``False`` (which means state vectors)
-        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
-            Default: ``False``
+    Args:
+       name (str or None, optional): The name of the gate. Default: ``None``
+       nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
+       wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
+           Default: ``None``
+       minmax (List[int] or None, optional): The minimum and maximum indices of the qubits that the quantum
+           operation acts on. Only valid when ``wires`` is ``None``. Default: ``None``
+       controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
+       den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+           Default: ``False`` (which means state vectors)
+       tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+           and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
+           Default: ``False``
     """
+
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        minmax: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        minmax: list[int] | None = None,
+        controls: int | list[int] | None = None,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
         self.nqubit = nqubit
         if wires is None:
@@ -276,8 +306,15 @@ class ArbitraryGate(Gate):
                 minmax = [0, nqubit - 1]
             self._check_minmax(minmax)
             wires = list(range(minmax[0], minmax[1] + 1))
-        super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls, condition=False,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
+        super().__init__(
+            name=name,
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=False,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+        )
         self.minmax = [min(self.wires), max(self.wires)]
         # whether the wires are consecutive integers
         self.local = True
@@ -297,16 +334,13 @@ class ArbitraryGate(Gate):
             return multi_kron(lst)
         else:
             matrix = self.update_matrix()
-            identity = torch.eye(2 ** self.nqubit, dtype=matrix.dtype, device=matrix.device)
-            identity = identity.reshape([2 ** self.nqubit] + [2] * self.nqubit)
-            return self.op_state_base(identity, matrix).reshape(2 ** self.nqubit, 2 ** self.nqubit).T
+            identity = torch.eye(2**self.nqubit, dtype=matrix.dtype, device=matrix.device)
+            identity = identity.reshape([2**self.nqubit] + [2] * self.nqubit)
+            return self.op_state_base(identity, matrix).reshape(2**self.nqubit, 2**self.nqubit).T
 
     def inverse(self) -> 'ArbitraryGate':
         """Get the inversed gate."""
-        if isinstance(self.name, str):
-            name = self.name + '_dagger'
-        else:
-            name = self.name
+        name = self.name + '_dagger' if isinstance(self.name, str) else self.name
         gate = copy(self)
         gate.inv_mode = not self.inv_mode
         gate.name = name
@@ -332,20 +366,28 @@ class ParametricSingleGate(SingleGate):
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         inputs: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
-        super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls, condition=condition,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
+        super().__init__(
+            name=name,
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+        )
         self.npara = 1
         self.requires_grad = requires_grad
         self.inv_mode = False
@@ -363,10 +405,7 @@ class ParametricSingleGate(SingleGate):
 
     def update_matrix(self) -> torch.Tensor:
         """Update the local unitary matrix."""
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
+        theta = -self.theta if self.inv_mode else self.theta
         matrix = self.get_matrix(theta)
         self.matrix = matrix.detach()
         return matrix
@@ -393,10 +432,7 @@ class ParametricSingleGate(SingleGate):
         return gate
 
     def extra_repr(self) -> str:
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
+        theta = -self.theta if self.inv_mode else self.theta
         s = f'wires={self.wires}, theta={theta.item()}'
         if self.controls == []:
             return s
@@ -423,20 +459,28 @@ class ParametricDoubleGate(DoubleGate):
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         inputs: Any = None,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
-        super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls, condition=condition,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
+        super().__init__(
+            name=name,
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+        )
         self.npara = 1
         self.requires_grad = requires_grad
         self.inv_mode = False
@@ -454,10 +498,7 @@ class ParametricDoubleGate(DoubleGate):
 
     def update_matrix(self) -> torch.Tensor:
         """Update the local unitary matrix."""
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
+        theta = -self.theta if self.inv_mode else self.theta
         matrix = self.get_matrix(theta)
         self.matrix = matrix.detach()
         return matrix
@@ -484,10 +525,7 @@ class ParametricDoubleGate(DoubleGate):
         return gate
 
     def extra_repr(self) -> str:
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
+        theta = -self.theta if self.inv_mode else self.theta
         s = f'wires={self.wires}, theta={theta.item()}'
         if self.controls == []:
             return s
@@ -526,30 +564,40 @@ class U3Gate(ParametricSingleGate):
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
-        super().__init__(name='U3Gate', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
-                         condition=condition, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
+        super().__init__(
+            name='U3Gate',
+            inputs=inputs,
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+            requires_grad=requires_grad,
+        )
         self.npara = 3
 
-    def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def inputs_to_tensor(self, inputs: Any = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Convert inputs to torch.Tensor."""
         if inputs is None:
             theta = torch.rand(1)[0] * torch.pi
-            phi   = torch.rand(1)[0] * 2 * torch.pi
+            phi = torch.rand(1)[0] * 2 * torch.pi
             lambd = torch.rand(1)[0] * 2 * torch.pi
         else:
             theta = inputs[0]
-            phi   = inputs[1]
+            phi = inputs[1]
             lambd = inputs[2]
         if not isinstance(theta, (torch.Tensor, nn.Parameter)):
             theta = torch.tensor(theta, dtype=torch.float)
@@ -564,8 +612,8 @@ class U3Gate(ParametricSingleGate):
         theta, phi, lambd = self.inputs_to_tensor([theta, phi, lambd])
         cos_t = torch.cos(theta / 2)
         sin_t = torch.sin(theta / 2)
-        e_il  = torch.exp(1j * lambd)
-        e_ip  = torch.exp(1j * phi)
+        e_il = torch.exp(1j * lambd)
+        e_ip = torch.exp(1j * phi)
         e_ipl = torch.exp(1j * (phi + lambd))
         return torch.stack([cos_t, -e_il * sin_t, e_ip * sin_t, e_ipl * cos_t]).reshape(2, 2)
 
@@ -573,11 +621,11 @@ class U3Gate(ParametricSingleGate):
         """Update the local unitary matrix."""
         if self.inv_mode:
             theta = -self.theta
-            phi   = -self.lambd
+            phi = -self.lambd
             lambd = -self.phi
         else:
             theta = self.theta
-            phi   = self.phi
+            phi = self.phi
             lambd = self.lambd
         matrix = self.get_matrix(theta, phi, lambd)
         self.matrix = matrix.detach()
@@ -600,7 +648,7 @@ class U3Gate(ParametricSingleGate):
         theta, phi, lambd = self.inputs_to_tensor(inputs)
         if self.requires_grad:
             self.theta = nn.Parameter(theta)
-            self.phi   = nn.Parameter(phi)
+            self.phi = nn.Parameter(phi)
             self.lambd = nn.Parameter(lambd)
         else:
             self.register_buffer('theta', theta)
@@ -611,11 +659,11 @@ class U3Gate(ParametricSingleGate):
     def extra_repr(self) -> str:
         if self.inv_mode:
             theta = -self.theta
-            phi   = -self.lambd
+            phi = -self.lambd
             lambd = -self.phi
         else:
             theta = self.theta
-            phi   = self.phi
+            phi = self.phi
             lambd = self.lambd
         s = f'wires={self.wires}, theta={theta.item()}, phi={phi.item()}, lambda={lambd.item()}'
         if self.controls == []:
@@ -626,11 +674,11 @@ class U3Gate(ParametricSingleGate):
     def _qasm(self) -> str:
         if self.inv_mode:
             theta = -self.theta
-            phi   = -self.lambd
+            phi = -self.lambd
             lambd = -self.phi
         else:
             theta = self.theta
-            phi   = self.phi
+            phi = self.phi
             lambd = self.lambd
         if self.condition:
             return self._qasm_cond_measure() + f'u({theta.item()},{phi.item()},{lambd.item()}) q{self.wires};\n'
@@ -670,19 +718,29 @@ class PhaseShift(ParametricSingleGate):
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
-        super().__init__(name='PhaseShift', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
-                         condition=condition, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
+        super().__init__(
+            name='PhaseShift',
+            inputs=inputs,
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+            requires_grad=requires_grad,
+        )
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
         """Convert inputs to torch.Tensor."""
@@ -702,10 +760,7 @@ class PhaseShift(ParametricSingleGate):
         return torch.block_diag(m1, e_it).reshape(2, 2)
 
     def _qasm(self) -> str:
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
+        theta = -self.theta if self.inv_mode else self.theta
         if self.condition:
             return self._qasm_cond_measure() + f'p({theta.item()}) q{self.wires};\n'
         if self.controls == []:
@@ -738,16 +793,20 @@ class Identity(Gate):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
-        self,
-        nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        den_mat: bool = False,
-        tsr_mode: bool = False
+        self, nqubit: int = 1, wires: int | list[int] | None = None, den_mat: bool = False, tsr_mode: bool = False
     ) -> None:
-        super().__init__(name='Identity', nqubit=nqubit, wires=wires, controls=None, condition=False,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
-        self.register_buffer('matrix', torch.eye(2 ** self.nqubit, dtype=torch.cfloat))
+        super().__init__(
+            name='Identity',
+            nqubit=nqubit,
+            wires=wires,
+            controls=None,
+            condition=False,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+        )
+        self.register_buffer('matrix', torch.eye(2**self.nqubit, dtype=torch.cfloat))
 
     def get_unitary(self) -> torch.Tensor:
         """Get the global unitary matrix."""
@@ -782,17 +841,25 @@ class PauliX(SingleGate):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
-        super().__init__(name='PauliX', nqubit=nqubit, wires=wires, controls=controls, condition=condition,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
+        super().__init__(
+            name='PauliX',
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+        )
         self.register_buffer('matrix', torch.tensor([[0, 1], [1, 0]], dtype=torch.cfloat))
 
     def _qasm(self) -> str:
@@ -807,9 +874,10 @@ class PauliX(SingleGate):
         else:
             return self._qasm_customized('x')
 
-    def pattern(self, nodes: Union[int, List[int]], ancilla: List[int]) -> nn.Sequential:
+    def pattern(self, nodes: int | list[int], ancilla: list[int]) -> nn.Sequential:
         """Get the MBQC pattern."""
-        from .mbqc import Node, Entanglement, Measurement, Correction
+        from .mbqc import Correction, Entanglement, Measurement, Node
+
         if isinstance(nodes, list):
             assert len(nodes) == len(self.wires)
             nodes = nodes[0]
@@ -850,17 +918,25 @@ class PauliY(SingleGate):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
-        super().__init__(name='PauliY', nqubit=nqubit, wires=wires, controls=controls, condition=condition,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
+        super().__init__(
+            name='PauliY',
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+        )
         self.register_buffer('matrix', torch.tensor([[0, -1j], [1j, 0]]))
         # MBQC
         self.nancilla = 4
@@ -875,9 +951,10 @@ class PauliY(SingleGate):
         else:
             return self._qasm_customized('y')
 
-    def pattern(self, nodes: Union[int, List[int]], ancilla: List[int]) -> nn.Sequential:
+    def pattern(self, nodes: int | list[int], ancilla: list[int]) -> nn.Sequential:
         """Get the MBQC pattern."""
-        from .mbqc import Node, Entanglement, Measurement, Correction
+        from .mbqc import Correction, Entanglement, Measurement, Node
+
         if isinstance(nodes, list):
             assert len(nodes) == len(self.wires)
             nodes = nodes[0]
@@ -888,9 +965,9 @@ class PauliY(SingleGate):
         cmds.append(Entanglement(ancilla[0], ancilla[1]))
         cmds.append(Entanglement(ancilla[1], ancilla[2]))
         cmds.append(Entanglement(ancilla[2], ancilla[3]))
-        cmds.append(Measurement(nodes, angle=torch.pi/2))
+        cmds.append(Measurement(nodes, angle=torch.pi / 2))
         cmds.append(Measurement(ancilla[0], angle=torch.pi, s_domain=nodes))
-        cmds.append(Measurement(ancilla[1], angle=-torch.pi/2, s_domain=nodes))
+        cmds.append(Measurement(ancilla[1], angle=-torch.pi / 2, s_domain=nodes))
         cmds.append(Measurement(ancilla[2]))
         cmds.append(Correction(ancilla[3], basis='x', domain=[ancilla[0], ancilla[2]]))
         cmds.append(Correction(ancilla[3], basis='z', domain=[ancilla[0], ancilla[1]]))
@@ -922,17 +999,25 @@ class PauliZ(SingleGate):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
-        super().__init__(name='PauliZ', nqubit=nqubit, wires=wires, controls=controls, condition=condition,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
+        super().__init__(
+            name='PauliZ',
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+        )
         self.register_buffer('matrix', torch.tensor([[1, 0], [0, -1]], dtype=torch.cfloat))
 
     def _qasm(self) -> str:
@@ -945,9 +1030,10 @@ class PauliZ(SingleGate):
         else:
             return self._qasm_customized('z')
 
-    def pattern(self, nodes: Union[int, List[int]], ancilla: List[int]) -> nn.Sequential:
+    def pattern(self, nodes: int | list[int], ancilla: list[int]) -> nn.Sequential:
         """Get the MBQC pattern."""
-        from .mbqc import Node, Entanglement, Measurement, Correction
+        from .mbqc import Correction, Entanglement, Measurement, Node
+
         if isinstance(nodes, list):
             assert len(nodes) == len(self.wires)
             nodes = nodes[0]
@@ -989,18 +1075,26 @@ class Hadamard(SingleGate):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
-        super().__init__(name='Hadamard', nqubit=nqubit, wires=wires, controls=controls, condition=condition,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
-        self.register_buffer('matrix', torch.tensor([[1, 1], [1, -1]], dtype=torch.cfloat) / 2 ** 0.5)
+        super().__init__(
+            name='Hadamard',
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+        )
+        self.register_buffer('matrix', torch.tensor([[1, 1], [1, -1]], dtype=torch.cfloat) / 2**0.5)
         # MBQC
         self.nancilla = 1
 
@@ -1014,9 +1108,10 @@ class Hadamard(SingleGate):
         else:
             return self._qasm_customized('h')
 
-    def pattern(self, nodes: Union[int, List[int]], ancilla: Union[int, List[int]]) -> nn.Sequential:
+    def pattern(self, nodes: int | list[int], ancilla: int | list[int]) -> nn.Sequential:
         """Get the MBQC pattern."""
-        from .mbqc import Node, Entanglement, Measurement, Correction
+        from .mbqc import Correction, Entanglement, Measurement, Node
+
         if isinstance(nodes, list):
             assert len(nodes) == len(self.wires)
             nodes = nodes[0]
@@ -1056,23 +1151,37 @@ class SGate(SingleGate):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
-        super().__init__(name='SGate', nqubit=nqubit, wires=wires, controls=controls, condition=condition,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
+        super().__init__(
+            name='SGate',
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+        )
         self.register_buffer('matrix', torch.tensor([[1, 0], [0, 1j]]))
 
     def inverse(self) -> 'SDaggerGate':
         """Get the inversed gate."""
-        return SDaggerGate(nqubit=self.nqubit, wires=self.wires, controls=self.controls,
-                           condition=self.condition, den_mat=self.den_mat, tsr_mode=self.tsr_mode)
+        return SDaggerGate(
+            nqubit=self.nqubit,
+            wires=self.wires,
+            controls=self.controls,
+            condition=self.condition,
+            den_mat=self.den_mat,
+            tsr_mode=self.tsr_mode,
+        )
 
     def _qasm(self) -> str:
         if self.condition:
@@ -1082,7 +1191,6 @@ class SGate(SingleGate):
         elif len(self.controls) == 1:
             qasm_str1 = ''
             qasm_str2 = f'cs q{self.controls},q{self.wires};\n'
-            # pylint: disable=protected-access
             if 'cs' not in Gate._qasm_new_gate:
                 qasm_str1 = 'gate cs q0,q1 { p(pi/4) q0; cx q0,q1; p(-pi/4) q1; cx q0,q1; p(pi/4) q1; }\n'
                 Gate._qasm_new_gate.append('cs')
@@ -1090,9 +1198,10 @@ class SGate(SingleGate):
         else:
             return self._qasm_customized('s')
 
-    def pattern(self, nodes: Union[int, List[int]], ancilla: List[int]) -> nn.Sequential:
+    def pattern(self, nodes: int | list[int], ancilla: list[int]) -> nn.Sequential:
         """Get the MBQC pattern."""
-        from .mbqc import Node, Entanglement, Measurement, Correction
+        from .mbqc import Correction, Entanglement, Measurement, Node
+
         if isinstance(nodes, list):
             assert len(nodes) == len(self.wires)
             nodes = nodes[0]
@@ -1101,7 +1210,7 @@ class SGate(SingleGate):
         cmds.append(Node(ancilla))
         cmds.append(Entanglement(nodes, ancilla[0]))
         cmds.append(Entanglement(ancilla[0], ancilla[1]))
-        cmds.append(Measurement(nodes, angle=-torch.pi/2))
+        cmds.append(Measurement(nodes, angle=-torch.pi / 2))
         cmds.append(Measurement(ancilla[0]))
         cmds.append(Correction(ancilla[1], basis='x', domain=ancilla[0]))
         cmds.append(Correction(ancilla[1], basis='z', domain=nodes))
@@ -1134,23 +1243,37 @@ class SDaggerGate(SingleGate):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
-        super().__init__(name='SDaggerGate', nqubit=nqubit, wires=wires, controls=controls,
-                         condition=condition, den_mat=den_mat, tsr_mode=tsr_mode)
+        super().__init__(
+            name='SDaggerGate',
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+        )
         self.register_buffer('matrix', torch.tensor([[1, 0], [0, -1j]]))
 
     def inverse(self) -> SGate:
         """Get the inversed gate."""
-        return SGate(nqubit=self.nqubit, wires=self.wires, controls=self.controls,
-                     condition=self.condition, den_mat=self.den_mat, tsr_mode=self.tsr_mode)
+        return SGate(
+            nqubit=self.nqubit,
+            wires=self.wires,
+            controls=self.controls,
+            condition=self.condition,
+            den_mat=self.den_mat,
+            tsr_mode=self.tsr_mode,
+        )
 
     def _qasm(self) -> str:
         if self.condition:
@@ -1160,7 +1283,6 @@ class SDaggerGate(SingleGate):
         elif len(self.controls) == 1:
             qasm_str1 = ''
             qasm_str2 = f'csdg q{self.controls},q{self.wires};\n'
-            # pylint: disable=protected-access
             if 'csdg' not in Gate._qasm_new_gate:
                 qasm_str1 = 'gate csdg q0,q1 { p(-pi/4) q0; cx q0,q1; p(pi/4) q1; cx q0,q1; p(-pi/4) q1; }\n'
                 Gate._qasm_new_gate.append('csdg')
@@ -1193,23 +1315,37 @@ class TGate(SingleGate):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
-        super().__init__(name='TGate', nqubit=nqubit, wires=wires, controls=controls, condition=condition,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
-        self.register_buffer('matrix', torch.tensor([[1, 0], [0, (1 + 1j) / 2 ** 0.5]]))
+        super().__init__(
+            name='TGate',
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+        )
+        self.register_buffer('matrix', torch.tensor([[1, 0], [0, (1 + 1j) / 2**0.5]]))
 
     def inverse(self) -> 'TDaggerGate':
         """Get the inversed gate."""
-        return TDaggerGate(nqubit=self.nqubit, wires=self.wires, controls=self.controls,
-                           condition=self.condition, den_mat=self.den_mat, tsr_mode=self.tsr_mode)
+        return TDaggerGate(
+            nqubit=self.nqubit,
+            wires=self.wires,
+            controls=self.controls,
+            condition=self.condition,
+            den_mat=self.den_mat,
+            tsr_mode=self.tsr_mode,
+        )
 
     def _qasm(self) -> str:
         if self.condition:
@@ -1245,23 +1381,37 @@ class TDaggerGate(SingleGate):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
-        super().__init__(name='TDaggerGate', nqubit=nqubit, wires=wires, controls=controls,
-                         condition=condition, den_mat=den_mat, tsr_mode=tsr_mode)
-        self.register_buffer('matrix', torch.tensor([[1, 0], [0, (1 - 1j) / 2 ** 0.5]]))
+        super().__init__(
+            name='TDaggerGate',
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+        )
+        self.register_buffer('matrix', torch.tensor([[1, 0], [0, (1 - 1j) / 2**0.5]]))
 
     def inverse(self) -> TGate:
         """Get the inversed gate."""
-        return TGate(nqubit=self.nqubit, wires=self.wires, controls=self.controls,
-                     condition=self.condition, den_mat=self.den_mat, tsr_mode=self.tsr_mode)
+        return TGate(
+            nqubit=self.nqubit,
+            wires=self.wires,
+            controls=self.controls,
+            condition=self.condition,
+            den_mat=self.den_mat,
+            tsr_mode=self.tsr_mode,
+        )
 
     def _qasm(self) -> str:
         if self.condition:
@@ -1302,34 +1452,41 @@ class Rx(ParametricSingleGate):
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
-        super().__init__(name='Rx', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
-                         condition=condition, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
+        super().__init__(
+            name='Rx',
+            inputs=inputs,
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+            requires_grad=requires_grad,
+        )
         # MBQC
-        self.idx_enc = [4] # index of the commands to encode
+        self.idx_enc = [4]  # index of the commands to encode
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
         theta = self.inputs_to_tensor(theta)
-        cos  = torch.cos(theta / 2)
+        cos = torch.cos(theta / 2)
         isin = torch.sin(theta / 2) * 1j
         return torch.stack([cos, -isin, -isin, cos]).reshape(2, 2)
 
     def _qasm(self) -> str:
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
+        theta = -self.theta if self.inv_mode else self.theta
         if self.condition:
             return self._qasm_cond_measure() + f'rx({theta.item()}) q{self.wires};\n'
         if self.controls == []:
@@ -1340,14 +1497,11 @@ class Rx(ParametricSingleGate):
             return self._qasm_customized('rx')
 
     def pattern(
-        self,
-        nodes: Union[int, List[int]],
-        ancilla: List[int],
-        angle: Any,
-        requires_grad: bool = False
+        self, nodes: int | list[int], ancilla: list[int], angle: Any, requires_grad: bool = False
     ) -> nn.Sequential:
         """Get the MBQC pattern."""
-        from .mbqc import Node, Entanglement, Measurement, Correction
+        from .mbqc import Correction, Entanglement, Measurement, Node
+
         if isinstance(nodes, list):
             assert len(nodes) == len(self.wires)
             nodes = nodes[0]
@@ -1394,22 +1548,32 @@ class Ry(ParametricSingleGate):
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
-        super().__init__(name='Ry', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
-                         condition=condition, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
+        super().__init__(
+            name='Ry',
+            inputs=inputs,
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+            requires_grad=requires_grad,
+        )
         # MBQC
         self.nancilla = 4
-        self.idx_enc = [6] # index of the commands to encode
+        self.idx_enc = [6]  # index of the commands to encode
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
@@ -1419,10 +1583,7 @@ class Ry(ParametricSingleGate):
         return torch.stack([cos, -sin, sin, cos]).reshape(2, 2) + 0j
 
     def _qasm(self) -> str:
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
+        theta = -self.theta if self.inv_mode else self.theta
         if self.condition:
             return self._qasm_cond_measure() + f'ry({theta.item()}) q{self.wires};\n'
         if self.controls == []:
@@ -1433,14 +1594,11 @@ class Ry(ParametricSingleGate):
             return self._qasm_customized('ry')
 
     def pattern(
-        self,
-        nodes: Union[int, List[int]],
-        ancilla: List[int],
-        angle: Any,
-        requires_grad: bool = False
+        self, nodes: int | list[int], ancilla: list[int], angle: Any, requires_grad: bool = False
     ) -> nn.Sequential:
         """Get the MBQC pattern."""
-        from .mbqc import Node, Entanglement, Measurement, Correction
+        from .mbqc import Correction, Entanglement, Measurement, Node
+
         if isinstance(nodes, list):
             assert len(nodes) == len(self.wires)
             nodes = nodes[0]
@@ -1489,21 +1647,31 @@ class Rz(ParametricSingleGate):
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
-        super().__init__(name='Rz', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
-                         condition=condition, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
+        super().__init__(
+            name='Rz',
+            inputs=inputs,
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+            requires_grad=requires_grad,
+        )
         # MBQC
-        self.idx_enc = [3] # index of the commands to encode
+        self.idx_enc = [3]  # index of the commands to encode
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
@@ -1513,10 +1681,7 @@ class Rz(ParametricSingleGate):
         return torch.stack([e_m_it, e_it]).reshape(-1).diag_embed().reshape(2, 2)
 
     def _qasm(self) -> str:
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
+        theta = -self.theta if self.inv_mode else self.theta
         if self.condition:
             return self._qasm_cond_measure() + f'rz({theta.item()}) q{self.wires};\n'
         if self.controls == []:
@@ -1527,14 +1692,11 @@ class Rz(ParametricSingleGate):
             return self._qasm_customized('rz')
 
     def pattern(
-        self,
-        nodes: Union[int, List[int]],
-        ancilla: List[int],
-        angle: Any,
-        requires_grad: bool = False
+        self, nodes: int | list[int], ancilla: list[int], angle: Any, requires_grad: bool = False
     ) -> nn.Sequential:
         """Get the MBQC pattern."""
-        from .mbqc import Node, Entanglement, Measurement, Correction
+        from .mbqc import Correction, Entanglement, Measurement, Node
+
         if isinstance(nodes, list):
             assert len(nodes) == len(self.wires)
             nodes = nodes[0]
@@ -1604,21 +1766,31 @@ class ProjectionJ(ParametricSingleGate):
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
         plane: str = 'xy',
-        controls: Union[int, List[int], None] = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
         self.plane = plane.lower()
-        super().__init__(name='ProjectionJ', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
-                         condition=condition, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
+        super().__init__(
+            name='ProjectionJ',
+            inputs=inputs,
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+            requires_grad=requires_grad,
+        )
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
@@ -1626,11 +1798,11 @@ class ProjectionJ(ParametricSingleGate):
         if self.plane in ['xy', 'yx']:
             one = torch.ones_like(theta)
             e_m_theta = torch.exp(-1j * theta)
-            return torch.stack([one, e_m_theta, one, -e_m_theta]).reshape(2, 2) / 2 ** 0.5
+            return torch.stack([one, e_m_theta, one, -e_m_theta]).reshape(2, 2) / 2**0.5
         elif self.plane in ['yz', 'zy']:
             c_p_s = torch.cos(theta / 2) + torch.sin(theta / 2)
             c_m_s = torch.cos(theta / 2) - torch.sin(theta / 2)
-            return torch.stack([c_p_s, -1j * c_m_s, c_m_s, 1j * c_p_s]).reshape(2, 2) / 2 ** 0.5
+            return torch.stack([c_p_s, -1j * c_m_s, c_m_s, 1j * c_p_s]).reshape(2, 2) / 2**0.5
         elif self.plane in ['zx', 'xz']:
             cos = torch.cos(theta / 2)
             sin = torch.sin(theta / 2)
@@ -1651,7 +1823,6 @@ class ProjectionJ(ParametricSingleGate):
                 qasm_lst2.append(f'q[{wire}],')
             qasm_str1 = ''.join(qasm_lst1)[:-1] + ';\n'
             qasm_str2 = ''.join(qasm_lst2)[:-1] + ';\n'
-            # pylint: disable=protected-access
             if name not in Gate._qasm_new_gate:
                 Gate._qasm_new_gate.append(name)
                 return qasm_str1 + self._qasm_cond_measure() + qasm_str2
@@ -1677,19 +1848,27 @@ class CombinedSingleGate(SingleGate):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
         self,
-        gates: List[SingleGate],
-        name: Optional[str] = None,
+        gates: list[SingleGate],
+        name: str | None = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
-        super().__init__(name=name, nqubit=nqubit, wires=wires, controls=controls, condition=condition,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
+        super().__init__(
+            name=name,
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+        )
         for gate in gates:
             gate.nqubit = self.nqubit
             gate.wires = self.wires
@@ -1705,10 +1884,7 @@ class CombinedSingleGate(SingleGate):
         """Get the local unitary matrix."""
         matrix = None
         for gate in self.gates:
-            if matrix is None:
-                matrix = gate.update_matrix()
-            else:
-                matrix = gate.update_matrix() @ matrix
+            matrix = gate.update_matrix() if matrix is None else gate.update_matrix() @ matrix
         return matrix
 
     def update_matrix(self) -> torch.Tensor:
@@ -1725,7 +1901,7 @@ class CombinedSingleGate(SingleGate):
         derivatives = []
         count = 0
         for gate in self.gates:
-            du_dx = gate.get_derivative(inputs[count:count+gate.npara])
+            du_dx = gate.get_derivative(inputs[count : count + gate.npara])
             if du_dx.ndim == 2:
                 du_dx = du_dx.unsqueeze(0)
             derivatives.append(du_dx)
@@ -1755,14 +1931,20 @@ class CombinedSingleGate(SingleGate):
         gates = nn.ModuleList()
         for gate in reversed(self.gates):
             gates.append(gate.inverse())
-        return CombinedSingleGate(gates=gates, name=self.name, nqubit=self.nqubit, wires=self.wires,
-                                  controls=self.controls, condition=self.condition, den_mat=self.den_mat,
-                                  tsr_mode=self.tsr_mode)
+        return CombinedSingleGate(
+            gates=gates,
+            name=self.name,
+            nqubit=self.nqubit,
+            wires=self.wires,
+            controls=self.controls,
+            condition=self.condition,
+            den_mat=self.den_mat,
+            tsr_mode=self.tsr_mode,
+        )
 
     def _qasm(self) -> str:
         lst = []
         for gate in self.gates:
-            # pylint: disable=protected-access
             lst.append(gate._qasm())
         return ''.join(lst)
 
@@ -1792,27 +1974,22 @@ class CNOT(DoubleControlGate):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
-        self,
-        nqubit: int = 2,
-        wires: Optional[List[int]] = None,
-        den_mat: bool = False,
-        tsr_mode: bool = False
+        self, nqubit: int = 2, wires: list[int] | None = None, den_mat: bool = False, tsr_mode: bool = False
     ) -> None:
         super().__init__(name='CNOT', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
-        self.register_buffer('matrix', torch.tensor([[1, 0, 0, 0],
-                                                     [0, 1, 0, 0],
-                                                     [0, 0, 0, 1],
-                                                     [0, 0, 1, 0]]) + 0j)
+        self.register_buffer('matrix', torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]]) + 0j)
         # MBQC
         self.nancilla = 2
 
     def _qasm(self) -> str:
         return f'cx q[{self.wires[0]}],q[{self.wires[1]}];\n'
 
-    def pattern(self, nodes: List[int], ancilla: List[int]) -> nn.Sequential:
+    def pattern(self, nodes: list[int], ancilla: list[int]) -> nn.Sequential:
         """Get the MBQC pattern."""
-        from .mbqc import Node, Entanglement, Measurement, Correction
+        from .mbqc import Correction, Entanglement, Measurement, Node
+
         assert len(nodes) == len(self.wires)
         assert len(ancilla) == self.nancilla
         control = nodes[0]
@@ -1857,21 +2034,26 @@ class Swap(DoubleGate):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
         self,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
-        super().__init__(name='Swap', nqubit=nqubit, wires=wires, controls=controls, condition=condition,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
-        self.register_buffer('matrix', torch.tensor([[1, 0, 0, 0],
-                                                     [0, 0, 1, 0],
-                                                     [0, 1, 0, 0],
-                                                     [0, 0, 0, 1]]) + 0j)
+        super().__init__(
+            name='Swap',
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+        )
+        self.register_buffer('matrix', torch.tensor([[1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0], [0, 0, 0, 1]]) + 0j)
 
     def op_dist_state(self, x: DistributedQubitState) -> DistributedQubitState:
         """Perform a forward pass of a gate for a distributed state vector."""
@@ -1917,26 +2099,30 @@ class ImaginarySwap(DoubleGate):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
         self,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
-        super().__init__(name='ImaginarySwap', nqubit=nqubit, wires=wires, controls=controls, condition=condition,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
-        self.register_buffer('matrix', torch.tensor([[1, 0, 0, 0],
-                                                     [0, 0, 1j, 0],
-                                                     [0, 1j, 0, 0],
-                                                     [0, 0, 0, 1]]))
+        super().__init__(
+            name='ImaginarySwap',
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+        )
+        self.register_buffer('matrix', torch.tensor([[1, 0, 0, 0], [0, 0, 1j, 0], [0, 1j, 0, 0], [0, 0, 0, 1]]))
 
     def _qasm(self) -> str:
         qasm_str1 = ''
         qasm_str2 = f'iswap q[{self.wires[0]}],q[{self.wires[1]}];\n'
-        # pylint: disable=protected-access
         if 'iswap' not in Gate._qasm_new_gate:
             qasm_str1 = 'gate iswap q0,q1 { s q0; s q1; h q0; cx q0,q1; cx q1,q0; h q1; }\n'
             Gate._qasm_new_gate.append('iswap')
@@ -1980,34 +2166,41 @@ class Rxx(ParametricDoubleGate):
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
-        super().__init__(name='Rxx', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
-                         condition=condition, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
+        super().__init__(
+            name='Rxx',
+            inputs=inputs,
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+            requires_grad=requires_grad,
+        )
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
         theta = self.inputs_to_tensor(theta)
-        cos  = torch.cos(theta / 2)
+        cos = torch.cos(theta / 2)
         isin = torch.sin(theta / 2) * 1j
         m1 = torch.stack([cos, cos, cos, cos]).reshape(-1).diag_embed().reshape(4, 4)
         m2 = torch.stack([-isin, -isin, -isin, -isin]).reshape(-1).diag_embed().fliplr().reshape(4, 4)
         return m1 + m2
 
     def _qasm(self) -> str:
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
+        theta = -self.theta if self.inv_mode else self.theta
         if self.condition:
             return self._qasm_cond_measure() + f'rxx({theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
         if self.controls == []:
@@ -2048,40 +2241,50 @@ class Ryy(ParametricDoubleGate):
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
-        super().__init__(name='Ryy', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
-                         condition=condition, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
+        super().__init__(
+            name='Ryy',
+            inputs=inputs,
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+            requires_grad=requires_grad,
+        )
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
         theta = self.inputs_to_tensor(theta)
-        cos  = torch.cos(theta / 2)
+        cos = torch.cos(theta / 2)
         isin = torch.sin(theta / 2) * 1j
         m1 = torch.stack([cos, cos, cos, cos]).reshape(-1).diag_embed().reshape(4, 4)
         m2 = torch.stack([isin, -isin, -isin, isin]).reshape(-1).diag_embed().fliplr().reshape(4, 4)
         return m1 + m2
 
     def _qasm(self) -> str:
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
+        theta = -self.theta if self.inv_mode else self.theta
         qasm_str1 = ''
         qasm_str2 = f'ryy({theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
-        # pylint: disable=protected-access
         if 'ryy' not in Gate._qasm_new_gate:
-            # pylint: disable=line-too-long
-            qasm_str1 = 'gate ryy(param0) q0,q1 { rx(pi/2) q0; rx(pi/2) q1; cx q0,q1; rz(param0) q1; cx q0,q1; rx(-pi/2) q0; rx(-pi/2) q1; }\n'
+            qasm_str1 = (
+                'gate ryy(param0) q0,q1 { '
+                'rx(pi/2) q0; rx(pi/2) q1; cx q0,q1; '
+                'rz(param0) q1; cx q0,q1; '
+                'rx(-pi/2) q0; rx(-pi/2) q1; }\n'
+            )
             Gate._qasm_new_gate.append('ryy')
         if self.condition:
             return qasm_str1 + self._qasm_cond_measure() + qasm_str2
@@ -2123,19 +2326,29 @@ class Rzz(ParametricDoubleGate):
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
-        super().__init__(name='Rzz', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
-                         condition=condition, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
+        super().__init__(
+            name='Rzz',
+            inputs=inputs,
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+            requires_grad=requires_grad,
+        )
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
@@ -2145,10 +2358,7 @@ class Rzz(ParametricDoubleGate):
         return torch.stack([e_m_it, e_it, e_it, e_m_it]).reshape(-1).diag_embed().reshape(4, 4)
 
     def _qasm(self) -> str:
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
+        theta = -self.theta if self.inv_mode else self.theta
         if self.condition:
             return self._qasm_cond_measure() + f'rzz({theta.item()}) q[{self.wires[0]}],q[{self.wires[1]}];\n'
         if self.controls == []:
@@ -2189,24 +2399,34 @@ class Rxy(ParametricDoubleGate):
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
-        super().__init__(name='Rxy', inputs=inputs, nqubit=nqubit, wires=wires, controls=controls,
-                         condition=condition, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad)
+        super().__init__(
+            name='Rxy',
+            inputs=inputs,
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+            requires_grad=requires_grad,
+        )
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
         theta = self.inputs_to_tensor(theta)
-        cos  = torch.cos(theta / 2)
+        cos = torch.cos(theta / 2)
         isin = torch.sin(theta / 2) * 1j
         m1 = torch.eye(1, dtype=theta.dtype, device=theta.device)
         m2 = torch.stack([cos, -isin, -isin, cos]).reshape(2, 2)
@@ -2222,7 +2442,6 @@ class Rxy(ParametricDoubleGate):
                 qasm_lst2.append(f'q[{wire}],')
             qasm_str1 = ''.join(qasm_lst1)[:-1] + ';\n'
             qasm_str2 = ''.join(qasm_lst2)[:-1] + ';\n'
-            # pylint: disable=protected-access
             if name not in Gate._qasm_new_gate:
                 Gate._qasm_new_gate.append(name)
                 return qasm_str1 + self._qasm_cond_measure() + qasm_str2
@@ -2261,20 +2480,29 @@ class ReconfigurableBeamSplitter(ParametricDoubleGate):
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nqubit: int = 2,
-        wires: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: list[int] | None = None,
+        controls: int | list[int] | None = None,
         condition: bool = False,
         den_mat: bool = False,
         tsr_mode: bool = False,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
-        super().__init__(name='ReconfigurableBeamSplitter', inputs=inputs, nqubit=nqubit, wires=wires,
-                         controls=controls, condition=condition, den_mat=den_mat, tsr_mode=tsr_mode,
-                         requires_grad=requires_grad)
+        super().__init__(
+            name='ReconfigurableBeamSplitter',
+            inputs=inputs,
+            nqubit=nqubit,
+            wires=wires,
+            controls=controls,
+            condition=condition,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+            requires_grad=requires_grad,
+        )
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
         """Convert inputs to torch.Tensor."""
@@ -2305,7 +2533,6 @@ class ReconfigurableBeamSplitter(ParametricDoubleGate):
                 qasm_lst2.append(f'q[{wire}],')
             qasm_str1 = ''.join(qasm_lst1)[:-1] + ';\n'
             qasm_str2 = ''.join(qasm_lst2)[:-1] + ';\n'
-            # pylint: disable=protected-access
             if name not in Gate._qasm_new_gate:
                 Gate._qasm_new_gate.append(name)
                 return qasm_str1 + self._qasm_cond_measure() + qasm_str2
@@ -2342,23 +2569,35 @@ class Toffoli(TripleGate):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
-        self,
-        nqubit: int = 3,
-        wires: Optional[List[int]] = None,
-        den_mat: bool = False,
-        tsr_mode: bool = False
+        self, nqubit: int = 3, wires: list[int] | None = None, den_mat: bool = False, tsr_mode: bool = False
     ) -> None:
-        super().__init__(name='Toffoli', nqubit=nqubit, wires=wires, controls=None, condition=False,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
-        self.register_buffer('matrix', torch.tensor([[1, 0, 0, 0, 0, 0, 0, 0],
-                                                     [0, 1, 0, 0, 0, 0, 0, 0],
-                                                     [0, 0, 1, 0, 0, 0, 0, 0],
-                                                     [0, 0, 0, 1, 0, 0, 0, 0],
-                                                     [0, 0, 0, 0, 1, 0, 0, 0],
-                                                     [0, 0, 0, 0, 0, 1, 0, 0],
-                                                     [0, 0, 0, 0, 0, 0, 0, 1],
-                                                     [0, 0, 0, 0, 0, 0, 1, 0]]) + 0j)
+        super().__init__(
+            name='Toffoli',
+            nqubit=nqubit,
+            wires=wires,
+            controls=None,
+            condition=False,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+        )
+        self.register_buffer(
+            'matrix',
+            torch.tensor(
+                [
+                    [1, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 1, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 1, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 1, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 1],
+                    [0, 0, 0, 0, 0, 0, 1, 0],
+                ]
+            )
+            + 0j,
+        )
         # MBQC
         self.nancilla = 18
 
@@ -2382,9 +2621,10 @@ class Toffoli(TripleGate):
     def _qasm(self) -> str:
         return f'ccx q[{self.wires[0]}],q[{self.wires[1]}],q[{self.wires[2]}];\n'
 
-    def pattern(self, nodes: List[int], ancilla: List[int]) -> nn.Sequential:
+    def pattern(self, nodes: list[int], ancilla: list[int]) -> nn.Sequential:
         """Get the MBQC pattern."""
-        from .mbqc import Node, Entanglement, Measurement, Correction
+        from .mbqc import Correction, Entanglement, Measurement, Node
+
         assert len(nodes) == len(self.wires)
         assert len(ancilla) == self.nancilla
         control1 = nodes[0]
@@ -2423,31 +2663,52 @@ class Toffoli(TripleGate):
         cmds.append(Measurement(ancilla[2], angle=-torch.pi * 7 / 4, s_domain=[ancilla[1], target]))
         cmds.append(Measurement(ancilla[14], s_domain=control1))
         cmds.append(Measurement(ancilla[3], s_domain=[ancilla[2], ancilla[0]]))
-        cmds.append(Measurement(ancilla[5], angle=-torch.pi / 4,
-                                s_domain=[ancilla[3], ancilla[1], ancilla[14], target]))
+        cmds.append(
+            Measurement(ancilla[5], angle=-torch.pi / 4, s_domain=[ancilla[3], ancilla[1], ancilla[14], target])
+        )
         cmds.append(Measurement(control2, angle=-torch.pi / 4))
         cmds.append(Measurement(ancilla[6], s_domain=[ancilla[5], ancilla[2], ancilla[0]]))
         cmds.append(Measurement(ancilla[9], s_domain=[control2, ancilla[5], ancilla[2]]))
-        cmds.append(Measurement(ancilla[7], angle=-torch.pi * 7 / 4,
-                                s_domain=[ancilla[6], ancilla[3], ancilla[1], ancilla[14], target]))
+        cmds.append(
+            Measurement(
+                ancilla[7], angle=-torch.pi * 7 / 4, s_domain=[ancilla[6], ancilla[3], ancilla[1], ancilla[14], target]
+            )
+        )
         cmds.append(Measurement(ancilla[10], angle=-torch.pi * 7 / 4, s_domain=[ancilla[9], ancilla[14]]))
         cmds.append(Measurement(ancilla[4], angle=-torch.pi / 4, s_domain=ancilla[14]))
         cmds.append(Measurement(ancilla[8], s_domain=[ancilla[7], ancilla[5], ancilla[2], ancilla[0]]))
         cmds.append(Measurement(ancilla[11], s_domain=[ancilla[10], control2, ancilla[5], ancilla[2]]))
-        cmds.append(Measurement(ancilla[12], angle=-torch.pi / 4,
-                                s_domain=[ancilla[8], ancilla[6], ancilla[3], ancilla[1], target]))
-        cmds.append(Measurement(ancilla[16],
-                                s_domain=[ancilla[4], control1, ancilla[2], control2, ancilla[7],
-                                          ancilla[10], ancilla[2], control2, ancilla[5]]))
+        cmds.append(
+            Measurement(
+                ancilla[12], angle=-torch.pi / 4, s_domain=[ancilla[8], ancilla[6], ancilla[3], ancilla[1], target]
+            )
+        )
+        cmds.append(
+            Measurement(
+                ancilla[16],
+                s_domain=[
+                    ancilla[4],
+                    control1,
+                    ancilla[2],
+                    control2,
+                    ancilla[7],
+                    ancilla[10],
+                    ancilla[2],
+                    control2,
+                    ancilla[5],
+                ],
+            )
+        )
         cmds.append(Correction(ancilla[17], basis='x', domain=[ancilla[14], ancilla[16]]))
         cmds.append(Correction(ancilla[15], basis='x', domain=[ancilla[9], ancilla[11]]))
-        cmds.append(Correction(ancilla[13], basis='x',
-                               domain=[ancilla[0], ancilla[2], ancilla[5], ancilla[7], ancilla[12]]))
-        cmds.append(Correction(ancilla[17], basis='z',
-                               domain=[ancilla[4], ancilla[5], ancilla[7], ancilla[10], control1]))
+        cmds.append(
+            Correction(ancilla[13], basis='x', domain=[ancilla[0], ancilla[2], ancilla[5], ancilla[7], ancilla[12]])
+        )
+        cmds.append(
+            Correction(ancilla[17], basis='z', domain=[ancilla[4], ancilla[5], ancilla[7], ancilla[10], control1])
+        )
         cmds.append(Correction(ancilla[15], basis='z', domain=[control2, ancilla[2], ancilla[5], ancilla[10]]))
-        cmds.append(Correction(ancilla[13], basis='z',
-                               domain=[ancilla[1], ancilla[3], ancilla[6], ancilla[8], target]))
+        cmds.append(Correction(ancilla[13], basis='z', domain=[ancilla[1], ancilla[3], ancilla[6], ancilla[8], target]))
         self.nodes = [ancilla[17], ancilla[15], ancilla[13]]
         return cmds
 
@@ -2480,32 +2741,44 @@ class Fredkin(TripleGate):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
-        self,
-        nqubit: int = 3,
-        wires: Optional[List[int]] = None,
-        den_mat: bool = False,
-        tsr_mode: bool = False
+        self, nqubit: int = 3, wires: list[int] | None = None, den_mat: bool = False, tsr_mode: bool = False
     ) -> None:
-        super().__init__(name='Fredkin', nqubit=nqubit, wires=wires, controls=None, condition=False,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
-        self.register_buffer('matrix', torch.tensor([[1, 0, 0, 0, 0, 0, 0, 0],
-                                                     [0, 1, 0, 0, 0, 0, 0, 0],
-                                                     [0, 0, 1, 0, 0, 0, 0, 0],
-                                                     [0, 0, 0, 1, 0, 0, 0, 0],
-                                                     [0, 0, 0, 0, 1, 0, 0, 0],
-                                                     [0, 0, 0, 0, 0, 0, 1, 0],
-                                                     [0, 0, 0, 0, 0, 1, 0, 0],
-                                                     [0, 0, 0, 0, 0, 0, 0, 1]]) + 0j)
+        super().__init__(
+            name='Fredkin',
+            nqubit=nqubit,
+            wires=wires,
+            controls=None,
+            condition=False,
+            den_mat=den_mat,
+            tsr_mode=tsr_mode,
+        )
+        self.register_buffer(
+            'matrix',
+            torch.tensor(
+                [
+                    [1, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 1, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 1, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 1, 0],
+                    [0, 0, 0, 0, 0, 1, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 1],
+                ]
+            )
+            + 0j,
+        )
 
     def get_unitary(self) -> torch.Tensor:
         """Get the global unitary matrix."""
         matrix = self.update_matrix()
         identity = torch.eye(2, dtype=matrix.dtype, device=matrix.device)
         zerozero = torch.tensor([[1, 0], [0, 0]], dtype=matrix.dtype, device=matrix.device)
-        zeroone  = torch.tensor([[0, 1], [0, 0]], dtype=matrix.dtype, device=matrix.device)
-        onezero  = torch.tensor([[0, 0], [1, 0]], dtype=matrix.dtype, device=matrix.device)
-        oneone   = torch.tensor([[0, 0], [0, 1]], dtype=matrix.dtype, device=matrix.device)
+        zeroone = torch.tensor([[0, 1], [0, 0]], dtype=matrix.dtype, device=matrix.device)
+        onezero = torch.tensor([[0, 0], [1, 0]], dtype=matrix.dtype, device=matrix.device)
+        oneone = torch.tensor([[0, 0], [0, 1]], dtype=matrix.dtype, device=matrix.device)
         lst1 = [identity] * self.nqubit
         lst2 = [identity] * self.nqubit
         lst3 = [identity] * self.nqubit
@@ -2553,19 +2826,21 @@ class UAnyGate(ArbitraryGate):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
         self,
         unitary: Any,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        minmax: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        minmax: list[int] | None = None,
+        controls: int | list[int] | None = None,
         name: str = 'UAnyGate',
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
-        super().__init__(name=name, nqubit=nqubit, wires=wires, minmax=minmax, controls=controls,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
+        super().__init__(
+            name=name, nqubit=nqubit, wires=wires, minmax=minmax, controls=controls, den_mat=den_mat, tsr_mode=tsr_mode
+        )
         if not isinstance(unitary, torch.Tensor):
             unitary = torch.tensor(unitary, dtype=torch.cfloat).reshape(-1, 2 ** len(self.wires))
         assert unitary.dtype in (torch.cfloat, torch.cdouble)
@@ -2601,20 +2876,22 @@ class LatentGate(ArbitraryGate):
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        minmax: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        minmax: list[int] | None = None,
+        controls: int | list[int] | None = None,
         name: str = 'LatentGate',
         den_mat: bool = False,
         tsr_mode: bool = False,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
-        super().__init__(name=name, nqubit=nqubit, wires=wires, minmax=minmax, controls=controls,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
+        super().__init__(
+            name=name, nqubit=nqubit, wires=wires, minmax=minmax, controls=controls, den_mat=den_mat, tsr_mode=tsr_mode
+        )
         self.requires_grad = requires_grad
         self.init_para(inputs)
 
@@ -2634,10 +2911,7 @@ class LatentGate(ArbitraryGate):
 
     def update_matrix(self) -> torch.Tensor:
         """Update the local unitary matrix."""
-        if self.inv_mode:
-            latent = self.latent.mH
-        else:
-            latent = self.latent
+        latent = self.latent.mH if self.inv_mode else self.latent
         matrix = self.get_matrix(latent)
         assert matrix.shape[-1] == matrix.shape[-2] == 2 ** len(self.wires)
         self.matrix = matrix.detach()
@@ -2684,18 +2958,19 @@ class HamiltonianGate(ArbitraryGate):
         requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
+
     def __init__(
         self,
         hamiltonian: Any,
         t: Any = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        minmax: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        minmax: list[int] | None = None,
+        controls: int | list[int] | None = None,
         name: str = 'HamiltonianGate',
         den_mat: bool = False,
         tsr_mode: bool = False,
-        requires_grad: bool = False
+        requires_grad: bool = False,
     ) -> None:
         self.nqubit = nqubit
         self.ham_lst = None
@@ -2703,8 +2978,9 @@ class HamiltonianGate(ArbitraryGate):
             self.ham_lst = hamiltonian
             wires = None
             minmax = self.get_minmax(hamiltonian)
-        super().__init__(name=name, nqubit=nqubit, wires=wires, minmax=minmax, controls=controls,
-                         den_mat=den_mat, tsr_mode=tsr_mode)
+        super().__init__(
+            name=name, nqubit=nqubit, wires=wires, minmax=minmax, controls=controls, den_mat=den_mat, tsr_mode=tsr_mode
+        )
         self.npara = 1
         self.requires_grad = requires_grad
         self.register_buffer('x', PauliX().matrix)
@@ -2730,7 +3006,7 @@ class HamiltonianGate(ArbitraryGate):
             super().to(arg)
         return self
 
-    def _convert_hamiltonian(self, hamiltonian: List) -> List[List]:
+    def _convert_hamiltonian(self, hamiltonian: list) -> list[list]:
         """Convert and check the list representation of the Hamiltonian."""
         if len(hamiltonian) == 2 and isinstance(hamiltonian[1], str):
             hamiltonian = [hamiltonian]
@@ -2739,7 +3015,7 @@ class HamiltonianGate(ArbitraryGate):
             assert isinstance(pair[1], str), 'Invalid input type'
         return hamiltonian
 
-    def get_minmax(self, hamiltonian: List) -> List[int]:
+    def get_minmax(self, hamiltonian: list) -> list[int]:
         """Get ``minmax`` according to the Hamiltonian."""
         hamiltonian = self._convert_hamiltonian(hamiltonian)
         minmax = [self.nqubit - 1, 0]
@@ -2753,7 +3029,7 @@ class HamiltonianGate(ArbitraryGate):
                     minmax[1] = i
         return minmax
 
-    def inputs_to_tensor(self, inputs: Optional[List] = None) -> Tuple[torch.Tensor, torch.Tensor]:
+    def inputs_to_tensor(self, inputs: list | None = None) -> tuple[torch.Tensor, torch.Tensor]:
         """Convert inputs to torch.Tensor."""
         if inputs is None:
             t = torch.rand(1)[0]
@@ -2772,14 +3048,14 @@ class HamiltonianGate(ArbitraryGate):
                 coeff = pair[0]
                 basis = pair[1][::2]
                 wires = pair[1][1::2]
-                for wire, key in zip(wires, basis):
+                for wire, key in zip(wires, basis, strict=True):
                     wire = int(wire)
                     key = key.lower()
                     lst[wire] = pauli_dict[key]
                 if ham_tsr is None:
-                    ham_tsr = multi_kron(lst[minmax[0]:minmax[1]+1]) * coeff
+                    ham_tsr = multi_kron(lst[minmax[0] : minmax[1] + 1]) * coeff
                 else:
-                    ham_tsr += multi_kron(lst[minmax[0]:minmax[1]+1]) * coeff
+                    ham_tsr += multi_kron(lst[minmax[0] : minmax[1] + 1]) * coeff
         elif not isinstance(ham, torch.Tensor):
             ham_tsr = torch.tensor(ham, dtype=self.x.dtype, device=self.x.device)
         else:
@@ -2799,10 +3075,7 @@ class HamiltonianGate(ArbitraryGate):
 
     def update_matrix(self) -> torch.Tensor:
         """Update the local unitary matrix."""
-        if self.inv_mode:
-            t = -self.t
-        else:
-            t = self.t
+        t = -self.t if self.inv_mode else self.t
         matrix = self.get_matrix(self.ham_tsr, t)
         assert matrix.shape[-1] == matrix.shape[-2] == 2 ** len(self.wires)
         self.matrix = matrix.detach()
@@ -2820,7 +3093,7 @@ class HamiltonianGate(ArbitraryGate):
         du_dx = jacobian(self._real_wrapper, t)
         return du_dx[..., 0] + du_dx[..., 1] * 1j
 
-    def init_para(self, inputs: Optional[List] = None) -> None:
+    def init_para(self, inputs: list | None = None) -> None:
         """Initialize the parameters."""
         ham, t = self.inputs_to_tensor(inputs)
         self.register_buffer('ham_tsr', ham)
@@ -2844,12 +3117,9 @@ class Reset(Gate):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
-        self,
-        nqubit: int = 1,
-        wires: Union[int, List[int], None] = None,
-        postselect: Optional[int] = 0,
-        tsr_mode: bool = False
+        self, nqubit: int = 1, wires: int | list[int] | None = None, postselect: int | None = 0, tsr_mode: bool = False
     ) -> None:
         if wires is None:
             wires = list(range(nqubit))
@@ -2867,20 +3137,20 @@ class Reset(Gate):
             x[:, 0] = 1
             x = self.tensor_rep(x)
         else:
-            if self.postselect in (0, 1): # compatible with vmap
+            if self.postselect in (0, 1):  # compatible with vmap
                 for wire in self.wires:
                     pm_shape = list(range(1, self.nqubit + 1))
                     pm_shape.remove(wire + 1)
                     pm_shape = [wire + 1] + pm_shape + [0]
-                    x = x.permute(pm_shape) # (2, ..., 2, batch)
-                    probs = (x.abs() ** 2).sum(list(range(1, self.nqubit))) # (2, batch)
-                    mask = 1 - torch.sign(probs[self.postselect]) # (batch)
+                    x = x.permute(pm_shape)  # (2, ..., 2, batch)
+                    probs = (x.abs() ** 2).sum(list(range(1, self.nqubit)))  # (2, batch)
+                    mask = 1 - torch.sign(probs[self.postselect])  # (batch)
                     norm = torch.sqrt(probs[self.postselect] + mask)
                     state0 = ((1 - mask) * x[self.postselect] + mask * x[1 - self.postselect]) / norm
                     state1 = torch.zeros_like(state0)
                     x = torch.stack([state0, state1])
                     x = x.permute(inverse_permutation(pm_shape))
-            elif self.postselect is None: # NOT compatible with vmap
+            elif self.postselect is None:  # NOT compatible with vmap
                 wires = sorted(self.wires)
                 idx_sum = list(range(1, self.nqubit + 1))
                 for i in wires:
@@ -2897,7 +3167,7 @@ class Reset(Gate):
                     reset[sample, sample] = 0
                     reset[0, sample] = 1
                     mat = reset @ proj.diag_embed() + 0j
-                    out.append(evolve_state(x[i:i+1], mat, self.nqubit, wires))
+                    out.append(evolve_state(x[i : i + 1], mat, self.nqubit, wires))
                 x = torch.cat(out)
         if not self.tsr_mode:
             x = self.vector_rep(x).squeeze(0)
@@ -2919,7 +3189,8 @@ class Barrier(Gate):
             Default: ``None``
         name (str, optional): The name of the gate. Default: ``'Barrier'``
     """
-    def __init__(self, nqubit: int = 1, wires: Union[int, List[int], None] = None, name: str = 'Barrier') -> None:
+
+    def __init__(self, nqubit: int = 1, wires: int | list[int] | None = None, name: str = 'Barrier') -> None:
         if wires is None:
             wires = list(range(nqubit))
         super().__init__(name=name, nqubit=nqubit, wires=wires)
@@ -2939,7 +3210,7 @@ class Barrier(Gate):
             qasm_lst.append(f'q[{wire}],')
         return ''.join(qasm_lst)[:-1] + ';\n'
 
-    def pattern(self, nodes: List[int], ancilla: List[int]) -> nn.Sequential:
+    def pattern(self, nodes: list[int], ancilla: list[int]) -> nn.Sequential:
         """Get the MBQC pattern."""
         assert len(ancilla) == self.nancilla
         self.nodes = nodes
@@ -2953,7 +3224,8 @@ class WireCut(Barrier):
         nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
         wires (int or List[int], optional): The indices of the qubits that the quantum operation acts on. Default: 0
     """
-    def __init__(self, nqubit: int = 1, wires: Union[int, List[int]] = 0) -> None:
+
+    def __init__(self, nqubit: int = 1, wires: int | list[int] = 0) -> None:
         super().__init__(name='WireCut', nqubit=nqubit, wires=wires)
 
 
@@ -2970,12 +3242,9 @@ class Move(DoubleGate):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
-        self,
-        nqubit: int = 2,
-        wires: Optional[List[int]] = None,
-        postselect: Optional[int] = 0,
-        tsr_mode: bool = False
+        self, nqubit: int = 2, wires: list[int] | None = None, postselect: int | None = 0, tsr_mode: bool = False
     ) -> None:
         super().__init__(name='Move', nqubit=nqubit, wires=wires, tsr_mode=tsr_mode)
         reset = Reset(nqubit=nqubit, wires=self.wires[1], postselect=postselect, tsr_mode=True)
@@ -2997,7 +3266,8 @@ class Move(DoubleGate):
             return self.vector_rep(x).squeeze(0)
         return x
 
-    def qpd(self, label: Optional[int] = None) -> 'MoveQPD':
+    def qpd(self, label: int | None = None) -> 'MoveQPD':
         """Get the quasiprobability-decomposition representation."""
         from .qpd import MoveQPD
+
         return MoveQPD(nqubit=self.nqubit, wires=self.wires, label=label, tsr_mode=self.tsr_mode)

@@ -1,14 +1,13 @@
-"""
-Utilities
-"""
+"""Utilities"""
 
 import time
+from collections.abc import Callable
 from functools import wraps
-from typing import Callable
 
 
 def record_time(func: Callable) -> Callable:
     """A decorator that records the running time of a function."""
+
     @wraps(func)
     def wrapped_function(*args, **kwargs):
         t1 = time.time()
@@ -16,11 +15,13 @@ def record_time(func: Callable) -> Callable:
         t2 = time.time()
         print(f'running time of "{func.__name__}": {t2 - t1}')
         return rst
+
     return wrapped_function
 
 
-class Time(object):
+class Time:
     """A decorator that records the running time of a function."""
+
     def __init__(self) -> None:
         pass
 
@@ -32,4 +33,5 @@ class Time(object):
             t2 = time.time()
             print(f'running time of "{func.__name__}": {t2 - t1}')
             return rst
+
         return wrapped_function

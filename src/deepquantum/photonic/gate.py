@@ -1,17 +1,16 @@
-"""
-Photonic quantum gates
-"""
+"""Photonic quantum gates"""
 
 import copy
 import itertools
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any
 
 import torch
 from torch import nn
 
 import deepquantum.photonic as dqp
+
 from ..qmath import is_unitary
-from .operation import Gate, Delay
+from .operation import Delay, Gate
 from .qmath import ladder_ops
 
 
@@ -32,21 +31,23 @@ class SingleGate(Gate):
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
+
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         inputs: Any = None,
         nmode: int = 1,
-        wires: Union[int, List[int], None] = None,
-        cutoff: Optional[int] = None,
+        wires: int | list[int] | None = None,
+        cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
-        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff,
-                         den_mat=den_mat, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat, noise=noise, mu=mu, sigma=sigma
+        )
         assert len(self.wires) == 1, f'{self.name} must act on one mode'
         self.requires_grad = requires_grad
         self.init_para(inputs)
@@ -69,23 +70,25 @@ class DoubleGate(Gate):
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
+
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         inputs: Any = None,
         nmode: int = 2,
-        wires: Union[int, List[int], None] = None,
-        cutoff: Optional[int] = None,
+        wires: int | list[int] | None = None,
+        cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
         if wires is None:
             wires = [0, 1]
-        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff,
-                         den_mat=den_mat, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat, noise=noise, mu=mu, sigma=sigma
+        )
         assert len(self.wires) == 2, f'{self.name} must act on two modes'
         self.requires_grad = requires_grad
         self.init_para(inputs)
@@ -133,22 +136,33 @@ class PhaseShift(SingleGate):
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
         inv_mode (bool, optional): Whether the rotation in the phase space is clockwise. Default: ``False``
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nmode: int = 1,
-        wires: Union[int, List[int], None] = None,
-        cutoff: Optional[int] = None,
+        wires: int | list[int] | None = None,
+        cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
         sigma: float = 0.1,
-        inv_mode: bool = False
+        inv_mode: bool = False,
     ) -> None:
         self.inv_mode = inv_mode
-        super().__init__(name='PhaseShift', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
-                         den_mat=den_mat, requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            name='PhaseShift',
+            inputs=inputs,
+            nmode=nmode,
+            wires=wires,
+            cutoff=cutoff,
+            den_mat=den_mat,
+            requires_grad=requires_grad,
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         self.npara = 1
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
@@ -160,7 +174,7 @@ class PhaseShift(SingleGate):
         elif not isinstance(inputs, (torch.Tensor, nn.Parameter)):
             inputs = torch.tensor(inputs, dtype=torch.float)
         if self.noise:
-            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return inputs
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
@@ -181,7 +195,7 @@ class PhaseShift(SingleGate):
         """Get the local transformation matrix acting on Fock state tensors."""
         return torch.stack([matrix[0, 0] ** n for n in range(self.cutoff)]).reshape(-1).diag_embed()
 
-    def get_transform_xp(self, theta: Any) -> Tuple[torch.Tensor, torch.Tensor]:
+    def get_transform_xp(self, theta: Any) -> tuple[torch.Tensor, torch.Tensor]:
         """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         theta = self.inputs_to_tensor(theta)
         if self.inv_mode:
@@ -192,7 +206,7 @@ class PhaseShift(SingleGate):
         vector_xp = torch.zeros(2, 1, dtype=theta.dtype, device=theta.device)
         return matrix_xp, vector_xp
 
-    def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
+    def update_transform_xp(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Update the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         matrix_xp, vector_xp = self.get_transform_xp(self.theta)
         self.matrix_xp = matrix_xp.detach()
@@ -213,10 +227,7 @@ class PhaseShift(SingleGate):
         self.update_transform_xp()
 
     def extra_repr(self) -> str:
-        if self.inv_mode:
-            theta = -self.theta
-        else:
-            theta = self.theta
+        theta = -self.theta if self.inv_mode else self.theta
         return f'wires={self.wires}, theta={theta.item()}'
 
 
@@ -271,30 +282,41 @@ class BeamSplitter(DoubleGate):
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nmode: int = 2,
-        wires: Optional[List[int]] = None,
-        cutoff: Optional[int] = None,
+        wires: list[int] | None = None,
+        cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
-        super().__init__(name='BeamSplitter', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
-                         den_mat=den_mat, requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            name='BeamSplitter',
+            inputs=inputs,
+            nmode=nmode,
+            wires=wires,
+            cutoff=cutoff,
+            den_mat=den_mat,
+            requires_grad=requires_grad,
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         self.npara = 2
 
-    def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor, torch.Tensor]:
+    def inputs_to_tensor(self, inputs: Any = None) -> tuple[torch.Tensor, torch.Tensor]:
         """Convert inputs to torch.Tensor."""
         if inputs is None:
             theta = torch.rand(1)[0] * 2 * torch.pi
-            phi   = torch.rand(1)[0] * 2 * torch.pi
+            phi = torch.rand(1)[0] * 2 * torch.pi
         else:
             theta = inputs[0]
-            phi   = inputs[1]
+            phi = inputs[1]
         if not isinstance(theta, (torch.Tensor, nn.Parameter)):
             theta = torch.tensor(theta, dtype=torch.float)
         if not isinstance(phi, (torch.Tensor, nn.Parameter)):
@@ -303,10 +325,10 @@ class BeamSplitter(DoubleGate):
             theta, phi = self._add_noise(theta, phi)
         return theta, phi
 
-    def _add_noise(self, theta: torch.Tensor, phi: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _add_noise(self, theta: torch.Tensor, phi: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Add Gaussian noise to the parameters."""
-        theta = theta + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
-        phi = phi + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        theta = theta + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
+        phi = phi + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return theta, phi
 
     def get_matrix(self, theta: Any, phi: Any) -> torch.Tensor:
@@ -354,18 +376,19 @@ class BeamSplitter(DoubleGate):
                         )
         return tran_mat
 
-    def get_transform_xp(self, theta: Any, phi: Any) -> Tuple[torch.Tensor, torch.Tensor]:
+    def get_transform_xp(self, theta: Any, phi: Any) -> tuple[torch.Tensor, torch.Tensor]:
         """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         theta, phi = self.inputs_to_tensor([theta, phi])
         matrix = self.get_matrix(theta, phi)
         # correspond to: U a^+ U^+ = u^T @ a^+ and U^+ a U = u @ a
         # correspond to: U a U^+ = (u^*)^T @ a and U^+ a^+ U = u^* @ a^+
-        matrix_xp = torch.cat([torch.cat([matrix.real, -matrix.imag], dim=-1),
-                               torch.cat([matrix.imag,  matrix.real], dim=-1)], dim=-2).reshape(4, 4)
+        matrix_xp = torch.cat(
+            [torch.cat([matrix.real, -matrix.imag], dim=-1), torch.cat([matrix.imag, matrix.real], dim=-1)], dim=-2
+        ).reshape(4, 4)
         vector_xp = torch.zeros(4, 1, dtype=theta.dtype, device=theta.device)
         return matrix_xp, vector_xp
 
-    def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
+    def update_transform_xp(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Update the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         matrix_xp, vector_xp = self.get_transform_xp(self.theta, self.phi)
         self.matrix_xp = matrix_xp.detach()
@@ -455,22 +478,32 @@ class MZI(BeamSplitter):
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nmode: int = 2,
-        wires: Optional[List[int]] = None,
-        cutoff: Optional[int] = None,
+        wires: list[int] | None = None,
+        cutoff: int | None = None,
         den_mat: bool = False,
         phi_first: bool = True,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
         self.phi_first = phi_first
-        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
-                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            inputs=inputs,
+            nmode=nmode,
+            wires=wires,
+            cutoff=cutoff,
+            den_mat=den_mat,
+            requires_grad=requires_grad,
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         self.name = 'MZI'
 
     def get_matrix(self, theta: Any, phi: Any) -> torch.Tensor:
@@ -536,25 +569,35 @@ class BeamSplitterTheta(BeamSplitter):
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nmode: int = 2,
-        wires: Optional[List[int]] = None,
-        cutoff: Optional[int] = None,
+        wires: list[int] | None = None,
+        cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
-        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
-                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            inputs=inputs,
+            nmode=nmode,
+            wires=wires,
+            cutoff=cutoff,
+            den_mat=den_mat,
+            requires_grad=requires_grad,
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         self.npara = 1
 
-    def _add_noise(self, theta: torch.Tensor, phi: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _add_noise(self, theta: torch.Tensor, phi: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Add Gaussian noise to the parameters."""
-        theta = theta + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        theta = theta + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return theta, phi
 
     def init_para(self, inputs: Any = None) -> None:
@@ -624,25 +667,35 @@ class BeamSplitterPhi(BeamSplitter):
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nmode: int = 2,
-        wires: Optional[List[int]] = None,
-        cutoff: Optional[int] = None,
+        wires: list[int] | None = None,
+        cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
-        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
-                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            inputs=inputs,
+            nmode=nmode,
+            wires=wires,
+            cutoff=cutoff,
+            den_mat=den_mat,
+            requires_grad=requires_grad,
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         self.npara = 1
 
-    def _add_noise(self, theta: torch.Tensor, phi: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _add_noise(self, theta: torch.Tensor, phi: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Add Gaussian noise to the parameters."""
-        phi = phi + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        phi = phi + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return theta, phi
 
     def init_para(self, inputs: Any = None) -> None:
@@ -736,22 +789,32 @@ class BeamSplitterSingle(BeamSplitter):
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nmode: int = 2,
-        wires: Optional[List[int]] = None,
-        cutoff: Optional[int] = None,
+        wires: list[int] | None = None,
+        cutoff: int | None = None,
         den_mat: bool = False,
         convention: str = 'rx',
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
         self.convention = convention
-        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
-                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            inputs=inputs,
+            nmode=nmode,
+            wires=wires,
+            cutoff=cutoff,
+            den_mat=den_mat,
+            requires_grad=requires_grad,
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         self.npara = 1
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
@@ -763,7 +826,7 @@ class BeamSplitterSingle(BeamSplitter):
         elif not isinstance(inputs, (torch.Tensor, nn.Parameter)):
             inputs = torch.tensor(inputs, dtype=torch.float)
         if self.noise:
-            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return inputs
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
@@ -785,18 +848,19 @@ class BeamSplitterSingle(BeamSplitter):
         self.matrix = matrix.detach()
         return matrix
 
-    def get_transform_xp(self, theta: Any) -> Tuple[torch.Tensor, torch.Tensor]:
+    def get_transform_xp(self, theta: Any) -> tuple[torch.Tensor, torch.Tensor]:
         """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         theta = self.inputs_to_tensor(theta)
         matrix = self.get_matrix(theta)
         # correspond to: U a^+ U^+ = u^T @ a^+ and U^+ a U = u @ a
         # correspond to: U a U^+ = (u^*)^T @ a and U^+ a^+ U = u^* @ a^+
-        matrix_xp = torch.cat([torch.cat([matrix.real, -matrix.imag], dim=-1),
-                               torch.cat([matrix.imag,  matrix.real], dim=-1)], dim=-2).reshape(4, 4)
+        matrix_xp = torch.cat(
+            [torch.cat([matrix.real, -matrix.imag], dim=-1), torch.cat([matrix.imag, matrix.real], dim=-1)], dim=-2
+        ).reshape(4, 4)
         vector_xp = torch.zeros(4, 1, dtype=theta.dtype, device=theta.device)
         return matrix_xp, vector_xp
 
-    def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
+    def update_transform_xp(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Update the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         matrix_xp, vector_xp = self.get_transform_xp(self.theta)
         self.matrix_xp = matrix_xp.detach()
@@ -834,15 +898,16 @@ class UAnyGate(Gate):
         den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
         name (str, optional): The name of the gate. Default: ``'UAnyGate'``
     """
+
     def __init__(
         self,
         unitary: Any,
         nmode: int = 1,
-        wires: Optional[List[int]] = None,
-        minmax: Optional[List[int]] = None,
-        cutoff: Optional[int] = None,
+        wires: list[int] | None = None,
+        minmax: list[int] | None = None,
+        cutoff: int | None = None,
         den_mat: bool = False,
-        name: str = 'UAnyGate'
+        name: str = 'UAnyGate',
     ) -> None:
         self.nmode = nmode
         if wires is None:
@@ -887,7 +952,7 @@ class UAnyGate(Gate):
             col_num = rank - nt - 1
             matrix_j = matrix[:, col_num]
             # all combinations of the first `rank-1` modes
-            combs = itertools.product(range(self.cutoff), repeat=rank-1)
+            combs = itertools.product(range(self.cutoff), repeat=rank - 1)
             for modes in combs:
                 mode_out = modes[:nt]
                 mode_in_part = modes[nt:]
@@ -914,17 +979,18 @@ class UAnyGate(Gate):
             tran_mat = self.matrix_state
         return tran_mat
 
-    def get_transform_xp(self, matrix: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def get_transform_xp(self, matrix: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         # correspond to: U a^+ U^+ = u^T @ a^+ and U^+ a U = u @ a
         # correspond to: U a U^+ = (u^*)^T @ a and U^+ a^+ U = u^* @ a^+
         n = len(self.wires)
-        matrix_xp = torch.cat([torch.cat([matrix.real, -matrix.imag], dim=-1),
-                               torch.cat([matrix.imag,  matrix.real], dim=-1)], dim=-2).reshape(2 * n, 2 * n)
+        matrix_xp = torch.cat(
+            [torch.cat([matrix.real, -matrix.imag], dim=-1), torch.cat([matrix.imag, matrix.real], dim=-1)], dim=-2
+        ).reshape(2 * n, 2 * n)
         vector_xp = torch.zeros(2 * n, 1, dtype=matrix.real.dtype, device=matrix.real.device)
         return matrix_xp, vector_xp
 
-    def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
+    def update_transform_xp(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Update the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         matrix_xp, vector_xp = self.get_transform_xp(self.matrix)
         self.matrix_xp = matrix_xp.detach()
@@ -967,23 +1033,34 @@ class Squeezing(SingleGate):
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nmode: int = 1,
-        wires: Union[int, List[int], None] = None,
-        cutoff: Optional[int] = None,
+        wires: int | list[int] | None = None,
+        cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
-        super().__init__(name='Squeezing', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
-                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            name='Squeezing',
+            inputs=inputs,
+            nmode=nmode,
+            wires=wires,
+            cutoff=cutoff,
+            den_mat=den_mat,
+            requires_grad=requires_grad,
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         self.npara = 2
 
-    def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor, torch.Tensor]:
+    def inputs_to_tensor(self, inputs: Any = None) -> tuple[torch.Tensor, torch.Tensor]:
         """Convert inputs to torch.Tensor."""
         if inputs is None:
             r = torch.rand(1)[0]
@@ -996,8 +1073,8 @@ class Squeezing(SingleGate):
         if not isinstance(theta, (torch.Tensor, nn.Parameter)):
             theta = torch.tensor(theta, dtype=torch.float)
         if self.noise:
-            r = r + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
-            theta = theta + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+            r = r + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
+            theta = theta + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return r, theta
 
     def get_matrix(self, r: Any, theta: Any) -> torch.Tensor:
@@ -1045,7 +1122,7 @@ class Squeezing(SingleGate):
         """Update the local transformation matrix acting on Fock state tensors."""
         return self.get_matrix_state(self.r, self.theta)
 
-    def get_transform_xp(self, r: Any, theta: Any) -> Tuple[torch.Tensor, torch.Tensor]:
+    def get_transform_xp(self, r: Any, theta: Any) -> tuple[torch.Tensor, torch.Tensor]:
         """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         r, theta = self.inputs_to_tensor([r, theta])
         ch = torch.cosh(r)
@@ -1056,7 +1133,7 @@ class Squeezing(SingleGate):
         vector_xp = torch.zeros(2, 1, dtype=r.dtype, device=r.device)
         return matrix_xp, vector_xp
 
-    def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
+    def update_transform_xp(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Update the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         matrix_xp, vector_xp = self.get_transform_xp(self.r, self.theta)
         self.matrix_xp = matrix_xp.detach()
@@ -1123,23 +1200,34 @@ class Squeezing2(DoubleGate):
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nmode: int = 2,
-        wires: Optional[List[int]] = None,
-        cutoff: Optional[int] = None,
+        wires: list[int] | None = None,
+        cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
-        super().__init__(name='Squeezing2', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
-                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            name='Squeezing2',
+            inputs=inputs,
+            nmode=nmode,
+            wires=wires,
+            cutoff=cutoff,
+            den_mat=den_mat,
+            requires_grad=requires_grad,
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         self.npara = 2
 
-    def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor, torch.Tensor]:
+    def inputs_to_tensor(self, inputs: Any = None) -> tuple[torch.Tensor, torch.Tensor]:
         """Convert inputs to torch.Tensor."""
         if inputs is None:
             r = torch.rand(1)[0]
@@ -1152,8 +1240,8 @@ class Squeezing2(DoubleGate):
         if not isinstance(theta, (torch.Tensor, nn.Parameter)):
             theta = torch.tensor(theta, dtype=torch.float)
         if self.noise:
-            r = r + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
-            theta = theta + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+            r = r + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
+            theta = theta + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return r, theta
 
     def get_matrix(self, r: Any, theta: Any) -> torch.Tensor:
@@ -1211,7 +1299,7 @@ class Squeezing2(DoubleGate):
         """Update the local transformation matrix acting on Fock state tensors."""
         return self.get_matrix_state(self.r, self.theta)
 
-    def get_transform_xp(self, r: Any, theta: Any) -> Tuple[torch.Tensor, torch.Tensor]:
+    def get_transform_xp(self, r: Any, theta: Any) -> tuple[torch.Tensor, torch.Tensor]:
         """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         r, theta = self.inputs_to_tensor([r, theta])
         ch = torch.cosh(r)
@@ -1225,7 +1313,7 @@ class Squeezing2(DoubleGate):
         vector_xp = torch.zeros(4, 1, dtype=r.dtype, device=r.device)
         return matrix_xp, vector_xp
 
-    def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
+    def update_transform_xp(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Update the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         matrix_xp, vector_xp = self.get_transform_xp(self.r, self.theta)
         self.matrix_xp = matrix_xp.detach()
@@ -1286,23 +1374,34 @@ class Displacement(SingleGate):
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nmode: int = 1,
-        wires: Union[int, List[int], None] = None,
-        cutoff: Optional[int] = None,
+        wires: int | list[int] | None = None,
+        cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
-        super().__init__(name='Displacement', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
-                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            name='Displacement',
+            inputs=inputs,
+            nmode=nmode,
+            wires=wires,
+            cutoff=cutoff,
+            den_mat=den_mat,
+            requires_grad=requires_grad,
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         self.npara = 2
 
-    def inputs_to_tensor(self, inputs: Any = None) -> Tuple[torch.Tensor, torch.Tensor]:
+    def inputs_to_tensor(self, inputs: Any = None) -> tuple[torch.Tensor, torch.Tensor]:
         """Convert inputs to torch.Tensor."""
         if inputs is None:
             r = torch.rand(1)[0]
@@ -1318,10 +1417,10 @@ class Displacement(SingleGate):
             r, theta = self._add_noise(r, theta)
         return r, theta
 
-    def _add_noise(self, r: torch.Tensor, theta: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _add_noise(self, r: torch.Tensor, theta: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Add Gaussian noise to the parameters."""
-        r = r + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
-        theta = theta + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        r = r + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
+        theta = theta + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return r, theta
 
     def get_matrix(self, r: Any, theta: Any) -> torch.Tensor:
@@ -1346,7 +1445,7 @@ class Displacement(SingleGate):
         alpha = r * torch.exp(1j * theta)
         alpha_c = r * torch.exp(-1j * theta)
         tran_mat = alpha.new_zeros([self.cutoff] * 2)
-        tran_mat[0, 0] = torch.exp(-(r ** 2) / 2)
+        tran_mat[0, 0] = torch.exp(-(r**2) / 2)
         # rank 1
         for m in range(self.cutoff - 1):
             tran_mat[m + 1, 0] = alpha / sqrt[m + 1] * tran_mat[m, 0].clone()
@@ -1354,8 +1453,7 @@ class Displacement(SingleGate):
         for m in range(self.cutoff):
             for n in range(self.cutoff - 1):
                 tran_mat[m, n + 1] = (
-                    - alpha_c / sqrt[n + 1] * tran_mat[m, n].clone()
-                    + sqrt[m] / sqrt[n + 1] * tran_mat[m - 1, n].clone()
+                    -alpha_c / sqrt[n + 1] * tran_mat[m, n].clone() + sqrt[m] / sqrt[n + 1] * tran_mat[m - 1, n].clone()
                 )
         return tran_mat
 
@@ -1363,7 +1461,7 @@ class Displacement(SingleGate):
         """Update the local transformation matrix acting on Fock state tensors."""
         return self.get_matrix_state(self.r, self.theta)
 
-    def get_transform_xp(self, r: Any, theta: Any) -> Tuple[torch.Tensor, torch.Tensor]:
+    def get_transform_xp(self, r: Any, theta: Any) -> tuple[torch.Tensor, torch.Tensor]:
         """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         r, theta = self.inputs_to_tensor([r, theta])
         cos = torch.cos(theta)
@@ -1372,7 +1470,7 @@ class Displacement(SingleGate):
         vector_xp = torch.stack([r * cos, r * sin]).reshape(2, 1) * dqp.hbar**0.5 / dqp.kappa
         return matrix_xp, vector_xp
 
-    def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
+    def update_transform_xp(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Update the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         matrix_xp, vector_xp = self.get_transform_xp(self.r, self.theta)
         self.matrix_xp = matrix_xp.detach()
@@ -1432,26 +1530,36 @@ class DisplacementPosition(Displacement):
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nmode: int = 1,
-        wires: Union[int, List[int], None] = None,
-        cutoff: Optional[int] = None,
+        wires: int | list[int] | None = None,
+        cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
-        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
-                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            inputs=inputs,
+            nmode=nmode,
+            wires=wires,
+            cutoff=cutoff,
+            den_mat=den_mat,
+            requires_grad=requires_grad,
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         self.name = 'DisplacementPosition'
         self.npara = 1
 
-    def _add_noise(self, r: torch.Tensor, theta: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _add_noise(self, r: torch.Tensor, theta: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Add Gaussian noise to the parameters."""
-        r = r + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        r = r + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return r, theta
 
     def init_para(self, inputs: Any = None) -> None:
@@ -1507,26 +1615,36 @@ class DisplacementMomentum(Displacement):
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nmode: int = 1,
-        wires: Union[int, List[int], None] = None,
-        cutoff: Optional[int] = None,
+        wires: int | list[int] | None = None,
+        cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
-        super().__init__(inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat,
-                         requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            inputs=inputs,
+            nmode=nmode,
+            wires=wires,
+            cutoff=cutoff,
+            den_mat=den_mat,
+            requires_grad=requires_grad,
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         self.name = 'DisplacementMomentum'
         self.npara = 1
 
-    def _add_noise(self, r: torch.Tensor, theta: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _add_noise(self, r: torch.Tensor, theta: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Add Gaussian noise to the parameters."""
-        r = r + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+        r = r + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return r, theta
 
     def init_para(self, inputs: Any = None) -> None:
@@ -1616,20 +1734,31 @@ class QuadraticPhase(SingleGate):
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nmode: int = 1,
-        wires: Union[int, List[int], None] = None,
-        cutoff: Optional[int] = None,
+        wires: int | list[int] | None = None,
+        cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
-        super().__init__(name='QuadraticPhase', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
-                         den_mat=den_mat, requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            name='QuadraticPhase',
+            inputs=inputs,
+            nmode=nmode,
+            wires=wires,
+            cutoff=cutoff,
+            den_mat=den_mat,
+            requires_grad=requires_grad,
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         self.npara = 1
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
@@ -1641,7 +1770,7 @@ class QuadraticPhase(SingleGate):
         if not isinstance(inputs, torch.Tensor):
             inputs = torch.tensor(inputs, dtype=torch.float)
         if self.noise:
-            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return inputs
 
     def get_matrix(self, s: Any) -> torch.Tensor:
@@ -1664,7 +1793,7 @@ class QuadraticPhase(SingleGate):
         theta = torch.arctan(s / 2)
         phi = -torch.sign(s) * torch.pi / 2 - theta
         # noise already in s
-        mat_s  = Squeezing([r, phi], cutoff=self.cutoff).update_matrix_state()
+        mat_s = Squeezing([r, phi], cutoff=self.cutoff).update_matrix_state()
         mat_ps = PhaseShift(theta, cutoff=self.cutoff).update_matrix_state()
         return mat_ps @ mat_s
 
@@ -1672,7 +1801,7 @@ class QuadraticPhase(SingleGate):
         """Update the local transformation matrix acting on Fock state tensors."""
         return self.get_matrix_state(self.s)
 
-    def get_transform_xp(self, s: Any) -> Tuple[torch.Tensor, torch.Tensor]:
+    def get_transform_xp(self, s: Any) -> tuple[torch.Tensor, torch.Tensor]:
         """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         s = self.inputs_to_tensor(s).reshape(-1)
         one = s.new_ones(1)
@@ -1681,7 +1810,7 @@ class QuadraticPhase(SingleGate):
         vector_xp = s.new_zeros(2, 1)
         return matrix_xp, vector_xp
 
-    def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
+    def update_transform_xp(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Update the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         matrix_xp, vector_xp = self.get_transform_xp(self.s)
         self.matrix_xp = matrix_xp.detach()
@@ -1785,20 +1914,31 @@ class ControlledX(DoubleGate):
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nmode: int = 2,
-        wires: Union[int, List[int], None] = None,
-        cutoff: Optional[int] = None,
+        wires: int | list[int] | None = None,
+        cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
-        super().__init__(name='ControlledX', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
-                         den_mat=den_mat, requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            name='ControlledX',
+            inputs=inputs,
+            nmode=nmode,
+            wires=wires,
+            cutoff=cutoff,
+            den_mat=den_mat,
+            requires_grad=requires_grad,
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         self.npara = 1
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
@@ -1810,7 +1950,7 @@ class ControlledX(DoubleGate):
         if not isinstance(inputs, torch.Tensor):
             inputs = torch.tensor(inputs, dtype=torch.float)
         if self.noise:
-            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return inputs
 
     def get_matrix(self, s: Any) -> torch.Tensor:
@@ -1820,10 +1960,7 @@ class ControlledX(DoubleGate):
         one = s.new_ones(1)
         zero = s.new_zeros(1)
         x = s / 2
-        mat = torch.stack([one, -x, zero, x,
-                           x, one, x, zero,
-                           zero, x, one, -x,
-                           x, zero, x, one]).reshape(4, 4) + 0j
+        mat = torch.stack([one, -x, zero, x, x, one, x, zero, zero, x, one, -x, x, zero, x, one]).reshape(4, 4) + 0j
         return mat
 
     def update_matrix(self) -> torch.Tensor:
@@ -1850,7 +1987,7 @@ class ControlledX(DoubleGate):
         """Update the local transformation matrix acting on Fock state tensors."""
         return self.get_matrix_state(self.s)
 
-    def get_transform_xp(self, s: Any) -> Tuple[torch.Tensor, torch.Tensor]:
+    def get_transform_xp(self, s: Any) -> tuple[torch.Tensor, torch.Tensor]:
         """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         s = self.inputs_to_tensor(s).reshape(-1)
         one = s.new_ones(1)
@@ -1861,7 +1998,7 @@ class ControlledX(DoubleGate):
         vector_xp = s.new_zeros(4, 1)
         return matrix_xp, vector_xp
 
-    def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
+    def update_transform_xp(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Update the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         matrix_xp, vector_xp = self.get_transform_xp(self.s)
         self.matrix_xp = matrix_xp.detach()
@@ -1961,20 +2098,31 @@ class ControlledZ(DoubleGate):
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nmode: int = 2,
-        wires: Union[int, List[int], None] = None,
-        cutoff: Optional[int] = None,
+        wires: int | list[int] | None = None,
+        cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
-        super().__init__(name='ControlledZ', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
-                         den_mat=den_mat, requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            name='ControlledZ',
+            inputs=inputs,
+            nmode=nmode,
+            wires=wires,
+            cutoff=cutoff,
+            den_mat=den_mat,
+            requires_grad=requires_grad,
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         self.npara = 1
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
@@ -1986,7 +2134,7 @@ class ControlledZ(DoubleGate):
         if not isinstance(inputs, torch.Tensor):
             inputs = torch.tensor(inputs, dtype=torch.float)
         if self.noise:
-            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return inputs
 
     def get_matrix(self, s: Any) -> torch.Tensor:
@@ -1996,10 +2144,7 @@ class ControlledZ(DoubleGate):
         one = s.new_ones(1)
         zero = s.new_zeros(1)
         x = 1j * s / 2
-        mat = torch.stack([one, x, zero, x,
-                           x, one, x, zero,
-                           zero, -x, one, -x,
-                           -x, zero, -x, one]).reshape(4, 4)
+        mat = torch.stack([one, x, zero, x, x, one, x, zero, zero, -x, one, -x, -x, zero, -x, one]).reshape(4, 4)
         return mat
 
     def update_matrix(self) -> torch.Tensor:
@@ -2023,7 +2168,7 @@ class ControlledZ(DoubleGate):
         """Update the local transformation matrix acting on Fock state tensors."""
         return self.get_matrix_state(self.s)
 
-    def get_transform_xp(self, s: Any) -> Tuple[torch.Tensor, torch.Tensor]:
+    def get_transform_xp(self, s: Any) -> tuple[torch.Tensor, torch.Tensor]:
         """Get the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         s = self.inputs_to_tensor(s).reshape(-1)
         zero = s.new_zeros(1)
@@ -2033,7 +2178,7 @@ class ControlledZ(DoubleGate):
         vector_xp = s.new_zeros(4, 1)
         return matrix_xp, vector_xp
 
-    def update_transform_xp(self) -> Tuple[torch.Tensor, torch.Tensor]:
+    def update_transform_xp(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Update the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         matrix_xp, vector_xp = self.get_transform_xp(self.s)
         self.matrix_xp = matrix_xp.detach()
@@ -2090,20 +2235,31 @@ class CubicPhase(SingleGate):
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nmode: int = 1,
-        wires: Union[int, List[int], None] = None,
-        cutoff: Optional[int] = None,
+        wires: int | list[int] | None = None,
+        cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
-        super().__init__(name='CubicPhase', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
-                         den_mat=den_mat, requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            name='CubicPhase',
+            inputs=inputs,
+            nmode=nmode,
+            wires=wires,
+            cutoff=cutoff,
+            den_mat=den_mat,
+            requires_grad=requires_grad,
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         self.npara = 1
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
@@ -2115,7 +2271,7 @@ class CubicPhase(SingleGate):
         if not isinstance(inputs, torch.Tensor):
             inputs = torch.tensor(inputs, dtype=torch.float)
         if self.noise:
-            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return inputs
 
     def get_matrix_state(self, gamma: Any) -> torch.Tensor:
@@ -2176,20 +2332,31 @@ class Kerr(SingleGate):
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nmode: int = 1,
-        wires: Union[int, List[int], None] = None,
-        cutoff: Optional[int] = None,
+        wires: int | list[int] | None = None,
+        cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
-        super().__init__(name='Kerr', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
-                         den_mat=den_mat, requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            name='Kerr',
+            inputs=inputs,
+            nmode=nmode,
+            wires=wires,
+            cutoff=cutoff,
+            den_mat=den_mat,
+            requires_grad=requires_grad,
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         self.npara = 1
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
@@ -2201,7 +2368,7 @@ class Kerr(SingleGate):
         if not isinstance(inputs, torch.Tensor):
             inputs = torch.tensor(inputs, dtype=torch.float)
         if self.noise:
-            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return inputs
 
     def get_matrix_state(self, kappa: Any) -> torch.Tensor:
@@ -2265,20 +2432,31 @@ class CrossKerr(DoubleGate):
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
+
     def __init__(
         self,
         inputs: Any = None,
         nmode: int = 2,
-        wires: Union[int, List[int], None] = None,
-        cutoff: Optional[int] = None,
+        wires: int | list[int] | None = None,
+        cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
-        super().__init__(name='CrossKerr', inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff,
-                         den_mat=den_mat, requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            name='CrossKerr',
+            inputs=inputs,
+            nmode=nmode,
+            wires=wires,
+            cutoff=cutoff,
+            den_mat=den_mat,
+            requires_grad=requires_grad,
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         self.npara = 1
 
     def inputs_to_tensor(self, inputs: Any = None) -> torch.Tensor:
@@ -2290,7 +2468,7 @@ class CrossKerr(DoubleGate):
         if not isinstance(inputs, torch.Tensor):
             inputs = torch.tensor(inputs, dtype=torch.float)
         if self.noise:
-            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1, )).squeeze()
+            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return inputs
 
     def get_matrix_state(self, kappa: Any) -> torch.Tensor:
@@ -2338,27 +2516,55 @@ class DelayBS(Delay):
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
+
     def __init__(
         self,
         inputs: Any = None,
         ntau: int = 1,
         nmode: int = 1,
-        wires: Union[int, List[int], None] = None,
-        cutoff: Optional[int] = None,
+        wires: int | list[int] | None = None,
+        cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
-        loop_gates: Optional[List] = None,
+        loop_gates: list | None = None,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
-        super().__init__(name='DelayBS', ntau=ntau, nmode=nmode, wires=wires, cutoff=cutoff,
-                         den_mat=den_mat, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            name='DelayBS',
+            ntau=ntau,
+            nmode=nmode,
+            wires=wires,
+            cutoff=cutoff,
+            den_mat=den_mat,
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         self.requires_grad = requires_grad
-        bs = BeamSplitterTheta(inputs=None, nmode=2, wires=None, cutoff=cutoff, den_mat=den_mat,
-                               requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
-        ps = PhaseShift(inputs=None, nmode=1, wires=None, cutoff=cutoff, den_mat=den_mat,
-                        requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        bs = BeamSplitterTheta(
+            inputs=None,
+            nmode=2,
+            wires=None,
+            cutoff=cutoff,
+            den_mat=den_mat,
+            requires_grad=requires_grad,
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
+        ps = PhaseShift(
+            inputs=None,
+            nmode=1,
+            wires=None,
+            cutoff=cutoff,
+            den_mat=den_mat,
+            requires_grad=requires_grad,
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         self.gates.append(bs)
         self.gates.append(ps)
         self.npara = 2
@@ -2398,25 +2604,45 @@ class DelayMZI(Delay):
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
+
     def __init__(
         self,
         inputs: Any = None,
         ntau: int = 1,
         nmode: int = 1,
-        wires: Union[int, List[int], None] = None,
-        cutoff: Optional[int] = None,
+        wires: int | list[int] | None = None,
+        cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
-        loop_gates: Optional[List] = None,
+        loop_gates: list | None = None,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
-        super().__init__(name='DelayMZI', ntau=ntau, nmode=nmode, wires=wires, cutoff=cutoff,
-                         den_mat=den_mat, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            name='DelayMZI',
+            ntau=ntau,
+            nmode=nmode,
+            wires=wires,
+            cutoff=cutoff,
+            den_mat=den_mat,
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         self.requires_grad = requires_grad
-        mzi = MZI(inputs=inputs, nmode=2, wires=None, cutoff=cutoff, den_mat=den_mat, phi_first=False,
-                  requires_grad=requires_grad, noise=noise, mu=mu, sigma=sigma)
+        mzi = MZI(
+            inputs=inputs,
+            nmode=2,
+            wires=None,
+            cutoff=cutoff,
+            den_mat=den_mat,
+            phi_first=False,
+            requires_grad=requires_grad,
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         self.gates.append(mzi)
         self.npara = 2
         if loop_gates is not None:
@@ -2435,6 +2661,7 @@ class DelayMZI(Delay):
     def extra_repr(self) -> str:
         return f'wires={self.wires}, ntau={self.ntau}, theta={self.theta.item()}, phi={self.phi.item()}'
 
+
 class Barrier(Gate):
     """Barrier.
 
@@ -2444,12 +2671,8 @@ class Barrier(Gate):
             Default: ``None``
         cutoff (int or None, optional): The Fock space truncation. Default: ``None``
     """
-    def __init__(
-        self,
-        nmode: int = 1,
-        wires: Union[int, List[int], None] = None,
-        cutoff: Optional[int] = None
-    ) -> None:
+
+    def __init__(self, nmode: int = 1, wires: int | list[int] | None = None, cutoff: int | None = None) -> None:
         if wires is None:
             wires = list(range(nmode))
         super().__init__(name='Barrier', nmode=nmode, wires=wires, cutoff=cutoff)

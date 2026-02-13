@@ -1,8 +1,8 @@
-import deepquantum as dq
 import numpy as np
-import pytest
 import qutip as qp
 import torch
+
+import deepquantum as dq
 
 
 def test_with_qutip_fock_wigner():
@@ -24,7 +24,7 @@ def test_with_qutip_fock_wigner():
     pvec = np.linspace(-prange, prange, npoints)
     wigner_qp = qp.wigner(qp.Qobj(psi), xvec, pvec, g=1)
     wigner_dq = fock_state.wigner(0, xrange, prange, npoints, plot=False)
-    err = torch.sum(abs(wigner_dq - torch.tensor(wigner_qp.mT)), dim=[1,2])
+    err = torch.sum(abs(wigner_dq - torch.tensor(wigner_qp.mT)), dim=[1, 2])
     assert err < 1e-6
 
 
@@ -53,5 +53,5 @@ def test_with_qutip_gaussian_wigner():
     pvec = np.linspace(-prange, prange, npoints)
     wigner_qp = qp.wigner(qp.Qobj(psi), xvec, pvec, g=1)
     wigner_dq = gaussian_state.wigner(0, xrange, prange, npoints, plot=False, normalize=True)
-    err = torch.sum(abs(wigner_dq - torch.tensor(wigner_qp.mT)), dim=[1,2])
+    err = torch.sum(abs(wigner_dq - torch.tensor(wigner_qp.mT)), dim=[1, 2])
     assert err < 1e-2

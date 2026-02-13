@@ -1,8 +1,6 @@
-"""
-Time domain multiplexing
-"""
+"""Time domain multiplexing"""
 
-from typing import Any, List, Optional, Union
+from typing import Any
 
 import torch
 
@@ -29,28 +27,38 @@ class QumodeCircuitTDM(QumodeCircuit):
         mu (float, optional): The mean of Gaussian noise. Default: 0
         sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
     """
+
     def __init__(
         self,
         nmode: int,
         init_state: Any,
-        cutoff: Optional[int] = None,
+        cutoff: int | None = None,
         backend: str = 'gaussian',
-        name: Optional[str] = None,
+        name: str | None = None,
         noise: bool = False,
         mu: float = 0,
-        sigma: float = 0.1
+        sigma: float = 0.1,
     ) -> None:
         assert backend in ('gaussian', 'bosonic')
-        super().__init__(nmode=nmode, init_state=init_state, cutoff=cutoff, backend=backend, basis=False,
-                         detector='pnrd', name=name, mps=False, chi=None, noise=noise, mu=mu, sigma=sigma)
+        super().__init__(
+            nmode=nmode,
+            init_state=init_state,
+            cutoff=cutoff,
+            backend=backend,
+            basis=False,
+            detector='pnrd',
+            name=name,
+            mps=False,
+            chi=None,
+            noise=noise,
+            mu=mu,
+            sigma=sigma,
+        )
         self.samples = None
 
     def forward(
-        self,
-        data: Optional[torch.Tensor] = None,
-        state: Any = None,
-        nstep: Optional[int] = None
-    ) -> List[torch.Tensor]:
+        self, data: torch.Tensor | None = None, state: Any = None, nstep: int | None = None
+    ) -> list[torch.Tensor]:
         r"""Perform a forward pass of the TDM photonic quantum circuit and return the final state.
 
         Args:
@@ -83,10 +91,10 @@ class QumodeCircuitTDM(QumodeCircuit):
                 self.state = super().forward(data_i, self.state)
             samples.append(self.measure_homodyne(shots=1))
             self.state = self.state_measured
-        self.samples = torch.stack(samples, dim=-1) # (batch, nwire, nstep)
+        self.samples = torch.stack(samples, dim=-1)  # (batch, nwire, nstep)
         return self.state
 
-    def get_samples(self, wires: Union[int, List[int], None] = None) -> torch.Tensor:
+    def get_samples(self, wires: int | list[int] | None = None) -> torch.Tensor:
         """Get the measured samples according to the given ``wires``."""
         if wires is None:
             wires = self.wires

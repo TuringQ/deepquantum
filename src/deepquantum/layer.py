@@ -1,14 +1,12 @@
-"""
-Quantum layers
-"""
+"""Quantum layers"""
 
 from copy import deepcopy
-from typing import List, Union, Optional, Any
+from typing import Any
 
 import torch
 from torch import nn
 
-from .gate import PauliX, PauliY, PauliZ, U3Gate, Hadamard, Rx, Ry, Rz, CNOT
+from .gate import CNOT, Hadamard, PauliX, PauliY, PauliZ, Rx, Ry, Rz, U3Gate
 from .operation import Layer
 from .qmath import multi_kron
 
@@ -27,13 +25,14 @@ class SingleLayer(Layer):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], List[List[int]], None] = None,
+        wires: int | list[int] | list[list[int]] | None = None,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
         if wires is None:
             wires = [[i] for i in range(nqubit)]
@@ -67,14 +66,15 @@ class ParametricSingleLayer(SingleLayer):
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``True`` (which means ``nn.Parameter``)
     """
+
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         nqubit: int = 1,
-        wires: Union[int, List[int], List[List[int]], None] = None,
+        wires: int | list[int] | list[list[int]] | None = None,
         den_mat: bool = False,
         tsr_mode: bool = False,
-        requires_grad: bool = True
+        requires_grad: bool = True,
     ) -> None:
         super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         self.requires_grad = requires_grad
@@ -90,11 +90,7 @@ class ParametricSingleLayer(SingleLayer):
         return layer
 
     def pattern(
-        self,
-        nodes: List[List[int]],
-        ancilla: List[List[int]],
-        angle: List[Any],
-        requires_grad: bool = False
+        self, nodes: list[list[int]], ancilla: list[list[int]], angle: list[Any], requires_grad: bool = False
     ) -> nn.Sequential:
         """Get the MBQC pattern."""
         assert len(nodes) == len(ancilla) == len(self.gates)
@@ -118,13 +114,14 @@ class DoubleLayer(Layer):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         nqubit: int = 2,
-        wires: Optional[List[List[int]]] = None,
+        wires: list[list[int]] | None = None,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
         if wires is None:
             wires = [[i, i + 1] for i in range(0, nqubit - 1, 2)]
@@ -148,13 +145,14 @@ class Observable(SingleLayer):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], List[List[int]], None] = None,
+        wires: int | list[int] | list[list[int]] | None = None,
         basis: str = 'z',
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
         super().__init__(name='Observable', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         basis = basis.lower()
@@ -191,24 +189,24 @@ class U3Layer(ParametricSingleLayer):
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``True`` (which means ``nn.Parameter``)
     """
+
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], List[List[int]], None] = None,
+        wires: int | list[int] | list[list[int]] | None = None,
         inputs: Any = None,
         den_mat: bool = False,
         tsr_mode: bool = False,
-        requires_grad: bool = True
+        requires_grad: bool = True,
     ) -> None:
-        super().__init__(name='U3Layer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode,
-                         requires_grad=requires_grad)
+        super().__init__(
+            name='U3Layer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad
+        )
         for i, wire in enumerate(self.wires):
-            if inputs is None:
-                thetas = None
-            else:
-                thetas = inputs[3*i:3*i+3]
-            u3 = U3Gate(inputs=thetas, nqubit=nqubit, wires=wire, den_mat=den_mat,
-                        tsr_mode=True, requires_grad=requires_grad)
+            thetas = None if inputs is None else inputs[3 * i : 3 * i + 3]
+            u3 = U3Gate(
+                inputs=thetas, nqubit=nqubit, wires=wire, den_mat=den_mat, tsr_mode=True, requires_grad=requires_grad
+            )
             self.gates.append(u3)
             self.npara += u3.npara
 
@@ -226,12 +224,13 @@ class XLayer(SingleLayer):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], List[List[int]], None] = None,
+        wires: int | list[int] | list[list[int]] | None = None,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
         super().__init__(name='XLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         for wire in self.wires:
@@ -252,12 +251,13 @@ class YLayer(SingleLayer):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], List[List[int]], None] = None,
+        wires: int | list[int] | list[list[int]] | None = None,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
         super().__init__(name='YLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         for wire in self.wires:
@@ -278,12 +278,13 @@ class ZLayer(SingleLayer):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], List[List[int]], None] = None,
+        wires: int | list[int] | list[list[int]] | None = None,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
         super().__init__(name='ZLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         for wire in self.wires:
@@ -304,12 +305,13 @@ class HLayer(SingleLayer):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], List[List[int]], None] = None,
+        wires: int | list[int] | list[list[int]] | None = None,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
         super().__init__(name='HLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         for wire in self.wires:
@@ -333,24 +335,24 @@ class RxLayer(ParametricSingleLayer):
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``True`` (which means ``nn.Parameter``)
     """
+
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], List[List[int]], None] = None,
+        wires: int | list[int] | list[list[int]] | None = None,
         inputs: Any = None,
         den_mat: bool = False,
         tsr_mode: bool = False,
-        requires_grad: bool = True
+        requires_grad: bool = True,
     ) -> None:
-        super().__init__(name='RxLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode,
-                         requires_grad=requires_grad)
+        super().__init__(
+            name='RxLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad
+        )
         for i, wire in enumerate(self.wires):
-            if inputs is None:
-                theta = None
-            else:
-                theta = inputs[i]
-            rx = Rx(inputs=theta, nqubit=nqubit, wires=wire, den_mat=den_mat,
-                    tsr_mode=True, requires_grad=requires_grad)
+            theta = None if inputs is None else inputs[i]
+            rx = Rx(
+                inputs=theta, nqubit=nqubit, wires=wire, den_mat=den_mat, tsr_mode=True, requires_grad=requires_grad
+            )
             self.gates.append(rx)
             self.npara += rx.npara
 
@@ -371,24 +373,24 @@ class RyLayer(ParametricSingleLayer):
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``True`` (which means ``nn.Parameter``)
     """
+
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], List[List[int]], None] = None,
+        wires: int | list[int] | list[list[int]] | None = None,
         inputs: Any = None,
         den_mat: bool = False,
         tsr_mode: bool = False,
-        requires_grad: bool = True
+        requires_grad: bool = True,
     ) -> None:
-        super().__init__(name='RyLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode,
-                         requires_grad=requires_grad)
+        super().__init__(
+            name='RyLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad
+        )
         for i, wire in enumerate(self.wires):
-            if inputs is None:
-                theta = None
-            else:
-                theta = inputs[i]
-            ry = Ry(inputs=theta, nqubit=nqubit, wires=wire, den_mat=den_mat,
-                    tsr_mode=True, requires_grad=requires_grad)
+            theta = None if inputs is None else inputs[i]
+            ry = Ry(
+                inputs=theta, nqubit=nqubit, wires=wire, den_mat=den_mat, tsr_mode=True, requires_grad=requires_grad
+            )
             self.gates.append(ry)
             self.npara += ry.npara
 
@@ -409,24 +411,24 @@ class RzLayer(ParametricSingleLayer):
         requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``True`` (which means ``nn.Parameter``)
     """
+
     def __init__(
         self,
         nqubit: int = 1,
-        wires: Union[int, List[int], List[List[int]], None] = None,
+        wires: int | list[int] | list[list[int]] | None = None,
         inputs: Any = None,
         den_mat: bool = False,
         tsr_mode: bool = False,
-        requires_grad: bool = True
+        requires_grad: bool = True,
     ) -> None:
-        super().__init__(name='RzLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode,
-                         requires_grad=requires_grad)
+        super().__init__(
+            name='RzLayer', nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode, requires_grad=requires_grad
+        )
         for i, wire in enumerate(self.wires):
-            if inputs is None:
-                theta = None
-            else:
-                theta = inputs[i]
-            rz = Rz(inputs=theta, nqubit=nqubit, wires=wire, den_mat=den_mat,
-                    tsr_mode=True, requires_grad=requires_grad)
+            theta = None if inputs is None else inputs[i]
+            rz = Rz(
+                inputs=theta, nqubit=nqubit, wires=wire, den_mat=den_mat, tsr_mode=True, requires_grad=requires_grad
+            )
             self.gates.append(rz)
             self.npara += rz.npara
 
@@ -434,24 +436,25 @@ class RzLayer(ParametricSingleLayer):
 class CnotLayer(DoubleLayer):
     r"""A layer of CNOT gates.
 
-     Args:
-        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 2
-        wires (List[List[int]] or None, optional): The indices of the qubits that the quantum operation
-            acts on. Default: ``None``
-        name (str, optional): The name of the layer. Default: ``'CnotLayer'``
-        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
-            Default: ``False`` (which means state vectors)
-        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
-            Default: ``False``
+    Args:
+       nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 2
+       wires (List[List[int]] or None, optional): The indices of the qubits that the quantum operation
+           acts on. Default: ``None``
+       name (str, optional): The name of the layer. Default: ``'CnotLayer'``
+       den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+           Default: ``False`` (which means state vectors)
+       tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
+           and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
+           Default: ``False``
     """
+
     def __init__(
         self,
         nqubit: int = 2,
-        wires: Optional[List[List[int]]] = None,
+        wires: list[list[int]] | None = None,
         name: str = 'CnotLayer',
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
         super().__init__(name=name, nqubit=nqubit, wires=wires, den_mat=den_mat, tsr_mode=tsr_mode)
         for wire in self.wires:
@@ -463,8 +466,7 @@ class CnotLayer(DoubleLayer):
         wires = []
         for wire in reversed(self.wires):
             wires.append(wire)
-        return CnotLayer(nqubit=self.nqubit, wires=wires, name=self.name,
-                         den_mat=self.den_mat, tsr_mode=self.tsr_mode)
+        return CnotLayer(nqubit=self.nqubit, wires=wires, name=self.name, den_mat=self.den_mat, tsr_mode=self.tsr_mode)
 
 
 class CnotRing(CnotLayer):
@@ -484,17 +486,18 @@ class CnotRing(CnotLayer):
             and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
             Default: ``False``
     """
+
     def __init__(
         self,
         nqubit: int = 2,
-        minmax: Optional[List[int]] = None,
+        minmax: list[int] | None = None,
         step: int = 1,
         reverse: bool = False,
         den_mat: bool = False,
-        tsr_mode: bool = False
+        tsr_mode: bool = False,
     ) -> None:
         if minmax is None:
-            minmax = [0, nqubit-1]
+            minmax = [0, nqubit - 1]
         self.nqubit = nqubit
         self._check_minmax(minmax)
         assert minmax[0] < minmax[1]
@@ -502,8 +505,8 @@ class CnotRing(CnotLayer):
         self.step = step
         self.reverse = reverse
         nwires = minmax[1] - minmax[0] + 1
-        if reverse: # from minmax[1] to minmax[0]
-            wires = [[minmax[0] + i, minmax[0] + (i-step) % nwires] for i in range(minmax[1] - minmax[0], -1, -1)]
+        if reverse:  # from minmax[1] to minmax[0]
+            wires = [[minmax[0] + i, minmax[0] + (i - step) % nwires] for i in range(minmax[1] - minmax[0], -1, -1)]
         else:
-            wires = [[minmax[0] + i, minmax[0] + (i+step) % nwires] for i in range(minmax[1] - minmax[0] + 1)]
+            wires = [[minmax[0] + i, minmax[0] + (i + step) % nwires] for i in range(minmax[1] - minmax[0] + 1)]
         super().__init__(nqubit=nqubit, wires=wires, name='CnotRing', den_mat=den_mat, tsr_mode=tsr_mode)

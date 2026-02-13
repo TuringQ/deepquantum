@@ -1,11 +1,11 @@
-import deepquantum as dq
 import numpy as np
-import pytest
 import strawberryfields as sf
 import thewalrus
 import torch
-from deepquantum.photonic import quadrature_to_ladder, hafnian, torontonian
-from strawberryfields.ops import Sgate, BSgate, Rgate, MeasureHomodyne, Dgate, Fock
+from strawberryfields.ops import BSgate, Dgate, Fock, MeasureHomodyne, Rgate, Sgate
+
+import deepquantum as dq
+from deepquantum.photonic import hafnian, quadrature_to_ladder, torontonian
 
 
 def test_hafnian():
@@ -35,12 +35,11 @@ def test_torontonian():
         cir.s(wires=i)
         cir.d(wires=i)
     for i in range(nmode - 1):
-        cir.bs(wires=[i,i+1])
+        cir.bs(wires=[i, i + 1])
     cir.to(torch.double)
 
-    covs, means = cir()
+    covs, _ = cir()
     cov_ladder = quadrature_to_ladder(covs[0])
-    mean_ladder = quadrature_to_ladder(means[0])
     q = cov_ladder + torch.eye(2 * nmode) / 2
     o_mat = torch.eye(2 * nmode) - torch.inverse(q)
     tor1 = torontonian(o_mat)
@@ -55,7 +54,7 @@ def test_torontonian_loop():
         cir.s(wires=i)
         cir.d(wires=i)
     for i in range(nmode - 1):
-        cir.bs(wires=[i,i+1])
+        cir.bs(wires=[i, i + 1])
     cir.to(torch.double)
 
     covs, means = cir()
@@ -79,7 +78,7 @@ def test_gaussian_prob_random_circuit():
     cir.s(1, para_r[1], para_theta[1])
     cir.d(0, para_r[2], para_theta[2])
     cir.d(1, para_r[3], para_theta[3])
-    cir.bs([0,1], [para_theta[4], para_theta[5]])
+    cir.bs([0, 1], [para_theta[4], para_theta[5]])
 
     cir.to(torch.double)
     cov, mean = cir(is_prob=False)
@@ -87,7 +86,7 @@ def test_gaussian_prob_random_circuit():
 
     test_prob = thewalrus.quantum.probabilities(mu=mean[0].squeeze().numpy(), cov=cov[0].numpy(), cutoff=5)
     error = []
-    for i in state.keys():
+    for i in state:
         idx = i.state.tolist()
         error.append(abs(test_prob[tuple(idx)] - state[i].item()))
     assert sum(error) < 1e-10
@@ -118,15 +117,15 @@ def test_measure_homodyne():
     cir.s(0, r=r1)
     cir.d(1, r=r2)
     cir.s(1, r=r3)
-    cir.bs([0,1], inputs=bs1)
-    cir.bs([1,2], inputs=bs2)
+    cir.bs([0, 1], inputs=bs1)
+    cir.bs([1, 2], inputs=bs2)
     cir.homodyne(wires=0, phi=phi[0])
     cir.homodyne(wires=1, phi=phi[1])
     cir.to(torch.double)
     cir()
-    sample = cir.measure_homodyne()
+    cir.measure_homodyne()
     state = cir.state_measured
-    err = abs(state[0] - result.state.cov()).max() # compare the covariance matrix after the measurement
+    err = abs(state[0] - result.state.cov()).max()  # compare the covariance matrix after the measurement
     assert err < 1e-6
 
 
@@ -146,14 +145,14 @@ def test_non_adjacent_bs_fock():
     result = eng.run(prog)
 
     nmode = n
-    cir = dq.QumodeCircuit(nmode=nmode, init_state=[1,1,1], cutoff=4, backend='fock', basis=True)
+    cir = dq.QumodeCircuit(nmode=nmode, init_state=[1, 1, 1], cutoff=4, backend='fock', basis=True)
     cir.ps(0, angles[0])
     cir.ps(1, angles[1])
-    cir.bs([0,2], [angles[2], angles[3]])
-    cir.bs([1,2], [angles[4], angles[5]])
+    cir.bs([0, 2], [angles[2], angles[3]])
+    cir.bs([1, 2], [angles[4], angles[5]])
     state = cir(is_prob=True)
     err = 0
-    for key in state.keys():
+    for key in state:
         dq_prob = state[key]
         fock_st = key.state.tolist()
         sf_prob = result.state.fock_prob(fock_st)
@@ -192,8 +191,8 @@ def test_non_adjacent_bs_gaussian():
     cir.d(2, r=angles[6])
     cir.d(3, r=angles[7])
 
-    cir.bs([0,2], [angles[8], angles[9]])
-    cir.bs([1,3], [angles[10], angles[11]])
+    cir.bs([0, 2], [angles[8], angles[9]])
+    cir.bs([1, 3], [angles[10], angles[11]])
 
     state = cir()
     err = abs(state[0].squeeze() - cov_sf).sum() + abs(state[1].squeeze() - mean_sf).sum()

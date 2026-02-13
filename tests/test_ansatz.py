@@ -2,7 +2,6 @@ import math
 from fractions import Fraction
 
 import deepquantum as dq
-import pytest
 
 
 def test_quantum_phase_estimation_single_qubit():
@@ -12,7 +11,7 @@ def test_quantum_phase_estimation_single_qubit():
     qpe()
     res = qpe.measure(wires=list(range(t)))
     max_key = max(res, key=res.get)
-    phase_est = int(max_key, 2) / 2 ** t
+    phase_est = int(max_key, 2) / 2**t
     assert phase_est == phase
 
 
@@ -61,7 +60,7 @@ def test_controlled_multiplier():
     nqubit = nx + nb + 1
     minmax1 = [0, nx - 1]
     minmax2 = [nx, nqubit - 2]
-    ancilla = [nqubit -1]
+    ancilla = [nqubit - 1]
     enc1 = dq.NumberEncoder(nqubit, n3, minmax1)
     enc2 = dq.NumberEncoder(nqubit, n1, minmax2)
     cmult = dq.ControlledMultiplier(nqubit, n2, mod, [0, nqubit - 2], nx, ancilla)
@@ -107,7 +106,7 @@ def test_shor_general():
         cir()
         res = cir.measure(wires=list(range(ncount)), shots=1)
         max_key = max(res, key=res.get)
-        phase = int(max_key, 2) / 2 ** ncount
+        phase = int(max_key, 2) / 2**ncount
         frac = Fraction(phase).limit_denominator(mod)
         r = frac.denominator
         print(f'Result: r = {r}')
@@ -134,7 +133,7 @@ def test_shor_special():
         cir()
         res = cir.measure(wires=list(range(ncount)), shots=1)
         max_key = max(res, key=res.get)
-        phase = int(max_key, 2) / 2 ** ncount
+        phase = int(max_key, 2) / 2**ncount
         frac = Fraction(phase).limit_denominator(mod)
         r = frac.denominator
         print(f'Result: r = {r}')

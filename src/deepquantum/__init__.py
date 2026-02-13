@@ -1,32 +1,29 @@
-"""
-This is the top level module from which all basic functions and classes of
-DeepQuantum can be directly imported.
-"""
+"""This is the top level module from which all basic functions and classes of DeepQuantum can be directly imported."""
 
 __version__ = '4.4.0'
 
 
-from . import adjoint
-from . import ansatz
-from . import bitmath
-from . import channel
-from . import circuit
-from . import communication
-from . import cutting
-from . import distributed
-from . import gate
-from . import layer
-from . import operation
-from . import optimizer
-from . import qasm3
-from . import qmath
-from . import qpd
-from . import state
-from . import utils
-
-from . import mbqc
-from . import photonic
-
+from . import (
+    adjoint,
+    ansatz,
+    bitmath,
+    channel,
+    circuit,
+    communication,
+    cutting,
+    distributed,
+    gate,
+    layer,
+    mbqc,
+    operation,
+    optimizer,
+    photonic,
+    qasm3,
+    qmath,
+    qpd,
+    state,
+    utils,
+)
 from .ansatz import (
     Ansatz,
     ControlledMultiplier,
@@ -40,29 +37,75 @@ from .ansatz import (
     QuantumPhaseEstimationSingleQubit,
     RandomCircuitG3,
     ShorCircuit,
-    ShorCircuitFor15
+    ShorCircuitFor15,
 )
-from .channel import BitFlip, PhaseFlip, Depolarizing, Pauli, AmplitudeDamping, PhaseDamping
-from .channel import GeneralizedAmplitudeDamping
-from .circuit import QubitCircuit, DistributedQubitCircuit
-from .communication import setup_distributed, cleanup_distributed
-from .gate import U3Gate, PhaseShift, Identity, PauliX, PauliY, PauliZ, Hadamard
-from .gate import SGate, SDaggerGate, TGate, TDaggerGate
-from .gate import Rx, Ry, Rz, ProjectionJ, CombinedSingleGate
-from .gate import CNOT, Swap, ImaginarySwap, Rxx, Ryy, Rzz, Rxy, ReconfigurableBeamSplitter, Toffoli, Fredkin
-from .gate import UAnyGate, LatentGate, HamiltonianGate, Barrier
-from .layer import Observable, U3Layer, XLayer, YLayer, ZLayer, HLayer, RxLayer, RyLayer, RzLayer
-from .layer import CnotLayer, CnotRing
+from .channel import (
+    AmplitudeDamping,
+    BitFlip,
+    Depolarizing,
+    GeneralizedAmplitudeDamping,
+    Pauli,
+    PhaseDamping,
+    PhaseFlip,
+)
+from .circuit import DistributedQubitCircuit, QubitCircuit
+from .communication import cleanup_distributed, setup_distributed
+from .gate import (
+    Barrier,
+    CNOT,
+    CombinedSingleGate,
+    Fredkin,
+    Hadamard,
+    HamiltonianGate,
+    Identity,
+    ImaginarySwap,
+    LatentGate,
+    PauliX,
+    PauliY,
+    PauliZ,
+    PhaseShift,
+    ProjectionJ,
+    ReconfigurableBeamSplitter,
+    Rx,
+    Rxx,
+    Rxy,
+    Ry,
+    Ryy,
+    Rz,
+    Rzz,
+    SDaggerGate,
+    SGate,
+    Swap,
+    TDaggerGate,
+    TGate,
+    Toffoli,
+    U3Gate,
+    UAnyGate,
+)
+from .layer import CnotLayer, CnotRing, HLayer, Observable, RxLayer, RyLayer, RzLayer, U3Layer, XLayer, YLayer, ZLayer
+from .mbqc import GraphState, Pattern, SubGraphState
+from .photonic import (
+    BosonicState,
+    CatState,
+    Clements,
+    DistributedFockState,
+    DistributedQumodeCircuit,
+    DrawClements,
+    FockState,
+    FockStateBosonic,
+    GKPState,
+    GaussianBosonSampling,
+    GaussianState,
+    QumodeCircuit,
+    QumodeCircuitTDM,
+    UnitaryDecomposer,
+    UnitaryMapper,
+    hafnian,
+    permanent,
+    takagi,
+    torontonian,
+    williamson,
+)
 from .qasm3 import cir_to_qasm3, qasm3_to_cir
-from .qmath import multi_kron, partial_trace, amplitude_encoding, measure, expectation
-from .qmath import meyer_wallach_measure
-from .state import QubitState, MatrixProductState, DistributedQubitState
-
-from .mbqc import SubGraphState, GraphState
-from .mbqc import Pattern
-
-from .photonic import permanent, takagi, hafnian, torontonian, williamson
-from .photonic import FockState, GaussianState, BosonicState, CatState, GKPState, FockStateBosonic
-from .photonic import QumodeCircuit, QumodeCircuitTDM, Clements, GaussianBosonSampling
-from .photonic import UnitaryMapper, UnitaryDecomposer, DrawClements
-from .photonic import DistributedFockState, DistributedQumodeCircuit
+from .qmath import amplitude_encoding, expectation, measure, meyer_wallach_measure, multi_kron, partial_trace
+from .state import DistributedQubitState, MatrixProductState, QubitState

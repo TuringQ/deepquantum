@@ -1,6 +1,6 @@
-import deepquantum as dq
-import pytest
 import torch
+
+import deepquantum as dq
 
 
 def test_get_amplitude():

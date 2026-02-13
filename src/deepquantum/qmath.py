@@ -1,11 +1,9 @@
-"""
-Common functions
-"""
+"""Common functions"""
 
 import copy
 from collections import Counter, defaultdict
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
-from typing import TYPE_CHECKING
+from collections.abc import Callable
+from typing import Any, TYPE_CHECKING
 
 import numpy as np
 import torch
@@ -18,10 +16,11 @@ if TYPE_CHECKING:
 
 def is_power_of_two(n: int) -> bool:
     """Check if an integer is a power of two."""
+
     def f(x):
         if x < 2:
             return False
-        elif x & (x-1) == 0:
+        elif x & (x - 1) == 0:
             return True
         return False
 
@@ -43,7 +42,7 @@ def int_to_bitstring(x: int, n: int, debug: bool = False) -> str:
     """Convert from integer to bit string."""
     assert isinstance(x, int)
     assert isinstance(n, int)
-    if x < 2 ** n:
+    if x < 2**n:
         # remove '0b'
         s = bin(x)[2:]
         if len(s) <= n:
@@ -55,7 +54,7 @@ def int_to_bitstring(x: int, n: int, debug: bool = False) -> str:
     return s
 
 
-def list_to_decimal(digits: List[int], base: int) -> int:
+def list_to_decimal(digits: list[int], base: int) -> int:
     """Convert from list of digits to decimal integer."""
     result = 0
     for digit in digits:
@@ -64,7 +63,7 @@ def list_to_decimal(digits: List[int], base: int) -> int:
     return result
 
 
-def decimal_to_list(n: int, base: int, ndigit: Optional[int] = None) -> List[int]:
+def decimal_to_list(n: int, base: int, ndigit: int | None = None) -> list[int]:
     """Convert from decimal integer to list of digits."""
     assert base >= 2, 'Base must be at least 2'
     if n == 0:
@@ -82,7 +81,7 @@ def decimal_to_list(n: int, base: int, ndigit: Optional[int] = None) -> List[int
     return digits
 
 
-def inverse_permutation(permute_shape: List[int]) -> List[int]:
+def inverse_permutation(permute_shape: list[int]) -> list[int]:
     """Calculate the inversed permutation.
 
     Args:
@@ -100,6 +99,8 @@ def is_unitary(matrix: torch.Tensor, rtol: float = 1e-5, atol: float = 1e-4) -> 
 
     Args:
         matrix (torch.Tensor): Square matrix.
+        rtol (float, optional): Relative tolerance. Default: 1e-5
+        atol (float, optional): Absolute tolerance. Default: 1e-4
 
     Returns:
         bool: ``True`` if ``matrix`` is unitary, ``False`` otherwise.
@@ -108,8 +109,9 @@ def is_unitary(matrix: torch.Tensor, rtol: float = 1e-5, atol: float = 1e-4) -> 
         return False
     conj_trans = matrix.t().conj()
     product = torch.matmul(matrix, conj_trans)
-    return torch.allclose(product, torch.eye(matrix.shape[0], dtype=matrix.dtype, device=matrix.device),
-                          rtol=rtol, atol=atol)
+    return torch.allclose(
+        product, torch.eye(matrix.shape[0], dtype=matrix.dtype, device=matrix.device), rtol=rtol, atol=atol
+    )
 
 
 def is_density_matrix(rho: torch.Tensor) -> bool:
@@ -144,9 +146,7 @@ def is_density_matrix(rho: torch.Tensor) -> bool:
         return False
     # Check if the eigenvalues of each matrix are non-negative
     positive_semi_definite = torch.all(torch.linalg.eig(rho)[0].real >= 0).item()
-    if not positive_semi_definite:
-        return False
-    return True
+    return positive_semi_definite
 
 
 def is_positive_definite(mat: torch.Tensor) -> bool:
@@ -158,7 +158,7 @@ def is_positive_definite(mat: torch.Tensor) -> bool:
 
 def safe_inverse(x: Any, epsilon: float = 1e-12) -> Any:
     """Safe inversion."""
-    return x / (x ** 2 + epsilon)
+    return x / (x**2 + epsilon)
 
 
 class SVD(torch.autograd.Function):
@@ -167,14 +167,13 @@ class SVD(torch.autograd.Function):
     Modified from https://github.com/wangleiphy/tensorgrad/blob/master/tensornets/adlib/svd.py
     See https://readpaper.com/paper/2971614414
     """
+
     generate_vmap_rule = True
 
-    # pylint: disable=arguments-renamed
     @staticmethod
     def forward(a):
         u, s, vh = torch.linalg.svd(a, full_matrices=False)
         s = s.to(u.dtype)
-        # ctx.save_for_backward(u, s, vh)
         return u, s, vh
 
     # setup_context is responsible for calling methods and/or assigning to
@@ -203,10 +202,10 @@ class SVD(torch.autograd.Function):
 
         j = f * (uh @ du)
         k = f * (vh @ dv)
-        l = (vh @ dv).diagonal(dim1=-2, dim2=-1).diag_embed()
+        l = (vh @ dv).diagonal(dim1=-2, dim2=-1).diag_embed()  # noqa: E741
         s_inv = safe_inverse(s).diag_embed()
-        # pylint: disable=line-too-long
-        da = u @ (ds.diag_embed() + (j + j.mH) @ s.diag_embed() + s.diag_embed() @ (k + k.mH) + s_inv @ (l.mH - l) / 2) @ vh
+        mat_s = s.diag_embed()
+        da = u @ (ds.diag_embed() + (j + j.mH) @ mat_s + mat_s @ (k + k.mH) + s_inv @ (l.mH - l) / 2) @ vh
         if m > ns:
             da += (torch.eye(m, dtype=du.dtype, device=du.device) - u @ uh) @ du @ s_inv @ vh
         if n > ns:
@@ -229,13 +228,10 @@ def torchqr_grad(a, q, r, dq, dr):
 
     def _triangular_solve(x, r):
         """Equivalent to matmul(x, adjoint(matrix_inverse(r))) if r is upper-tri."""
-        return torch.linalg.solve_triangular(
-            r, x.adjoint(), upper=True, unitriangular=False
-        ).adjoint()
+        return torch.linalg.solve_triangular(r, x.adjoint(), upper=True, unitriangular=False).adjoint()
 
     def _qr_grad_square_and_deep_matrices(q, r, dq, dr):
         """Get the gradient for matrix orders num_rows >= num_cols and full_matrices is false."""
-
         # Modification begins
         rdiag = torch.linalg.diagonal(r)
         # if abs(rdiag[i]) < qr_epsilon then rdiag[i] = qr_epsilon otherwise keep the old value
@@ -258,9 +254,7 @@ def torchqr_grad(a, q, r, dq, dr):
 
         if q.is_complex():
             m = rdr - qdq.adjoint()
-            eyem = torch.diagonal_scatter(
-                torch.zeros_like(m), torch.linalg.diagonal(m), dim1=-2, dim2=-1
-            )
+            eyem = torch.diagonal_scatter(torch.zeros_like(m), torch.linalg.diagonal(m), dim1=-2, dim2=-1)
             correction = eyem - torch.real(eyem).to(dtype=q.dtype)
             ret = ret + _triangular_solve(torch.matmul(q, correction.adjoint()), r)
 
@@ -283,9 +277,9 @@ def torchqr_grad(a, q, r, dq, dr):
 # from tensorcircuit
 class QR(torch.autograd.Function):
     """Customized backward of QR for better numerical stability."""
+
     generate_vmap_rule = True
 
-    # pylint: disable=arguments-renamed
     @staticmethod
     def forward(a):
         q, r = torch.linalg.qr(a, mode='reduced')
@@ -315,7 +309,8 @@ class QR(torch.autograd.Function):
 svd = SVD.apply
 qr = QR.apply
 
-def split_tensor(tensor: torch.Tensor, center_left: bool = True) -> Tuple[torch.Tensor, torch.Tensor]:
+
+def split_tensor(tensor: torch.Tensor, center_left: bool = True) -> tuple[torch.Tensor, torch.Tensor]:
     """Split a tensor by QR."""
     if center_left:
         q, r = qr(tensor.mH)
@@ -324,7 +319,7 @@ def split_tensor(tensor: torch.Tensor, center_left: bool = True) -> Tuple[torch.
         return qr(tensor)
 
 
-def state_to_tensors(state: torch.Tensor, nsite: int, qudit: int = 2) -> List[torch.Tensor]:
+def state_to_tensors(state: torch.Tensor, nsite: int, qudit: int = 2) -> list[torch.Tensor]:
     """Convert a quantum state to a list of tensors."""
     state = state.reshape([qudit] * nsite)
     tensors = []
@@ -340,11 +335,7 @@ def state_to_tensors(state: torch.Tensor, nsite: int, qudit: int = 2) -> List[to
 
 
 def slice_state_vector(
-    state: torch.Tensor,
-    nqubit: int,
-    wires: List[int],
-    bits: str,
-    normalize: bool = True
+    state: torch.Tensor, nqubit: int, wires: list[int], bits: str, normalize: bool = True
 ) -> torch.Tensor:
     """Get the sliced state vectors according to ``wires`` and ``bits``."""
     if len(bits) == 1:
@@ -368,7 +359,7 @@ def slice_state_vector(
     return state
 
 
-def multi_kron(lst: List[torch.Tensor]) -> torch.Tensor:
+def multi_kron(lst: list[torch.Tensor]) -> torch.Tensor:
     """Calculate the Kronecker/tensor/outer product for a list of tensors.
 
     Args:
@@ -386,7 +377,7 @@ def multi_kron(lst: List[torch.Tensor]) -> torch.Tensor:
         return rst.contiguous()
 
 
-def partial_trace(rho: torch.Tensor, nqudit: int, trace_lst: List[int], qudit: int = 2) -> torch.Tensor:
+def partial_trace(rho: torch.Tensor, nqudit: int, trace_lst: list[int], qudit: int = 2) -> torch.Tensor:
     r"""Calculate the partial trace for a batch of density matrices.
 
     Args:
@@ -402,7 +393,7 @@ def partial_trace(rho: torch.Tensor, nqudit: int, trace_lst: List[int], qudit: i
     if rho.ndim == 2:
         rho = rho.unsqueeze(0)
     assert rho.ndim == 3
-    assert rho.shape[1] == rho.shape[2] == qudit ** nqudit
+    assert rho.shape[1] == rho.shape[2] == qudit**nqudit
     b = rho.shape[0]
     n = len(trace_lst)
     trace_lst = [i + 1 for i in trace_lst]
@@ -412,7 +403,7 @@ def partial_trace(rho: torch.Tensor, nqudit: int, trace_lst: List[int], qudit: i
     for i in trace_lst:
         permute_shape.remove(i)
     permute_shape += trace_lst
-    rho = rho.reshape([b] + [qudit] * 2 * nqudit).permute(permute_shape).reshape(-1, qudit ** n, qudit ** n)
+    rho = rho.reshape([b] + [qudit] * 2 * nqudit).permute(permute_shape).reshape(-1, qudit**n, qudit**n)
     rho = rho.diagonal(dim1=-2, dim2=-1).sum(-1)
     return rho.reshape(b, qudit ** (nqudit - n), qudit ** (nqudit - n)).squeeze(0)
 
@@ -448,15 +439,13 @@ def amplitude_encoding(data: Any, nqubit: int) -> torch.Tensor:
                 [0.0000+0.j],
                 [0.0000+0.j]]])
     """
-    if not isinstance(data, (torch.Tensor, nn.Parameter)):
+    if not isinstance(data, torch.Tensor):
         data = torch.tensor(data)
-    if data.ndim == 1 or (data.ndim == 2 and data.shape[-1] == 1):
-        batch = 1
-    else:
-        batch = data.shape[0]
+    is_single_state = data.ndim == 1 or (data.ndim == 2 and data.shape[-1] == 1)
+    batch = 1 if is_single_state else data.shape[0]
     data = data.reshape(batch, -1)
     size = data.shape[1]
-    n = 2 ** nqubit
+    n = 2**nqubit
     state = torch.zeros(batch, n, dtype=data.dtype, device=data.device) + 0j
     data = nn.functional.normalize(data[:, :n], p=2, dim=-1)
     if n > size:
@@ -467,11 +456,7 @@ def amplitude_encoding(data: Any, nqubit: int) -> torch.Tensor:
 
 
 def evolve_state(
-    state: torch.Tensor,
-    matrix: torch.Tensor,
-    nqudit: int,
-    wires: List[int],
-    qudit: int = 2
+    state: torch.Tensor, matrix: torch.Tensor, nqudit: int, wires: list[int], qudit: int = 2
 ) -> torch.Tensor:
     """Perform the evolution of quantum states.
 
@@ -488,18 +473,14 @@ def evolve_state(
     for i in wires:
         pm_shape.remove(i)
     pm_shape = wires + pm_shape
-    state = state.permute(pm_shape).reshape(qudit ** nt, -1)
+    state = state.permute(pm_shape).reshape(qudit**nt, -1)
     state = (matrix @ state).reshape([qudit] * nt + [-1] + [qudit] * (nqudit - nt))
     state = state.permute(inverse_permutation(pm_shape))
     return state
 
 
 def evolve_den_mat(
-    state: torch.Tensor,
-    matrix: torch.Tensor,
-    nqudit: int,
-    wires: List[int],
-    qudit: int = 2
+    state: torch.Tensor, matrix: torch.Tensor, nqudit: int, wires: list[int], qudit: int = 2
 ) -> torch.Tensor:
     """Perform the evolution of density matrices.
 
@@ -517,7 +498,7 @@ def evolve_den_mat(
     for i in wires1:
         pm_shape.remove(i)
     pm_shape = wires1 + pm_shape
-    state = state.permute(pm_shape).reshape(qudit ** nt, -1)
+    state = state.permute(pm_shape).reshape(qudit**nt, -1)
     state = (matrix @ state).reshape([qudit] * nt + [-1] + [qudit] * (2 * nqudit - nt))
     state = state.permute(inverse_permutation(pm_shape))
     # right multiply
@@ -526,13 +507,13 @@ def evolve_den_mat(
     for i in wires2:
         pm_shape.remove(i)
     pm_shape = wires2 + pm_shape
-    state = state.permute(pm_shape).reshape(qudit ** nt, -1)
+    state = state.permute(pm_shape).reshape(qudit**nt, -1)
     state = (matrix.conj() @ state).reshape([qudit] * nt + [-1] + [qudit] * (2 * nqudit - nt))
     state = state.permute(inverse_permutation(pm_shape))
     return state
 
 
-def block_sample(probs: torch.Tensor, shots: int = 1024, block_size: int = 2 ** 24) -> List:
+def block_sample(probs: torch.Tensor, shots: int = 1024, block_size: int = 2**24) -> list:
     """Sample from a probability distribution using block sampling.
 
     Args:
@@ -561,10 +542,10 @@ def measure(
     state: torch.Tensor,
     shots: int = 1024,
     with_prob: bool = False,
-    wires: Union[int, List[int], None] = None,
+    wires: int | list[int] | None = None,
     den_mat: bool = False,
-    block_size: int = 2 ** 24
-) -> Union[Dict, List[Dict]]:
+    block_size: int = 2**24,
+) -> dict | list[dict]:
     r"""A function that performs a measurement on a quantum state and returns the results.
 
     The measurement is done by sampling from the probability distribution of the quantum state. The results
@@ -597,10 +578,8 @@ def measure(
     if den_mat:
         assert is_density_matrix(state), 'Please input density matrices'
         state = state.diagonal(dim1=-2, dim2=-1)
-    if state.ndim == 1 or (state.ndim == 2 and state.shape[-1] == 1):
-        batch = 1
-    else:
-        batch = state.shape[0]
+    is_single_state = state.ndim == 1 or (state.ndim == 2 and state.shape[-1] == 1)
+    batch = 1 if is_single_state else state.shape[0]
     state = state.reshape(batch, -1)
     assert is_power_of_two(state.shape[-1]), 'The length of the quantum state is not in the form of 2^n'
     n = int(np.log2(state.shape[-1]))
@@ -616,10 +595,7 @@ def measure(
     num_bits = len(wires) if wires else n
     results_tot = []
     for i in range(batch):
-        if den_mat:
-            probs = torch.abs(state[i])
-        else:
-            probs = torch.abs(state[i]) ** 2
+        probs = torch.abs(state[i]) if den_mat else torch.abs(state[i]) ** 2
         if wires is not None:
             probs = probs.reshape([2] * n).permute(pm_shape).reshape([2] * len(wires) + [-1]).sum(-1).reshape(-1)
         # Perform block sampling to reduce memory consumption
@@ -637,10 +613,7 @@ def measure(
 
 
 def sample_sc_mcmc(
-    prob_func: Callable,
-    proposal_sampler: Callable,
-    shots: int = 1024,
-    num_chain: int = 5
+    prob_func: Callable, proposal_sampler: Callable, shots: int = 1024, num_chain: int = 5
 ) -> defaultdict:
     """Get the samples of the probability distribution function via SC-MCMC method."""
     samples_chain = []
@@ -660,7 +633,7 @@ def sample_sc_mcmc(
         # random start
         sample_0 = proposal_sampler()
         if not isinstance(sample_0, str):
-            if prob_func(sample_0) < 1e-12: # avoid the samples with almost-zero probability
+            if prob_func(sample_0) < 1e-12:  # avoid the samples with almost-zero probability
                 sample_0 = tuple([0] * len(sample_0))
             while prob_func(sample_0) < 1e-9:
                 sample_0 = proposal_sampler()
@@ -672,7 +645,7 @@ def sample_sc_mcmc(
             prob_max = prob_func(sample_0)
             cache_prob[sample_max] = prob_max
         dict_sample = defaultdict(int)
-        for i in tqdm(range(1, shots_lst[trial]), desc=f'chain {trial+1}', ncols=80, colour='green'):
+        for i in tqdm(range(1, shots_lst[trial]), desc=f'chain {trial + 1}', ncols=80, colour='green'):
             sample_i = proposal_sampler()
             if sample_i in cache_prob:
                 prob_i = cache_prob[sample_i]
@@ -684,9 +657,9 @@ def sample_sc_mcmc(
             if prob_i / prob_max > rand_num:
                 sample_max = sample_i
                 prob_max = prob_i
-            if i < len_cache: # cache not full
+            if i < len_cache:  # cache not full
                 cache.append(sample_max)
-            else: # full
+            else:  # full
                 idx = np.random.randint(0, len_cache)
                 out_sample = copy.deepcopy(cache[idx])
                 cache[idx] = sample_max
@@ -709,7 +682,7 @@ def sample_sc_mcmc(
     return merged_samples
 
 
-def get_prob_mps(mps_lst: List[torch.Tensor], wire: int) -> torch.Tensor:
+def get_prob_mps(mps_lst: list[torch.Tensor], wire: int) -> torch.Tensor:
     """Calculate the probability distribution (|0⟩ and |1⟩ probabilities) for a specific wire in an MPS.
 
     This function computes the probability of measuring |0⟩ and |1⟩ for the k-th qubit in a quantum state
@@ -726,7 +699,8 @@ def get_prob_mps(mps_lst: List[torch.Tensor], wire: int) -> torch.Tensor:
     Returns:
         torch.Tensor: A tensor containing [P(|0⟩), P(|1⟩)] probabilities for the target qubit
     """
-    def contract_conjugate_pair(tensors: List[torch.Tensor]) -> torch.Tensor:
+
+    def contract_conjugate_pair(tensors: list[torch.Tensor]) -> torch.Tensor:
         """Contract a list of MPS tensors with their conjugates.
 
         This helper function performs the contraction between a list of MPS tensors
@@ -743,7 +717,7 @@ def get_prob_mps(mps_lst: List[torch.Tensor], wire: int) -> torch.Tensor:
 
         # Contract first tensor with its conjugate
         contracted = torch.tensordot(tensors[0].conj(), tensors[0], dims=([1], [1]))
-        contracted = contracted.permute(0, 2, 1, 3) # (left_c, left, right_c, right)
+        contracted = contracted.permute(0, 2, 1, 3)  # (left_c, left, right_c, right)
 
         # Iteratively contract remaining tensors
         for tensor in tensors[1:]:
@@ -755,7 +729,7 @@ def get_prob_mps(mps_lst: List[torch.Tensor], wire: int) -> torch.Tensor:
 
     # Split MPS into left and right parts relative to target qubit
     left_tensors = mps_lst[:wire] if wire > 0 else []
-    right_tensors = mps_lst[wire + 1:] if wire < len(mps_lst) - 1 else []
+    right_tensors = mps_lst[wire + 1 :] if wire < len(mps_lst) - 1 else []
     target_tensor = mps_lst[wire]
 
     # Contract left and right parts separately
@@ -773,10 +747,8 @@ def get_prob_mps(mps_lst: List[torch.Tensor], wire: int) -> torch.Tensor:
 
 
 def inner_product_mps(
-    tensors0: List[torch.Tensor],
-    tensors1: List[torch.Tensor],
-    form: str = 'norm'
-) -> Union[torch.Tensor, List[torch.Tensor]]:
+    tensors0: list[torch.Tensor], tensors1: list[torch.Tensor], form: str = 'norm'
+) -> torch.Tensor | list[torch.Tensor]:
     r"""Computes the inner product of two matrix product states.
 
     Args:
@@ -802,12 +774,13 @@ def inner_product_mps(
 
     v0 = torch.eye(tensors0[0].shape[-3], dtype=tensors0[0].dtype, device=tensors0[0].device)
     v1 = torch.eye(tensors1[0].shape[-3], dtype=tensors0[0].dtype, device=tensors0[0].device)
-    v = torch.kron(v0, v1).reshape([tensors0[0].shape[-3], tensors1[0].shape[-3],
-                                    tensors0[0].shape[-3], tensors1[0].shape[-3]])
+    v = torch.kron(v0, v1).reshape(
+        [tensors0[0].shape[-3], tensors1[0].shape[-3], tensors0[0].shape[-3], tensors1[0].shape[-3]]
+    )
     norm_list = []
     for n in range(len(tensors0)):
         v = torch.einsum('...uvap,...adb,...pdq->...uvbq', v, tensors0[n].conj(), tensors1[n])
-        norm_v = v.norm(p=2, dim=[-4,-3,-2,-1], keepdim=True)
+        norm_v = v.norm(p=2, dim=[-4, -3, -2, -1], keepdim=True)
         v = v / norm_v
         norm_list.append(norm_v.squeeze())
     if v.numel() > 1:
@@ -829,10 +802,7 @@ def inner_product_mps(
 
 
 def expectation(
-    state: Union[torch.Tensor, List[torch.Tensor]],
-    observable: 'Observable',
-    den_mat: bool = False,
-    chi: Optional[int] = None
+    state: torch.Tensor | list[torch.Tensor], observable: 'Observable', den_mat: bool = False, chi: int | None = None
 ) -> torch.Tensor:
     """A function that calculates the expectation value of an observable on a quantum state.
 
@@ -852,9 +822,9 @@ def expectation(
         torch.Tensor: The expectation value of the observable on the quantum state. It is a scalar tensor
         with real values.
     """
-    # pylint: disable=import-outside-toplevel
     if isinstance(state, list):
         from .state import MatrixProductState
+
         mps = MatrixProductState(nsite=len(state), state=state, chi=chi)
         return inner_product_mps(state, observable(mps).tensors).real
     if den_mat:
@@ -865,7 +835,7 @@ def expectation(
     return expval
 
 
-def sample2expval(sample: Dict) -> torch.Tensor:
+def sample2expval(sample: dict) -> torch.Tensor:
     """Get the expectation value according to the measurement results."""
     total = 0
     exp = 0

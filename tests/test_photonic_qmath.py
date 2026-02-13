@@ -1,12 +1,11 @@
-import deepquantum as dq
-import deepquantum.photonic as dqp
 import networkx as nx
 import numpy as np
-import pytest
 import torch
-from deepquantum.photonic import Squeezing2
-from deepquantum.photonic import xxpp_to_xpxp, xpxp_to_xxpp, quadrature_to_ladder, ladder_to_quadrature
 from scipy.stats import unitary_group
+
+import deepquantum as dq
+import deepquantum.photonic as dqp
+from deepquantum.photonic import Squeezing2, ladder_to_quadrature, quadrature_to_ladder, xpxp_to_xxpp, xxpp_to_xpxp
 
 
 def test_quadrature_ladder_transform():
@@ -70,9 +69,9 @@ def test_williamson():
     cir.any(unitary=u, wires=list(range(nmode)))
     cov, _ = cir()
     t, s = dq.williamson(cov[0])
-    err1 = abs((s @ t @ s.mT) - cov[0]).sum() # 验证分解正确性
+    err1 = abs((s @ t @ s.mT) - cov[0]).sum()  # 验证分解正确性
     omega = cov.new_ones(nmode)
     omega = torch.cat([-omega, omega]).diag_embed()
-    omega = omega.reshape(2, nmode, 2 * nmode).flip(0).reshape(2 * nmode, 2 * nmode) # symplectic form
-    err2 = abs((s.mT @ omega @ s) - omega).sum() # 验证辛形式
+    omega = omega.reshape(2, nmode, 2 * nmode).flip(0).reshape(2 * nmode, 2 * nmode)  # symplectic form
+    err2 = abs((s.mT @ omega @ s) - omega).sum()  # 验证辛形式
     assert err1 + err2 < 5e-4

@@ -2,7 +2,6 @@
 
 ![DeepQuantum logo](docs/source/_static/assets/logo_light_v1.png)
 
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![docs](https://img.shields.io/badge/docs-link-blue.svg)](https://dqapi.turingq.com/)
 [![PyPI](https://img.shields.io/pypi/v/deepquantum.svg?logo=pypi)](https://pypi.org/project/deepquantum/)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/deepquantum)
@@ -87,6 +86,7 @@ Below are some minimal examples to help you get started.
 
 ```python
 import deepquantum as dq
+
 cir = dq.QubitCircuit(2)
 cir.h(0)
 cir.cnot(0, 1)
@@ -113,10 +113,10 @@ print(cir.expectation())
 - Photonic quantum circuit with the Fock backend, based on Fock basis state
 
 ```python
-cir = dq.QumodeCircuit(2, [1,1])
-cir.dc([0,1])
+cir = dq.QumodeCircuit(2, [1, 1])
+cir.dc([0, 1])
 cir.ps(0, 0.1)
-cir.bs([0,1], [0.2,0.3])
+cir.bs([0, 1], [0.2, 0.3])
 print(cir())
 print(cir.measure())
 ```
@@ -124,10 +124,10 @@ print(cir.measure())
 - Photonic quantum circuit with the Fock backend, based on Fock state tensor
 
 ```python
-cir = dq.QumodeCircuit(2, [(1, [1,1])], basis=False)
-cir.dc([0,1])
+cir = dq.QumodeCircuit(2, [(1, [1, 1])], basis=False)
+cir.dc([0, 1])
 cir.ps(0, 0.1)
-cir.bs([0,1], [0.2,0.3])
+cir.bs([0, 1], [0.2, 0.3])
 print(cir())
 print(cir.measure())
 ```
@@ -138,7 +138,7 @@ print(cir.measure())
 cir = dq.QumodeCircuit(2, 'vac', cutoff=10, backend='gaussian')
 cir.s(0, 0.1)
 cir.d(1, 0.1)
-cir.bs([0,1], [0.2,0.3])
+cir.bs([0, 1], [0.2, 0.3])
 print(cir())
 print(cir.measure())
 print(cir.photon_number_mean_var(wires=0))
@@ -151,7 +151,7 @@ print(cir.measure_homodyne(wires=1))
 cir = dq.QumodeCircuit(2, 'vac', backend='bosonic')
 cir.cat(0, 0.5, 0.0)
 cir.gkp(1, 0.5, 0.5)
-cir.bs([0,1], [0.2,0.3])
+cir.bs([0, 1], [0.2, 0.3])
 print(cir())
 print(cir.photon_number_mean_var(wires=0))
 print(cir.measure_homodyne(wires=1))
@@ -167,7 +167,7 @@ pattern.e(1, 2)
 pattern.m(1)
 pattern.x(2, domain=1)
 # CNOT
-pattern.n([3,4])
+pattern.n([3, 4])
 pattern.e(2, 3)
 pattern.e(0, 3)
 pattern.e(3, 4)
@@ -196,10 +196,11 @@ print(cir() / pattern().full_state)
 
 ```python
 import torch
+
 # OMP_NUM_THREADS=2 torchrun --nproc_per_node=4 main.py
-backend = 'gloo' # for CPU
+backend = 'gloo'  # for CPU
 # torchrun --nproc_per_node=4 main.py
-backend = 'nccl' # for GPU
+backend = 'nccl'  # for GPU
 rank, world_size, local_rank = dq.setup_distributed(backend)
 if backend == 'nccl':
     device = f'cuda:{local_rank}'
@@ -229,9 +230,9 @@ dq.cleanup_distributed()
 
 ```python
 # OMP_NUM_THREADS=2 torchrun --nproc_per_node=4 main.py
-backend = 'gloo' # for CPU
+backend = 'gloo'  # for CPU
 # torchrun --nproc_per_node=4 main.py
-backend = 'nccl' # for GPU
+backend = 'nccl'  # for GPU
 rank, world_size, local_rank = dq.setup_distributed(backend)
 nmode = 4
 cutoff = 4
@@ -251,6 +252,22 @@ if rank == 0:
     print(result)
 dq.cleanup_distributed()
 ```
+
+# Contributing
+
+We welcome contributions from the community!
+To maintain high code quality and consistent style, we use a modern development workflow.
+
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Jupytext](https://img.shields.io/badge/jupytext-enabled-blue)](https://github.com/mwouts/jupytext)
+[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
+
+Please refer to our **[CONTRIBUTING.md](CONTRIBUTING.md)** for detailed instructions on:
+- **Linting & Formatting**: Our coding standards using Ruff.
+- **Notebook Management**: How we sync `.ipynb` and `.py` files using Jupytext.
+- **Pull Request Process**: How to link issues and submit your changes.
+
+Before your first commit, remember to run `pre-commit install` in your local environment.
 
 # Citation
 

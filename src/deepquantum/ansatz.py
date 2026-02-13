@@ -1,16 +1,14 @@
-"""
-Ansatze: various quantum circuits
-"""
+"""Ansatze: various quantum circuits"""
 
 import random
-from typing import Any, List, Optional, Union
+from typing import Any
 
 import numpy as np
 import torch
 
-from .qmath import int_to_bitstring, is_unitary # avoid circular import
 from .circuit import QubitCircuit
-from .gate import U3Gate, Rxx, Ryy, Rzz
+from .gate import Rxx, Ryy, Rzz, U3Gate
+from .qmath import int_to_bitstring, is_unitary  # avoid circular import
 
 
 class Ansatz(QubitCircuit):
@@ -32,22 +30,24 @@ class Ansatz(QubitCircuit):
         chi (int or None, optional): The bond dimension for matrix product state representation.
             Default: ``None``
     """
+
     def __init__(
         self,
         nqubit: int,
-        wires: Union[int, List[int], None] = None,
-        minmax: Optional[List[int]] = None,
-        ancilla: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        wires: int | list[int] | None = None,
+        minmax: list[int] | None = None,
+        ancilla: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         init_state: Any = 'zeros',
-        name: Optional[str] = None,
+        name: str | None = None,
         den_mat: bool = False,
         reupload: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None
+        chi: int | None = None,
     ) -> None:
-        super().__init__(nqubit=nqubit, init_state=init_state, name=name, den_mat=den_mat,
-                         reupload=reupload, mps=mps, chi=chi)
+        super().__init__(
+            nqubit=nqubit, init_state=init_state, name=name, den_mat=den_mat, reupload=reupload, mps=mps, chi=chi
+        )
         if wires is None:
             if minmax is None:
                 minmax = [0, nqubit - 1]
@@ -88,19 +88,20 @@ class ControlledMultiplier(Ansatz):
             Default: ``None``
         debug (bool, optional): Whether to print the debug information. Default: ``False``
     """
+
     def __init__(
         self,
         nqubit: int,
         a: int,
         mod: int,
-        minmax: Optional[List[int]] = None,
-        nqubitx: Optional[int] = None,
-        ancilla: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        minmax: list[int] | None = None,
+        nqubitx: int | None = None,
+        ancilla: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         den_mat: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None,
-        debug: bool = False
+        chi: int | None = None,
+        debug: bool = False,
     ) -> None:
         assert isinstance(a, int)
         assert isinstance(mod, int)
@@ -110,25 +111,43 @@ class ControlledMultiplier(Ansatz):
             nqubitx = len(bin(mod)) - 2
         if ancilla is None:
             ancilla = [minmax[1] + 1]
-        super().__init__(nqubit=nqubit, wires=None, minmax=minmax, ancilla=ancilla, controls=controls,
-                         init_state='zeros', name='ControlledMultiplier', den_mat=den_mat, mps=mps, chi=chi)
+        super().__init__(
+            nqubit=nqubit,
+            wires=None,
+            minmax=minmax,
+            ancilla=ancilla,
+            controls=controls,
+            init_state='zeros',
+            name='ControlledMultiplier',
+            den_mat=den_mat,
+            mps=mps,
+            chi=chi,
+        )
         # one extra qubit to prevent overflow
         assert len(self.wires) >= nqubitx + len(bin(mod)) - 1, 'Quantum register is not enough.'
         minmax1 = [self.minmax[0], self.minmax[0] + nqubitx - 1]
         minmax2 = [minmax1[1] + 1, minmax[1]]
-        qft = QuantumFourierTransform(nqubit=nqubit, minmax=minmax2, reverse=True,
-                                      den_mat=self.den_mat, mps=self.mps, chi=self.chi)
+        qft = QuantumFourierTransform(
+            nqubit=nqubit, minmax=minmax2, reverse=True, den_mat=self.den_mat, mps=self.mps, chi=self.chi
+        )
         iqft = qft.inverse()
         self.add(qft)
-        k = 0
-        for i in range(minmax1[1], minmax1[0] - 1, -1): # the significant bit in |x> is reversed in Fig.6
+        for k, i in enumerate(range(minmax1[1], minmax1[0] - 1, -1)):  # the significant bit in |x> is reversed in Fig.6
             if debug and 2**k * a >= 2 * mod:
                 print(f'The number 2^{k}*{a} in {self.name} may be too large, unless the control qubit {i} is 0.')
-            pma = PhiModularAdder(nqubit=nqubit, number=2**k * a, mod=mod, minmax=minmax2,
-                                  ancilla=self.ancilla, controls=self.controls + [i],
-                                  den_mat=self.den_mat, mps=self.mps, chi=self.chi, debug=debug)
+            pma = PhiModularAdder(
+                nqubit=nqubit,
+                number=2**k * a,
+                mod=mod,
+                minmax=minmax2,
+                ancilla=self.ancilla,
+                controls=self.controls + [i],
+                den_mat=self.den_mat,
+                mps=self.mps,
+                chi=self.chi,
+                debug=debug,
+            )
             self.add(pma)
-            k += 1
         self.add(iqft)
 
 
@@ -152,18 +171,19 @@ class ControlledUa(Ansatz):
             Default: ``None``
         debug (bool, optional): Whether to print the debug information. Default: ``False``
     """
+
     def __init__(
         self,
         nqubit: int,
         a: int,
         mod: int,
-        minmax: Optional[List[int]] = None,
-        ancilla: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        minmax: list[int] | None = None,
+        ancilla: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         den_mat: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None,
-        debug: bool = False
+        chi: int | None = None,
+        debug: bool = False,
     ) -> None:
         # |x> with n bits, |0> with n+1 bits and one extra ancilla bit
         nregister = len(bin(mod)) - 2
@@ -172,20 +192,50 @@ class ControlledUa(Ansatz):
             minmax = [0, nregister - 1]
         if ancilla is None:
             ancilla = list(range(minmax[1] + 1, minmax[1] + 1 + nancilla))
-        super().__init__(nqubit=nqubit, wires=None, minmax=minmax, ancilla=ancilla, controls=controls,
-                         init_state='zeros', name='ControlledUa', den_mat=den_mat, mps=mps, chi=chi)
+        super().__init__(
+            nqubit=nqubit,
+            wires=None,
+            minmax=minmax,
+            ancilla=ancilla,
+            controls=controls,
+            init_state='zeros',
+            name='ControlledUa',
+            den_mat=den_mat,
+            mps=mps,
+            chi=chi,
+        )
         assert len(self.wires) == nregister
         assert len(self.ancilla) == nancilla
-        cmult = ControlledMultiplier(nqubit=nqubit, a=a, mod=mod, minmax=[self.minmax[0], self.ancilla[-2]],
-                                     nqubitx=nregister, ancilla=self.ancilla[-1], controls=self.controls,
-                                     den_mat=self.den_mat, mps=self.mps, chi=self.chi, debug=debug)
+        cmult = ControlledMultiplier(
+            nqubit=nqubit,
+            a=a,
+            mod=mod,
+            minmax=[self.minmax[0], self.ancilla[-2]],
+            nqubitx=nregister,
+            ancilla=self.ancilla[-1],
+            controls=self.controls,
+            den_mat=self.den_mat,
+            mps=self.mps,
+            chi=self.chi,
+            debug=debug,
+        )
         self.add(cmult)
         for i in range(len(self.wires)):
             self.swap([self.wires[i], self.ancilla[i + 1]], controls=self.controls)
         a_inv = pow(a, -1, mod)
-        cmult_inv = ControlledMultiplier(nqubit=nqubit, a=a_inv, mod=mod, minmax=[self.minmax[0], self.ancilla[-2]],
-                                         nqubitx=nregister, ancilla=self.ancilla[-1], controls=self.controls,
-                                         den_mat=self.den_mat, mps=self.mps, chi=self.chi, debug=debug).inverse()
+        cmult_inv = ControlledMultiplier(
+            nqubit=nqubit,
+            a=a_inv,
+            mod=mod,
+            minmax=[self.minmax[0], self.ancilla[-2]],
+            nqubitx=nregister,
+            ancilla=self.ancilla[-1],
+            controls=self.controls,
+            den_mat=self.den_mat,
+            mps=self.mps,
+            chi=self.chi,
+            debug=debug,
+        ).inverse()
         self.add(cmult_inv)
 
 
@@ -203,6 +253,7 @@ class HHL(Ansatz):
             Default: ``None``
         show_barrier (bool, optional): Whether to show the barriers in the circuit. Default: ``False``
     """
+
     def __init__(
         self,
         ncount: int,
@@ -210,33 +261,51 @@ class HHL(Ansatz):
         t0: float = 1,
         den_mat: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None,
-        show_barrier: bool = False
+        chi: int | None = None,
+        show_barrier: bool = False,
     ) -> None:
         if not isinstance(mat, torch.Tensor):
             mat = torch.tensor(mat)
         t0 *= 2 * torch.pi
-        unitary = torch.linalg.matrix_exp(1j * mat * t0 / 2 ** ncount)
+        unitary = torch.linalg.matrix_exp(1j * mat * t0 / 2**ncount)
         assert is_unitary(unitary)
         nreg_i = int(np.log2(len(unitary)))
         nqubit = 1 + ncount + nreg_i
         self.unitary = unitary
-        super().__init__(nqubit=nqubit, wires=None, minmax=None, ancilla=None, controls=None,
-                         init_state='zeros', name='HHL', den_mat=den_mat, mps=mps, chi=chi)
-        qpe = QuantumPhaseEstimation(nqubit=nqubit, ncount=ncount, unitary=unitary, minmax=[1, nqubit-1],
-                                     den_mat=self.den_mat, mps=self.mps, chi=self.chi, show_barrier=show_barrier)
+        super().__init__(
+            nqubit=nqubit,
+            wires=None,
+            minmax=None,
+            ancilla=None,
+            controls=None,
+            init_state='zeros',
+            name='HHL',
+            den_mat=den_mat,
+            mps=mps,
+            chi=chi,
+        )
+        qpe = QuantumPhaseEstimation(
+            nqubit=nqubit,
+            ncount=ncount,
+            unitary=unitary,
+            minmax=[1, nqubit - 1],
+            den_mat=self.den_mat,
+            mps=self.mps,
+            chi=self.chi,
+            show_barrier=show_barrier,
+        )
         self.add(qpe)
         if show_barrier:
             self.barrier()
 
-        for i in range(2 ** ncount):
+        for i in range(2**ncount):
             for j in range(ncount):
-                if format(i, '0' + str(ncount) + 'b')[ncount-j-1] == '0':
+                if format(i, '0' + str(ncount) + 'b')[ncount - j - 1] == '0':
                     self.x(1 + j)
-            theta = 2 * torch.pi * i / 2 ** ncount
-            self.ry(0, inputs=theta, controls=list(range(1, ncount+1)))
+            theta = 2 * torch.pi * i / 2**ncount
+            self.ry(0, inputs=theta, controls=list(range(1, ncount + 1)))
             for j in range(ncount):
-                if format(i, '0' + str(ncount) + 'b')[ncount-j-1] == '0':
+                if format(i, '0' + str(ncount) + 'b')[ncount - j - 1] == '0':
                     self.x(1 + j)
             if show_barrier:
                 self.barrier()
@@ -260,17 +329,28 @@ class NumberEncoder(Ansatz):
         chi (int or None, optional): The bond dimension for matrix product state representation.
             Default: ``None``
     """
+
     def __init__(
         self,
         nqubit: int,
         number: int,
-        minmax: Optional[List[int]] = None,
+        minmax: list[int] | None = None,
         den_mat: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None
+        chi: int | None = None,
     ) -> None:
-        super().__init__(nqubit=nqubit, wires=None, minmax=minmax, ancilla=None, controls=None,
-                         init_state='zeros', name='NumberEncoder', den_mat=den_mat, mps=mps, chi=chi)
+        super().__init__(
+            nqubit=nqubit,
+            wires=None,
+            minmax=minmax,
+            ancilla=None,
+            controls=None,
+            init_state='zeros',
+            name='NumberEncoder',
+            den_mat=den_mat,
+            mps=mps,
+            chi=chi,
+        )
         bits = int_to_bitstring(number, len(self.wires))
         for i, wire in enumerate(self.wires):
             if bits[i] == '1':
@@ -294,27 +374,36 @@ class PhiAdder(Ansatz):
             Default: ``None``
         debug (bool, optional): Whether to print the debug information. Default: ``False``
     """
+
     def __init__(
         self,
         nqubit: int,
         number: int,
-        minmax: Optional[List[int]] = None,
-        controls: Union[int, List[int], None] = None,
+        minmax: list[int] | None = None,
+        controls: int | list[int] | None = None,
         den_mat: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None,
-        debug: bool = False
+        chi: int | None = None,
+        debug: bool = False,
     ) -> None:
-        super().__init__(nqubit=nqubit, wires=None, minmax=minmax, ancilla=None, controls=controls,
-                         init_state='zeros', name='PhiAdder', den_mat=den_mat, mps=mps, chi=chi)
+        super().__init__(
+            nqubit=nqubit,
+            wires=None,
+            minmax=minmax,
+            ancilla=None,
+            controls=controls,
+            init_state='zeros',
+            name='PhiAdder',
+            den_mat=den_mat,
+            mps=mps,
+            chi=chi,
+        )
         bits = int_to_bitstring(number, len(self.wires), debug=debug)
         for i, wire in enumerate(self.wires):
             phi = 0
-            k = 0
-            for j in range(i, len(bits)):
+            for k, j in enumerate(range(i, len(bits))):
                 if bits[j] == '1':
-                    phi += torch.pi / 2 ** k
-                k += 1
+                    phi += torch.pi / 2**k
             if phi != 0:
                 self.p(wires=wire, inputs=phi, controls=self.controls)
 
@@ -338,36 +427,65 @@ class PhiModularAdder(Ansatz):
             Default: ``None``
         debug (bool, optional): Whether to print the debug information. Default: ``False``
     """
+
     def __init__(
         self,
         nqubit: int,
         number: int,
         mod: int,
-        minmax: Optional[List[int]] = None,
-        ancilla: Union[int, List[int], None] = None,
-        controls: Union[int, List[int], None] = None,
+        minmax: list[int] | None = None,
+        ancilla: int | list[int] | None = None,
+        controls: int | list[int] | None = None,
         den_mat: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None,
-        debug: bool = False
+        chi: int | None = None,
+        debug: bool = False,
     ) -> None:
         if minmax is None:
             minmax = [0, nqubit - 2]
         if ancilla is None:
             ancilla = [minmax[1] + 1]
-        super().__init__(nqubit=nqubit, wires=None, minmax=minmax, ancilla=ancilla, controls=controls,
-                         init_state='zeros', name='PhiModularAdder', den_mat=den_mat, mps=mps, chi=chi)
+        super().__init__(
+            nqubit=nqubit,
+            wires=None,
+            minmax=minmax,
+            ancilla=ancilla,
+            controls=controls,
+            init_state='zeros',
+            name='PhiModularAdder',
+            den_mat=den_mat,
+            mps=mps,
+            chi=chi,
+        )
         if debug and number >= 2 * mod:
             print(f'The number {number} in {self.name} is too large.')
-        phi_add_number = PhiAdder(nqubit=nqubit, number=number, minmax=self.minmax, controls=self.controls,
-                                  den_mat=self.den_mat, mps=self.mps, chi=self.chi, debug=debug)
+        phi_add_number = PhiAdder(
+            nqubit=nqubit,
+            number=number,
+            minmax=self.minmax,
+            controls=self.controls,
+            den_mat=self.den_mat,
+            mps=self.mps,
+            chi=self.chi,
+            debug=debug,
+        )
         phi_sub_number = phi_add_number.inverse()
-        phi_add_mod = PhiAdder(nqubit=nqubit, number=mod, minmax=self.minmax, controls=self.ancilla,
-                               den_mat=self.den_mat, mps=self.mps, chi=self.chi, debug=debug)
-        phi_sub_mod = PhiAdder(nqubit=nqubit, number=mod, minmax=self.minmax,
-                               den_mat=self.den_mat, mps=self.mps, chi=self.chi, debug=debug).inverse()
-        qft = QuantumFourierTransform(nqubit=nqubit, minmax=self.minmax, reverse=True,
-                                      den_mat=self.den_mat, mps=self.mps, chi=self.chi)
+        phi_add_mod = PhiAdder(
+            nqubit=nqubit,
+            number=mod,
+            minmax=self.minmax,
+            controls=self.ancilla,
+            den_mat=self.den_mat,
+            mps=self.mps,
+            chi=self.chi,
+            debug=debug,
+        )
+        phi_sub_mod = PhiAdder(
+            nqubit=nqubit, number=mod, minmax=self.minmax, den_mat=self.den_mat, mps=self.mps, chi=self.chi, debug=debug
+        ).inverse()
+        qft = QuantumFourierTransform(
+            nqubit=nqubit, minmax=self.minmax, reverse=True, den_mat=self.den_mat, mps=self.mps, chi=self.chi
+        )
         iqft = qft.inverse()
         self.add(phi_add_number)
         self.add(phi_sub_mod)
@@ -403,20 +521,30 @@ class QuantumConvolutionalNeuralNetwork(Ansatz):
         chi (int or None, optional): The bond dimension for matrix product state representation.
             Default: ``None``
     """
+
     def __init__(
         self,
         nqubit: int,
         nlayer: int,
-        minmax: Optional[List[int]] = None,
+        minmax: list[int] | None = None,
         init_state: Any = 'zeros',
         den_mat: bool = False,
         requires_grad: bool = True,
         mps: bool = False,
-        chi: Optional[int] = None
+        chi: int | None = None,
     ) -> None:
-        super().__init__(nqubit=nqubit, wires=None, minmax=minmax, ancilla=None, controls=None,
-                         init_state=init_state, name='QuantumConvolutionalNeuralNetwork', den_mat=den_mat,
-                         mps=mps, chi=chi)
+        super().__init__(
+            nqubit=nqubit,
+            wires=None,
+            minmax=minmax,
+            ancilla=None,
+            controls=None,
+            init_state=init_state,
+            name='QuantumConvolutionalNeuralNetwork',
+            den_mat=den_mat,
+            mps=mps,
+            chi=chi,
+        )
         wires = self.wires
         self.requires_grad = requires_grad
         u1 = U3Gate(nqubit=nqubit, den_mat=den_mat, requires_grad=requires_grad)
@@ -430,7 +558,7 @@ class QuantumConvolutionalNeuralNetwork(Ansatz):
             wires = wires[::2]
         self.latent(wires=wires)
 
-    def conv(self, wires: List[int]) -> None:
+    def conv(self, wires: list[int]) -> None:
         rxx = Rxx(nqubit=self.nqubit, den_mat=self.den_mat, requires_grad=self.requires_grad)
         ryy = Ryy(nqubit=self.nqubit, den_mat=self.den_mat, requires_grad=self.requires_grad)
         rzz = Rzz(nqubit=self.nqubit, den_mat=self.den_mat, requires_grad=self.requires_grad)
@@ -444,7 +572,7 @@ class QuantumConvolutionalNeuralNetwork(Ansatz):
                 self.add(u1, wires=wires[2 * i + start - 1])
                 self.add(u2, wires=wire)
 
-    def pool(self, wires: List[int]) -> None:
+    def pool(self, wires: list[int]) -> None:
         cu = U3Gate(nqubit=self.nqubit, den_mat=self.den_mat, requires_grad=self.requires_grad)
         for i, wire in enumerate(wires[1::2]):
             self.add(cu, wires=wires[2 * i], controls=wire)
@@ -467,20 +595,30 @@ class QuantumFourierTransform(Ansatz):
             Default: ``None``
         show_barrier (bool, optional): Whether to show the barriers in the circuit. Default: ``False``
     """
+
     def __init__(
         self,
         nqubit: int,
-        minmax: Optional[List[int]] = None,
+        minmax: list[int] | None = None,
         reverse: bool = False,
         init_state: Any = 'zeros',
         den_mat: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None,
-        show_barrier: bool = False
+        chi: int | None = None,
+        show_barrier: bool = False,
     ) -> None:
-        super().__init__(nqubit=nqubit, wires=None, minmax=minmax, ancilla=None, controls=None,
-                         init_state=init_state, name='QuantumFourierTransform', den_mat=den_mat,
-                         mps=mps, chi=chi)
+        super().__init__(
+            nqubit=nqubit,
+            wires=None,
+            minmax=minmax,
+            ancilla=None,
+            controls=None,
+            init_state=init_state,
+            name='QuantumFourierTransform',
+            den_mat=den_mat,
+            mps=mps,
+            chi=chi,
+        )
         self.reverse = reverse
         for i in self.wires:
             self.qft_block(i)
@@ -513,16 +651,17 @@ class QuantumPhaseEstimation(Ansatz):
             Default: ``None``
         show_barrier (bool, optional): Whether to show the barriers in the circuit. Default: ``False``
     """
+
     def __init__(
         self,
         nqubit: int,
         ncount: int,
         unitary: Any,
-        minmax: Optional[List[int]] = None,
+        minmax: list[int] | None = None,
         den_mat: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None,
-        show_barrier: bool = False
+        chi: int | None = None,
+        show_barrier: bool = False,
     ) -> None:
         if not isinstance(unitary, torch.Tensor):
             unitary = torch.tensor(unitary, dtype=torch.cfloat)
@@ -532,9 +671,18 @@ class QuantumPhaseEstimation(Ansatz):
             minmax = [0, ncount + nreg_i - 1]
         assert minmax[1] - minmax[0] == ncount + nreg_i - 1
         self.unitary = unitary
-        super().__init__(nqubit=nqubit, wires=None, minmax=minmax, ancilla=None, controls=None,
-                         init_state='zeros', name='QuantumPhaseEstimation', den_mat=den_mat,
-                         mps=mps, chi=chi)
+        super().__init__(
+            nqubit=nqubit,
+            wires=None,
+            minmax=minmax,
+            ancilla=None,
+            controls=None,
+            init_state='zeros',
+            name='QuantumPhaseEstimation',
+            den_mat=den_mat,
+            mps=mps,
+            chi=chi,
+        )
         wires_c = list(range(minmax[0], minmax[0] + ncount))
         wires_i = list(range(minmax[0] + ncount, minmax[1] + 1))
         self.hlayer(wires_c)
@@ -545,8 +693,14 @@ class QuantumPhaseEstimation(Ansatz):
             self.any(unitary=u, wires=wires_i, controls=wire)
         if show_barrier:
             self.barrier()
-        iqft = QuantumFourierTransform(nqubit=nqubit, minmax=[wires_c[0], wires_c[-1]], den_mat=self.den_mat,
-                                       mps=self.mps, chi=self.chi, show_barrier=show_barrier).inverse()
+        iqft = QuantumFourierTransform(
+            nqubit=nqubit,
+            minmax=[wires_c[0], wires_c[-1]],
+            den_mat=self.den_mat,
+            mps=self.mps,
+            chi=self.chi,
+            show_barrier=show_barrier,
+        ).inverse()
         self.add(iqft)
 
 
@@ -561,25 +715,29 @@ class QuantumPhaseEstimationSingleQubit(Ansatz):
         chi (int or None, optional): The bond dimension for matrix product state representation.
             Default: ``None``
     """
-    def __init__(
-        self,
-        t: int,
-        phase: Any,
-        den_mat: bool = False,
-        mps: bool = False,
-        chi: Optional[int] = None
-    ) -> None:
+
+    def __init__(self, t: int, phase: Any, den_mat: bool = False, mps: bool = False, chi: int | None = None) -> None:
         nqubit = t + 1
         self.phase = phase
-        super().__init__(nqubit=nqubit, wires=None, minmax=None, ancilla=None, controls=None,
-                         init_state='zeros', name='QuantumPhaseEstimationSingleQubit', den_mat=den_mat,
-                         mps=mps, chi=chi)
+        super().__init__(
+            nqubit=nqubit,
+            wires=None,
+            minmax=None,
+            ancilla=None,
+            controls=None,
+            init_state='zeros',
+            name='QuantumPhaseEstimationSingleQubit',
+            den_mat=den_mat,
+            mps=mps,
+            chi=chi,
+        )
         self.hlayer(list(range(t)))
         self.x(t)
         for i in range(t):
             self.cp(i, t, torch.pi * phase * (2 ** (t - i)))
-        iqft = QuantumFourierTransform(nqubit=nqubit, minmax=[0, t - 1],
-                                       den_mat=self.den_mat, mps=self.mps, chi=self.chi).inverse()
+        iqft = QuantumFourierTransform(
+            nqubit=nqubit, minmax=[0, t - 1], den_mat=self.den_mat, mps=self.mps, chi=self.chi
+        ).inverse()
         self.add(iqft)
 
 
@@ -599,27 +757,35 @@ class RandomCircuitG3(Ansatz):
         chi (int or None, optional): The bond dimension for matrix product state representation.
             Default: ``None``
     """
+
     def __init__(
         self,
         nqubit: int,
         ngate: int,
-        wires: Optional[List[int]] = None,
-        minmax: Optional[List[int]] = None,
+        wires: list[int] | None = None,
+        minmax: list[int] | None = None,
         init_state: Any = 'zeros',
         den_mat: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None
+        chi: int | None = None,
     ) -> None:
-        super().__init__(nqubit=nqubit, wires=wires, minmax=minmax, ancilla=None, controls=None,
-                         init_state=init_state, name='RandomCircuitG3', den_mat=den_mat, mps=mps, chi=chi)
+        super().__init__(
+            nqubit=nqubit,
+            wires=wires,
+            minmax=minmax,
+            ancilla=None,
+            controls=None,
+            init_state=init_state,
+            name='RandomCircuitG3',
+            den_mat=den_mat,
+            mps=mps,
+            chi=chi,
+        )
         self.ngate = ngate
         self.gate_set = ['CNOT', 'H', 'T']
         for _ in range(ngate):
             gate = random.sample(self.gate_set, 1)[0]
-            if gate == 'CNOT':
-                wire = random.sample(self.wires, 2)
-            else:
-                wire = random.sample(self.wires, 1)
+            wire = random.sample(self.wires, 2) if gate == 'CNOT' else random.sample(self.wires, 1)
             if gate == 'CNOT':
                 self.cnot(wire[0], wire[1])
             elif gate == 'H':
@@ -641,6 +807,7 @@ class ShorCircuit(Ansatz):
             Default: ``None``
         debug (bool, optional): Whether to print the debug information. Default: ``False``
     """
+
     def __init__(
         self,
         mod: int,
@@ -648,30 +815,49 @@ class ShorCircuit(Ansatz):
         a: int,
         den_mat: bool = False,
         mps: bool = False,
-        chi: Optional[int] = None,
-        debug: bool = False
+        chi: int | None = None,
+        debug: bool = False,
     ) -> None:
         nreg = len(bin(mod)) - 2
         nqubit = ncount + 2 * nreg + 2
-        super().__init__(nqubit=nqubit, wires=None, minmax=None, ancilla=None, controls=None,
-                         init_state='zeros', name='ShorCircuit', den_mat=den_mat, mps=mps, chi=chi)
+        super().__init__(
+            nqubit=nqubit,
+            wires=None,
+            minmax=None,
+            ancilla=None,
+            controls=None,
+            init_state='zeros',
+            name='ShorCircuit',
+            den_mat=den_mat,
+            mps=mps,
+            chi=chi,
+        )
         minmax1 = [0, ncount - 1]
         minmax2 = [ncount, ncount + nreg - 1]
         ancilla = list(range(ncount + nreg, nqubit))
         self.hlayer(list(range(ncount)))
         self.x(ncount + nreg - 1)
-        n = 0
-        for i in range(ncount - 1, -1, -1):
+        for n, i in enumerate(range(ncount - 1, -1, -1)):
             # Compute a^{2^n} (mod N) by repeated squaring
             an = a
             for _ in range(n):
-                an = an ** 2 % mod
-            cua = ControlledUa(nqubit=nqubit, a=an, mod=mod, minmax=minmax2, ancilla=ancilla, controls=[i],
-                               den_mat=self.den_mat, mps=self.mps, chi=self.chi, debug=debug)
+                an = an**2 % mod
+            cua = ControlledUa(
+                nqubit=nqubit,
+                a=an,
+                mod=mod,
+                minmax=minmax2,
+                ancilla=ancilla,
+                controls=[i],
+                den_mat=self.den_mat,
+                mps=self.mps,
+                chi=self.chi,
+                debug=debug,
+            )
             self.add(cua)
-            n += 1
-        iqft = QuantumFourierTransform(nqubit=nqubit, minmax=minmax1,
-                                       den_mat=self.den_mat, mps=self.mps, chi=self.chi).inverse()
+        iqft = QuantumFourierTransform(
+            nqubit=nqubit, minmax=minmax1, den_mat=self.den_mat, mps=self.mps, chi=self.chi
+        ).inverse()
         self.add(iqft)
 
 
@@ -688,32 +874,35 @@ class ShorCircuitFor15(Ansatz):
         chi (int or None, optional): The bond dimension for matrix product state representation.
             Default: ``None``
     """
-    def __init__(
-        self,
-        ncount: int,
-        a: int,
-        den_mat: bool = False,
-        mps: bool = False,
-        chi: Optional[int] = None
-    ) -> None:
+
+    def __init__(self, ncount: int, a: int, den_mat: bool = False, mps: bool = False, chi: int | None = None) -> None:
         mod = 15
         nreg = len(bin(mod)) - 2
         nqubit = ncount + nreg
         self.ncount = ncount
-        super().__init__(nqubit=nqubit, wires=None, minmax=None, ancilla=None, controls=None,
-                         init_state='zeros', name='ShorCircuitFor15', den_mat=den_mat, mps=mps, chi=chi)
+        super().__init__(
+            nqubit=nqubit,
+            wires=None,
+            minmax=None,
+            ancilla=None,
+            controls=None,
+            init_state='zeros',
+            name='ShorCircuitFor15',
+            den_mat=den_mat,
+            mps=mps,
+            chi=chi,
+        )
         minmax = [0, ncount - 1]
         self.hlayer(list(range(ncount)))
         self.x(ncount + nreg - 1)
-        n = 0
-        for i in range(ncount - 1, -1, -1):
-            self.cua(a, 2 ** n, i)
-            n += 1
-        iqft = QuantumFourierTransform(nqubit=nqubit, minmax=minmax,
-                                       den_mat=self.den_mat, mps=self.mps, chi=self.chi).inverse()
+        for n, i in enumerate(range(ncount - 1, -1, -1)):
+            self.cua(a, 2**n, i)
+        iqft = QuantumFourierTransform(
+            nqubit=nqubit, minmax=minmax, den_mat=self.den_mat, mps=self.mps, chi=self.chi
+        ).inverse()
         self.add(iqft)
 
-    def cua(self, a: int, power: int, controls: Union[int, List[int], None]) -> None:
+    def cua(self, a: int, power: int, controls: int | list[int] | None) -> None:
         assert a in [2, 4, 7, 8, 11, 13]
         for _ in range(power):
             if a in [2, 13]:

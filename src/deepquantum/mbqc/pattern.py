@@ -1,19 +1,18 @@
-"""
-Measurement pattern
-"""
+"""Measurement pattern"""
 
+from collections.abc import Iterable
 from copy import copy, deepcopy
-from typing import Any, Dict, Iterable, List, Optional, Union
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from networkx import MultiDiGraph, draw_networkx_nodes, draw_networkx_edges, draw_networkx_labels, multipartite_layout
+from networkx import MultiDiGraph, draw_networkx_edges, draw_networkx_labels, draw_networkx_nodes, multipartite_layout
 from torch import nn
 
-from .command import Node, Entanglement, Measurement, Correction
+from .command import Correction, Entanglement, Measurement, Node
 from .operation import Operation
-from .state import SubGraphState, GraphState
+from .state import GraphState, SubGraphState
 
 
 class Pattern(Operation):
@@ -37,14 +36,15 @@ class Pattern(Operation):
 
     Ref: V. Danos, E. Kashefi and P. Panangaden. J. ACM 54.2 8 (2007)
     """
+
     def __init__(
         self,
-        nodes_state: Union[int, List[int], None] = None,
+        nodes_state: int | list[int] | None = None,
         state: Any = 'plus',
-        edges: Optional[List] = None,
-        nodes: Union[int, List[int], None] = None,
-        name: Optional[str] = None,
-        reupload: bool = False
+        edges: list | None = None,
+        nodes: int | list[int] | None = None,
+        name: str | None = None,
+        reupload: bool = False,
     ) -> None:
         super().__init__(name=name, nodes=None)
         self.reupload = reupload
@@ -63,7 +63,7 @@ class Pattern(Operation):
                 op.to(arg)
         return self
 
-    def forward(self, data: Optional[torch.Tensor] = None, state: Optional[GraphState] = None) -> GraphState:
+    def forward(self, data: torch.Tensor | None = None, state: GraphState | None = None) -> GraphState:
         """Perform a forward pass of the MBQC pattern and return the final graph state.
 
         Args:
@@ -80,13 +80,12 @@ class Pattern(Operation):
         self.encode(data)
         self.state = self.commands(self.state)
         self.state.set_nodes_out_seq(self.nodes_out_seq)
-        if data is not None:
-            if data.ndim == 2:
-                # for plotting the last data
-                self.encode(data[-1])
+        if data is not None and data.ndim == 2:
+            # for plotting the last data
+            self.encode(data[-1])
         return self.state
 
-    def encode(self, data: Optional[torch.Tensor]) -> None:
+    def encode(self, data: torch.Tensor | None) -> None:
         """Encode the input data into the measurement angles as parameters.
 
         This method iterates over the ``encoders`` of the MBQC pattern and initializes their parameters
@@ -116,12 +115,13 @@ class Pattern(Operation):
                 op.init_para(data[count:count_up])
             count = count_up
 
-    def add_graph(self,
-        nodes_state: Union[int, List[int], None] = None,
+    def add_graph(
+        self,
+        nodes_state: int | list[int] | None = None,
         state: Any = 'plus',
-        edges: Optional[List] = None,
-        nodes: Union[int, List[int], None] = None,
-        index: Optional[int] = None
+        edges: list | None = None,
+        nodes: int | list[int] | None = None,
+        index: int | None = None,
     ) -> None:
         """Add a subgraph state to the graph state.
 
@@ -146,15 +146,11 @@ class Pattern(Operation):
         else:
             return self.state.graph
 
-    def set_nodes_out_seq(self, nodes: Optional[List[int]] = None) -> None:
+    def set_nodes_out_seq(self, nodes: list[int] | None = None) -> None:
         """Set the output sequence of the nodes."""
         self.nodes_out_seq = nodes
 
-    def add(
-        self,
-        op: Operation,
-        encode: bool = False
-    ) -> None:
+    def add(self, op: Operation, encode: bool = False) -> None:
         """A method that adds an operation to the MBQC pattern.
 
         Args:
@@ -171,7 +167,7 @@ class Pattern(Operation):
         else:
             self.npara += op.npara
 
-    def n(self, nodes: Union[int, List[int]]) -> None:
+    def n(self, nodes: int | list[int]) -> None:
         """Add a node command."""
         n = Node(nodes=nodes)
         self.add(n)
@@ -184,26 +180,27 @@ class Pattern(Operation):
     def m(
         self,
         node: int,
-        angle: float = 0.,
+        angle: float = 0.0,
         plane: str = 'xy',
-        t_domain: Union[int, Iterable[int], None] = None,
-        s_domain: Union[int, Iterable[int], None] = None,
-        encode: bool = False
+        t_domain: int | Iterable[int] | None = None,
+        s_domain: int | Iterable[int] | None = None,
+        encode: bool = False,
     ) -> None:
         """Add a measurement command."""
         requires_grad = not encode
         if angle is not None:
             requires_grad = False
-        m = Measurement(nodes=node, angle=angle, plane=plane, t_domain=t_domain, s_domain=s_domain,
-                        requires_grad=requires_grad)
+        m = Measurement(
+            nodes=node, angle=angle, plane=plane, t_domain=t_domain, s_domain=s_domain, requires_grad=requires_grad
+        )
         self.add(m, encode=encode)
 
-    def x(self, node: int, domain: Union[int, Iterable[int], None] = None) -> None:
+    def x(self, node: int, domain: int | Iterable[int] | None = None) -> None:
         """Add an X-correction command."""
         x = Correction(nodes=node, basis='x', domain=domain)
         self.add(x)
 
-    def z(self, node: int, domain: Union[int, Iterable[int], None] = None) -> None:
+    def z(self, node: int, domain: int | Iterable[int] | None = None) -> None:
         """Add a Z-correction command."""
         z = Correction(nodes=node, basis='z', domain=domain)
         self.add(z)
@@ -233,15 +230,18 @@ class Pattern(Operation):
         pos = multipartite_layout(g, subset_key='layer')
         draw_networkx_nodes(g, pos, nodelist=nodes_init, node_color='#1f78b4', node_shape='s')
         draw_networkx_nodes(g, pos, nodelist=nodes_measured, node_color='#1f78b4')
-        draw_networkx_nodes(g, pos, nodelist=list(set(g.nodes()) - set(nodes_measured)),
-                            node_color='#d7dde0', node_shape='o')
+        draw_networkx_nodes(
+            g, pos, nodelist=list(set(g.nodes()) - set(nodes_measured)), node_color='#d7dde0', node_shape='o'
+        )
         draw_networkx_edges(g, pos, g.edges(), arrows=False)
-        draw_networkx_edges(g, pos, edges_t_domain, arrows=True, style=':',
-                            edge_color='#4cd925', connectionstyle='arc3,rad=-0.2')
-        draw_networkx_edges(g, pos, edges_s_domain, arrows=True, style=':',
-                            edge_color='#db1d2c', connectionstyle='arc3,rad=0.2')
+        draw_networkx_edges(
+            g, pos, edges_t_domain, arrows=True, style=':', edge_color='#4cd925', connectionstyle='arc3,rad=-0.2'
+        )
+        draw_networkx_edges(
+            g, pos, edges_s_domain, arrows=True, style=':', edge_color='#db1d2c', connectionstyle='arc3,rad=0.2'
+        )
         draw_networkx_labels(g, pos)
-        plt.plot([], [], color='k',label='graph edge')
+        plt.plot([], [], color='k', label='graph edge')
         plt.plot([], [], ':', color='#4cd925', label='zflow')
         plt.plot([], [], ':', color='#db1d2c', label='xflow')
         plt.plot([], [], 's', color='#1f78b4', label='input nodes')
@@ -297,7 +297,7 @@ class Pattern(Operation):
         z_dict = {}  # Tracks Z corrections by node
         x_dict = {}  # Tracks X corrections by node
 
-        def add_correction_domain(domain_dict: Dict, node, domain) -> None:
+        def add_correction_domain(domain_dict: dict, node, domain) -> None:
             """Helper function to update correction domains with XOR operation"""
             if previous_domain := domain_dict.get(node):
                 previous_domain ^= domain
@@ -311,7 +311,7 @@ class Pattern(Operation):
             elif isinstance(op, Entanglement):
                 for side in (0, 1):
                     # Propagate X corrections through entanglement (generates Z corrections)
-                    if s_domain := x_dict.get(op.nodes[side], None):
+                    if s_domain := x_dict.get(op.nodes[side]):
                         add_correction_domain(z_dict, op.nodes[1 - side], s_domain)
                 e_list.append(op)
             elif isinstance(op, Measurement):
@@ -330,14 +330,14 @@ class Pattern(Operation):
 
         # Reconstruct command sequence in standard order
         self.commands = nn.Sequential(
-                    *n_list,
-                    *e_list,
-                    *m_list,
-                    *(Correction(nodes=node, basis='z', domain=domain) for node, domain in z_dict.items()),
-                    *(Correction(nodes=node, basis='x', domain=domain) for node, domain in x_dict.items())
+            *n_list,
+            *e_list,
+            *m_list,
+            *(Correction(nodes=node, basis='z', domain=domain) for node, domain in z_dict.items()),
+            *(Correction(nodes=node, basis='x', domain=domain) for node, domain in x_dict.items()),
         )
 
-    def shift_signals(self) -> Dict:
+    def shift_signals(self) -> dict:
         """Perform signal shifting procedure.
 
         This allows one to dispose of dependencies induced by the Z-action,
@@ -381,7 +381,7 @@ class Pattern(Operation):
                         signal_dict[op.nodes[0]] = s_domain
                         t_domain ^= s_domain
                         s_domain = set()
-                elif op.plane in ['yz', 'zy']:
+                elif op.plane in ['yz', 'zy']:  # noqa: SIM102
                     # positive Y axis as 0 angle
                     # M^{YZ,α} X^s Z^t = M^{YZ,(-1)^t·α+(s+t)π)}
                     #                  = S^s M^{YZ,(-1)^t·α+tπ}

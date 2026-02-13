@@ -1,6 +1,6 @@
-import deepquantum as dq
-import pytest
 import torch
+
+import deepquantum as dq
 
 
 def test_qubit_channel():
@@ -13,4 +13,4 @@ def test_qubit_channel():
     cir.amp_damp(0)
     cir.phase_damp(1)
     cir.gen_amp_damp(0)
-    assert torch.allclose(torch.trace(cir()), torch.tensor(1.) + 0j)
+    assert torch.allclose(torch.trace(cir()), torch.tensor(1.0) + 0j)

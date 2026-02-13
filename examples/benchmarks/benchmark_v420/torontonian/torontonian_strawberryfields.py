@@ -10,39 +10,41 @@ from tqdm import tqdm
 # Print version
 print(sf.__version__)
 
-def torontonian_sf(n, l):
-    A = torch.load(f"tor_matrix_{n}_{1000}.pt").numpy()
+
+def torontonian_sf(nmode, batch_size):
+    mat_a = torch.load(f'tor_matrix_{nmode}_{1000}.pt').numpy()
 
     def get_torontonian_sf(matrix):
         trials = 10
-        if l == 100 or l == 1000:
+        if batch_size == 100 or batch_size == 1000:
             trials = 1
-        np.vectorize(tor,signature='(n,n)->()')(A[0:1])
+        np.vectorize(tor, signature='(n,n)->()')(matrix[0:1])
         time0 = time.time()
         for i in range(trials):
-            results = np.vectorize(tor,signature='(n,n)->()')(A[i*l:(i+1)*l])
+            np.vectorize(tor, signature='(n,n)->()')(matrix[i * batch_size : (i + 1) * batch_size])
 
         time1 = time.time()
         ts = (time1 - time0) / trials
         return ts
 
-    return get_torontonian_sf(A)
+    return get_torontonian_sf(mat_a)
+
 
 results = {}
 
 platform = 'strawberryfields'
 
-n_list = [2, 6, 10, 14]
-l_list = [1, 10, 100, 1000]
+nmodes = [2, 6, 10, 14]
+batch_sizes = [1, 10, 100, 1000]
 
-for n in tqdm(n_list):
-    for l in tqdm(l_list):
-        print(n,l)
-        ts = torontonian_sf(n, l)
-        results[str(n)+'+'+str(l)] = ts
+for n in tqdm(nmodes):
+    for bs in tqdm(batch_sizes):
+        print(n, bs)
+        ts = torontonian_sf(n, bs)
+        results[str(n) + '+' + str(bs)] = ts
 
-with open('torontonian_'+platform+'_results.data', 'w') as f:
+with open('torontonian_' + platform + '_results.data', 'w') as f:
     json.dump(results, f)
 
-with open('torontonian_'+platform+'_results.data', 'r') as f:
+with open('torontonian_' + platform + '_results.data') as f:
     print(json.load(f))
