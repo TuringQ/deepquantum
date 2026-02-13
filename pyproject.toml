@@ -47,16 +47,17 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-dev = ['pytest',
-       'perceval-quandela',
-       'strawberryfields',
-       'thewalrus',
-       'graphix==0.3.1',
-       'qutip',
-       'pennylane-sf',
+dev = ['graphix==0.3.1',
        'jupytext',
+       'pennylane-sf',
+       'perceval-quandela',
+       'pre-commit',
+       'pytest',
+       'qutip',
        'ruff',
-       'pre-commit']
+       'strawberryfields',
+       'thewalrus'
+]
 
 [project.urls]
 Homepage = 'https://deepquantum.turingq.com/'
