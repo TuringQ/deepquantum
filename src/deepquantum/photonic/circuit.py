@@ -15,7 +15,7 @@ from torch import nn, vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 import deepquantum.photonic as dqp
-from ..qmath import get_prob_mps, inner_product_mps, is_positive_definite, sample_sc_mcmc
+from ..qmath import block_sample, get_prob_mps, inner_product_mps, is_positive_definite, sample_sc_mcmc
 from ..state import MatrixProductState
 from .channel import PhotonLoss
 from .decompose import UnitaryDecomposer
@@ -1230,8 +1230,10 @@ class QumodeCircuit(Operation):
 
     def _prob_dict_to_measure_result(self, prob_dict: Dict, shots: int, with_prob: bool) -> Dict:
         """Get the measurement result from the dictionary of probabilities."""
-        samples = random.choices(list(prob_dict.keys()), list(prob_dict.values()), k=shots)
-        results = dict(Counter(samples))
+        keys = list(prob_dict.keys())
+        probs = torch.cat(list(prob_dict.values()))
+        samples = Counter(block_sample(probs, shots))
+        results = {keys[u]: v for u, v in samples.items()}
         if with_prob:
             results = {key: (value, prob_dict[key]) for key, value in results.items()}
         return results
@@ -1356,9 +1358,9 @@ class QumodeCircuit(Operation):
                     state_b = key.state[wires]
                     state_b = FockState(state=state_b)
                 if is_prob:
-                    prob_dict[state_b].append(self.state[key][i])
+                    prob_dict[state_b].append(self.state[key][i].reshape(-1))
                 else:
-                    prob_dict[state_b].append(abs(self.state[key][i]) ** 2)
+                    prob_dict[state_b].append(abs(self.state[key][i].reshape(-1)) ** 2)
             prob_dict = {key: sum(value) for key, value in prob_dict.items()}
             results = self._prob_dict_to_measure_result(prob_dict, shots, with_prob)
             all_results.append(results)
