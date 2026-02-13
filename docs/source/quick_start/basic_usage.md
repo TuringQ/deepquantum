@@ -82,9 +82,9 @@ class MyCircuit(nn.Module):
         self.cir = self.circuit(nqubit)
 
     def circuit(self, nqubit):
-        cir = dq.QubitCircuit(nqubit)         
+        cir = dq.QubitCircuit(nqubit)
         cir.hlayer()
-        # Using 'encode', specify where the variational parameters  
+        # Using 'encode', specify where the variational parameters
         # are encoded into the quantum circuit
         cir.rylayer(encode=True)
         cir.cnot_ring()
@@ -93,7 +93,7 @@ class MyCircuit(nn.Module):
         return cir
 
     def forward(self):
-        # During the forward process, variational parameters are 
+        # During the forward process, variational parameters are
         # added to the quantum circuit as 'data'
         self.cir(data=self.params)
         return self.cir.expectation().mean()
@@ -132,7 +132,7 @@ cir()
 # The bit string from left to right corresponds to the order of wires, which means
 # the first qubit is at the top, and the last qubit is at the bottom.
 print(cir.measure())
-# We can also set the sampling number, perform partial measurements, 
+# We can also set the sampling number, perform partial measurements,
 # and display ideal probabilities.
 print(cir.measure(shots=100, wires=[1,2], with_prob=True))
 ```
@@ -144,13 +144,13 @@ When employing parameterized quantum circuits in variational quantum algorithms,
 ```python
 cir = dq.QubitCircuit(4)
 cir.xlayer([0,2])
-# Multiple observables can be added, and the results of 
+# Multiple observables can be added, and the results of
 # each expectation value will be automatically concatenated
 # Flexibly specify measurement wires and bases using a list-based combination
 # e.g., wires=[0,1,2]、basis='xyz' representing the observable whose
 # wires 0, 1, and 2 corresponds to Pauli-X, Pauli-Y, and Pauli-Z, respectively
 for i in range(4):
-    cir.observable(i)      
+    cir.observable(i)
 cir() # Expectation value can be obtained after running the circuit
 print(cir.expectation())
 ```

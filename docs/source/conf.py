@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.abspath('../../src'))
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'DeepQuantum'
-copyright = '2026, TuringQ'
+copyright = '2026, TuringQ'  # noqa: A001
 author = 'TuringQ'
 release = f'{dq.__version__}'
 
