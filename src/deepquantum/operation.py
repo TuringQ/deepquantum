@@ -1,6 +1,4 @@
-"""
-Base classes
-"""
+"""Base classes for quantum operations"""
 
 from copy import copy
 from typing import Any

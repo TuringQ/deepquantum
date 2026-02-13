@@ -1,6 +1,4 @@
-"""
-functions for torontonian
-"""
+"""Functions for Torontonian"""
 
 import torch
 

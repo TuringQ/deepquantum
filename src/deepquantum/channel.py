@@ -1,6 +1,4 @@
-"""
-Quantum channels
-"""
+"""Quantum channels"""
 
 from typing import Any
 

@@ -1,6 +1,4 @@
-"""
-Distributed operations
-"""
+"""Distributed operations"""
 
 from collections import Counter
 

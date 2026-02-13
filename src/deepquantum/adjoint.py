@@ -1,6 +1,4 @@
-"""
-Adjoint differentiation
-"""
+"""Adjoint differentiation"""
 
 from copy import deepcopy
 from typing import TYPE_CHECKING

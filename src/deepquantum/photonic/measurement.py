@@ -1,6 +1,4 @@
-"""
-Photonic measurements
-"""
+"""Photonic measurements"""
 
 from typing import Any
 

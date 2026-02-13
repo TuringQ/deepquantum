@@ -1,6 +1,4 @@
-"""
-Quantum states
-"""
+"""Quantum states"""
 
 from typing import Any
 

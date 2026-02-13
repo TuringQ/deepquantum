@@ -1,6 +1,4 @@
-"""
-Photonic quantum circuit
-"""
+"""Photonic quantum circuit"""
 
 import itertools
 import random

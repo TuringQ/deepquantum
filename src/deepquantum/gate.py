@@ -1,6 +1,4 @@
-"""
-Quantum gates
-"""
+"""Quantum gates"""
 
 from copy import copy
 from typing import Any, TYPE_CHECKING

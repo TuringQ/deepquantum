@@ -1,6 +1,4 @@
-"""
-Photonic Module
-"""
+"""Photonic Module"""
 
 from . import (
     ansatz,

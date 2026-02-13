@@ -1,6 +1,4 @@
-"""
-Quantum circuit
-"""
+"""Quantum circuit"""
 
 from collections import defaultdict
 from collections.abc import Hashable, Sequence

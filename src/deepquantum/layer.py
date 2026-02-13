@@ -1,6 +1,4 @@
-"""
-Quantum layers
-"""
+"""Quantum layers"""
 
 from copy import deepcopy
 from typing import Any

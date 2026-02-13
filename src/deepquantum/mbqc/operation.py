@@ -1,6 +1,4 @@
-"""
-Base classes
-"""
+"""Base classes for MBQC operations"""
 
 from torch import nn
 

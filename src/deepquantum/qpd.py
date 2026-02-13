@@ -1,6 +1,4 @@
-"""
-Quasiprobability-decomposition gates
-"""
+"""Quasiprobability-decomposition gates"""
 
 from torch import nn
 

@@ -1,6 +1,4 @@
-"""
-Optimizer: various on-chip optimization algorthims
-"""
+"""Optimizer: various on-chip optimization algorthims"""
 
 import copy
 
@@ -136,8 +134,9 @@ class OptimizerSPSA(Optimizer):
         self.best_target = np.inf
 
     def set_hyperparam(self, hyperparam: dict) -> None:
-        """Set hyperparameters whose keys include ``'a'``, ``'c'``, ``'A'``, ``'nepoch'``,
-        ``'alpha'``, ``'gamma'``.
+        """Set hyperparameters.
+
+        The keys include ``'a'``, ``'c'``, ``'A'``, ``'nepoch'``, ``'alpha'``, ``'gamma'``.
         """
         self.hyperparam = hyperparam
 

@@ -1,6 +1,4 @@
-"""
-Distributed operations
-"""
+"""Distributed operations"""
 
 from collections import Counter
 
@@ -107,7 +105,7 @@ def dist_many_ctrl_one_targ_gate(
 def dist_ctrl_sub(
     state: DistributedQubitState, controls: list[int], target: int, matrix: torch.Tensor, derivative: bool = False
 ) -> DistributedQubitState:
-    """ "A subroutine of `dist_many_ctrl_one_targ_gate`.
+    """A subroutine of `dist_many_ctrl_one_targ_gate`.
 
     See https://arxiv.org/abs/2311.01512 Alg.8
     """
@@ -162,6 +160,7 @@ def dist_swap_gate(state: DistributedQubitState, qb1: int, qb2: int):
 
 
 def get_local_targets(targets: list[int], nqubit_local: int) -> list[int]:
+    """Map global target qubits to available local indices for distributed gates."""
     mask = get_bit_mask(targets)
     min_non_targ = 0
     while get_bit(mask, min_non_targ):

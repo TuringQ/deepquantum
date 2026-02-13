@@ -1,6 +1,4 @@
-"""
-Common functions
-"""
+"""Common functions"""
 
 import copy
 from collections import Counter, defaultdict
@@ -101,6 +99,8 @@ def is_unitary(matrix: torch.Tensor, rtol: float = 1e-5, atol: float = 1e-4) -> 
 
     Args:
         matrix (torch.Tensor): Square matrix.
+        rtol (float, optional): Relative tolerance. Default: 1e-5
+        atol (float, optional): Absolute tolerance. Default: 1e-4
 
     Returns:
         bool: ``True`` if ``matrix`` is unitary, ``False`` otherwise.
@@ -232,7 +232,6 @@ def torchqr_grad(a, q, r, dq, dr):
 
     def _qr_grad_square_and_deep_matrices(q, r, dq, dr):
         """Get the gradient for matrix orders num_rows >= num_cols and full_matrices is false."""
-
         # Modification begins
         rdiag = torch.linalg.diagonal(r)
         # if abs(rdiag[i]) < qr_epsilon then rdiag[i] = qr_epsilon otherwise keep the old value

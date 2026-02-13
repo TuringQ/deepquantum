@@ -1,6 +1,4 @@
-"""
-Ansatze: various photonic quantum circuits
-"""
+"""Ansatze: various photonic quantum circuits"""
 
 import copy
 from typing import Any

@@ -1,6 +1,4 @@
-"""
-Measurement pattern
-"""
+"""Measurement pattern"""
 
 from collections.abc import Iterable
 from copy import copy, deepcopy
@@ -313,7 +311,7 @@ class Pattern(Operation):
             elif isinstance(op, Entanglement):
                 for side in (0, 1):
                     # Propagate X corrections through entanglement (generates Z corrections)
-                    if s_domain := x_dict.get(op.nodes[side], None):
+                    if s_domain := x_dict.get(op.nodes[side]):
                         add_correction_domain(z_dict, op.nodes[1 - side], s_domain)
                 e_list.append(op)
             elif isinstance(op, Measurement):

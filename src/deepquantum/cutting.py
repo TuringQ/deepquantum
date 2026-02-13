@@ -1,6 +1,4 @@
-"""
-Circuit cutting
-"""
+"""Circuit cutting"""
 
 import bisect
 from collections import defaultdict

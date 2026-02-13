@@ -1,6 +1,4 @@
-"""
-Ansatze: various quantum circuits
-"""
+"""Ansatze: various quantum circuits"""
 
 import random
 from typing import Any

@@ -1,6 +1,4 @@
-"""
-Photonic quantum gates
-"""
+"""Photonic quantum gates"""
 
 import copy
 import itertools

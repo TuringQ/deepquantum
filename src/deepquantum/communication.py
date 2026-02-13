@@ -1,6 +1,4 @@
-"""
-Communication utilities
-"""
+"""Communication utilities"""
 
 import os
 
@@ -9,7 +7,7 @@ import torch.distributed as dist
 
 
 def setup_distributed(backend: str = 'nccl', port: str = '29500') -> tuple[int, int, int]:
-    """Initialize torch.distributed."""
+    """Initialize ``torch.distributed``."""
     try:
         # These should be set by the launch script (e.g., torchrun)
         rank = int(os.environ['RANK'])
@@ -44,30 +42,33 @@ def cleanup_distributed() -> None:
 
 
 def comm_get_rank() -> int:
+    """Get the rank of the current process."""
     if not dist.is_initialized():
         return 0
     return dist.get_rank()
 
 
 def comm_get_world_size() -> int:
+    """Get the total number of processes."""
     if not dist.is_initialized():
         return 1
     return dist.get_world_size()
 
 
 def comm_exchange_arrays(send_data: torch.Tensor, recv_data: torch.Tensor, pair_rank: int | None) -> None:
-    """Simulate a point-to-point exchange using dist.all_to_all_single
-    with output_split_sizes and input_split_sizes to minimize memory.
-    If pair_rank is None, this rank participates in the collective call
-    but sends/receives no actual data to/from other specific ranks in this logical P2P.
+    """Exchange tensor data with a peer rank using collective communication.
+
+    This performs a point-to-point communication via ``dist.all_to_all_single`` and allows specific ranks
+    to participate in the collective call without active data transfer by setting ``pair_rank`` to ``None``.
 
     Args:
-        send_data (torch.Tensor): The data this rank wants to send to pair_rank.
-            If pair_rank is None, this can be an empty tensor with correct dtype and device.
-        recv_data (torch.Tensor): The Tensor where data received from pair_rank will be stored.
-            It MUST already be allocated with the correct size if pair_rank is not None.
-            If pair_rank is None, this can be an empty tensor.
-        pair_rank (int or None): The rank of the process to exchange data with, or None.
+        send_data (torch.Tensor): Data to be sent to the ``pair_rank``.
+            If ``pair_rank`` is ``None``, this can be an empty tensor with correct dtype and device.
+        recv_data (torch.Tensor): Pre-allocated buffer to store received data. Must match
+            ``send_data`` in shape and dtype if ``pair_rank`` is active.
+            If ``pair_rank`` is ``None``, this can be an empty tensor.
+        pair_rank (int or None): The target rank for exchange, or ``None`` to remain
+            quiescent during the collective call.
     """
     world_size = comm_get_world_size()
     rank = comm_get_rank()

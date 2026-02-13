@@ -1,6 +1,4 @@
-"""
-Decompose the unitary matrix
-"""
+"""Decompose the unitary matrix"""
 
 from collections import defaultdict
 
@@ -38,8 +36,9 @@ class UnitaryDecomposer:
         self.method = method
 
     def decomp(self) -> tuple[dict, dict, dict]:
-        """Decompose the unitary matrix.The third dictionary is the representation
-        of the positions and the angles of all phase shifters.
+        """Decompose the unitary matrix.
+
+        The third dictionary is the representation of the positions and the angles of all phase shifters.
         """
 
         def period_cut(input_angle: float, period: float = np.pi * 2) -> float:
@@ -363,9 +362,7 @@ class UnitaryDecomposer:
         return temp_0, temp_1, temp_2
 
     def sort_mzi(self, mzi_info):
-        """
-        Sort mzi parameters in the same array for plotting.
-        """
+        """Sort mzi parameters in the same array for plotting."""
         dic_mzi = defaultdict(list)  # 当key不存在时对应的value是[]
         mzi_list = mzi_info['MZI_list']
         for i in mzi_list:
@@ -373,9 +370,7 @@ class UnitaryDecomposer:
         return dic_mzi
 
     def ps_pos(self, dic_mzi, phase_angle):
-        """
-        Label the position of each phaseshifter for ``'cssr'`` case.
-        """
+        """Label the position of each phaseshifter for ``'cssr'`` case."""
         if self.method == 'cssr':
             dic_pos = {}
             nmode = self.unitary.shape[0]

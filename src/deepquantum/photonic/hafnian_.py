@@ -1,6 +1,4 @@
-"""
-functions for hafnian
-"""
+"""Functions for Hafnian"""
 
 from collections import Counter
 from functools import cache

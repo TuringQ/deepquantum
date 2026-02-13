@@ -1,6 +1,4 @@
-"""
-Base classes
-"""
+"""Base classes for photonic quantum operations"""
 
 from typing import Any
 

@@ -1,6 +1,4 @@
-"""
-Common functions
-"""
+"""Common functions"""
 
 import itertools
 import warnings
@@ -45,7 +43,7 @@ def dirac_ket(matrix: torch.Tensor) -> dict:
 
 
 def sort_dict_fock_basis(state_dict: dict, idx: int = 0) -> dict:
-    """Sort the dictionary of Fock basis states in the descending order of probs."""
+    """Sort the dictionary of Fock basis states in the descending order of probabilities."""
     sort_list = sorted(state_dict.items(), key=lambda t: abs(t[1][idx]), reverse=True)
     sorted_dict = {}
     for key, value in sort_list:
@@ -54,9 +52,9 @@ def sort_dict_fock_basis(state_dict: dict, idx: int = 0) -> dict:
 
 
 def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.Tensor) -> torch.Tensor:
-    """Get the submatrix for calculating the transfer amplitude and transfer probs from the given matrix,
-    the input state and the output state. The rows are chosen according to the output state and the columns
-    are chosen according to the input state.
+    """Get the submatrix for calculating the transfer amplitude and transfer probabilities.
+
+    The rows are chosen according to the output state and the columns are chosen according to the input state.
 
     Args:
         u (torch.Tensor): The unitary matrix.
@@ -639,22 +637,21 @@ def fock_to_wigner(
     plot: bool = True,
     k: int = 0,
 ) -> torch.Tensor:
-    """Compute the Wigner function W(q, p) from a Fock state tensor or density matrix
-    using the iterative method.
+    """Get the discretized Wigner function of the specified mode from a Fock state using the iterative method.
 
     See https://qutip.org/docs/4.7/modules/qutip/wigner.html
 
     Args:
         state (torch.Tensor): The input Fock state tensor or density matrix.
-        wire (int): The wigner function for given wire.
+        wire (int): The Wigner function for the given wire.
         nmode (int): The mode number of the Fock state.
         cutoff (int): The Fock space truncation.
         den_mat (bool, optional): Whether to use density matrix representation. Only valid for Fock state tensor.
             Default: ``False``
-        xrange (int or List, optional): The range of quadrature q. Default: 10
+        xrange (int or List, optional): The range of quadrature x. Default: 10
         prange (int or List, optional): The range of quadrature p. Default: 10
         npoints (int or List, optional): The number of discretization points for quadratures. Default: 100
-        plot (bool, optional): Whether to plot the wigner function. Default: ``True``
+        plot (bool, optional): Whether to plot the Wigner function. Default: ``True``
         k (int, optional): The index of the Wigner function within the batch to plot. Default: 0
     """
     if den_mat:
@@ -719,15 +716,15 @@ def cv_to_wigner(
     k: int = 0,
     normalize: bool = True,
 ):
-    """Get the discretized Wigner function of the specified mode.
+    """Get the discretized Wigner function of the specified mode from a CV state.
 
     Args:
-        state (List): The input Gaussianstate or BosonicState.
-        wire (int): The wigner function for given wire.
-        xrange (int or List, optional): The range of quadrature q. Default: 10
+        state (List): The input ``Gaussianstate`` or ``BosonicState``.
+        wire (int): The Wigner function for the given wire.
+        xrange (int or List, optional): The range of quadrature x. Default: 10
         prange (int or List, optional): The range of quadrature p. Default: 10
         npoints (int or List, optional): The number of discretization points for quadratures. Default: 100
-        plot (bool, optional): Whether to plot the wigner function. Default: ``True``
+        plot (bool, optional): Whether to plot the Wigner function. Default: ``True``
         k (int, optional): The index of the Wigner function within the batch to plot. Default: 0
         normalize (bool, optional): Whether to normalize the Wigner function. Default: ``True``
     """

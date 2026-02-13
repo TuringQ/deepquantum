@@ -1,6 +1,4 @@
-"""
-Photonic quantum channels
-"""
+"""Photonic quantum channels"""
 
 from typing import Any
 

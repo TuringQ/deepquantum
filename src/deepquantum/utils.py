@@ -1,6 +1,4 @@
-"""
-Utilities
-"""
+"""Utilities"""
 
 import time
 from collections.abc import Callable

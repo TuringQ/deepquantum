@@ -1,6 +1,4 @@
-"""
-Time domain multiplexing
-"""
+"""Time domain multiplexing"""
 
 from typing import Any
 

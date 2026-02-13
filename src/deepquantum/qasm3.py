@@ -1,3 +1,5 @@
+"""Converter between QubitCircuit and QASM3"""
+
 import re
 from typing import Any
 
@@ -36,9 +38,7 @@ from .operation import Channel, Gate, Layer, Operation
 
 
 def _op_to_qasm3(op: Operation) -> str:
-    """
-    Helper function to convert a single deepquantum operation to an OpenQASM 3.0 string.
-    """
+    """Helper function to convert a single deepquantum operation to an OpenQASM 3.0 string."""
     if isinstance(op, Layer):
         return '\n'.join([_op_to_qasm3(gate) for gate in op.gates])
 
@@ -157,12 +157,15 @@ def cir_to_qasm3(circuit: QubitCircuit) -> str:
 
 
 class GateDefinition:
+    """Gate definition in OpenQASM 3.0"""
+
     def __init__(self, name: str, params: list[str], qubits: list[str], body: list[str]):
         self.name, self.params, self.qubits, self.body = name, params, qubits, body
 
 
 def qasm3_to_cir(qasm_string: str) -> QubitCircuit:
     """Converts a full-featured OpenQASM 3.0 string to ``QubitCircuit``.
+
     Supports: `def`, `inv @`, `ctrl @`, and floating-point/negative `pow() @`.
     """
     lines = [line.split('//')[0].strip() for line in qasm_string.strip().splitlines() if line.strip()]

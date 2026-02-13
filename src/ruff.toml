@@ -1,0 +1,8 @@
+extend = '../pyproject.toml'
+
+[lint]
+extend-select = ['D']
+ignore = ['D102', 'D105', 'D107', 'D415']
+
+[lint.pydocstyle]
+convention = 'google'

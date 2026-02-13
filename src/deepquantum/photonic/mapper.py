@@ -1,6 +1,4 @@
-"""
-Map the quantum gate to photonic quantum circuit
-"""
+"""Map the quantum gate to photonic quantum circuit"""
 
 import copy
 import itertools
@@ -227,9 +225,7 @@ class UnitaryMapper:
         return eqs_list
 
     def f_complex_unitary(self, paras):
-        """
-        Return quantum gate constrains and the unitary constrains.
-        """
+        """Return quantum gate constrains and the unitary constrains."""
         num_paras = len(paras)
         y = np.array(paras)[0 : int(num_paras / 2)] + np.array(paras)[int(num_paras / 2) :] * 1j
 
@@ -241,8 +237,7 @@ class UnitaryMapper:
         return eqs
 
     def f_complex(self, y):
-        """
-        Construct :math:`2^{nqubit}*2^{nqubit}` equations  for :math:`n*n` matrix y, obtain complex solutions.
+        """Construct :math:`2^{nqubit}*2^{nqubit}` equations  for :math:`n*n` matrix y, obtain complex solutions.
 
         Args:
             y: an array with :math:`2*n^2` element
@@ -269,9 +264,7 @@ class UnitaryMapper:
 
     @staticmethod
     def unitary_constrains_complex(u_temp: torch.Tensor):
-        """
-        Return :math:`2*n^2` equations for :math:`n*n` complex matrix with unitary condition.
-        """
+        """Return :math:`2*n^2` equations for :math:`n*n` complex matrix with unitary condition."""
         u_size = u_temp.size()
         u_temp_conj = u_temp.conj()
         u_temp_dag = u_temp_conj.transpose(0, 1)
@@ -288,9 +281,7 @@ class UnitaryMapper:
         return eqs_list
 
     def solve_eqs_real(self, total_trials=10, trials=1000, precision=1e-6):
-        """
-        Solve the non-linear eqautions for matrix satisfying ugate with real solution.
-        """
+        """Solve the non-linear eqautions for matrix satisfying ugate with real solution."""
         func = self.f_real_unitary
         results = []
         for t in range(total_trials):
@@ -313,9 +304,7 @@ class UnitaryMapper:
         return results, sum_
 
     def solve_eqs_complex(self, total_trials=10, trials=1000, precision=1e-5):
-        """
-        Solve the non-linear eqautions for matrix satisfying ugate with complex solution.
-        """
+        """Solve the non-linear eqautions for matrix satisfying ugate with complex solution."""
         func = self.f_complex_unitary
         results = []
         for t in range(total_trials):
@@ -351,9 +340,7 @@ class UnitaryMapper:
 
     @staticmethod
     def sub_matrix_sym(unitary, input_state, output_state):
-        """
-        Get the sub_matrix of transfer probs for given input and output state.
-        """
+        """Get the sub_matrix of transfer probs for given input and output state."""
         indx1 = UnitaryMapper.set_copy_indx(input_state)  # indicies for copies of rows for U
         indx2 = UnitaryMapper.set_copy_indx(output_state)  # indicies for copies of columns for
         u1 = unitary[indx1, :]  # 输入取行
@@ -363,15 +350,12 @@ class UnitaryMapper:
     @staticmethod
     ## computing submatrix will invoke
     def set_copy_indx(state):
-        """
-        Pick up indices from the nonezero elements of state,
-        repeat times depend on the nonezero value.
-        """
+        """Pick up indices from the nonezero elements of state."""
         inds_nonzero = torch.nonzero(state, as_tuple=False)  # nonezero index in state
         # len_ = int(sum(state[inds_nonzero]))
         temp_ind = []
 
-        for i in range(len(inds_nonzero)):  # repeat times depends on the nonezero value
+        for i in range(len(inds_nonzero)):  # repeat times depend on the nonezero value
             temp1 = inds_nonzero[i]
             temp = state[inds_nonzero][i]
             temp_ind = temp_ind + [int(temp1)] * (int(temp))
@@ -380,10 +364,7 @@ class UnitaryMapper:
 
     @staticmethod
     def permanent(mat):
-        """
-        Use Ryser formula for permanent, only valid for square matrix.
-        """
-
+        """Use Ryser formula for permanent, only valid for square matrix."""
         mat = np.matrix(mat)
         num_coincidence = np.shape(mat)[0]
         sets = UnitaryMapper.create_subset(num_coincidence)  # all S set
@@ -403,9 +384,7 @@ class UnitaryMapper:
 
     @staticmethod
     def product_factorial(state):
-        """
-        Get the product of the factorial from the state, i.e., :math:`|s_1,s_2,...s_n> --> s_1!*s_2!*...s_n!`.
-        """
+        """Get the product of the factorial from the state, i.e., :math:`|s_1,s_2,...s_n> --> s_1!*s_2!*...s_n!`."""
         temp = special.factorial(state)
         product_fac = 1
         for i in range(len(state)):
@@ -438,8 +417,7 @@ class UnitaryMapper:
 
     @staticmethod
     def plot_u(unitary, vmax=1, vmin=0, fs=20, len_ticks=5, cl='RdBu'):
-        """
-        Plot the matrix in graphic way.
+        """Plot the matrix in graphic way.
 
         Args:
             unitary: the plotting matrix
@@ -463,9 +441,7 @@ class UnitaryMapper:
 
     @staticmethod
     def is_unitary(u_temp):
-        """
-        Check the matrix is unitary or not.
-        """
+        """Check the matrix is unitary or not."""
         u_size = u_temp.size()
         u_temp_conj = u_temp.conj()
         u_temp_dag = u_temp_conj.transpose(0, 1)
@@ -476,9 +452,7 @@ class UnitaryMapper:
         return all_sum
 
     def state_basis(self):
-        """
-        Map '000' to dual_rail.
-        """
+        """Map '000' to dual_rail."""
         state_map = {}
         map_dic = {(1, 0): '0', (0, 1): '1'}
         for i in self.all_basis:
