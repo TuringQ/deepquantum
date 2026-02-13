@@ -59,8 +59,8 @@ def test_random_circuit():
     re_dq = cir_dq(is_prob=False)
     # calculating the difference for two simu approach
     max_error = -1.0
-    for state_vector in re_pcvl:
-        key_pcvl = state_vector[0]
+    for basis_state in re_pcvl:
+        key_pcvl = basis_state[0]
         key_dq = dq.FockState(list(key_pcvl))
         tmp_error = abs(re_dq[key_dq] - re_pcvl[key_pcvl])
         if tmp_error > max_error:
