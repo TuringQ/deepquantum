@@ -1231,7 +1231,7 @@ class QumodeCircuit(Operation):
     def _prob_dict_to_measure_result(self, prob_dict: Dict, shots: int, with_prob: bool) -> Dict:
         """Get the measurement result from the dictionary of probabilities."""
         keys = list(prob_dict.keys())
-        probs = torch.stack(list(prob_dict.values()))
+        probs = torch.cat(list(prob_dict.values()))
         samples = Counter(block_sample(probs, shots))
         results = {keys[u]: v for u, v in samples.items()}
         if with_prob:
@@ -1358,9 +1358,15 @@ class QumodeCircuit(Operation):
                     state_b = key.state[wires]
                     state_b = FockState(state=state_b)
                 if is_prob:
-                    prob_dict[state_b].append(self.state[key][i])
+                    if batch == 1:
+                        prob_dict[state_b].append(self.state[key])
+                    else:
+                        prob_dict[state_b].append(self.state[key][i])
                 else:
-                    prob_dict[state_b].append(abs(self.state[key][i]) ** 2)
+                    if batch == 1:
+                        prob_dict[state_b].append(abs(self.state[key]) ** 2)
+                    else:
+                        prob_dict[state_b].append(abs(self.state[key][i]) ** 2)
             prob_dict = {key: sum(value) for key, value in prob_dict.items()}
             results = self._prob_dict_to_measure_result(prob_dict, shots, with_prob)
             all_results.append(results)
