@@ -2,7 +2,6 @@
 
 ![DeepQuantum logo](docs/source/_static/assets/logo_light_v1.png)
 
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![docs](https://img.shields.io/badge/docs-link-blue.svg)](https://dqapi.turingq.com/)
 [![PyPI](https://img.shields.io/pypi/v/deepquantum.svg?logo=pypi)](https://pypi.org/project/deepquantum/)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/deepquantum)
@@ -253,6 +252,22 @@ if rank == 0:
     print(result)
 dq.cleanup_distributed()
 ```
+
+# Contributing
+
+We welcome contributions from the community!
+To maintain high code quality and consistent style, we use a modern development workflow.
+
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Jupytext](https://img.shields.io/badge/jupytext-enabled-blue)](https://github.com/mwouts/jupytext)
+[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
+
+Please refer to our **[CONTRIBUTING.md](CONTRIBUTING.md)** for detailed instructions on:
+- **Linting & Formatting**: Our coding standards using Ruff.
+- **Notebook Management**: How we sync `.ipynb` and `.py` files using Jupytext.
+- **Pull Request Process**: How to link issues and submit your changes.
+
+Before your first commit, remember to run `pre-commit install` in your local environment.
 
 # Citation
 
