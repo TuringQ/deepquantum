@@ -1358,15 +1358,9 @@ class QumodeCircuit(Operation):
                     state_b = key.state[wires]
                     state_b = FockState(state=state_b)
                 if is_prob:
-                    if batch == 1:
-                        prob_dict[state_b].append(self.state[key])
-                    else:
-                        prob_dict[state_b].append(self.state[key][i])
+                    prob_dict[state_b].append(self.state[key][i].reshape(-1))
                 else:
-                    if batch == 1:
-                        prob_dict[state_b].append(abs(self.state[key]) ** 2)
-                    else:
-                        prob_dict[state_b].append(abs(self.state[key][i]) ** 2)
+                    prob_dict[state_b].append(abs(self.state[key][i].reshape(-1)) ** 2)
             prob_dict = {key: sum(value) for key, value in prob_dict.items()}
             results = self._prob_dict_to_measure_result(prob_dict, shots, with_prob)
             all_results.append(results)
