@@ -55,14 +55,14 @@ def test_random_circuit():
     backend.set_circuit(cir_pcvl)
     input_state = pcvl.BasicState(ini_state)
     backend.set_input_state(input_state)
-    re1 = backend.evolve()
-    re2 = cir_dq(is_prob=False)
+    re_pcvl = backend.evolve()
+    re_dq = cir_dq(is_prob=False)
     # calculating the difference for two simu approach
     max_error = -1.0
-    for key in re1:
-        key2 = list(key)
-        key3 = dq.FockState(key2)
-        tmp_error = abs(re2[key3] - re1[key])
+    for state_vector in re_pcvl:
+        key_pcvl = state_vector[0]
+        key_dq = dq.FockState(list(key_pcvl))
+        tmp_error = abs(re_dq[key_dq] - re_pcvl[key_pcvl])
         if tmp_error > max_error:
             max_error = tmp_error
     assert max_error < 1e-4
