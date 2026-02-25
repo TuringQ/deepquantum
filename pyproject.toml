@@ -17,17 +17,17 @@ dependencies = [
     'bayesian-optimization<2',
     'networkx',
     'tqdm',
-    'psutil'
+    'psutil',
 ]
 requires-python = '>=3.10'
 authors = [
-    {name = 'TuringQ', email = 'Algorithms-Applications@turingq.com'},
-    {name = 'Junjie He', email = 'hejunjie@turingq.com'},
-    {name = 'Keming Hu', email = 'hukeming@turingq.com'},
-    {name = 'Yuze Zhu', email = 'zhuyuze@turingq.com'}
+    { name = 'TuringQ', email = 'Algorithms-Applications@turingq.com' },
+    { name = 'Junjie He', email = 'hejunjie@turingq.com' },
+    { name = 'Keming Hu', email = 'hukeming@turingq.com' },
+    { name = 'Yuze Zhu', email = 'zhuyuze@turingq.com' },
 ]
 maintainers = [
-    {name = 'Junjie He', email = 'hejunjie@turingq.com'}
+    { name = 'Junjie He', email = 'hejunjie@turingq.com' },
 ]
 description = 'DeepQuantum for quantum computing'
 readme = 'README.md'
@@ -43,20 +43,21 @@ classifiers = [
     'Programming Language :: Python :: 3.13',
     'Programming Language :: Python :: 3.14',
     'License :: OSI Approved :: Apache Software License',
-    'Operating System :: OS Independent'
+    'Operating System :: OS Independent',
 ]
 
 [project.optional-dependencies]
-dev = ['graphix==0.3.1',
-       'jupytext',
-       'pennylane-sf',
-       'perceval-quandela',
-       'pre-commit',
-       'pytest',
-       'qutip',
-       'ruff',
-       'strawberryfields',
-       'thewalrus'
+dev = [
+    'graphix==0.3.1',
+    'jupytext',
+    'pennylane-sf',
+    'perceval-quandela',
+    'pre-commit',
+    'pytest',
+    'qutip',
+    'ruff',
+    'strawberryfields',
+    'thewalrus',
 ]
 
 [project.urls]
@@ -66,7 +67,7 @@ Repository = 'https://github.com/TuringQ/deepquantum.git'
 Issues = 'https://github.com/TuringQ/deepquantum/issues'
 
 [tool.setuptools.dynamic]
-version = {attr = 'deepquantum.__version__'}
+version = { attr = 'deepquantum.__version__' }
 
 [tool.setuptools.package-data]
 'deepquantum.photonic' = ['cache/*']
@@ -91,5 +92,5 @@ order-by-type = false
 case-sensitive = true
 
 [tool.uv.sources]
-strawberryfields = {git = 'https://github.com/XanaduAI/strawberryfields.git', branch = 'master'}
-thewalrus = {git = 'https://github.com/XanaduAI/thewalrus.git', branch = 'master'}
+strawberryfields = { git = 'https://github.com/XanaduAI/strawberryfields.git', branch = 'master' }
+thewalrus = { git = 'https://github.com/XanaduAI/thewalrus.git', branch = 'master' }
