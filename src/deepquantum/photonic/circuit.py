@@ -1,7 +1,6 @@
 """Photonic quantum circuit"""
 
 import itertools
-import random
 import warnings
 from collections import Counter, defaultdict
 from copy import copy, deepcopy
@@ -13,6 +12,7 @@ from torch import nn, vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 import deepquantum.photonic as dqp
+
 from ..qmath import block_sample, get_prob_mps, inner_product_mps, is_positive_definite, sample_sc_mcmc
 from ..state import MatrixProductState
 from .channel import PhotonLoss
