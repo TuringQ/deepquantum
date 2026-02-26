@@ -53,6 +53,7 @@ dev = [
     'pennylane-sf',
     'perceval-quandela',
     'pre-commit',
+    'pre-commit-uv',
     'pytest',
     'qutip',
     'ruff',

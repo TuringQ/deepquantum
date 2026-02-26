@@ -16,25 +16,36 @@ Please follow these guidelines to get started.
 ## Setup Development Environment
 
 Before you start coding, ensure you have the development dependencies installed.
-We recommend using a virtual environment (Conda or venv).
+We recommend using a **Conda environment** combined with `uv` for blazing-fast dependency management.
 
 1. **Install Dependencies**:
-   ```bash
-   pip install -r requirements-dev.txt
-   ```
+Navigate to the project root and install the package in editable mode along with development tools.
+
+```bash
+# Highly Recommended: Using uv
+uv pip install -e ".[dev]"
+
+# Fallback: Using pip
+pip install -e .
+pip install -r requirements-dev.txt
+```
 
 2. **Install pre-commit hooks**:
-   We use `pre-commit` to automate code linting and formatting.
-   This ensures your code is compliant before every commit.
-   ```bash
-   pre-commit install
-   ```
+We use `pre-commit` to automate code linting and formatting.
+This ensures your code is compliant before every commit.
+*(Note: Our setup includes `pre-commit-uv`, which will automatically utilize the `uv` engine to execute these hooks at lightning speed!)*
+
+
+```bash
+pre-commit install
+```
 
 3. **Initialize Environment**:
-   It is a good practice to run the hooks against all files once to ensure your local environment is in sync:
-   ```bash
-   pre-commit run --all-files
-   ```
+It is a good practice to run the hooks against all files once to ensure your local environment is in sync:
+
+```bash
+pre-commit run --all-files
+```
 
 ---
 
@@ -47,11 +58,13 @@ Our configuration includes:
 - **Imports**: Sorted automatically (isort rules).
 
 ### Linting Rules
+
 We enforce a strict set of rules, including Python upgrade suggestions (`UP`), naming conventions (`N`), and code simplifications (`SIM`).
 - **In the `src/` directory**: We additionally enforce **Google-style docstrings**.
 Please ensure your functions and classes are well-documented.
 
 ### IDE Integration
+
 We recommend installing the **Ruff extension** for VS Code or your preferred IDE.
 Enable **Format on Save** to handle most styling issues automatically.
 
@@ -63,15 +76,17 @@ Our tutorials and examples are managed using **Jupytext**.
 This allows us to maintain Jupyter Notebooks (`.ipynb`) while tracking version-control-friendly Python scripts (`.py:percent`).
 
 ### The Rule of Thumb:
+
 **Maintain the `.ipynb` files only.**
 The paired `.py` files are automatically generated or updated via pre-commit hooks.
 
 ### IDE Integration:
+
 We recommend installing the **Jupytext extension** for VS Code or your preferred IDE to sync files automatically.
 
 > [!IMPORTANT]
 > **Version Consistency**: The VS Code Jupytext extension often points to a global path rather than your active Conda environment.
-Please ensure that the Jupytext version used by your IDE matches the one in `requirements-dev.txt` to avoid formatting discrepancies.
+Please ensure that the Jupytext version used by your IDE matches the one installed in your environment to avoid formatting discrepancies.
 
 ---
 

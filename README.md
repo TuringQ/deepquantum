@@ -41,22 +41,30 @@ The first framework to support algorithm design and mapping for time-domain-mult
 DeepQuantum requires **PyTorch 2**.
 We recommend installing it manually first to ensure compatibility with your system and CUDA version.
 
+0. **(Optional)** Install [uv](https://docs.astral.sh/uv/getting-started/installation/).
+We strongly recommend using `uv` instead of standard `pip` for lightning-fast package installations.
 1. Install [Miniconda](https://www.anaconda.com/docs/getting-started/miniconda/main) or [Anaconda](https://www.anaconda.com/docs/getting-started/main).
 2. Create and activate a conda environment.
 For example, run `conda create -n <ENV_NAME> python=3.12` and `conda activate <ENV_NAME>`.
 3. Install PyTorch following the [official instructions](https://pytorch.org/get-started/locally/).
-For example, run `pip install torch`.
+For example, run `pip install torch` or `uv pip install torch`.
+
+*(Tip: Avoid using `conda install` with `uv`)*
 
 ## 2. Install DeepQuantum
 
 ### For Users (Stable Version)
 
-To install DeepQuantum with `pip`, run
+To install DeepQuantum with `uv` or standard `pip`, run
 
 ```bash
-pip install deepquantum
+uv pip install deepquantum
+
 # Or use a mirror site for faster download
-pip install deepquantum -i https://pypi.tuna.tsinghua.edu.cn/simple
+uv pip install deepquantum -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# Fallback for standard pip
+pip install deepquantum
 ```
 
 ### For Developers (Source Installation)
@@ -64,13 +72,33 @@ pip install deepquantum -i https://pypi.tuna.tsinghua.edu.cn/simple
 If you intend to contribute to DeepQuantum or run unit tests, **we strongly recommend installing from source**.
 
 > **Note on Dependencies**: `strawberryfields` and `thewalrus` on PyPI are outdated and may have compatibility issues with modern environments.
-Our `requirements-dev.txt` points to their latest GitHub main branches to ensure a stable development environment.
+For development, our project is configured to automatically pull their latest GitHub `master` branches.
+
+#### Option A: Using `uv` (Recommended)
+
+Since you have `uv` installed, it will automatically handle the Git branch overrides defined in our `pyproject.toml`.
 
 ```bash
 git clone https://github.com/TuringQ/deepquantum.git
 cd deepquantum
+
+uv pip install -e ".[dev]"
+
+# Or use a mirror site for faster download
+uv pip install -e ".[dev]" -i https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+#### Option B: Using standard `pip`
+
+If you prefer not to use `uv`, you must use our `requirements-dev.txt` to explicitly enforce the necessary Git overrides.
+
+```bash
+git clone https://github.com/TuringQ/deepquantum.git
+cd deepquantum
+
 pip install -e .
 pip install -r requirements-dev.txt
+
 # Or use a mirror site for faster download
 pip install -e . -i https://pypi.tuna.tsinghua.edu.cn/simple
 pip install -r requirements-dev.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
