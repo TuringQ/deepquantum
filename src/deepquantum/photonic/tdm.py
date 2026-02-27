@@ -70,7 +70,7 @@ class QumodeCircuitTDM(QumodeCircuit):
         Returns:
             List[torch.Tensor]: The covariance matrix and displacement vector of the measured final state.
         """
-        assert self._if_delayloop, 'No delay loop.'
+        assert self._with_delay, 'No delay loop.'
         for i in range(self.nmode):
             assert i in self.wires_homodyne
         if data is None:
