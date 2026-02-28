@@ -274,6 +274,15 @@ class Pattern(Operation):
         except StopIteration:
             return True  # If we run out of operations, pattern is standard
 
+    # -----------------------------------------------------------------------------
+    # Based on code from Graphix
+    # Copyright (c) 2022 Team Graphix
+    # Licensed under the Apache License, Version 2.0
+    # Source: https://github.com/TeamGraphix/graphix/blob/0ca40c196c55da6bbb0488a8ea1045f2572fd0b6/graphix/pattern.py#L287
+    #
+    # Modifications:
+    # - Refactoring to fit internal data structures
+    # -----------------------------------------------------------------------------
     def standardize(self) -> None:
         """Standardize the command sequence into NEMC form.
 
@@ -337,6 +346,15 @@ class Pattern(Operation):
             *(Correction(nodes=node, basis='x', domain=domain) for node, domain in x_dict.items()),
         )
 
+    # -----------------------------------------------------------------------------
+    # Based on code from Graphix
+    # Copyright (c) 2022 Team Graphix
+    # Licensed under the Apache License, Version 2.0
+    # Source: https://github.com/TeamGraphix/graphix/blob/0ca40c196c55da6bbb0488a8ea1045f2572fd0b6/graphix/pattern.py#L426
+    #
+    # Modifications:
+    # - Refactoring to fit internal data structures and conventions
+    # -----------------------------------------------------------------------------
     def shift_signals(self) -> dict:
         """Perform signal shifting procedure.
 
