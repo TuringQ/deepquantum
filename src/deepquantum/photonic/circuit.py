@@ -1467,7 +1467,7 @@ class QumodeCircuit(Operation):
             print('Using chain-rule method to sample the final states!')
             samples = []
             for _ in range(shots):
-                sample = self._generate_chain_sample(wires)
+                sample = self._generate_chain_sample(wires, detector)
                 samples.append(sample)
             samples = torch.stack(samples).permute(1, 0, 2)  # (batch, shots, wires)
             for i in range(batch):
@@ -1547,13 +1547,15 @@ class QumodeCircuit(Operation):
             sample = torch.randint(0, self.cutoff, [nmode])
         return sample
 
-    def _generate_chain_sample(self, wires: int | list[int] | None = None) -> torch.Tensor:
+    def _generate_chain_sample(self, wires: int | list[int] | None = None, detector: str = None) -> torch.Tensor:
         """Generate batched random samples via chain rule.
 
         Args:
             wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
                 integers specifying the indices of the wires. Default: ``None`` (which means all wires are
                 measured)
+            detector (str): For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector
+            or ``'threshold'`` for the threshold detector.
 
         Returns:
             torch.Tensor: Tensor of shape (batch, nwire).
@@ -1575,10 +1577,10 @@ class QumodeCircuit(Operation):
                 mps[i] = torch.gather(mps[i], dim=2, index=index)
             sample = torch.stack(sample, dim=-1).squeeze(1)
         elif self.backend == 'gaussian':  # chain rule for GBS
-            sample = self._generate_chain_sample_gaussian(wires)
+            sample = self._generate_chain_sample_gaussian(wires, detector)
         return sample
 
-    def _generate_chain_sample_gaussian(self, wires: list[int]) -> torch.Tensor:
+    def _generate_chain_sample_gaussian(self, wires: list[int], detector: str) -> torch.Tensor:
         """Generate batched random samples via chain rule for Gaussian backend.
 
         See https://research-information.bris.ac.uk/en/studentTheses/classical-simulations-of-gaussian-boson-sampling
@@ -1640,12 +1642,13 @@ class QumodeCircuit(Operation):
         purity = GaussianState(self.state).is_pure
         cov, mean = self.state
         batch = cov.shape[0]
+        cutoff = 2 if detector == 'threshold' else self.cutoff
         if purity:
             for i in range(batch):
-                sample.append(_sample_pure(cov[i], mean[i], wires, self.nmode, self.cutoff, self.detector))
+                sample.append(_sample_pure(cov[i], mean[i], wires, self.nmode, cutoff, detector))
         else:
             for i in range(batch):
-                sample.append(_sample_mixed(cov[i], mean[i], wires, self.nmode, self.cutoff, self.detector))
+                sample.append(_sample_mixed(cov[i], mean[i], wires, self.nmode, cutoff, detector))
         sample = torch.stack(sample)
         return sample
 
