@@ -1547,7 +1547,7 @@ class QumodeCircuit(Operation):
             sample = torch.randint(0, self.cutoff, [nmode])
         return sample
 
-    def _generate_chain_sample(self, wires: int | list[int] | None = None, detector: str = None) -> torch.Tensor:
+    def _generate_chain_sample(self, wires: list[int], detector: str) -> torch.Tensor:
         """Generate batched random samples via chain rule.
 
         Args:
@@ -1560,9 +1560,6 @@ class QumodeCircuit(Operation):
         Returns:
             torch.Tensor: Tensor of shape (batch, nwire).
         """
-        if wires is None:
-            wires = self.wires
-        wires = sorted(self._convert_indices(wires))
         sample = []
         if self.backend == 'fock':
             assert self.mps
