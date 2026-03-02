@@ -1555,7 +1555,7 @@ class QumodeCircuit(Operation):
                 integers specifying the indices of the wires. Default: ``None`` (which means all wires are
                 measured)
             detector (str): For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector
-            or ``'threshold'`` for the threshold detector.
+                or ``'threshold'`` for the threshold detector.
 
         Returns:
             torch.Tensor: Tensor of shape (batch, nwire).
