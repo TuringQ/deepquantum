@@ -1551,7 +1551,7 @@ class QumodeCircuit(Operation):
         """Generate batched random samples via chain rule.
 
         Args:
-            wires (List[int]): The wires to measure. It can be a list of integers specifying the indices
+            wires (list[int]): The wires to measure. It can be a list of integers specifying the indices
                 of the wires.
             detector (str): For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector
                 or ``'threshold'`` for the threshold detector.
