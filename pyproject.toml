@@ -1,5 +1,5 @@
 [build-system]
-requires = ['setuptools >= 80.0', 'wheel']
+requires = ['setuptools', 'wheel']
 build-backend = 'setuptools.build_meta'
 
 [project]
@@ -57,6 +57,7 @@ dev = [
     'pytest',
     'qutip',
     'ruff',
+    'setuptools<82.0.0',
     'strawberryfields',
     'thewalrus',
 ]
