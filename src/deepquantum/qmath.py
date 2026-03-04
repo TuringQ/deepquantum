@@ -161,10 +161,20 @@ def safe_inverse(x: Any, epsilon: float = 1e-12) -> Any:
     return x / (x**2 + epsilon)
 
 
+# -----------------------------------------------------------------------------
+# Adapted from tensorgrad
+# Original Copyright (c) 2019 tensorgrad Contributors
+# Modified work Copyright (c) 2023-2026 TuringQ
+# Licensed under the Apache License, Version 2.0
+# Source: https://github.com/wangleiphy/tensorgrad/blob/732bd6430e86f1b69a8615045ca5b6399ad73061/tensornets/adlib/svd.py#L12
+#
+# Modifications:
+# - Support complex matrices.
+# - Refactored for framework integration and naming consistency.
+# -----------------------------------------------------------------------------
 class SVD(torch.autograd.Function):
     """Customized backward of SVD for better numerical stability.
 
-    Modified from https://github.com/wangleiphy/tensorgrad/blob/master/tensornets/adlib/svd.py
     See https://readpaper.com/paper/2971614414
     """
 
@@ -213,7 +223,16 @@ class SVD(torch.autograd.Function):
         return da
 
 
-# from tensorcircuit
+# -----------------------------------------------------------------------------
+# Adapted from TensorCircuit
+# Original Copyright (c) 2020 TensorCircuit Contributors
+# Modified work Copyright (c) 2023-2026 TuringQ
+# Licensed under the Apache License, Version 2.0
+# Source: https://github.com/tencent-quantum-lab/tensorcircuit/blob/cac74977f628e6e623bd34af95454fe55af399c2/tensorcircuit/backends/pytorch_ops.py#L15
+#
+# Modifications:
+# - Refactored for framework integration and naming consistency.
+# -----------------------------------------------------------------------------
 def torchqr_grad(a, q, r, dq, dr):
     """Get the gradient for QR."""
     qr_epsilon = 1e-8
@@ -274,7 +293,16 @@ def torchqr_grad(a, q, r, dq, dr):
     return torch.cat([dx, dy], dim=-1)
 
 
-# from tensorcircuit
+# -----------------------------------------------------------------------------
+# Adapted from TensorCircuit
+# Original Copyright (c) 2020 TensorCircuit Contributors
+# Modified work Copyright (c) 2023-2026 TuringQ
+# Licensed under the Apache License, Version 2.0
+# Source: https://github.com/tencent-quantum-lab/tensorcircuit/blob/cac74977f628e6e623bd34af95454fe55af399c2/tensorcircuit/backends/pytorch_ops.py#L87
+#
+# Modifications:
+# - Refactored for framework integration and naming consistency.
+# -----------------------------------------------------------------------------
 class QR(torch.autograd.Function):
     """Customized backward of QR for better numerical stability."""
 

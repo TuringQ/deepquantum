@@ -275,13 +275,14 @@ class Pattern(Operation):
             return True  # If we run out of operations, pattern is standard
 
     # -----------------------------------------------------------------------------
-    # Based on code from Graphix
-    # Copyright (c) 2022 Team Graphix
+    # Adapted from Graphix
+    # Original Copyright (c) 2022 Team Graphix
+    # Modified work Copyright (c) 2025-2026 TuringQ
     # Licensed under the Apache License, Version 2.0
     # Source: https://github.com/TeamGraphix/graphix/blob/0ca40c196c55da6bbb0488a8ea1045f2572fd0b6/graphix/pattern.py#L287
     #
     # Modifications:
-    # - Refactoring to fit internal data structures
+    # - Refactored to fit internal data structures.
     # -----------------------------------------------------------------------------
     def standardize(self) -> None:
         """Standardize the command sequence into NEMC form.
@@ -347,13 +348,14 @@ class Pattern(Operation):
         )
 
     # -----------------------------------------------------------------------------
-    # Based on code from Graphix
-    # Copyright (c) 2022 Team Graphix
+    # Adapted from Graphix
+    # Original Copyright (c) 2022 Team Graphix
+    # Modified work Copyright (c) 2025-2026 TuringQ
     # Licensed under the Apache License, Version 2.0
     # Source: https://github.com/TeamGraphix/graphix/blob/0ca40c196c55da6bbb0488a8ea1045f2572fd0b6/graphix/pattern.py#L426
     #
     # Modifications:
-    # - Refactoring to fit internal data structures and conventions
+    # - Refactored to fit internal data structures and conventions.
     # -----------------------------------------------------------------------------
     def shift_signals(self) -> dict:
         """Perform signal shifting procedure.
