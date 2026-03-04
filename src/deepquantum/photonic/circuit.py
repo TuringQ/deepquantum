@@ -1410,7 +1410,7 @@ class QumodeCircuit(Operation):
         all_results = []
         samples = []
         for _ in range(shots):
-            samples.append(self._generate_chain_sample(wires))
+            samples.append(self._generate_chain_sample(wires, self.detector))
         for j in range(samples[0].shape[0]):
             samples_j = [tuple(sample[j].tolist()) for sample in samples]
             samples_j = dict(Counter(samples_j))
