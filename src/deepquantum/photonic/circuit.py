@@ -1400,7 +1400,7 @@ class QumodeCircuit(Operation):
                 ptrace_probs = probs.sum(dim=sum_idx)
             for p_state in combi:
                 p_state_b = FockState(list(p_state))
-                prob_dict[p_state_b] = ptrace_probs[p_state]
+                prob_dict[p_state_b] = ptrace_probs[p_state].reshape(-1)
             results = self._prob_dict_to_measure_result(prob_dict, shots, with_prob)
             all_results.append(results)
         return all_results
