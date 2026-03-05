@@ -19,14 +19,14 @@ class UnitaryMapper:
     """Map the quantum gate to the unitary matrix of the photonic quantum circuit based on dual-rail encoding.
 
     Args:
-        nqubit (int): The number of qubits of the quantum gates.
-        nmode (int): The number of modes in the circuit.
-        ugate (Any): The target quantum gate.
-        success (float): The square root of the probability of the target quantum gate.
+        nqubit: The number of qubits of the quantum gates.
+        nmode: The number of modes in the circuit.
+        ugate: The target quantum gate.
+        success: The square root of the probability of the target quantum gate.
             The preferred value is 1/3 for 2 qubits or 1/4 for 3 qubits.
-        aux (List or None, optional): Two auxiliary modes in the circuit, which could be ``[0,0]`` or ``[1,0]``.
+        aux: Two auxiliary modes in the circuit, which could be ``[0,0]`` or ``[1,0]``.
             Default: ``None``
-        aux_pos (List or None, optional): The positions of the auxiliary modes.
+        aux_pos: The positions of the auxiliary modes.
             Default: ``None`` (which means the last two modes).
     """
 

@@ -118,7 +118,7 @@ def cir_to_qasm3(circuit: QubitCircuit) -> str:
     """Converts ``QubitCircuit`` to an OpenQASM 3.0 string.
 
     Args:
-        circuit (QubitCircuit): The DeepQuantum circuit to convert.
+        circuit: The DeepQuantum circuit to convert.
 
     Returns:
         str: A string containing the OpenQASM 3.0 representation of the circuit.

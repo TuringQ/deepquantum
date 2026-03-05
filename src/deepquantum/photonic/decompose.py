@@ -10,8 +10,8 @@ class UnitaryDecomposer:
     """This class is to decompose a unitary matrix into the Clements/Reck architecture.
 
     Args:
-        unitary (np.ndarray or torch.Tensor): The unitary matrix to be decomposed.
-        method (str, optional): The decomposition method, only 16 values (``'rssr'``, ``'rsdr'``, ``'rdsr'``,
+        unitary: The unitary matrix to be decomposed.
+        method: The decomposition method, only 16 values (``'rssr'``, ``'rsdr'``, ``'rdsr'``,
             ``'rddr'``, ``'rssl'``, ``'rsdl'``, ``'rdsl'``, ``'rddl'``, ``'cssr'``, ``'csdr'``, ``'cdsr'``, ``'cddr'``,
             ``'cssl'``, ``'csdl'``, ``'cdsl'``, ``'cddl'``) are valid.
             The first char denotes the Clements or Reck architecture.

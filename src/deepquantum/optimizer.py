@@ -12,11 +12,11 @@ class Optimizer:
     """A base class for optimizers.
 
     Args:
-        target_func (function): The target function to optimize, more specifically, to minimize.
+        target_func: The target function to optimize, more specifically, to minimize.
             It is supposed to accept ``kwargs`` in the format of ``param_init`` as inputs.
-        param_init (Dict, List, np.ndarray or torch.Tensor): The initial parameters for
+        param_init: The initial parameters for
             the target function. The keys of it should be consistent with inputs of ``target_func``.
-        random_state (int): The random seed for this optimization process.
+        random_state: The random seed for this optimization process.
     """
 
     def __init__(self, target_func, param_init, random_state=0):
@@ -44,11 +44,11 @@ class OptimizerBayesian(Optimizer):
     See https://github.com/bayesian-optimization/BayesianOptimization.
 
     Args:
-        target_func (function): The target function to optimize, more specifically, to minimize.
+        target_func: The target function to optimize, more specifically, to minimize.
             It is supposed to accept ``kwargs`` in the format of ``param_init`` as inputs.
-        param_init (Dict, List, np.ndarray or torch.Tensor): The initial parameters for
+        param_init: The initial parameters for
             the target function. The keys of it should be consistent with inputs of ``target_func``.
-        random_state (int): The random seed for this optimization process.
+        random_state: The random seed for this optimization process.
 
     Note:
         In the scenerio of on-chip optimization, the periods of phase shifters are all from 0 to :math:`2\pi`,
@@ -116,11 +116,11 @@ class OptimizerSPSA(Optimizer):
     See https://www.jhuapl.edu/spsa/Pages/MATLAB.htm.
 
     Args:
-        target_func (function): The target function to optimize, more specifically, to minimize.
+        target_func: The target function to optimize, more specifically, to minimize.
             It is supposed to accept ``kwargs`` in the format of ``param_init`` as inputs.
-        param_init (Dict, List, np.ndarray or torch.Tensor): The initial parameters for
+        param_init: The initial parameters for
             the target function. The keys of it should be consistent with inputs of ``target_func``.
-        random_state (int): The random seed for this optimization process.
+        random_state: The random seed for this optimization process.
     """
 
     def __init__(self, target_func, param_init, random_state=0):
@@ -194,14 +194,14 @@ class OptimizerFourier(Optimizer):
     Obtain the gradient approximation from the target function approximation.
 
     Args:
-        target_func (function): The target function to optimize, more specifically, to minimize.
+        target_func: The target function to optimize, more specifically, to minimize.
             It is supposed to accept ``kwargs`` in the format of ``param_init`` as inputs.
-        param_init (Dict, List, np.ndarray or torch.Tensor): The initial parameters for
+        param_init: The initial parameters for
             the target function. The keys of it should be consistent with inputs of ``target_func``.
-        order (int): The order of Fourier series to approximate.
-        lr (float): The step length (or equivalently, learning rate) of the learning process
+        order: The order of Fourier series to approximate.
+        lr: The step length (or equivalently, learning rate) of the learning process
             (namely, gradient descent process).
-        random_state (int): The random seed for this optimization process.
+        random_state: The random seed for this optimization process.
     """
 
     def __init__(self, target_func, param_init, order=5, lr=0.1, random_state=0):

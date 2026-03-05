@@ -19,13 +19,13 @@ class FockState(nn.Module):
     """A Fock state of n modes, including Fock basis states and Fock state tensors.
 
     Args:
-        state (Any): The Fock state. It can be a vacuum state with ``'vac'`` or ``'zeros'``.
+        state: The Fock state. It can be a vacuum state with ``'vac'`` or ``'zeros'``.
             It can be a Fock basis state, e.g., ``[1,0,0]``, or a Fock state tensor,
             e.g., ``[(1/2**0.5, [1,0]), (1/2**0.5, [0,1])]``. Alternatively, it can be a tensor representation.
-        nmode (int or None, optional): The number of modes in the state. Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        basis (bool, optional): Whether the state is a Fock basis state or not. Default: ``True``
-        den_mat (bool, optional): Whether to use density matrix representation. Only valid for Fock state tensor.
+        nmode: The number of modes in the state. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        basis: Whether the state is a Fock basis state or not. Default: ``True``
+        den_mat: Whether to use density matrix representation. Only valid for Fock state tensor.
             Default: ``False``
     """
 
@@ -126,12 +126,12 @@ class FockState(nn.Module):
         """Get the discretized Wigner function of the specified mode.
 
         Args:
-            wire (int): The wigner function for given wire.
-            xrange (int or List, optional): The range of quadrature q. Default: 10
-            prange (int or List, optional): The range of quadrature p. Default: 10
-            npoints (int or List, optional): The number of discretization points for quadratures. Default: 100
-            plot (bool, optional): Whether to plot the wigner function. Default: ``True``
-            k (int, optional): The wigner function of kth batch to plot. Default: 0
+            wire: The wigner function for given wire.
+            xrange: The range of quadrature q. Default: 10
+            prange: The range of quadrature p. Default: 10
+            npoints: The number of discretization points for quadratures. Default: 100
+            plot: Whether to plot the wigner function. Default: ``True``
+            k: The wigner function of kth batch to plot. Default: 0
         """
         return fock_to_wigner(self.state, wire, self.nmode, self.cutoff, self.den_mat, xrange, prange, npoints, plot, k)
 
@@ -186,12 +186,12 @@ class GaussianState(nn.Module):
     r"""A Gaussian state of n modes, representing by covariance matrix and displacement vector.
 
     Args:
-        state (str or List): The Gaussian state. It can be a vacuum state with ``'vac'``, or arbitrary Gaussian state
+        state: The Gaussian state. It can be a vacuum state with ``'vac'``, or arbitrary Gaussian state
             with ``[cov, mean]``. ``cov`` and ``mean`` are the covariance matrix and the displacement vector of
             the Gaussian state, respectively. Use ``xxpp`` convention and :math:`\hbar=2` by default.
             Default: ``'vac'``
-        nmode (int or None, optional): The number of modes in the state. Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        nmode: The number of modes in the state. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
     """
 
     def __init__(self, state: str | list = 'vac', nmode: int | None = None, cutoff: int | None = None) -> None:
@@ -247,13 +247,13 @@ class GaussianState(nn.Module):
         """Get the discretized Wigner function of the specified mode.
 
         Args:
-            wire (int): The wigner function for given wire.
-            xrange (int or List, optional): The range of quadrature q. Default: 10
-            prange (int or List, optional): The range of quadrature p. Default: 10
-            npoints (int or List, optional): The number of discretization points for quadratures. Default: 100
-            plot (bool, optional): Whether to plot the wigner function. Default: ``True``
-            k (int, optional): The wigner function of kth batch to plot. Default: 0
-            normalize (bool, optional): Whether to normalize the wigner function. Default: ``True``
+            wire: The wigner function for given wire.
+            xrange: The range of quadrature q. Default: 10
+            prange: The range of quadrature p. Default: 10
+            npoints: The number of discretization points for quadratures. Default: 100
+            plot: Whether to plot the wigner function. Default: ``True``
+            k: The wigner function of kth batch to plot. Default: 0
+            normalize: Whether to normalize the wigner function. Default: ``True``
         """
         return cv_to_wigner([self.cov, self.mean], wire, xrange, prange, npoints, plot, k, normalize)
 
@@ -262,13 +262,13 @@ class BosonicState(nn.Module):
     r"""A Bosoncic state of n modes, representing by a linear combination of Gaussian states.
 
     Args:
-        state (str or List): The Bosoncic state. It can be a vacuum state with ``'vac'``, or arbitrary
+        state: The Bosoncic state. It can be a vacuum state with ``'vac'``, or arbitrary
             linear combinations of Gaussian states with ``[cov, mean, weight]``. ``cov``,``mean`` and ``weight`` are
             the covariance matrices, the displacement vectors and the weights of the Gaussian states, respectively.
             Use ``xxpp`` convention and :math:`\hbar=2` by default.
             Default: ``'vac'``
-        nmode (int or None, optional): The number of modes in the state. Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        nmode: The number of modes in the state. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
     """
 
     def __init__(self, state: str | list = 'vac', nmode: int | None = None, cutoff: int | None = None) -> None:
@@ -351,13 +351,13 @@ class BosonicState(nn.Module):
         """Get the discretized Wigner function of the specified mode.
 
         Args:
-            wire (int): The wigner function for given wire.
-            xrange (int or List, optional): The range of quadrature q. Default: 10
-            prange (int or List, optional): The range of quadrature p. Default: 10
-            npoints (int or List, optional): The number of discretization points for quadratures. Default: 100
-            plot (bool, optional): Whether to plot the wigner function. Default: ``True``
-            k (int, optional): The wigner function of kth batch to plot. Default: 0
-            normalize (bool, optional): Whether to normalize the wigner function. Default: ``True``
+            wire: The wigner function for given wire.
+            xrange: The range of quadrature q. Default: 10
+            prange: The range of quadrature p. Default: 10
+            npoints: The number of discretization points for quadratures. Default: 100
+            plot: Whether to plot the wigner function. Default: ``True``
+            k: The wigner function of kth batch to plot. Default: 0
+            normalize: Whether to normalize the wigner function. Default: ``True``
         """
         return cv_to_wigner([self.cov, self.mean, self.weight], wire, xrange, prange, npoints, plot, k, normalize)
 
@@ -367,12 +367,12 @@ class BosonicState(nn.Module):
         r"""Get the discretized marginal distribution of the specified mode along :math:`x\cos\phi + p\sin\phi`.
 
         Args:
-            wire (int): The marginal function for given wire.
-            phi (float, optional): The angle used to compute the linear combination of quadratures. Default: 0
-            xrange (int or List, optional): The range of quadrature. Default: 10
-            npoints (int, optional): The number of discretization points for quadrature. Default: 100
-            plot (bool, optional): Whether to plot the marginal function. Default: ``True``
-            k (int, optional): The index of the marginal function within the batch to plot. Default: 0
+            wire: The marginal function for given wire.
+            phi: The angle used to compute the linear combination of quadratures. Default: 0
+            xrange: The range of quadrature. Default: 10
+            npoints: The number of discretization points for quadrature. Default: 100
+            plot: Whether to plot the marginal function. Default: ``True``
+            k: The index of the marginal function within the batch to plot. Default: 0
         """
         from .gate import PhaseShift
 
@@ -411,11 +411,11 @@ class CatState(BosonicState):
     See https://arxiv.org/abs/2103.05530 Section IV B.
 
     Args:
-        r (Any, optional): Displacement magnitude :math:`|r|`. Default: ``None``
-        theta (Any, optional): Displacement angle :math:`\theta`. Default: ``None``
-        p (int, optional): Parity, where :math:`\theta=p\pi`. ``p=0`` corresponds to an even
+        r: Displacement magnitude :math:`|r|`. Default: ``None``
+        theta: Displacement angle :math:`\theta`. Default: ``None``
+        p: Parity, where :math:`\theta=p\pi`. ``p=0`` corresponds to an even
             cat state, and ``p=1`` an odd cat state. Default: 1
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
     """
 
     def __init__(self, r: Any = None, theta: Any = None, p: int = 1, cutoff: int | None = None) -> None:
@@ -465,11 +465,11 @@ class GKPState(BosonicState):
     See https://arxiv.org/abs/2103.05530 Section IV A.
 
     Args:
-        theta (Any, optional): angle :math:`\theta` in Bloch sphere. Default: ``None``
-        phi (Any, optional): angle :math:`\phi` in Bloch sphere. Default: ``None``
-        amp_cutoff (float, optional): The amplitude threshold for keeping the terms. Default: 0.1
-        epsilon (float, optional): The finite energy damping parameter. Default: 0.05
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        theta: angle :math:`\theta` in Bloch sphere. Default: ``None``
+        phi: angle :math:`\phi` in Bloch sphere. Default: ``None``
+        amp_cutoff: The amplitude threshold for keeping the terms. Default: 0.1
+        epsilon: The finite energy damping parameter. Default: 0.05
+        cutoff: The Fock space truncation. Default: ``None``
     """
 
     def __init__(
@@ -590,9 +590,9 @@ class FockStateBosonic(BosonicState):
     See https://arxiv.org/abs/2103.05530 Section IV C.
 
     Args:
-        n (int): Particle number.
-        r (float, optional): The quality parameter for the approximation. Default: 0.05
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        n: Particle number.
+        r: The quality parameter for the approximation. Default: 0.05
+        cutoff: The Fock space truncation. Default: ``None``
     """
 
     def __init__(self, n: int, r: Any = 0.05, cutoff: int | None = None) -> None:
@@ -615,11 +615,11 @@ class DistributedFockState(nn.Module):
     """A Fock state of n modes distributed between w nodes.
 
     Args:
-        state (Any): The Fock state. It can be a vacuum state with ``'vac'`` or ``'zeros'``.
+        state: The Fock state. It can be a vacuum state with ``'vac'`` or ``'zeros'``.
             It can be a Fock basis state, e.g., ``[1,0,0]``, or a Fock state tensor,
             e.g., ``[(1/2**0.5, [1,0]), (1/2**0.5, [0,1])]``.
-        nmode (int or None, optional): The number of modes in the state. Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        nmode: The number of modes in the state. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
     """
 
     def __init__(self, state: Any, nmode: int | None = None, cutoff: int | None = None) -> None:
@@ -683,8 +683,8 @@ def combine_tensors(tensors: list[torch.Tensor], ndim_ds: int = 2) -> torch.Tens
     """Combine a list of 3D tensors for Bosonic states according to the dimension of direct sum.
 
     Args:
-        tensors (List[torch.Tensor]): The list of 3D tensors to combine.
-        ndim_ds (int, optional): The dimension of direct sum. Use 1 for direct sum along rows,
+        tensors: The list of 3D tensors to combine.
+        ndim_ds: The dimension of direct sum. Use 1 for direct sum along rows,
             or use 2 for direct sum along both rows and columns. Default: 2
     """
     assert ndim_ds in (1, 2)
@@ -729,8 +729,8 @@ def combine_bosonic_states(states: list[BosonicState], cutoff: int | None = None
     """Combine multiple Bosonic states into a single state.
 
     Args:
-        states (List[BosonicState]): List of Bosonic states to combine.
-        cutoff (int or None, optional): The Fock space truncation. If ``None``, the cutoff of the first state is used.
+        states: List of Bosonic states to combine.
+        cutoff: The Fock space truncation. If ``None``, the cutoff of the first state is used.
             Default: ``None``
     """
     covs = []

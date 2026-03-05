@@ -78,30 +78,30 @@ class QumodeCircuit(Operation):
     r"""Photonic quantum circuit.
 
     Args:
-        nmode (int): The number of modes in the circuit.
-        init_state (Any): The initial state of the circuit. It can be a vacuum state with ``'vac'`` or ``'zeros'``.
+        nmode: The number of modes in the circuit.
+        init_state: The initial state of the circuit. It can be a vacuum state with ``'vac'`` or ``'zeros'``.
             For Fock backend, it can be a Fock basis state, e.g., ``[1,0,0]``, or a Fock state tensor,
             e.g., ``[(1/2**0.5, [1,0]), (1/2**0.5, [0,1])]``. Alternatively, it can be a tensor representation.
             For Gaussian backend, it can be arbitrary Gaussian states with ``[cov, mean]``.
             For Bosonic backend, it can be arbitrary linear combinations of Gaussian states
             with ``[cov, mean, weight]``, or a list of local Bosonic states.
             Use ``xxpp`` convention and :math:`\hbar=2` by default.
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        backend (str, optional): Use ``'fock'`` for Fock backend, ``'gaussian'`` for Gaussian backend or
+        cutoff: The Fock space truncation. Default: ``None``
+        backend: Use ``'fock'`` for Fock backend, ``'gaussian'`` for Gaussian backend or
             ``'bosonic'`` for Bosonic backend. Default: ``'fock'``
-        basis (bool, optional): Whether to use the representation of Fock basis state for the initial state.
+        basis: Whether to use the representation of Fock basis state for the initial state.
             Default: ``True``
-        den_mat (bool, optional): Whether to use density matrix representation. Only valid for Fock state tensor.
+        den_mat: Whether to use density matrix representation. Only valid for Fock state tensor.
             Default: ``False``
-        detector (str, optional): For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector
+        detector: For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector
             or ``'threshold'`` for the threshold detector. Default: ``'pnrd'``
-        name (str or None, optional): The name of the circuit. Default: ``None``
-        mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
-        chi (int or None, optional): The bond dimension for matrix product state representation.
+        name: The name of the circuit. Default: ``None``
+        mps: Whether to use matrix product state representation. Default: ``False``
+        chi: The bond dimension for matrix product state representation.
             Default: ``None``
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -284,16 +284,16 @@ class QumodeCircuit(Operation):
         """Perform a forward pass of the photonic quantum circuit and return the final-state-related result.
 
         Args:
-            data (torch.Tensor or None, optional): The input data for the ``encoders``. Default: ``None``
-            state (Any, optional): The initial state for the photonic quantum circuit. Default: ``None``
-            is_prob (bool or None, optional): For Fock backend, whether to return probabilities or amplitudes.
+            data: The input data for the ``encoders``. Default: ``None``
+            state: The initial state for the photonic quantum circuit. Default: ``None``
+            is_prob: For Fock backend, whether to return probabilities or amplitudes.
                 For Gaussian (Bosonic) backend, whether to return probabilities or the final Gaussian (Bosonic) state.
                 For Fock backend with ``basis=True``, set ``None`` to return the unitary matrix. Default: ``None``
-            detector (str or None, optional): For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving
+            detector: For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving
                 detector or ``'threshold'`` for the threshold detector. Default: ``None``
-            sort (bool, optional): Whether to sort dictionary of Fock basis states in the descending
+            sort: Whether to sort dictionary of Fock basis states in the descending
                 order of probabilities. Default: ``True``
-            stepwise (bool, optional): Whether to use the forward function of each operator for Gaussian backend.
+            stepwise: Whether to use the forward function of each operator for Gaussian backend.
                 Default: ``False``
 
         Returns:
@@ -311,11 +311,11 @@ class QumodeCircuit(Operation):
         """Perform a forward pass based on the Fock backend.
 
         Args:
-            data (torch.Tensor or None, optional): The input data for the ``encoders``. Default: ``None``
-            state (Any, optional): The initial state for the photonic quantum circuit. Default: ``None``
-            is_prob (bool or None, optional): Whether to return probabilities or amplitudes.
+            data: The input data for the ``encoders``. Default: ``None``
+            state: The initial state for the photonic quantum circuit. Default: ``None``
+            is_prob: Whether to return probabilities or amplitudes.
                 When ``basis=True``, set ``None`` to return the unitary matrix. Default: ``None``
-            sort (bool, optional): Whether to sort dictionary of Fock basis states in the descending
+            sort: Whether to sort dictionary of Fock basis states in the descending
                 order of probabilities. Default: ``True``
 
         Returns:
@@ -449,14 +449,14 @@ class QumodeCircuit(Operation):
         """Perform a forward pass based on the Gaussian (Bosonic) backend.
 
         Args:
-            data (torch.Tensor or None, optional): The input data for the ``encoders``. Default: ``None``
-            state (Any, optional): The initial state for the photonic quantum circuit. Default: ``None``
-            is_prob (bool or None, optional): Whether to return probabilities or the final Gaussian (Bosonic) state.
+            data: The input data for the ``encoders``. Default: ``None``
+            state: The initial state for the photonic quantum circuit. Default: ``None``
+            is_prob: Whether to return probabilities or the final Gaussian (Bosonic) state.
                 Default: ``None``
-            detector (str or None, optional): Use ``'pnrd'`` for the photon-number-resolving detector or
+            detector: Use ``'pnrd'`` for the photon-number-resolving detector or
                 ``'threshold'`` for the threshold detector. Only valid when ``is_prob`` is ``True``.
                 Default: ``None``
-            stepwise (bool, optional): Whether to use the forward function of each operator. Default: ``False``
+            stepwise: Whether to use the forward function of each operator. Default: ``False``
 
         Returns:
             Union[List[torch.Tensor], Dict]: The final Gaussian (Bosonic) state or a dictionary of probabilities.
@@ -531,10 +531,10 @@ class QumodeCircuit(Operation):
         """Get the probabilities of all possible final states for Gaussian (Bosonic) backend by different detectors.
 
         Args:
-            cov (torch.Tensor): The covariance matrices of the Gaussian states.
-            mean (torch.Tensor): The displacement vectors of the Gaussian states.
-            weight (torch.Tensor or None, optional): The weights of the Gaussian states. Default: ``None``
-            detector (str or None, optional): Use ``'pnrd'`` for the photon-number-resolving detector or
+            cov: The covariance matrices of the Gaussian states.
+            mean: The displacement vectors of the Gaussian states.
+            weight: The weights of the Gaussian states. Default: ``None``
+            detector: Use ``'pnrd'`` for the photon-number-resolving detector or
                 ``'threshold'`` for the threshold detector. Default: ``None``
         """
         assert weight is None, 'Currently Fock probability is not supported in Bosonic backend'
@@ -616,8 +616,8 @@ class QumodeCircuit(Operation):
         By default it will generate all Fock basis states according to the inital state.
 
         Args:
-            state (Any, optional): The output Fock basis states. Default: ``None``
-            reset_in_forward (bool, optional): Whether to recompute the output Fock basis states in the forward pass.
+            state: The output Fock basis states. Default: ``None``
+            reset_in_forward: Whether to recompute the output Fock basis states in the forward pass.
                 Default: ``False``
         """
         assert self.basis
@@ -863,7 +863,7 @@ class QumodeCircuit(Operation):
         with the input data.
 
         Args:
-            data (torch.Tensor or None): The input data for the ``encoders``, must be a 1D tensor.
+            data: The input data for the ``encoders``, must be a 1D tensor.
         """
         if data is None:
             return
@@ -969,9 +969,9 @@ class QumodeCircuit(Operation):
             the amplitudes of the reduced states can not be added, please try ``get_prob`` instead.
 
         Args:
-            final_state (Any): The final Fock basis state.
-            init_state (Any, optional): The initial Fock basis state. Default: ``None``
-            unitary (torch.Tensor or None, optional): The unitary matrix. Default: ``None``
+            final_state: The final Fock basis state.
+            init_state: The initial Fock basis state. Default: ``None``
+            unitary: The unitary matrix. Default: ``None``
         """
         assert self.backend == 'fock'
         if not isinstance(final_state, torch.Tensor):
@@ -1012,9 +1012,9 @@ class QumodeCircuit(Operation):
         """Get the probability of the final state related to the reference state.
 
         Args:
-            final_state (Any): The final Fock basis state.
-            refer_state (Any, optional): The initial Fock basis state or the final Gaussian state. Default: ``None``
-            unitary (torch.Tensor or None, optional): The unitary matrix. Default: ``None``
+            final_state: The final Fock basis state.
+            refer_state: The initial Fock basis state or the final Gaussian state. Default: ``None``
+            unitary: The unitary matrix. Default: ``None``
         """
         if not isinstance(final_state, torch.Tensor):
             final_state = torch.tensor(final_state, dtype=torch.long)
@@ -1064,9 +1064,9 @@ class QumodeCircuit(Operation):
         """Get the transfer probability between the final state and the initial state for the Fock backend.
 
         Args:
-            final_state (Any): The final Fock basis state.
-            init_state (Any, optional): The initial Fock basis state. Default: ``None``
-            unitary (torch.Tensor or None, optional): The unitary matrix. Default: ``None``
+            final_state: The final Fock basis state.
+            init_state: The initial Fock basis state. Default: ``None``
+            unitary: The unitary matrix. Default: ``None``
         """
         if init_state is None:  # when mcmc
             nmode = self.nmode + self._nloss + self._is_batch_expanded
@@ -1186,8 +1186,8 @@ class QumodeCircuit(Operation):
         """Get the probability of the given bit string for MPS.
 
         Args:
-            final_state (Any): The final Fock basis state.
-            wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
+            final_state: The final Fock basis state.
+            wires: The wires to measure. It can be an integer or a list of
                 integers specifying the indices of the wires.
         """
         if isinstance(final_state, FockState):
@@ -1212,14 +1212,14 @@ class QumodeCircuit(Operation):
         """Measure the final state.
 
         Args:
-            shots (int, optional): The number of times to sample from the quantum state. Default: 1024
-            with_prob (bool, optional): A flag that indicates whether to return the probabilities along with
+            shots: The number of times to sample from the quantum state. Default: 1024
+            with_prob: A flag that indicates whether to return the probabilities along with
                 the number of occurrences. Default: ``False``
-            wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
+            wires: The wires to measure. It can be an integer or a list of
                 integers specifying the indices of the wires. Default: ``None`` (which means all wires are measured)
-            detector (str or None, optional): For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving
+            detector: For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving
                 detector or ``'threshold'`` for the threshold detector. Default: ``None``
-            mcmc (bool, optional): Whether to use MCMC sampling method. Default: ``False``
+            mcmc: Whether to use MCMC sampling method. Default: ``False``
 
         See https://arxiv.org/pdf/2108.01622 for MCMC.
         """
@@ -1551,9 +1551,9 @@ class QumodeCircuit(Operation):
         """Generate batched random samples via chain rule.
 
         Args:
-            wires (list[int]): The wires to measure. It can be a list of integers specifying the indices
+            wires: The wires to measure. It can be a list of integers specifying the indices
                 of the wires.
-            detector (str): For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector
+            detector: For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector
                 or ``'threshold'`` for the threshold detector.
 
         Returns:
@@ -1652,7 +1652,7 @@ class QumodeCircuit(Operation):
         """Get the expectation value and variance of the photon number operator.
 
         Args:
-            wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
+            wires: The wires to measure. It can be an integer or a list of
                 integers specifying the indices of the wires. Default: ``None`` (which means all wires are
                 measured)
         """
@@ -1708,10 +1708,10 @@ class QumodeCircuit(Operation):
         and the input arguments ``wires`` and ``phi`` are ignored.
 
         Args:
-            wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
+            wires: The wires to measure. It can be an integer or a list of
                 integers specifying the indices of the wires. Default: ``None`` (which means all wires are
                 measured).
-            phi (Any or None, optional): The phi angles for quadrature operator
+            phi: The phi angles for quadrature operator
                 :math:`\hat{X}\cos\phi + \hat{P}\sin\phi`. Default: ``None``
         """
         if len(self.measurements) == 0:
@@ -1765,8 +1765,8 @@ class QumodeCircuit(Operation):
             """Extract specified blocks from the input tensor.
 
             Args:
-                mat (torch.Tensor): Input tensor.
-                idx (torch.Tensor): Index tensor of shape (nblock, block_size), where each row contains
+                mat: Input tensor.
+                idx: Index tensor of shape (nblock, block_size), where each row contains
                     the row/column indices for a block.
 
             Returns:
@@ -1803,8 +1803,8 @@ class QumodeCircuit(Operation):
             ``batch`` * ``shots`` can not be too large for Fock backend.
 
         Args:
-            shots (int, optional): The number of times to sample from the quantum state. Default: 10
-            wires (int, List[int] or None, optional): The wires to measure for the ideal homodyne. It can be
+            shots: The number of times to sample from the quantum state. Default: 10
+            wires: The wires to measure for the ideal homodyne. It can be
                 an integer or a list of integers specifying the indices of the wires. Default: ``None`` (which means
                 all wires are measured)
         """
@@ -1873,8 +1873,8 @@ class QumodeCircuit(Operation):
         """Visualize the photonic quantum circuit.
 
         Args:
-            filename (str or None, optional): The path for saving the figure.
-            unroll (bool, optional): Whether to draw the unrolled circuit.
+            filename: The path for saving the figure.
+            unroll: Whether to draw the unrolled circuit.
         """
         if self._with_delay and unroll:
             self._prepare_unroll_dict()
@@ -1928,10 +1928,10 @@ class QumodeCircuit(Operation):
         are shared.
 
         Args:
-            op (Operation): The operation to add. It is an instance of ``Operation`` class or its subclasses,
+            op: The operation to add. It is an instance of ``Operation`` class or its subclasses,
                 such as ``Gate``, or ``QumodeCircuit``.
-            encode (bool, optional): Whether the gate is to encode data. Default: ``False``
-            wires (int, List[int] or None, optional): The wires to apply the gate on. It can be an integer
+            encode: Whether the gate is to encode data. Default: ``False``
+            wires: The wires to apply the gate on. It can be an integer
                 or a list of integers specifying the indices of the wires. Default: ``None`` (which means
                 the gate has its own wires)
 
@@ -2864,12 +2864,12 @@ class DistributedQumodeCircuit(QumodeCircuit):
     """Photonic quantum circuit for a distributed Fock state.
 
     Args:
-        nmode (int): The number of modes in the circuit.
-        init_state (Any): The initial state of the circuit. It can be a vacuum state with ``'vac'`` or ``'zeros'``.
+        nmode: The number of modes in the circuit.
+        init_state: The initial state of the circuit. It can be a vacuum state with ``'vac'`` or ``'zeros'``.
             It can be a Fock basis state, e.g., ``[1,0,0]``, or a Fock state tensor,
             e.g., ``[(1/2**0.5, [1,0]), (1/2**0.5, [0,1])]``.
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        name (str or None, optional): The name of the circuit. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        name: The name of the circuit. Default: ``None``
     """
 
     def __init__(self, nmode: int, init_state: Any, cutoff: int | None = None, name: str | None = None) -> None:
@@ -2908,8 +2908,8 @@ class DistributedQumodeCircuit(QumodeCircuit):
         The ``data`` must be a 1D tensor.
 
         Args:
-            data (torch.Tensor or None, optional): The input data for the ``encoders``. Default: ``None``
-            state (DistributedFockState or None, optional): The initial state for the photonic quantum circuit.
+            data: The input data for the ``encoders``. Default: ``None``
+            state: The initial state for the photonic quantum circuit.
                 Default: ``None``
         """
         if state is None:
@@ -2926,12 +2926,12 @@ class DistributedQumodeCircuit(QumodeCircuit):
         """Measure the final state.
 
         Args:
-            shots (int, optional): The number of times to sample from the quantum state. Default: 1024
-            with_prob (bool, optional): A flag that indicates whether to return the probabilities along with
+            shots: The number of times to sample from the quantum state. Default: 1024
+            with_prob: A flag that indicates whether to return the probabilities along with
                 the number of occurrences. Default: ``False``
-            wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
+            wires: The wires to measure. It can be an integer or a list of
                 integers specifying the indices of the wires. Default: ``None`` (which means all wires are measured)
-            block_size (int, optional): The block size for sampling. Default: 2 ** 24
+            block_size: The block size for sampling. Default: 2 ** 24
         """
         if wires is None:
             wires = list(range(self.nmode))

@@ -48,10 +48,10 @@ class DrawCircuit:
     """Draw the photonic quantum circuit.
 
     Args:
-        circuit_name (str): The name of the circuit.
-        circuit_nmode (int): The number of modes in the circuit.
-        circuit_operators (nn.Sequential): The operators of the circuit.
-        measurements (nn.ModuleList): The measurements of the circuit.
+        circuit_name: The name of the circuit.
+        circuit_nmode: The number of modes in the circuit.
+        circuit_operators: The operators of the circuit.
+        measurements: The measurements of the circuit.
     """
 
     def __init__(
@@ -502,11 +502,11 @@ class DrawClements:
     """Draw the n-mode Clements architecture.
 
     Args:
-        nmode (int): The number of modes of the Clements architecture.
-        mzi_info (Dict): The dictionary for mzi parameters, resulting from the decompose function.
-        cl (str, optional): The color for plotting. Default: ``'dodgerblue'``
-        fs (int, optional): The fontsize. Default: 30
-        method (str, optional): The way for Clements decomposition, ``'cssr'`` or ``'cssl'``.
+        nmode: The number of modes of the Clements architecture.
+        mzi_info: The dictionary for mzi parameters, resulting from the decompose function.
+        cl: The color for plotting. Default: ``'dodgerblue'``
+        fs: The fontsize. Default: 30
+        method: The way for Clements decomposition, ``'cssr'`` or ``'cssl'``.
             Default: ``'cssr'``
     """
 

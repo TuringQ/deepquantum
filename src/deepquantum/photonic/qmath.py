@@ -57,9 +57,9 @@ def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.T
     The rows are chosen according to the output state and the columns are chosen according to the input state.
 
     Args:
-        u (torch.Tensor): The unitary matrix.
-        input_state (torch.Tensor): The input state.
-        output_state (torch.Tensor): The output state.
+        u: The unitary matrix.
+        input_state: The input state.
+        output_state: The output state.
     """
     with warnings.catch_warnings():
         warnings.filterwarnings('ignore')  # local warning
@@ -142,10 +142,10 @@ def fock_combinations(nmode: int, nphoton: int, cutoff: int | None = None, nanci
     """Generate all possible combinations of Fock states for a given number of modes, photons, and cutoff.
 
     Args:
-        nmode (int): The number of modes in the system.
-        nphoton (int): The total number of photons in the system.
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        nancilla (int, optional): The number of ancilla modes (NOT limited by ``cutoff``). Default: ``0``
+        nmode: The number of modes in the system.
+        nphoton: The total number of photons in the system.
+        cutoff: The Fock space truncation. Default: ``None``
+        nancilla: The number of ancilla modes (NOT limited by ``cutoff``). Default: ``0``
 
     Returns:
         List[List[int]]: A list of all possible Fock states, each represented by a list of
@@ -167,9 +167,9 @@ def fock_combinations(nmode: int, nphoton: int, cutoff: int | None = None, nanci
         """A helper function that uses backtracking to generate all possible Fock states.
 
         Args:
-            state (List[int]): The current Fock state being constructed.
-            length (int): The remaining number of modes to be filled.
-            num_sum (int): The remaining number of photons to be distributed.
+            state: The current Fock state being constructed.
+            length: The remaining number of modes to be filled.
+            num_sum: The remaining number of photons to be distributed.
         """
         if length == 0:
             if num_sum == 0:
@@ -230,8 +230,8 @@ def quadrature_to_ladder(tensor: torch.Tensor, symplectic: bool = False) -> torc
     """Transform the representation in ``xxpp`` ordering to the representation in ``aaa^+a^+`` ordering.
 
     Args:
-        tensor (torch.Tensor): The input tensor in ``xxpp`` ordering.
-        symplectic (bool, optional): Whether the transformation is applied for symplectic matrix or Gaussian state.
+        tensor: The input tensor in ``xxpp`` ordering.
+        symplectic: Whether the transformation is applied for symplectic matrix or Gaussian state.
             Default: ``False`` (which means covariance matrix or displacement vector)
     """
     nmode = tensor.shape[-2] // 2
@@ -251,8 +251,8 @@ def ladder_to_quadrature(tensor: torch.Tensor, symplectic: bool = False) -> torc
     """Transform the representation in ``aaa^+a^+`` ordering to the representation in ``xxpp`` ordering.
 
     Args:
-        tensor (torch.Tensor): The input tensor in ``aaa^+a^+`` ordering.
-        symplectic (bool, optional): Whether the transformation is applied for symplectic matrix or Gaussian state.
+        tensor: The input tensor in ``aaa^+a^+`` ordering.
+        symplectic: Whether the transformation is applied for symplectic matrix or Gaussian state.
             Default: ``False`` (which means covariance matrix or displacement vector)
     """
     nmode = tensor.shape[-2] // 2
@@ -470,15 +470,15 @@ def measure_fock_tensor(
     r"""Measure the batched Fock state tensors.
 
     Args:
-        state (torch.Tensor): The quantum state to measure. It should be a tensor of shape
+        state: The quantum state to measure. It should be a tensor of shape
             :math:`(\text{batch}, \text{cutoff}, ..., \text{cutoff})`.
-        shots (int, optional): The number of times to sample from the quantum state. Default: 1024
-        with_prob (bool, optional): A flag that indicates whether to return the probabilities along with
+        shots: The number of times to sample from the quantum state. Default: 1024
+        with_prob: A flag that indicates whether to return the probabilities along with
             the number of occurrences. Default: ``False``
-        wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
+        wires: The wires to measure. It can be an integer or a list of
             integers specifying the indices of the wires. Default: ``None`` (which means all wires are
             measured)
-        block_size (int, optional): The block size for sampling. Default: 2 ** 24
+        block_size: The block size for sampling. Default: 2 ** 24
     """
     from .state import FockState
 
@@ -642,17 +642,17 @@ def fock_to_wigner(
     See https://qutip.org/docs/4.7/modules/qutip/wigner.html
 
     Args:
-        state (torch.Tensor): The input Fock state tensor or density matrix.
-        wire (int): The Wigner function for the given wire.
-        nmode (int): The mode number of the Fock state.
-        cutoff (int): The Fock space truncation.
-        den_mat (bool, optional): Whether to use density matrix representation. Only valid for Fock state tensor.
+        state: The input Fock state tensor or density matrix.
+        wire: The Wigner function for the given wire.
+        nmode: The mode number of the Fock state.
+        cutoff: The Fock space truncation.
+        den_mat: Whether to use density matrix representation. Only valid for Fock state tensor.
             Default: ``False``
-        xrange (int or List, optional): The range of quadrature x. Default: 10
-        prange (int or List, optional): The range of quadrature p. Default: 10
-        npoints (int or List, optional): The number of discretization points for quadratures. Default: 100
-        plot (bool, optional): Whether to plot the Wigner function. Default: ``True``
-        k (int, optional): The index of the Wigner function within the batch to plot. Default: 0
+        xrange: The range of quadrature x. Default: 10
+        prange: The range of quadrature p. Default: 10
+        npoints: The number of discretization points for quadratures. Default: 100
+        plot: Whether to plot the Wigner function. Default: ``True``
+        k: The index of the Wigner function within the batch to plot. Default: 0
     """
     if den_mat:
         rho = state.reshape(-1, cutoff**nmode, cutoff**nmode)
@@ -719,14 +719,14 @@ def cv_to_wigner(
     """Get the discretized Wigner function of the specified mode from a CV state.
 
     Args:
-        state (List): The input ``Gaussianstate`` or ``BosonicState``.
-        wire (int): The Wigner function for the given wire.
-        xrange (int or List, optional): The range of quadrature x. Default: 10
-        prange (int or List, optional): The range of quadrature p. Default: 10
-        npoints (int or List, optional): The number of discretization points for quadratures. Default: 100
-        plot (bool, optional): Whether to plot the Wigner function. Default: ``True``
-        k (int, optional): The index of the Wigner function within the batch to plot. Default: 0
-        normalize (bool, optional): Whether to normalize the Wigner function. Default: ``True``
+        state: The input ``Gaussianstate`` or ``BosonicState``.
+        wire: The Wigner function for the given wire.
+        xrange: The range of quadrature x. Default: 10
+        prange: The range of quadrature p. Default: 10
+        npoints: The number of discretization points for quadratures. Default: 100
+        plot: Whether to plot the Wigner function. Default: ``True``
+        k: The index of the Wigner function within the batch to plot. Default: 0
+        normalize: Whether to normalize the Wigner function. Default: ``True``
     """
     cov, mean = state[:2]
     xlist = [-xrange, xrange] if isinstance(xrange, int) else xrange
@@ -787,10 +787,10 @@ def plot_wigner(wigner: torch.Tensor, xvec: torch.Tensor, pvec: torch.Tensor, k:
     """Plot a 2D contour and a 3D surface of a discretized Wigner function W(x, p).
 
     Args:
-        wigner (torch.Tensor): Discretized Wigner values with shape (batch, nx, np).
-        xvec (torch.Tensor): 1D grid for quadrature x.
-        pvec (torch.Tensor): 1D grid for quadrature p.
-        k (int, optional): The index of the Wigner function within the batch to plot. Default: 0
+        wigner: Discretized Wigner values with shape (batch, nx, np).
+        xvec: 1D grid for quadrature x.
+        pvec: 1D grid for quadrature p.
+        k: The index of the Wigner function within the batch to plot. Default: 0
     """
     grid_x, grid_y = torch.meshgrid(xvec, pvec, indexing='ij')
     x = grid_x.cpu()

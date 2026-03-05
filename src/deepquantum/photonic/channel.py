@@ -21,12 +21,12 @@ class PhotonLoss(Channel):
        \hat{a}_{\text{out}} = \sqrt{T}\hat{a}_{\text{in}} + \sqrt{1-T}\hat{b}_{\text{vac}}
 
     Args:
-        inputs (Any, optional): The parameter of the channel. Default: ``None``
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
+        inputs: The parameter of the channel. Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 1
+        wires: The indices of the modes that the quantum operation acts on.
             Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+        cutoff: The Fock space truncation. Default: ``None``
+        requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
 

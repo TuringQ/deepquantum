@@ -22,9 +22,9 @@ class AdjointExpectation(Function):
     See https://arxiv.org/pdf/2009.02823
 
     Args:
-        state (DistributedQubitState): The final quantum state.
-        operators (nn.Sequential): The quantum operations.
-        observable (Observable): The observable.
+        state: The final quantum state.
+        operators: The quantum operations.
+        observable: The observable.
         *parameters (torch.Tensor): The parameters of the quantum circuit.
     """
 

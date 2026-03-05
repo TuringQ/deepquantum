@@ -9,8 +9,8 @@ class Operation(nn.Module):
     """A base class for quantum operations.
 
     Args:
-        name (str or None, optional): The name of the quantum operation. Default: ``None``
-        nodes (int, List[int] or None, optional): The indices of the nodes that the quantum operation acts on.
+        name: The name of the quantum operation. Default: ``None``
+        nodes: The indices of the nodes that the quantum operation acts on.
             Default: ``None``
     """
 
@@ -34,8 +34,8 @@ class Command(Operation):
     """A base class for MBQC commands.
 
     Args:
-        name (str): The name of the command.
-        nodes (int or List[int]): The indices of the nodes that the command acts on.
+        name: The name of the command.
+        nodes: The indices of the nodes that the command acts on.
     """
 
     def __init__(self, name: str, nodes: int | list[int]) -> None:

@@ -23,16 +23,16 @@ class Pattern(Operation):
     in a graph structure.
 
     Args:
-        nodes_state (int, List[int] or None, optional): The nodes of the input state in the initial graph state.
+        nodes_state: The nodes of the input state in the initial graph state.
             It can be an integer representing the number of nodes or a list of node indices. Default: ``None``
-        state (Any, optional): The input state of the initial graph state. The string representation of state
+        state: The input state of the initial graph state. The string representation of state
             could be ``'plus'``, ``'minus'``, ``'zero'``, and ``'one'``. Default: ``'plus'``
-        edges (List or None, optional): Additional edges connecting the nodes in the initial graph state.
+        edges: Additional edges connecting the nodes in the initial graph state.
             Default: ``None``
-        nodes (int, List[int] or None, optional): Additional nodes to include in the initial graph state.
+        nodes: Additional nodes to include in the initial graph state.
             Default: ``None``
-        name (str or None, optional): The name of the pattern. Default: ``None``
-        reupload (bool, optional): Whether to use data re-uploading. Default: ``False``
+        name: The name of the pattern. Default: ``None``
+        reupload: Whether to use data re-uploading. Default: ``False``
 
     Ref: V. Danos, E. Kashefi and P. Panangaden. J. ACM 54.2 8 (2007)
     """
@@ -67,8 +67,8 @@ class Pattern(Operation):
         """Perform a forward pass of the MBQC pattern and return the final graph state.
 
         Args:
-            data (torch.Tensor or None, optional): The input data for the ``encoders``. Default: ``None``
-            state (GraphState or None, optional): The initial graph state for the pattern. Default: ``None``
+            data: The input data for the ``encoders``. Default: ``None``
+            state: The initial graph state for the pattern. Default: ``None``
 
         Returns:
             GraphState: The final graph state of the pattern after applying the ``commands``.
@@ -94,7 +94,7 @@ class Pattern(Operation):
         the parameters.
 
         Args:
-            data (torch.Tensor or None): The input data for the ``encoders``, could be a 1D or 2D tensor.
+            data: The input data for the ``encoders``, could be a 1D or 2D tensor.
 
         Raises:
             AssertionError: If input data is shorter than the number of parameters in the ``encoders``.
@@ -126,15 +126,15 @@ class Pattern(Operation):
         """Add a subgraph state to the graph state.
 
         Args:
-            nodes_state (int, List[int] or None, optional): The nodes of the input state in the subgraph state.
+            nodes_state: The nodes of the input state in the subgraph state.
                 It can be an integer representing the number of nodes or a list of node indices. Default: ``None``
-            state (Any, optional): The input state of the subgraph state. The string representation of state
+            state: The input state of the subgraph state. The string representation of state
                 could be ``'plus'``, ``'minus'``, ``'zero'``, and ``'one'``. Default: ``'plus'``
-            edges (List or None, optional): Additional edges connecting the nodes in the subgraph state.
+            edges: Additional edges connecting the nodes in the subgraph state.
                 Default: ``None``
-            nodes (int, List[int] or None, optional): Additional nodes to include in the subgraph state.
+            nodes: Additional nodes to include in the subgraph state.
                 Default: ``None``
-            index (int or None, optional): The index where to insert the subgraph state. Default: ``None``
+            index: The index where to insert the subgraph state. Default: ``None``
         """
         self.init_state.add_subgraph(nodes_state=nodes_state, state=state, edges=edges, nodes=nodes, index=index)
 
@@ -154,9 +154,9 @@ class Pattern(Operation):
         """A method that adds an operation to the MBQC pattern.
 
         Args:
-            op (Operation): The operation to add. It is an instance of ``Operation`` class or its subclasses,
+            op: The operation to add. It is an instance of ``Operation`` class or its subclasses,
                 such as ``Node``, ``Entanglement``, ``Measurement``, or ``Correction``.
-            encode (bool): Whether the command is to encode data. Default: ``False``
+            encode: Whether the command is to encode data. Default: ``False``
         """
         assert isinstance(op, Operation)
         self.commands.append(op)
