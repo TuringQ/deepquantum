@@ -31,7 +31,9 @@ extensions = [
 ]
 
 add_module_names = False
-autodoc_typehints = 'description'
+autodoc_inherit_docstrings = False
+autodoc_typehints = 'both'
+autodoc_typehints_description_target = 'documented'
 autosummary_generate = True
 
 napoleon_google_docstring = True

@@ -50,6 +50,7 @@ classifiers = [
 dev = [
     'graphix==0.3.1',
     'jupytext',
+    'myst-nb',
     'pennylane-sf',
     'perceval-quandela',
     'pre-commit',
@@ -58,6 +59,8 @@ dev = [
     'qutip',
     'ruff',
     'setuptools<82.0.0',
+    'sphinx',
+    'sphinx_book_theme',
     'strawberryfields',
     'thewalrus',
 ]
