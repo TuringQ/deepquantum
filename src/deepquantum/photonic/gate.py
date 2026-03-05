@@ -21,8 +21,7 @@ class SingleGate(Gate):
         name: The name of the gate. Default: ``None``
         inputs: The parameters of the gate. Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 1
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
@@ -60,8 +59,7 @@ class DoubleGate(Gate):
         name: The name of the gate. Default: ``None``
         inputs: The parameters of the gate. Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 2
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
@@ -125,8 +123,7 @@ class PhaseShift(SingleGate):
     Args:
         inputs: The parameter of the gate. Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 1
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
@@ -272,8 +269,7 @@ class BeamSplitter(DoubleGate):
     Args:
         inputs: The parameters of the gate (:math:`\theta` and :math:`\phi`). Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 2
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
@@ -467,8 +463,7 @@ class MZI(BeamSplitter):
     Args:
         inputs: The parameters of the gate (:math:`\theta` and :math:`\phi`). Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 2
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         phi_first: Whether :math:`\phi` is the first phase shifter. Default: ``True``
@@ -559,8 +554,7 @@ class BeamSplitterTheta(BeamSplitter):
     Args:
         inputs: The parameter of the gate. Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 2
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
@@ -657,8 +651,7 @@ class BeamSplitterPhi(BeamSplitter):
     Args:
         inputs: The parameter of the gate. Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 2
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
@@ -777,12 +770,11 @@ class BeamSplitterSingle(BeamSplitter):
     Args:
         inputs: The parameter of the gate. Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 2
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
-        convention: The convention of the type of the beam splitter, including ``'rx'``,
-            ``'ry'`` and ``'h'``. Default: ``'rx'``
+        convention: The convention of the type of the beam splitter, including ``'rx'``, ``'ry'`` and ``'h'``.
+            Default: ``'rx'``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
         noise: Whether to introduce Gaussian noise. Default: ``False``
@@ -890,8 +882,7 @@ class UAnyGate(Gate):
     Args:
         unitary: Any given unitary matrix.
         nmode: The number of modes that the quantum operation acts on. Default: 1
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         minmax: The minimum and maximum indices of the modes that the quantum
             operation acts on. Only valid when ``wires`` is ``None``. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
@@ -1023,8 +1014,7 @@ class Squeezing(SingleGate):
     Args:
         inputs: The parameters of the gate (:math:`r` and :math:`\theta`). Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 1
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
@@ -1190,8 +1180,7 @@ class Squeezing2(DoubleGate):
     Args:
         inputs: The parameters of the gate (:math:`r` and :math:`\theta`). Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 2
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
@@ -1364,8 +1353,7 @@ class Displacement(SingleGate):
     Args:
         inputs: The parameters of the gate (:math:`r` and :math:`\theta`). Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 1
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
@@ -1520,8 +1508,7 @@ class DisplacementPosition(Displacement):
     Args:
         inputs: The parameter of the gate. Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 1
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
@@ -1605,8 +1592,7 @@ class DisplacementMomentum(Displacement):
     Args:
         inputs: The parameter of the gate. Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 1
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
@@ -1724,8 +1710,7 @@ class QuadraticPhase(SingleGate):
     Args:
         inputs: The parameter of the gate. Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 1
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
@@ -1904,8 +1889,7 @@ class ControlledX(DoubleGate):
     Args:
         inputs: The parameter of the gate. Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 2
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
@@ -2088,8 +2072,7 @@ class ControlledZ(DoubleGate):
     Args:
         inputs: The parameter of the gate. Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 2
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
@@ -2225,8 +2208,7 @@ class CubicPhase(SingleGate):
     Args:
         inputs: The parameter of the gate. Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 1
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
@@ -2322,8 +2304,7 @@ class Kerr(SingleGate):
     Args:
         inputs: The parameter of the gate. Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 1
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
@@ -2422,8 +2403,7 @@ class CrossKerr(DoubleGate):
     Args:
         inputs: The parameter of the gate. Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 2
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
@@ -2505,8 +2485,7 @@ class DelayBS(Delay):
         inputs: The parameters of the gate. Default: ``None``
         ntau: The number of modes in the delay loop. Default: 1
         nmode: The number of spatial modes that the quantum operation acts on. Default: 1
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
@@ -2593,8 +2572,7 @@ class DelayMZI(Delay):
         inputs: The parameters of the gate. Default: ``None``
         ntau: The number of modes in the delay loop. Default: 1
         nmode: The number of spatial modes that the quantum operation acts on. Default: 1
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
@@ -2667,8 +2645,7 @@ class Barrier(Gate):
 
     Args:
         nmode: The number of modes that the quantum operation acts on. Default: 1
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
     """
 

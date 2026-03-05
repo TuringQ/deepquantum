@@ -22,8 +22,7 @@ class Generaldyne(Operation):
     Args:
         cov_m: The covariance matrix for the general-dyne measurement.
         nmode: The number of modes that the quantum operation acts on. Default: 1
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         name: The name of the measurement. Default: ``'Generaldyne'``
@@ -130,8 +129,7 @@ class Homodyne(Generaldyne):
     Args:
         phi: The homodyne measurement angle. Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 1
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         eps: The measurement accuracy. Default: 2e-4
@@ -262,8 +260,7 @@ class GeneralBosonic(Operation):
         cov: The covariance matrices for the general Bosonic measurement.
         weight: The weights for the general Bosonic measurement.
         nmode: The number of modes that the quantum operation acts on. Default: 1
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         name: The name of the measurement. Default: ``'GeneralBosonic'``
     """
@@ -369,8 +366,7 @@ class PhotonNumberResolvingBosonic(GeneralBosonic):
         n: Photon number.
         r: The quality parameter for the approximation. Default: 0.05
         nmode: The number of modes that the quantum operation acts on. Default: 1
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         name: The name of the measurement. Default: ``'PhotonNumberResolvingBosonic'``
     """

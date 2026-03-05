@@ -18,12 +18,11 @@ class Operation(nn.Module):
     Args:
         name: The name of the quantum operation. Default: ``None``
         nqubit: The number of qubits that the quantum operation acts on. Default: 1
-        wires: The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
         den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
 
     def __init__(
@@ -113,14 +112,13 @@ class Gate(Operation):
     Args:
         name: The name of the gate. Default: ``None``
         nqubit: The number of qubits that the quantum operation acts on. Default: 1
-        wires: The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
         controls: The indices of the control qubits. Default: ``None``
         condition: Whether to use ``controls`` as conditional measurement. Default: ``False``
         den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
 
     # include default names in QASM
@@ -417,12 +415,11 @@ class Layer(Operation):
     Args:
         name: The name of the layer. Default: ``None``
         nqubit: The number of qubits that the quantum operation acts on. Default: 1
-        wires: The indices of the qubits that
-            the quantum operation acts on. Default: ``None``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
         den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
 
     def __init__(
@@ -538,10 +535,9 @@ class Channel(Operation):
         inputs: The parameter of the channel. Default: ``None``
         name: The name of the channel. Default: ``None``
         nqubit: The number of qubits that the quantum operation acts on. Default: 1
-        wires: The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
@@ -653,12 +649,11 @@ class GateQPD(Gate):
         label: The label of the gate. Default: ``None``
         name: The name of the quantum operation. Default: ``None``
         nqubit: The number of qubits that the quantum operation acts on. Default: 1
-        wires: The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
         den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
 
     def __init__(
@@ -711,7 +706,7 @@ class GateQPD(Gate):
 
         Args:
             x: The input tensor.
-            idx: The index of the operation to be applied. Default: 0
+            idx: The index of the operation to be applied. Default: ``None``
         """
         if idx is not None:
             self.idx = idx
@@ -729,8 +724,7 @@ class MeasureQPD(Operation):
 
     Args:
         nqubit: The number of qubits that the quantum operation acts on. Default: 1
-        wires: The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
     """
 
     def __init__(self, nqubit: int = 1, wires: int | list[int] | None = None) -> None:

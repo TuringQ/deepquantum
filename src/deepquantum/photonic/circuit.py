@@ -89,16 +89,13 @@ class QumodeCircuit(Operation):
         cutoff: The Fock space truncation. Default: ``None``
         backend: Use ``'fock'`` for Fock backend, ``'gaussian'`` for Gaussian backend or
             ``'bosonic'`` for Bosonic backend. Default: ``'fock'``
-        basis: Whether to use the representation of Fock basis state for the initial state.
-            Default: ``True``
-        den_mat: Whether to use density matrix representation. Only valid for Fock state tensor.
-            Default: ``False``
-        detector: For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector
-            or ``'threshold'`` for the threshold detector. Default: ``'pnrd'``
+        basis: Whether to use the representation of Fock basis state for the initial state. Default: ``True``
+        den_mat: Whether to use density matrix representation. Only valid for Fock state tensor. Default: ``False``
+        detector: For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector or
+            ``'threshold'`` for the threshold detector. Default: ``'pnrd'``
         name: The name of the circuit. Default: ``None``
         mps: Whether to use matrix product state representation. Default: ``False``
-        chi: The bond dimension for matrix product state representation.
-            Default: ``None``
+        chi: The bond dimension for matrix product state representation. Default: ``None``
         noise: Whether to introduce Gaussian noise. Default: ``False``
         mu: The mean of Gaussian noise. Default: 0
         sigma: The standard deviation of Gaussian noise. Default: 0.1
@@ -289,16 +286,14 @@ class QumodeCircuit(Operation):
             is_prob: For Fock backend, whether to return probabilities or amplitudes.
                 For Gaussian (Bosonic) backend, whether to return probabilities or the final Gaussian (Bosonic) state.
                 For Fock backend with ``basis=True``, set ``None`` to return the unitary matrix. Default: ``None``
-            detector: For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving
-                detector or ``'threshold'`` for the threshold detector. Default: ``None``
-            sort: Whether to sort dictionary of Fock basis states in the descending
-                order of probabilities. Default: ``True``
-            stepwise: Whether to use the forward function of each operator for Gaussian backend.
-                Default: ``False``
+            detector: For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector or
+                ``'threshold'`` for the threshold detector. Default: ``None``
+            sort: Whether to sort dictionary of Fock basis states in the descending order of probabilities.
+                Default: ``True``
+            stepwise: Whether to use the forward function of each operator for Gaussian backend. Default: ``False``
 
         Returns:
-            The result of the photonic quantum circuit after
-            applying the ``operators``.
+            The result of the photonic quantum circuit after applying the ``operators``.
         """
         if self.backend == 'fock':
             return self._forward_fock(data, state, is_prob, sort)
@@ -313,14 +308,14 @@ class QumodeCircuit(Operation):
         Args:
             data: The input data for the ``encoders``. Default: ``None``
             state: The initial state for the photonic quantum circuit. Default: ``None``
-            is_prob: Whether to return probabilities or amplitudes.
-                When ``basis=True``, set ``None`` to return the unitary matrix. Default: ``None``
-            sort: Whether to sort dictionary of Fock basis states in the descending
-                order of probabilities. Default: ``True``
+            is_prob: Whether to return probabilities or amplitudes. When ``basis=True``, set ``None`` to
+                return the unitary matrix. Default: ``None``
+            sort: Whether to sort dictionary of Fock basis states in the descending order of probabilities.
+                Default: ``True``
 
         Returns:
-            Unitary matrix, Fock state tensor,
-            a dictionary of probabilities or amplitudes, or a list of tensors for MPS.
+            Unitary matrix, Fock state tensor, a dictionary of probabilities or amplitudes, or
+            a list of tensors for MPS.
         """
         if self.mps:
             assert not is_prob
@@ -451,8 +446,7 @@ class QumodeCircuit(Operation):
         Args:
             data: The input data for the ``encoders``. Default: ``None``
             state: The initial state for the photonic quantum circuit. Default: ``None``
-            is_prob: Whether to return probabilities or the final Gaussian (Bosonic) state.
-                Default: ``None``
+            is_prob: Whether to return probabilities or the final Gaussian (Bosonic) state. Default: ``None``
             detector: Use ``'pnrd'`` for the photon-number-resolving detector or
                 ``'threshold'`` for the threshold detector. Only valid when ``is_prob`` is ``True``.
                 Default: ``None``
@@ -1187,8 +1181,8 @@ class QumodeCircuit(Operation):
 
         Args:
             final_state: The final Fock basis state.
-            wires: The wires to measure. It can be an integer or a list of
-                integers specifying the indices of the wires.
+            wires: The wires to measure. It can be an integer or a list of integers specifying
+                the indices of the wires.
         """
         if isinstance(final_state, FockState):
             final_state = final_state.state.tolist()
@@ -1213,12 +1207,12 @@ class QumodeCircuit(Operation):
 
         Args:
             shots: The number of times to sample from the quantum state. Default: 1024
-            with_prob: A flag that indicates whether to return the probabilities along with
-                the number of occurrences. Default: ``False``
-            wires: The wires to measure. It can be an integer or a list of
-                integers specifying the indices of the wires. Default: ``None`` (which means all wires are measured)
-            detector: For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving
-                detector or ``'threshold'`` for the threshold detector. Default: ``None``
+            with_prob: A flag that indicates whether to return the probabilities along with the number of occurrences.
+                Default: ``False``
+            wires: The wires to measure. It can be an integer or a list of integers specifying
+                the indices of the wires. Default: ``None`` (which means all wires are measured)
+            detector: For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector or
+                ``'threshold'`` for the threshold detector. Default: ``None``
             mcmc: Whether to use MCMC sampling method. Default: ``False``
 
         See https://arxiv.org/pdf/2108.01622 for MCMC.
@@ -1551,10 +1545,9 @@ class QumodeCircuit(Operation):
         """Generate batched random samples via chain rule.
 
         Args:
-            wires: The wires to measure. It can be a list of integers specifying the indices
-                of the wires.
-            detector: For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector
-                or ``'threshold'`` for the threshold detector.
+            wires: The wires to measure. It can be a list of integers specifying the indices of the wires.
+            detector: For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector or
+                ``'threshold'`` for the threshold detector.
 
         Returns:
             Tensor of shape (batch, nwire).
@@ -1579,19 +1572,20 @@ class QumodeCircuit(Operation):
     def _generate_chain_sample_gaussian(self, wires: list[int], detector: str) -> torch.Tensor:
         """Generate batched random samples via chain rule for Gaussian backend.
 
-        See https://research-information.bris.ac.uk/en/studentTheses/classical-simulations-of-gaussian-boson-sampling
+        See
+        https://research-information.bris.ac.uk/en/studentTheses/classical-simulations-of-gaussian-boson-sampling
         Chapter 5
         """
 
         def _sample_wire(sample, cov_sub, mean_sub, cutoff, detector):
-            """Sample for a wire"""
+            """Sample for a wire."""
             states = [torch.tensor(sample + [i], device=cov_sub.device) for i in range(cutoff)]
             probs = [self._get_probs_gaussian_helper(s, cov_sub, mean_sub, detector) for s in states]
             sample_wire = torch.multinomial(torch.cat(probs), num_samples=1)
             return sample_wire
 
         def _sample_pure(cov, mean, wires, nmode, cutoff, detector):
-            """Sample for a pure state"""
+            """Sample for a pure state."""
             wires = torch.tensor(wires, device=cov.device)
             sample = []
             for i in range(1, len(wires) + 1):
@@ -1603,7 +1597,7 @@ class QumodeCircuit(Operation):
             return torch.cat(sample)
 
         def _sample_mixed(cov, mean, wires, nmode, cutoff, detector, eps=5e-5):
-            """Sample for a mixed state"""
+            """Sample for a mixed state."""
             wires = torch.tensor(wires, device=cov.device)
             _, s = williamson(cov)
             cov_t = s @ s.mT * dqp.hbar / (4 * dqp.kappa**2)
@@ -1652,9 +1646,8 @@ class QumodeCircuit(Operation):
         """Get the expectation value and variance of the photon number operator.
 
         Args:
-            wires: The wires to measure. It can be an integer or a list of
-                integers specifying the indices of the wires. Default: ``None`` (which means all wires are
-                measured)
+            wires: The wires to measure. It can be an integer or a list of integers specifying
+                the indices of the wires. Default: ``None`` (which means all wires are measured)
         """
         if self.state is None:
             return
@@ -1708,11 +1701,9 @@ class QumodeCircuit(Operation):
         and the input arguments ``wires`` and ``phi`` are ignored.
 
         Args:
-            wires: The wires to measure. It can be an integer or a list of
-                integers specifying the indices of the wires. Default: ``None`` (which means all wires are
-                measured).
-            phi: The phi angles for quadrature operator
-                :math:`\hat{X}\cos\phi + \hat{P}\sin\phi`. Default: ``None``
+            wires: The wires to measure. It can be an integer or a list of integers specifying
+                the indices of the wires. Default: ``None`` (which means all wires are measured).
+            phi: The phi angles for quadrature operator :math:`\hat{X}\cos\phi + \hat{P}\sin\phi`. Default: ``None``
         """
         if len(self.measurements) == 0:
             if wires is None:
@@ -1766,8 +1757,8 @@ class QumodeCircuit(Operation):
 
             Args:
                 mat: Input tensor.
-                idx: Index tensor of shape (nblock, block_size), where each row contains
-                    the row/column indices for a block.
+                idx: Index tensor of shape (nblock, block_size), where each row contains the row/column indices for
+                    a block.
 
             Returns:
                 Output tensor of shape (batch, nblock, block_size, -1) containing all extracted blocks.
@@ -1804,9 +1795,8 @@ class QumodeCircuit(Operation):
 
         Args:
             shots: The number of times to sample from the quantum state. Default: 10
-            wires: The wires to measure for the ideal homodyne. It can be
-                an integer or a list of integers specifying the indices of the wires. Default: ``None`` (which means
-                all wires are measured)
+            wires: The wires to measure for the ideal homodyne. It can be an integer or a list of integers specifying
+                the indices of the wires. Default: ``None`` (which means all wires are measured)
         """
         if self.state is None:
             return
@@ -1928,12 +1918,11 @@ class QumodeCircuit(Operation):
         are shared.
 
         Args:
-            op: The operation to add. It is an instance of ``Operation`` class or its subclasses,
-                such as ``Gate``, or ``QumodeCircuit``.
+            op: The operation to add. It is an instance of ``Operation`` class or its subclasses, such as
+                ``Gate``, or ``QumodeCircuit``.
             encode: Whether the gate is to encode data. Default: ``False``
-            wires: The wires to apply the gate on. It can be an integer
-                or a list of integers specifying the indices of the wires. Default: ``None`` (which means
-                the gate has its own wires)
+            wires: The wires to apply the gate on. It can be an integer or a list of integers specifying
+                the indices of the wires. Default: ``None`` (which means the gate has its own wires)
 
         Raises:
             AssertionError: If the input arguments are invalid or incompatible with the quantum circuit.
@@ -2909,8 +2898,7 @@ class DistributedQumodeCircuit(QumodeCircuit):
 
         Args:
             data: The input data for the ``encoders``. Default: ``None``
-            state: The initial state for the photonic quantum circuit.
-                Default: ``None``
+            state: The initial state for the photonic quantum circuit. Default: ``None``
         """
         if state is None:
             self.init_state.reset()
@@ -2927,11 +2915,11 @@ class DistributedQumodeCircuit(QumodeCircuit):
 
         Args:
             shots: The number of times to sample from the quantum state. Default: 1024
-            with_prob: A flag that indicates whether to return the probabilities along with
-                the number of occurrences. Default: ``False``
-            wires: The wires to measure. It can be an integer or a list of
-                integers specifying the indices of the wires. Default: ``None`` (which means all wires are measured)
-            block_size: The block size for sampling. Default: 2 ** 24
+            with_prob: A flag that indicates whether to return the probabilities along with the number of occurrences.
+                Default: ``False``
+            wires: The wires to measure. It can be an integer or a list of integers specifying
+                the indices of the wires. Default: ``None`` (which means all wires are measured)
+            block_size: The block size for sampling. Default: 2**24
         """
         if wires is None:
             wires = list(range(self.nmode))

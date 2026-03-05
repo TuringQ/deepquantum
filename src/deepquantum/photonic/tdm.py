@@ -20,8 +20,7 @@ class QumodeCircuitTDM(QumodeCircuit):
             For Gaussian backend, it can be arbitrary Gaussian states with ``[cov, mean]``.
             Use ``xxpp`` convention and :math:`\hbar=2` by default.
         cutoff: The Fock space truncation. Default: ``None``
-        backend: Use ``'gaussian'`` for Gaussian backend or ``'bosonic'`` for Bosonic backend.
-            Default: ``'gaussian'``
+        backend: Use ``'gaussian'`` for Gaussian backend or ``'bosonic'`` for Bosonic backend. Default: ``'gaussian'``
         name: The name of the circuit. Default: ``None``
         noise: Whether to introduce Gaussian noise. Default: ``False``
         mu: The mean of Gaussian noise. Default: 0

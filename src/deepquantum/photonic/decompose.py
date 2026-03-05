@@ -11,8 +11,8 @@ class UnitaryDecomposer:
 
     Args:
         unitary: The unitary matrix to be decomposed.
-        method: The decomposition method, only 16 values (``'rssr'``, ``'rsdr'``, ``'rdsr'``,
-            ``'rddr'``, ``'rssl'``, ``'rsdl'``, ``'rdsl'``, ``'rddl'``, ``'cssr'``, ``'csdr'``, ``'cdsr'``, ``'cddr'``,
+        method: The decomposition method, only 16 values (``'rssr'``, ``'rsdr'``, ``'rdsr'``, ``'rddr'``,
+            ``'rssl'``, ``'rsdl'``, ``'rdsl'``, ``'rddl'``, ``'cssr'``, ``'csdr'``, ``'cdsr'``, ``'cddr'``,
             ``'cssl'``, ``'csdl'``, ``'cdsl'``, ``'cddl'``) are valid.
             The first char denotes the Clements or Reck architecture.
             The second char denotes single or double arms of outer phase shifters.

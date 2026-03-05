@@ -23,8 +23,7 @@ class PhotonLoss(Channel):
     Args:
         inputs: The parameter of the channel. Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 1
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)

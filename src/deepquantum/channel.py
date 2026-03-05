@@ -24,10 +24,9 @@ class BitFlip(Channel):
     Args:
         inputs: The parameter of the channel. Default: ``None``
         nqubit: The number of qubits that the quantum operation acts on. Default: 1
-        wires: The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
@@ -67,10 +66,9 @@ class PhaseFlip(Channel):
     Args:
         inputs: The parameter of the channel. Default: ``None``
         nqubit: The number of qubits that the quantum operation acts on. Default: 1
-        wires: The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
@@ -113,10 +111,9 @@ class Depolarizing(Channel):
     Args:
         inputs: The parameter of the channel. Default: ``None``
         nqubit: The number of qubits that the quantum operation acts on. Default: 1
-        wires: The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
@@ -166,10 +163,9 @@ class Pauli(Channel):
     Args:
         inputs: The parameters of the channel. Default: ``None``
         nqubit: The number of qubits that the quantum operation acts on. Default: 1
-        wires: The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
@@ -229,10 +225,9 @@ class AmplitudeDamping(Channel):
     Args:
         inputs: The parameter of the channel. Default: ``None``
         nqubit: The number of qubits that the quantum operation acts on. Default: 1
-        wires: The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
@@ -281,10 +276,9 @@ class PhaseDamping(Channel):
     Args:
         inputs: The parameter of the channel. The Default: ``None``
         nqubit: The number of qubits that the quantum operation acts on. Default: 1
-        wires: The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
@@ -334,13 +328,12 @@ class GeneralizedAmplitudeDamping(Channel):
         K_3 = \sqrt{1 - p} \begin{pmatrix} 0 & 0 \\ \sqrt{\gamma} & 0 \end{pmatrix}
 
     Args:
-        inputs: The parameters of the channel. The first parameter is the probability
-            of amplitude damping error, and the second parameter is the damping rate. Default: ``None``
+        inputs: The parameters of the channel. The first parameter is the probability of amplitude damping error,
+            and the second parameter is the damping rate. Default: ``None``
         nqubit: The number of qubits that the quantum operation acts on. Default: 1
-        wires: The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """

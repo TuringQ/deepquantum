@@ -24,10 +24,8 @@ class UnitaryMapper:
         ugate: The target quantum gate.
         success: The square root of the probability of the target quantum gate.
             The preferred value is 1/3 for 2 qubits or 1/4 for 3 qubits.
-        aux: Two auxiliary modes in the circuit, which could be ``[0,0]`` or ``[1,0]``.
-            Default: ``None``
-        aux_pos: The positions of the auxiliary modes.
-            Default: ``None`` (which means the last two modes).
+        aux: Two auxiliary modes in the circuit, which could be ``[0,0]`` or ``[1,0]``. Default: ``None``
+        aux_pos: The positions of the auxiliary modes. Default: ``None`` (which means the last two modes).
     """
 
     def __init__(

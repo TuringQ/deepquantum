@@ -49,7 +49,8 @@ def save_adj(filename, data):
 def mem_to_chunksize(device: torch.device, dtype: torch.dtype) -> int | None:
     """Return the chunk size of vmap according to device free memory and dtype.
 
-    Note: Currently only optimized for permanent and complex dtype.
+    Note:
+        Currently only optimized for permanent and complex dtype.
     """
     if (device, dtype) in dqp.perm_chunksize_dict:
         return dqp.perm_chunksize_dict[device, dtype]

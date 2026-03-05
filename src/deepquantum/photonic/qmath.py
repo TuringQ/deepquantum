@@ -148,8 +148,7 @@ def fock_combinations(nmode: int, nphoton: int, cutoff: int | None = None, nanci
         nancilla: The number of ancilla modes (NOT limited by ``cutoff``). Default: ``0``
 
     Returns:
-        A list of all possible Fock states, each represented by a list of
-        occupation numbers for each mode.
+        A list of all possible Fock states, each represented by a list of occupation numbers for each mode.
 
     Examples:
         >>> fock_combinations(2, 3)
@@ -473,12 +472,11 @@ def measure_fock_tensor(
         state: The quantum state to measure. It should be a tensor of shape
             :math:`(\text{batch}, \text{cutoff}, ..., \text{cutoff})`.
         shots: The number of times to sample from the quantum state. Default: 1024
-        with_prob: A flag that indicates whether to return the probabilities along with
-            the number of occurrences. Default: ``False``
-        wires: The wires to measure. It can be an integer or a list of
-            integers specifying the indices of the wires. Default: ``None`` (which means all wires are
-            measured)
-        block_size: The block size for sampling. Default: 2 ** 24
+        with_prob: A flag that indicates whether to return the probabilities along with the number of occurrences.
+            Default: ``False``
+        wires: The wires to measure. It can be an integer or a list of integers specifying
+            the indices of the wires. Default: ``None`` (which means all wires are measured)
+        block_size: The block size for sampling. Default: 2**24
     """
     from .state import FockState
 
@@ -646,8 +644,7 @@ def fock_to_wigner(
         wire: The Wigner function for the given wire.
         nmode: The mode number of the Fock state.
         cutoff: The Fock space truncation.
-        den_mat: Whether to use density matrix representation. Only valid for Fock state tensor.
-            Default: ``False``
+        den_mat: Whether to use density matrix representation. Only valid for Fock state tensor. Default: ``False``
         xrange: The range of quadrature x. Default: 10
         prange: The range of quadrature p. Default: 10
         npoints: The number of discretization points for quadratures. Default: 100

@@ -73,10 +73,8 @@ class Measurement(Command):
         nodes: The indices of the nodes to measure.
         angle: The measurement angle in radians. Default: 0.
         plane: The measurement plane (``'xy'``, ``'yz'`` or ``'zx'``). Default: ``'xy'``
-        s_domain: The indices of the nodes that contribute to signal domain s.
-            Default: ``None``
-        t_domain: The indices of the nodes that contribute to signal domain t.
-            Default: ``None``
+        s_domain: The indices of the nodes that contribute to signal domain s. Default: ``None``
+        t_domain: The indices of the nodes that contribute to signal domain t. Default: ``None``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
@@ -195,8 +193,7 @@ class Correction(Command):
     Args:
         nodes: The indices of the nodes to correct.
         basis: The type of correction (``'x'`` or ``'z'``). Default: ``'x'``
-        domain: The indices of the nodes that contribute to signal domain s.
-            Default: ``None``
+        domain: The indices of the nodes that contribute to signal domain s. Default: ``None``
     """
 
     def __init__(self, nodes: int | list[int], basis: str = 'x', domain: int | Iterable[int] | None = None) -> None:

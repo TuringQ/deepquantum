@@ -120,8 +120,8 @@ def is_density_matrix(rho: torch.Tensor) -> bool:
     A density matrix is a positive semi-definite Hermitian matrix with trace one.
 
     Args:
-        rho: The tensor to check. It can be either 2D or 3D. If 3D, the first dimension
-            is assumed to be the batch dimension.
+        rho: The tensor to check. It can be either 2D or 3D. If 3D, the first dimension is assumed to be
+            the batch dimension.
 
     Returns:
         ``True`` if the tensor is a density matrix, ``False`` otherwise.
@@ -150,7 +150,7 @@ def is_density_matrix(rho: torch.Tensor) -> bool:
 
 
 def is_positive_definite(mat: torch.Tensor) -> bool:
-    """Check if the matrix is positive definite"""
+    """Check if the matrix is positive definite."""
     is_herm = torch.equal(mat, mat.mH)
     diag = torch.linalg.eigvalsh(mat)
     return is_herm and torch.all(diag > 0).item()
@@ -446,9 +446,8 @@ def amplitude_encoding(data: Any, nqubit: int) -> torch.Tensor:
     :math:`2^{\text{nqubit}}`, only the first :math:`2^{\text{nqubit}}` elements are used.
 
     Args:
-        data: The input data to be encoded. It should have shape
-            :math:`(\text{batch}, ...)` where :math:`...` can be any dimensions. If it is not a torch.Tensor object,
-            it will be converted to one.
+        data: The input data to be encoded. It should have shape :math:`(\text{batch}, ...)`
+            where :math:`...` can be any dimensions. If it is not a torch.Tensor object, it will be converted to one.
         nqubit: The number of qubits to use for encoding.
 
     Returns:
@@ -547,7 +546,7 @@ def block_sample(probs: torch.Tensor, shots: int = 1024, block_size: int = 2**24
     Args:
         probs: The probability distribution to sample from.
         shots: The number of samples to draw. Default: 1024
-        block_size: The block size for sampling. Default: 2 ** 24
+        block_size: The block size for sampling. Default: 2**24
     """
     samples = []
     num_blocks = int(np.ceil(len(probs) / block_size))
@@ -588,18 +587,17 @@ def measure(
             of shape :math:`(2^n, 2^n)` representing a density matrix or :math:`(\text{batch}, 2^n, 2^n)`
             representing a batch of density matrices.
         shots: The number of times to sample from the quantum state. Default: 1024
-        with_prob: A flag that indicates whether to return the probabilities along with
-            the number of occurrences. Default: ``False``
-        wires: The wires to measure. It can be an integer or a list of
-            integers specifying the indices of the wires. Default: ``None`` (which means all wires are
-            measured)
+        with_prob: A flag that indicates whether to return the probabilities along with the number of occurrences.
+            Default: ``False``
+        wires: The wires to measure. It can be an integer or a list of integers specifying the indices of the wires.
+            Default: ``None`` (which means all wires are measured)
         den_mat: Whether the state is a density matrix or not. Default: ``False``
-        block_size: The block size for sampling. Default: 2 ** 24
+        block_size: The block size for sampling. Default: 2**24
 
     Returns:
-        The measurement results. If the state is a single state vector, it returns
-        a dictionary where each key is a bit string representing the measurement outcome, and each value
-        is either the number of occurrences or a tuple of the number of occurrences and the probability.
+        The measurement results. If the state is a single state vector, it returns a dictionary
+        where each key is a bit string representing the measurement outcome, and each value is
+        either the number of occurrences or a tuple of the number of occurrences and the probability.
         If the state is a batch of state vectors, it returns a list of dictionaries with the same format
         for each state vector in the batch.
     """
@@ -720,12 +718,12 @@ def get_prob_mps(mps_lst: list[torch.Tensor], wire: int) -> torch.Tensor:
     3. Computing the final contraction with the target tensor
 
     Args:
-        wire: Index of the target qubit to compute probabilities for
-        mps_lst: List of MPS tensors representing the quantum state
-            Each 3-dimensional tensor should have shape (bond_dim_left, physical_dim, bond_dim_right)
+        mps_lst: A list of MPS tensors representing the quantum state.
+            Each 3-dimensional tensor should have shape (bond_dim_left, physical_dim, bond_dim_right).
+        wire: The index of the target qubit to compute probabilities for.
 
     Returns:
-        A tensor containing [P(|0⟩), P(|1⟩)] probabilities for the target qubit
+        A tensor containing [P(|0⟩), P(|1⟩)] probabilities for the target qubit.
     """
 
     def contract_conjugate_pair(tensors: list[torch.Tensor]) -> torch.Tensor:
@@ -735,10 +733,10 @@ def get_prob_mps(mps_lst: list[torch.Tensor], wire: int) -> torch.Tensor:
         and their complex conjugates, which is needed for probability calculation.
 
         Args:
-            tensors: List of MPS tensors to contract
+            tensors: A list of MPS tensors to contract.
 
         Returns:
-            Contracted tensor
+            Contracted tensor.
         """
         if not tensors:  # Handle empty tensor list case
             return torch.tensor(1).reshape(1, 1, 1, 1).to(mps_lst[0].dtype).to(mps_lst[0].device)
@@ -786,9 +784,9 @@ def inner_product_mps(
         tensors1: The tensors of the second MPS, each with shape :math:`(..., d_0, d_1, d_2)`,
             where :math:`d_0` is the bond dimension of the left site, :math:`d_1` is the physical dimension,
             and :math:`d_2` is the bond dimension of the right site.
-        form: The form of the output. If ``'log'``, returns the logarithm of the absolute value
-            of the inner product. If ``'list'``, returns a list of norms at each step. Otherwise, returns the
-            inner product as a scalar. Default: ``'norm'``
+        form: The form of the output. If ``'log'``, returns the logarithm of the absolute value of the inner product.
+            If ``'list'``, returns a list of norms at each step. Otherwise, returns the inner product as a scalar.
+            Default: ``'norm'``
 
     Returns:
         The inner product of the two MPS, or a list of norms at each step.
@@ -838,17 +836,16 @@ def expectation(
     It is a real number that represents the mean of the probability distribution of the measurement outcomes.
 
     Args:
-        state: The quantum state to measure. It can be a list of tensors
-            representing a matrix product state, or a tensor representing a density matrix or a state vector.
+        state: The quantum state to measure. It can be a list of tensors representing a matrix product state,
+            or a tensor representing a density matrix or a state vector.
         observable: The observable to measure. It is an instance of ``Observable`` class that
             implements the measurement basis and the corresponding gates.
         den_mat: Whether to use density matrix representation. Default: ``False``
-        chi: The bond dimension of the matrix product state. It is only used
-            when the state is a list of tensors. Default: ``None`` (which means no truncation)
+        chi: The bond dimension of the matrix product state. It is only used when the state is a list of tensors.
+            Default: ``None`` (which means no truncation)
 
     Returns:
-        The expectation value of the observable on the quantum state. It is a scalar tensor
-        with real values.
+        The expectation value of the observable on the quantum state. It is a scalar tensor with real values.
     """
     if isinstance(state, list):
         from .state import MatrixProductState

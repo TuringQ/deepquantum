@@ -19,8 +19,8 @@ class SubGraphState(nn.Module):
     Args:
         nodes_state: The nodes of the input state in the subgraph state.
             It can be an integer representing the number of nodes or a list of node indices. Default: ``None``
-        state: The input state of the subgraph state. The string representation of state
-            could be ``'plus'``, ``'minus'``, ``'zero'``, and ``'one'``. Default: ``'plus'``
+        state: The input state of the subgraph state. The string representation of state could be
+            ``'plus'``, ``'minus'``, ``'zero'``, and ``'one'``. Default: ``'plus'``
         edges: Additional edges connecting the nodes in the subgraph state. Default: ``None``
         nodes: Additional nodes to include in the subgraph state. Default: ``None``
     """
@@ -210,12 +210,10 @@ class GraphState(nn.Module):
     Args:
         nodes_state: The nodes of the input state in the initial graph state.
             It can be an integer representing the number of nodes or a list of node indices. Default: ``None``
-        state: The input state of the initial graph state. The string representation of state
-            could be ``'plus'``, ``'minus'``, ``'zero'``, and ``'one'``. Default: ``'plus'``
-        edges: Additional edges connecting the nodes in the initial graph state.
-            Default: ``None``
-        nodes: Additional nodes to include in the initial graph state.
-            Default: ``None``
+        state: The input state of the initial graph state. The string representation of state could be
+            ``'plus'``, ``'minus'``, ``'zero'``, and ``'one'``. Default: ``'plus'``
+        edges: Additional edges connecting the nodes in the initial graph state. Default: ``None``
+        nodes: Additional nodes to include in the initial graph state. Default: ``None``
     """
 
     def __init__(
@@ -250,12 +248,10 @@ class GraphState(nn.Module):
         Args:
             nodes_state: The nodes of the input state in the subgraph state.
                 It can be an integer representing the number of nodes or a list of node indices. Default: ``None``
-            state: The input state of the subgraph state. The string representation of state
-                could be ``'plus'``, ``'minus'``, ``'zero'``, and ``'one'``. Default: ``'plus'``
-            edges: Additional edges connecting the nodes in the subgraph state.
-                Default: ``None``
-            nodes: Additional nodes to include in the subgraph state.
-                Default: ``None``
+            state: The input state of the subgraph state. The string representation of state could be
+                ``'plus'``, ``'minus'``, ``'zero'``, and ``'one'``. Default: ``'plus'``
+            edges: Additional edges connecting the nodes in the subgraph state. Default: ``None``
+            nodes: Additional nodes to include in the subgraph state. Default: ``None``
             measure_dict: A dictionary containing all measurement results. Default: ``None``
             index: The index where to insert the subgraph state. Default: ``None``
         """

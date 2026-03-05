@@ -18,8 +18,7 @@ class Operation(nn.Module):
     Args:
         name: The name of the quantum operation. Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 1
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: 2
         den_mat: Whether to use density matrix representation. Default: ``False``
         noise: Whether to introduce Gaussian noise. Default: ``False``
@@ -89,8 +88,7 @@ class Gate(Operation):
     Args:
         name: The name of the gate. Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 1
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         noise: Whether to introduce Gaussian noise. Default: ``False``
@@ -282,8 +280,7 @@ class Channel(Operation):
     Args:
         name: The name of the channel. Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 1
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
     """
 
@@ -352,8 +349,7 @@ class Delay(Operation):
         name: The name of the quantum operation. Default: ``'Delay'``
         ntau: The number of modes in the delay loop. Default: 1
         nmode: The number of spatial modes that the quantum operation acts on. Default: 1
-        wires: The indices of the modes that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         noise: Whether to introduce Gaussian noise. Default: ``False``

@@ -16,8 +16,9 @@ class QubitState(nn.Module):
     Args:
         nqubit: The number of qubits in the state. Default: 1
         state: The representation of the state. It can be one of the following strings:
-            ``'zeros'``, ``'equal'``, ``'entangle'``, ``'GHZ'``, or ``'ghz'``. Alternatively, it can be
-            a tensor that represents a custom state vector or density matrix. Default: ``'zeros'``
+            ``'zeros'``, ``'equal'``, ``'entangle'``, ``'GHZ'``, or ``'ghz'``.
+            Alternatively, it can be a tensor that represents a custom state vector or density matrix.
+            Default: ``'zeros'``
         den_mat: Whether the state is a density matrix or not. Default: ``False``
     """
 
@@ -85,10 +86,12 @@ class MatrixProductState(nn.Module):
     Args:
         nsite: The number of sites of the MPS. Default: 1
         state: The representation of the MPS.
-            If ``'zeros'`` or ``'vac'``, the MPS is initialized to the all-zero state. If a list of tensors,
-            the MPS is initialized to the given tensors. The tensors must have the correct shape and dtype.
-            If a list of integers, the MPS is initialized to the corresponding basis state. Default: ``'zeros'``
-        chi: The maximum bond dimension of the MPS. Default: 10 * ``nsite``
+            If ``'zeros'`` or ``'vac'``, the MPS is initialized to the all-zero state.
+            If a list of tensors, the MPS is initialized to the given tensors.
+            The tensors must have the correct shape and dtype.
+            If a list of integers, the MPS is initialized to the corresponding basis state.
+            Default: ``'zeros'``
+        chi: The maximum bond dimension of the MPS. Default: None (which means 10 * ``nsite``)
         qudit: The local Hilbert space dimension of each qudit. Default: 2
         normalize: Whether to normalize the MPS after each operation. Default: ``True``
     """
@@ -240,8 +243,7 @@ class MatrixProductState(nn.Module):
 
         Args:
             site: The site of tensor to be orthogonalized.
-            dc: Keep the first ``dc`` singular values after truncation.
-                Default: -1 (which means no truncation)
+            dc: Keep the first ``dc`` singular values after truncation. Default: -1 (which means no truncation)
             normalize: Whether to normalize the tensor :math:`R`. Default: ``False``
         """
         assert site < self.nsite - 1
@@ -276,8 +278,7 @@ class MatrixProductState(nn.Module):
 
         Args:
             site: The site of tensor to be orthogonalized.
-            dc: Keep the first ``dc`` singular values after truncation.
-                Default: -1 (which means no truncation)
+            dc: Keep the first ``dc`` singular values after truncation. Default: -1 (which means no truncation)
             normalize: Whether to normalize the tensor :math:`L`. Default: ``False``
         """
         assert site > 0

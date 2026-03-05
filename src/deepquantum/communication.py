@@ -64,11 +64,9 @@ def comm_exchange_arrays(send_data: torch.Tensor, recv_data: torch.Tensor, pair_
     Args:
         send_data: Data to be sent to the ``pair_rank``.
             If ``pair_rank`` is ``None``, this can be an empty tensor with correct dtype and device.
-        recv_data: Pre-allocated buffer to store received data. Must match
-            ``send_data`` in shape and dtype if ``pair_rank`` is active.
-            If ``pair_rank`` is ``None``, this can be an empty tensor.
-        pair_rank: The target rank for exchange, or ``None`` to remain
-            quiescent during the collective call.
+        recv_data: Pre-allocated buffer to store received data. Must match ``send_data`` in shape and dtype
+            if ``pair_rank`` is active. If ``pair_rank`` is ``None``, this can be an empty tensor.
+        pair_rank: The target rank for exchange, or ``None`` to remain quiescent during the collective call.
     """
     world_size = comm_get_world_size()
     rank = comm_get_rank()

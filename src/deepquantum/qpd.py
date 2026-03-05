@@ -16,12 +16,11 @@ class SingleGateQPD(GateQPD):
         label: The label of the gate. Default: ``None``
         name: The name of the quantum operation. Default: ``None``
         nqubit: The number of qubits that the quantum operation acts on. Default: 1
-        wires: The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
         den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
 
     def __init__(
@@ -62,12 +61,11 @@ class DoubleGateQPD(GateQPD):
         label: The label of the gate. Default: ``None``
         name: The name of the quantum operation. Default: ``None``
         nqubit: The number of qubits that the quantum operation acts on. Default: 2
-        wires: The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
         den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
 
     def __init__(
@@ -119,13 +117,12 @@ class MoveQPD(DoubleGateQPD):
 
     Args:
         nqubit: The number of qubits that the quantum operation acts on. Default: 2
-        wires: The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
         label: The label of the gate. Default: ``None``
         den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
 
     def __init__(

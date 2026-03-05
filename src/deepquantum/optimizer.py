@@ -14,8 +14,8 @@ class Optimizer:
     Args:
         target_func: The target function to optimize, more specifically, to minimize.
             It is supposed to accept ``kwargs`` in the format of ``param_init`` as inputs.
-        param_init: The initial parameters for
-            the target function. The keys of it should be consistent with inputs of ``target_func``.
+        param_init: The initial parameters for the target function.
+            The keys of it should be consistent with inputs of ``target_func``.
         random_state: The random seed for this optimization process.
     """
 
@@ -46,8 +46,8 @@ class OptimizerBayesian(Optimizer):
     Args:
         target_func: The target function to optimize, more specifically, to minimize.
             It is supposed to accept ``kwargs`` in the format of ``param_init`` as inputs.
-        param_init: The initial parameters for
-            the target function. The keys of it should be consistent with inputs of ``target_func``.
+        param_init: The initial parameters for the target function.
+            The keys of it should be consistent with inputs of ``target_func``.
         random_state: The random seed for this optimization process.
 
     Note:
@@ -118,8 +118,8 @@ class OptimizerSPSA(Optimizer):
     Args:
         target_func: The target function to optimize, more specifically, to minimize.
             It is supposed to accept ``kwargs`` in the format of ``param_init`` as inputs.
-        param_init: The initial parameters for
-            the target function. The keys of it should be consistent with inputs of ``target_func``.
+        param_init: The initial parameters for the target function.
+            The keys of it should be consistent with inputs of ``target_func``.
         random_state: The random seed for this optimization process.
     """
 
@@ -196,11 +196,10 @@ class OptimizerFourier(Optimizer):
     Args:
         target_func: The target function to optimize, more specifically, to minimize.
             It is supposed to accept ``kwargs`` in the format of ``param_init`` as inputs.
-        param_init: The initial parameters for
-            the target function. The keys of it should be consistent with inputs of ``target_func``.
+        param_init: The initial parameters for the target function.
+            The keys of it should be consistent with inputs of ``target_func``.
         order: The order of Fourier series to approximate.
-        lr: The step length (or equivalently, learning rate) of the learning process
-            (namely, gradient descent process).
+        lr: The learning rate of the learning process (namely, gradient descent process).
         random_state: The random seed for this optimization process.
     """
 

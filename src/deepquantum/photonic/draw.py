@@ -506,8 +506,7 @@ class DrawClements:
         mzi_info: The dictionary for mzi parameters, resulting from the decompose function.
         cl: The color for plotting. Default: ``'dodgerblue'``
         fs: The fontsize. Default: 30
-        method: The way for Clements decomposition, ``'cssr'`` or ``'cssl'``.
-            Default: ``'cssr'``
+        method: The way for Clements decomposition, ``'cssr'`` or ``'cssl'``. Default: ``'cssr'``
     """
 
     def __init__(self, nmode: int, mzi_info: dict, cl: str = 'dodgerblue', fs: int = 30, method: str = 'cssr') -> None:

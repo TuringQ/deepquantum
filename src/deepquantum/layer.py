@@ -17,13 +17,11 @@ class SingleLayer(Layer):
     Args:
         name: The name of the layer. Default: ``None``
         nqubit: The number of qubits that the quantum operation acts on. Default: 1
-        wires: The indices of the qubits that
-            the quantum operation acts on. Default: ``None``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
         den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
-            Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
 
     def __init__(
@@ -56,13 +54,11 @@ class ParametricSingleLayer(SingleLayer):
     Args:
         name: The name of the layer. Default: ``None``
         nqubit: The number of qubits that the quantum operation acts on. Default: 1
-        wires: The indices of the qubits that
-            the quantum operation acts on. Default: ``None``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
         den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
-            Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``True`` (which means ``nn.Parameter``)
     """
@@ -106,13 +102,11 @@ class DoubleLayer(Layer):
     Args:
         name: The name of the layer. Default: ``None``
         nqubit: The number of qubits that the quantum operation acts on. Default: 2
-        wires: The indices of the qubits that the quantum operation
-            acts on. Default: ``None``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
         den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
-            Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
 
     def __init__(
@@ -135,15 +129,13 @@ class Observable(SingleLayer):
 
     Args:
         nqubit: The number of qubits in the circuit. Default: 1
-        wires: The wires to measure. Default: ``None``
-            (which means all wires are measured)
+        wires: The wires to measure. Default: ``None`` (which means all wires are measured)
         basis: The measurement basis for each wire. It can be ``'x'``, ``'y'``, or ``'z'``.
             If only one character is given, it is repeated for all wires. Default: ``'z'``
         den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
-            Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
 
     def __init__(
@@ -178,14 +170,12 @@ class U3Layer(ParametricSingleLayer):
 
     Args:
         nqubit: The number of qubits that the quantum operation acts on. Default: 1
-        wires: The indices of the qubits that
-            the quantum operation acts on. Default: ``None``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
         inputs: The parameters of the layer. Default: ``None``
         den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
-            Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``True`` (which means ``nn.Parameter``)
     """
@@ -216,13 +206,11 @@ class XLayer(SingleLayer):
 
     Args:
         nqubit: The number of qubits that the quantum operation acts on. Default: 1
-        wires: The indices of the qubits that
-            the quantum operation acts on. Default: ``None``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
         den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
-            Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
 
     def __init__(
@@ -243,13 +231,11 @@ class YLayer(SingleLayer):
 
     Args:
         nqubit: The number of qubits that the quantum operation acts on. Default: 1
-        wires: The indices of the qubits that
-            the quantum operation acts on. Default: ``None``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
         den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
-            Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
 
     def __init__(
@@ -270,13 +256,11 @@ class ZLayer(SingleLayer):
 
     Args:
         nqubit: The number of qubits that the quantum operation acts on. Default: 1
-        wires: The indices of the qubits that
-            the quantum operation acts on. Default: ``None``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
         den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
-            Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
 
     def __init__(
@@ -297,13 +281,11 @@ class HLayer(SingleLayer):
 
     Args:
         nqubit: The number of qubits that the quantum operation acts on. Default: 1
-        wires: The indices of the qubits that
-            the quantum operation acts on. Default: ``None``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
         den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
-            Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
 
     def __init__(
@@ -324,14 +306,12 @@ class RxLayer(ParametricSingleLayer):
 
     Args:
         nqubit: The number of qubits that the quantum operation acts on. Default: 1
-        wires: The indices of the qubits that
-            the quantum operation acts on. Default: ``None``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
         inputs: The parameters of the layer. Default: ``None``
         den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
-            Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``True`` (which means ``nn.Parameter``)
     """
@@ -362,14 +342,12 @@ class RyLayer(ParametricSingleLayer):
 
     Args:
         nqubit: The number of qubits that the quantum operation acts on. Default: 1
-        wires: The indices of the qubits that
-            the quantum operation acts on. Default: ``None``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
         inputs: The parameters of the layer. Default: ``None``
         den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
-            Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``True`` (which means ``nn.Parameter``)
     """
@@ -400,14 +378,12 @@ class RzLayer(ParametricSingleLayer):
 
     Args:
         nqubit: The number of qubits that the quantum operation acts on. Default: 1
-        wires: The indices of the qubits that
-            the quantum operation acts on. Default: ``None``
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
         inputs: The parameters of the layer. Default: ``None``
         den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
-            Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``True`` (which means ``nn.Parameter``)
     """
@@ -437,15 +413,13 @@ class CnotLayer(DoubleLayer):
     r"""A layer of CNOT gates.
 
     Args:
-       nqubit: The number of qubits that the quantum operation acts on. Default: 2
-       wires: The indices of the qubits that the quantum operation
-           acts on. Default: ``None``
-       name: The name of the layer. Default: ``'CnotLayer'``
-       den_mat: Whether the quantum operation acts on density matrices or state vectors.
-           Default: ``False`` (which means state vectors)
-       tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-           and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
-           Default: ``False``
+        nqubit: The number of qubits that the quantum operation acts on. Default: 2
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
+        name: The name of the layer. Default: ``'CnotLayer'``
+        den_mat: Whether the quantum operation acts on density matrices or state vectors.
+            Default: ``False`` (which means state vectors)
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
 
     def __init__(
@@ -474,17 +448,14 @@ class CnotRing(CnotLayer):
 
     Args:
         nqubit: The number of qubits that the quantum operation acts on. Default: 2
-        minmax: The minimum and maximum indices of qubits that the quantum
-            operation acts on. Default: ``None``
-        step: The distance between the control and target qubits of each CNOT gate.
-            Default: 1
-        reverse: Whether the CNOT gates are applied from the maximum to the minimum index
-            or vice versa. Default: ``False``
+        minmax: The minimum and maximum indices of qubits that the quantum operation acts on. Default: ``None``
+        step: The distance between the control and target qubits of each CNOT gate. Default: 1
+        reverse: Whether the CNOT gates are applied from the maximum to the minimum index or vice versa.
+            Default: ``False``
         den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode: Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`.
-            Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
 
     def __init__(

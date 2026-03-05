@@ -10,8 +10,7 @@ class Operation(nn.Module):
 
     Args:
         name: The name of the quantum operation. Default: ``None``
-        nodes: The indices of the nodes that the quantum operation acts on.
-            Default: ``None``
+        nodes: The indices of the nodes that the quantum operation acts on. Default: ``None``
     """
 
     def __init__(self, name: str | None = None, nodes: int | list[int] | None = None) -> None:

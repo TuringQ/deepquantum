@@ -25,8 +25,7 @@ class FockState(nn.Module):
         nmode: The number of modes in the state. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         basis: Whether the state is a Fock basis state or not. Default: ``True``
-        den_mat: Whether to use density matrix representation. Only valid for Fock state tensor.
-            Default: ``False``
+        den_mat: Whether to use density matrix representation. Only valid for Fock state tensor. Default: ``False``
     """
 
     def __init__(
@@ -413,8 +412,8 @@ class CatState(BosonicState):
     Args:
         r: Displacement magnitude :math:`|r|`. Default: ``None``
         theta: Displacement angle :math:`\theta`. Default: ``None``
-        p: Parity, where :math:`\theta=p\pi`. ``p=0`` corresponds to an even
-            cat state, and ``p=1`` an odd cat state. Default: 1
+        p: Parity, where :math:`\theta=p\pi`. ``p=0`` corresponds to an even cat state, and ``p=1`` an odd cat state.
+            Default: 1
         cutoff: The Fock space truncation. Default: ``None``
     """
 
@@ -730,8 +729,7 @@ def combine_bosonic_states(states: list[BosonicState], cutoff: int | None = None
 
     Args:
         states: List of Bosonic states to combine.
-        cutoff: The Fock space truncation. If ``None``, the cutoff of the first state is used.
-            Default: ``None``
+        cutoff: The Fock space truncation. If ``None``, the cutoff of the first state is used. Default: ``None``
     """
     covs = []
     means = []
