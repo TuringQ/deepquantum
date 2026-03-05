@@ -367,10 +367,10 @@ class Pattern(Operation):
         1. Extracting signals via t_domain (in XY plane cases) of measurements.
         2. Moving signals to the left, through modifying other measurements and corrections.
 
+        See https://arxiv.org/pdf/0704.1263 Ch.(5.5)
+
         Returns:
             A signal dictionary including all the signal shifting commands.
-
-        See https://arxiv.org/pdf/0704.1263 Ch.(5.5)
         """
         signal_dict = {}
 
