@@ -208,7 +208,7 @@ class QubitCircuit(Operation):
                 The initial state for the quantum circuit. Default: ``None``
 
         Returns:
-            Union[torch.Tensor, List[torch.Tensor]]: The final state of the quantum circuit after
+            The final state of the quantum circuit after
             applying the ``operators``.
         """
         if state is None:

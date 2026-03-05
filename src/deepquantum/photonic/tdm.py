@@ -68,7 +68,7 @@ class QumodeCircuitTDM(QumodeCircuit):
             nstep: The number of the evolved time steps. Default: ``None``
 
         Returns:
-            List[torch.Tensor]: The covariance matrix and displacement vector of the measured final state.
+            The covariance matrix and displacement vector of the measured final state.
         """
         assert self._with_delay, 'No delay loop.'
         for i in range(self.nmode):

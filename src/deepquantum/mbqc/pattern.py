@@ -71,7 +71,7 @@ class Pattern(Operation):
             state: The initial graph state for the pattern. Default: ``None``
 
         Returns:
-            GraphState: The final graph state of the pattern after applying the ``commands``.
+            The final graph state of the pattern after applying the ``commands``.
         """
         if state is None:
             self.state = deepcopy(self.init_state)
@@ -256,7 +256,7 @@ class Pattern(Operation):
         """Determine whether the command sequence is standard.
 
         Returns:
-            bool: ``True`` if the pattern follows NEMC standardization, ``False`` otherwise
+            ``True`` if the pattern follows NEMC standardization, ``False`` otherwise
         """
         it = iter(self.commands)
         try:
@@ -368,7 +368,7 @@ class Pattern(Operation):
         2. Moving signals to the left, through modifying other measurements and corrections.
 
         Returns:
-            Dict: A signal dictionary including all the signal shifting commands.
+            A signal dictionary including all the signal shifting commands.
 
         See https://arxiv.org/pdf/0704.1263 Ch.(5.5)
         """

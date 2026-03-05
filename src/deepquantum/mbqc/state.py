@@ -161,7 +161,7 @@ class SubGraphState(nn.Module):
             relabel: Whether to relabel nodes to avoid conflicts. Default: ``True``
 
         Returns:
-            SubGraphState: A new subgraph state that is the composition of the two.
+            A new subgraph state that is the composition of the two.
         """
         if relabel and (set(self.nodes) & set(other.nodes)):
             shift = max(self.nodes) - min(other.nodes) + 1
@@ -187,7 +187,7 @@ class SubGraphState(nn.Module):
         """Update the mapping from nodes to wire indices.
 
         Returns:
-            Dict: A dictionary mapping nodes to their corresponding wire indices.
+            A dictionary mapping nodes to their corresponding wire indices.
         """
         if self.nodes_out_seq is None:
             wires = inverse_permutation(np.argsort(self.nodes).tolist())

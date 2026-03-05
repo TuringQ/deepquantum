@@ -121,7 +121,7 @@ def cir_to_qasm3(circuit: QubitCircuit) -> str:
         circuit: The DeepQuantum circuit to convert.
 
     Returns:
-        str: A string containing the OpenQASM 3.0 representation of the circuit.
+        A string containing the OpenQASM 3.0 representation of the circuit.
     """
     qasm_parts = ['OPENQASM 3.0;', 'include "stdgates.inc";']
 

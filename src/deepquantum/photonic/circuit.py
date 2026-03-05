@@ -297,7 +297,7 @@ class QumodeCircuit(Operation):
                 Default: ``False``
 
         Returns:
-            Union[torch.Tensor, Dict, List[torch.Tensor]]: The result of the photonic quantum circuit after
+            The result of the photonic quantum circuit after
             applying the ``operators``.
         """
         if self.backend == 'fock':
@@ -319,7 +319,7 @@ class QumodeCircuit(Operation):
                 order of probabilities. Default: ``True``
 
         Returns:
-            Union[torch.Tensor, Dict, List[torch.Tensor]]: Unitary matrix, Fock state tensor,
+            Unitary matrix, Fock state tensor,
             a dictionary of probabilities or amplitudes, or a list of tensors for MPS.
         """
         if self.mps:
@@ -459,7 +459,7 @@ class QumodeCircuit(Operation):
             stepwise: Whether to use the forward function of each operator. Default: ``False``
 
         Returns:
-            Union[List[torch.Tensor], Dict]: The final Gaussian (Bosonic) state or a dictionary of probabilities.
+            The final Gaussian (Bosonic) state or a dictionary of probabilities.
         """
         if state is None:
             if self.backend == 'bosonic' and self._bosonic_states is not None:
@@ -1331,7 +1331,7 @@ class QumodeCircuit(Operation):
         """VMAP helper for measuring the final state according to the unitary matrix for Fock backend.
 
         Returns:
-            Dict: A dictionary of probabilities for final states.
+            A dictionary of probabilities for final states.
         """
         if final_states is None:
             final_states = self._out_fock_basis
@@ -1557,7 +1557,7 @@ class QumodeCircuit(Operation):
                 or ``'threshold'`` for the threshold detector.
 
         Returns:
-            torch.Tensor: Tensor of shape (batch, nwire).
+            Tensor of shape (batch, nwire).
         """
         sample = []
         if self.backend == 'fock':
@@ -1770,7 +1770,7 @@ class QumodeCircuit(Operation):
                     the row/column indices for a block.
 
             Returns:
-                torch.Tensor: Output tensor of shape (batch, nblock, block_size, -1) containing all extracted blocks.
+                Output tensor of shape (batch, nblock, block_size, -1) containing all extracted blocks.
             """
             nblock, block_size = idx.shape
             if mat.shape[-2] == mat.shape[-1]:  # cov
