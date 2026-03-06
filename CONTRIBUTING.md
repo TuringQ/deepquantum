@@ -1,8 +1,3 @@
-This is a comprehensive, professional `CONTRIBUTING.md` tailored for your project.
-It covers the specific tools you've configured and adds industry-standard best practices for a seamless open-source contribution experience.
-
----
-
 # Contributing to DeepQuantum
 
 First off, thank you for considering contributing to DeepQuantum!

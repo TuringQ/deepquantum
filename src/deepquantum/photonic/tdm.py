@@ -15,17 +15,16 @@ class QumodeCircuitTDM(QumodeCircuit):
         to avoid issues with non-positive definiteness of the covariance matrix.
 
     Args:
-        nmode (int): The number of spatial modes in the circuit.
-        init_state (Any): The initial state of the circuit. It can be a vacuum state with ``'vac'``.
+        nmode: The number of spatial modes in the circuit.
+        init_state: The initial state of the circuit. It can be a vacuum state with ``'vac'``.
             For Gaussian backend, it can be arbitrary Gaussian states with ``[cov, mean]``.
             Use ``xxpp`` convention and :math:`\hbar=2` by default.
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        backend (str, optional): Use ``'gaussian'`` for Gaussian backend or ``'bosonic'`` for Bosonic backend.
-            Default: ``'gaussian'``
-        name (str or None, optional): The name of the circuit. Default: ``None``
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        cutoff: The Fock space truncation. Default: ``None``
+        backend: Use ``'gaussian'`` for Gaussian backend or ``'bosonic'`` for Bosonic backend. Default: ``'gaussian'``
+        name: The name of the circuit. Default: ``None``
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -62,13 +61,13 @@ class QumodeCircuitTDM(QumodeCircuit):
         r"""Perform a forward pass of the TDM photonic quantum circuit and return the final state.
 
         Args:
-            data (torch.Tensor or None, optional): The input data for the ``encoders`` with the shape of
+            data: The input data for the ``encoders`` with the shape of
                 :math:`(\text{batch}, \text{ntimes}, \text{nfeat})`. Default: ``None``
-            state (Any, optional): The initial state for the photonic quantum circuit. Default: ``None``
-            nstep (int or None, optional): The number of the evolved time steps. Default: ``None``
+            state: The initial state for the photonic quantum circuit. Default: ``None``
+            nstep: The number of the evolved time steps. Default: ``None``
 
         Returns:
-            List[torch.Tensor]: The covariance matrix and displacement vector of the measured final state.
+            The covariance matrix and displacement vector of the measured final state.
         """
         assert self._with_delay, 'No delay loop.'
         for i in range(self.nmode):

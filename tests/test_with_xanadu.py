@@ -94,9 +94,9 @@ def test_gaussian_prob_random_circuit():
 
 def test_measure_homodyne():
     n = 3
-    r1 = np.random.rand(1)
-    r2 = np.random.rand(1)
-    r3 = np.random.rand(1)
+    r1 = np.random.rand(1)[0]
+    r2 = np.random.rand(1)[0]
+    r3 = np.random.rand(1)[0]
     bs1 = np.random.rand(2)
     bs2 = np.random.rand(2)
     phi = np.random.rand(2)

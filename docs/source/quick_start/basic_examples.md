@@ -84,10 +84,10 @@ print(cir3.expectation())
 For quantum simulators, operational efficiency is a crucial performance metric. In tasks like VQE and quantum machine learning, aside from the forward evolution of quantum circuits, gradient calculation is a pivotal factor affecting efficiency. Comparisons between DeepQuantum, Qiskit and VQNet are illustrated as follows.
 
 ```python
+import deepquantum as dq
 import time
 import torch
 from torch.autograd.functional import hessian
-import deepquantum as dq
 
 def benchmark(f, *args, trials=10):
     time0 = time.time()

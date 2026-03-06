@@ -11,17 +11,17 @@ import torch.nn as nn
 
 ## 量子线路对象
 
-DeepQuantum的基本对象是QubitCircuit和QumodeCircuit。
-QubitCircuit用量子比特数（n）来初始化量子线路，即cir=dq.QubitCircuit(n)。
-QumodeCircuit用模式数（n）来初始化光量子线路，即cir=dq.QumodeCircuit(n)。
+DeepQuantum的基本对象是`QubitCircuit`和`QumodeCircuit`。
+`QubitCircuit`用量子比特数（n）来初始化量子线路，即`cir=dq.QubitCircuit(n)`。
+`QumodeCircuit`用模式数（n）来初始化光量子线路，即`cir=dq.QumodeCircuit(n)`。
 DeepQuantum可以帮助用户很方便地实现参数化量子线路，从而进行量子机器学习。
 
 ## QubitCircuit基础使用说明
 
 ### 量子态
 
-QubitState是表示量子态的类。
-比如，我们可以利用QubitState准备一个单比特量子态，其数据是torch的tensor，存在属性state中。
+`QubitState`是表示量子态的类。
+比如，我们可以利用`QubitState`准备一个单比特量子态，其数据是`torch`的`Tensor`，存在属性`state`中。
 便捷地将经典数据编码为一个量子态
 
 ```python
@@ -53,23 +53,23 @@ print(qstate.state)
 
 ### 基本的量子门
 
-我们可以将各种量子门作用在QubitCircuit上。
-例如，我们可以将Hadamard门作用于1号量子比特：cir.h(1)；将Rx门作用于2号量子比特：cir.rx(2, inputs=0.2)；多量子比特门也一样：cir.cnot(0, 1)。
-同时，我们还可以一次性在量子线路上放置一层量子门，如cir.rxlayer()。
+我们可以将各种量子门作用在`QubitCircuit上`。
+例如，我们可以将Hadamard门作用于1号量子比特：`cir.h(1)`；将Rx门作用于2号量子比特：`cir.rx(2, inputs=0.2)`；多量子比特门也一样：`cir.cnot(0, 1)`。
+同时，我们还可以一次性在量子线路上放置一层量子门，如`cir.rxlayer()`。
 如果量子门没有指定输入参数，则会自动初始化变分参数。
 
 ```python
 cir = dq.QubitCircuit(4)
 ```
 
-第一个参数wires指定放置的线路，自动初始化内部的变分参数
+第一个参数`wires`指定放置的线路，自动初始化内部的变分参数
 
 ```python
 cir.rxlayer(wires=[0,2])
 ```
 
 我们也可以手动初始化参数，具体如下所示。
-利用inputs手动初始化固定参数
+利用`inputs`手动初始化固定参数
 
 ```python
 cir.rxlayer(wires=[0, 1, 2, ...], inputs=[theta_0, theta_1, ...])
@@ -158,7 +158,7 @@ print(cir.expectation())
 
 #### 条件测量
 
-使用condition参数可以实现条件测量，此时条件测量的位置由控制位controls决定。
+使用`condition`参数可以实现条件测量，此时条件测量的位置由控制位`controls`决定。
 
 ```python
 cir = dq.QubitCircuit(3)
@@ -174,13 +174,13 @@ print(cir.post_select(measure_rst))
 cir.draw()
 ```
 
-注意，defer_measure和post_select并不改变QubitCircuit所保存的末态state，因此measure和expectation目前并不兼容条件测量。
+注意，`defer_measure`和`post_select`并不改变`QubitCircuit`所保存的末态`state`，因此`measure`和`expectation`目前并不兼容条件测量。
 
 ## QumodeCircuit基础使用说明
 
 ### Fock后端的使用
 
-使用Fock后端可以构建基于离散变量的光量子线路，basis=True对应着量子态用Fock基矢态表示，basis=False对应着量子态用Fock态张量表示。
+使用Fock后端可以构建基于离散变量的光量子线路，`basis=True`对应着量子态用Fock基矢态表示，`basis=False`对应着量子态用Fock态张量表示。
 
 #### 量子态
 
@@ -194,8 +194,8 @@ print(qstate1, qstate2)
 
 #### 基本量子门
 
-我们可以将各种量子门作用在QumodeCircuit上。
-例如，我们可以将移相器作用于第1个mode：cir.ps(0)；将分束器作用于第1、2个mode：cir.bs([0,1])。
+我们可以将各种量子门作用在`QumodeCircuit`上。
+例如，我们可以将移相器作用于第1个mode：`cir.ps(0)`；将分束器作用于第1、2个mode：`cir.bs([0,1])`。
 如果量子门没有指定输入参数，则会自动初始化变分参数。
 
 ```python
@@ -217,7 +217,7 @@ print(state, sample)
 
 #### 线路可视化
 
-通过cir.draw()可以将搭建的光量子线路可视化并保存
+通过`cir.draw()`可以将搭建的光量子线路可视化并保存
 
 ```python
 cir.draw(filename='circuit.svg')
@@ -252,7 +252,7 @@ clements.draw()
 
 #### 量子态
 
-高斯态通过协方差矩阵cov和平均值矢量mean来表示，'vac'对应真空态，也可以设置cov和mean。
+高斯态通过协方差矩阵`cov`和平均值矢量`mean`来表示，`'vac'`对应真空态，也可以设置`cov`和`mean`。
 
 ```python
 qstate1 = dq.GaussianState(nmode=2, state='vac')
@@ -264,7 +264,7 @@ print(qstate1, qstate2)
 
 #### 基本量子门
 
-高斯操作对应的量子门有单模压缩门s、位移门d、旋转门r和分束器bs等。
+高斯操作对应的量子门有单模压缩门`s`、位移门`d`、旋转门`r`和分束器`bs`等。
 
 ```python
 cir = dq.QumodeCircuit(nmode=2, init_state='vac', cutoff=3, backend='gaussian')
@@ -277,13 +277,13 @@ cir.bs([0,1], [torch.pi/4, torch.pi/4])
 cir.draw()
 ```
 
-上面的压缩门和位移门具有r和theta两个参数。
-当用户只指定r时，theta默认为0。
-当用户只指定theta时，r默认随机初始化。
+上面的压缩门和位移门具有`r`和`theta`两个参数。
+当用户只指定`r`时，`theta`默认为0。
+当用户只指定`theta`时，`r`默认随机初始化。
 
 #### 线路演化和测量
 
-这里measure_homodyne测量对应的物理量是正交算符 $\hat{x}$ 和 $\hat{p}$ 的值，photon_number_mean_var对应的是每个mode的光子数的平均值和方差。
+这里`measure_homodyne`测量对应的物理量是正交算符 $\hat{x}$ 和 $\hat{p}$ 的值，`photon_number_mean_var`对应的是每个mode的光子数的平均值和方差。
 
 ```python
 state = cir()
@@ -304,13 +304,13 @@ adj_mat = torch.tensor([[0., 1., 1., 0., 0., 0.],
                         [0., 1., 0., 0., 1., 1.],
                         [0., 0., 0., 1., 0., 0.],
                         [0., 1., 0., 1., 0., 0.]])
-gbs = dqp.GBS_Graph(adj_mat=adj_mat, cutoff=2)
+gbs = dqp.GraphGBS(adj_mat=adj_mat, cutoff=2)
 state = gbs()
 sample = gbs.measure() # 高斯玻色采样
 print(sample)
 ```
 
-通过gbs.draw()可以可视化高斯玻色采样线路。
+通过`gbs.draw()`可以可视化高斯玻色采样线路。
 
 ```python
 gbs.draw()

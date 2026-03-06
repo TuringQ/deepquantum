@@ -7,5 +7,6 @@ pre-commit-uv
 pytest
 qutip
 ruff
+setuptools<82.0.0
 strawberryfields @ git+https://github.com/XanaduAI/strawberryfields.git@master
 thewalrus @ git+https://github.com/XanaduAI/thewalrus.git@master
