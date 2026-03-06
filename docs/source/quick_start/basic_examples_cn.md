@@ -81,13 +81,15 @@ print(cir3.expectation())
 
 ## 梯度计算的benchmark
 
-对于量子模拟器来说，运行效率是最重要的评价指标之一。对于VQE和量子机器学习等任务，除了量子线路的前向演化，梯度的计算是影响运行效率的最重要的因素。下面展示了DeepQuantum和Qiskit、VQNet的对比。
+对于量子模拟器来说，运行效率是最重要的评价指标之一。
+对于VQE和量子机器学习等任务，除了量子线路的前向演化，梯度的计算是影响运行效率的最重要的因素。
+下面展示了DeepQuantum和Qiskit、VQNet的对比。
 
 ```python
+import deepquantum as dq
 import time
 import torch
 from torch.autograd.functional import hessian
-import deepquantum as dq
 
 def benchmark(f, *args, trials=10):
     time0 = time.time()
@@ -152,8 +154,9 @@ def hessian_dq(n, l, trials=10):
 
 ## 大规模模拟
 
-用经典计算机对量子线路进行模拟，所需的计算资源会随着量子比特数的增加而呈指数级增长。DeepQuantum底层实现了张量网络算法，得以支持大规模的模拟。
-用户只需要设置QubitCircuit的mps=True即可，并且可以用chi来调节基于张量网络近似量子态的精度，chi越大模拟精度越高，运行速度越慢。
+用经典计算机对量子线路进行模拟，所需的计算资源会随着量子比特数的增加而呈指数级增长。
+DeepQuantum底层实现了张量网络算法，得以支持大规模的模拟。
+用户只需要设置`QubitCircuit`的`mps=True`即可，并且可以用`chi`来调节基于张量网络近似量子态的精度，`chi`越大模拟精度越高，运行速度越慢。
 
 ```python
 batch = 2
@@ -172,7 +175,8 @@ print(cir.expectation())
 ## 量子傅里叶变换
 
 量子傅里叶变换是离散傅里叶变换的量子对应。
-DeepQuantum基于Ansatz类实现了量子傅里叶变换（Ansatz类只是在QubitCircuit的基础上对新增的输入参数进行了有效性的判断）。用户同样可以基于Ansatz类来方便地复现和开发各种量子算法。
+DeepQuantum基于`Ansatz`类实现了量子傅里叶变换（`Ansatz`类只是在`QubitCircuit`的基础上对新增的输入参数进行了有效性的判断）。
+用户同样可以基于`Ansatz`类来方便地复现和开发各种量子算法。
 下面是具体的实现。
 
 ```python
@@ -207,7 +211,8 @@ class QuantumFourierTransform(dq.Ansatz):
 
 ## 量子相位估计
 
-量子相位估计算法是很多量子算法的关键。假设一个幺正算符U作用在其本征态 |u⟩ 上会出现一个相位 $e^{2{\pi}i{\psi}}$ ，相位估计算法的作用就是对这个相位 $\psi$ 进行估计。
+量子相位估计算法是很多量子算法的关键。
+假设一个幺正算符U作用在其本征态 |u⟩ 上会出现一个相位 $e^{2{\pi}i{\psi}}$ ，相位估计算法的作用就是对这个相位 $\psi$ 进行估计。
 下面演示的是DeepQuantum中已经实现的量子相位估计的例子，即针对单量子比特的相移门，得到它的相位。
 
 ```python

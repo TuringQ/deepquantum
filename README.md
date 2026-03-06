@@ -290,7 +290,7 @@ To maintain high code quality and consistent style, we use a modern development 
 [![Jupytext](https://img.shields.io/badge/jupytext-enabled-blue)](https://github.com/mwouts/jupytext)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
 
-Please refer to our **[CONTRIBUTING.md](CONTRIBUTING.md)** for detailed instructions on:
+Please refer to our **[CONTRIBUTING.md](./CONTRIBUTING.md)** for detailed instructions on:
 - **Linting & Formatting**: Our coding standards using Ruff.
 - **Notebook Management**: How we sync `.ipynb` and `.py` files using Jupytext.
 - **Pull Request Process**: How to link issues and submit your changes.
