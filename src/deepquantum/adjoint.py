@@ -25,7 +25,7 @@ class AdjointExpectation(Function):
         state: The final quantum state.
         operators: The quantum operations.
         observable: The observable.
-        *parameters (torch.Tensor): The parameters of the quantum circuit.
+        *parameters: The parameters of the quantum circuit.
     """
 
     @staticmethod
