@@ -1,6 +1,5 @@
 graphix==0.3.1
 jupytext
-myst-nb
 pennylane-sf
 perceval-quandela
 pre-commit
@@ -9,7 +8,5 @@ pytest
 qutip
 ruff
 setuptools<82.0.0
-sphinx
-sphinx_book_theme
 strawberryfields @ git+https://github.com/XanaduAI/strawberryfields.git@master
 thewalrus @ git+https://github.com/XanaduAI/thewalrus.git@master
