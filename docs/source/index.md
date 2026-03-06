@@ -22,7 +22,7 @@ quick_start/basic_usage_cn.md
 quick_start/basic_examples_cn.md
 ```
 
-```{toctree}
+<!-- ```{toctree}
 :maxdepth: 1
 :caption: Tutorials
 :hidden:
@@ -39,7 +39,7 @@ tutorials/mbqc_basics.ipynb
 
 demos/gbs/boson_sampling/boson_sampling.ipynb
 demos/tdm/advanced_cluster_state/advanced_cluster_state.ipynb
-```
+``` -->
 
 ```{toctree}
 :maxdepth: 1
