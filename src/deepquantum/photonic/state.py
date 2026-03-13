@@ -395,7 +395,7 @@ class BosonicState(nn.Module):
         if plot:
             plt.subplots(1, 1, figsize=(12, 10))
             plt.xlabel('Quadrature q')
-            plt.ylabel('Wave_function')
+            plt.ylabel('Wave function')
             plt.plot(xvec.cpu(), marginal_vals[k].cpu())
             plt.show()
         return marginal_vals
@@ -434,8 +434,8 @@ class CatState(BosonicState):
         means = (
             torch.stack(
                 [
-                    torch.stack([real_part, imag_part]),
-                    -torch.stack([real_part, imag_part]),
+                    torch.stack([real_part, imag_part]) + 0j,
+                    -torch.stack([real_part, imag_part]) + 0j,
                     torch.stack([imag_part, -real_part]) * 1j,
                     -torch.stack([imag_part, -real_part]) * 1j,
                 ]
@@ -444,7 +444,7 @@ class CatState(BosonicState):
             / dqp.kappa
         )
         temp = torch.exp(-2 * r**2)
-        w0 = 0.5 / (1 + temp * torch.cos(p * torch.pi))
+        w0 = 0.5 / (1 + temp * torch.cos(p * torch.pi)) + 0j
         w1 = w0
         w2 = torch.exp(-1j * torch.pi * p) * temp * w0
         w3 = torch.exp(1j * torch.pi * p) * temp * w0

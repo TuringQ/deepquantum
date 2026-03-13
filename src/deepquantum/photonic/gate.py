@@ -336,8 +336,8 @@ class BeamSplitter(DoubleGate):
         """Get the local unitary matrix acting on creation operators."""
         # correspond to: U a^+ U^+ = u^T @ a^+
         theta, phi = self.inputs_to_tensor([theta, phi])
-        cos = torch.cos(theta)
-        sin = torch.sin(theta)
+        cos = torch.cos(theta) + 0j
+        sin = torch.sin(theta) + 0j
         e_m_ip = torch.exp(-1j * phi)
         e_ip = torch.exp(1j * phi)
         return torch.stack([cos, -e_m_ip * sin, e_ip * sin, cos]).reshape(2, 2)
@@ -511,8 +511,8 @@ class MZI(BeamSplitter):
         """Get the local unitary matrix acting on creation operators."""
         # correspond to: U a^+ U^+ = u^T @ a^+
         theta, phi = self.inputs_to_tensor([theta, phi])
-        cos = torch.cos(theta / 2)
-        sin = torch.sin(theta / 2)
+        cos = torch.cos(theta / 2) + 0j
+        sin = torch.sin(theta / 2) + 0j
         e_it = torch.exp(1j * theta / 2)
         e_ip = torch.exp(1j * phi)
         mat = 1j * e_it * torch.stack([e_ip * sin, cos, e_ip * cos, -sin]).reshape(2, 2)
@@ -1086,8 +1086,8 @@ class Squeezing(SingleGate):
         """Get the local symplectic matrix acting on annihilation and creation operators."""
         # correspond to: U^+ (a a^+) U = s @ (a a^+)
         r, theta = self.inputs_to_tensor([r, theta])
-        ch = torch.cosh(r)
-        sh = torch.sinh(r)
+        ch = torch.cosh(r) + 0j
+        sh = torch.sinh(r) + 0j
         e_it = torch.exp(1j * theta)
         e_m_it = torch.exp(-1j * theta)
         return torch.stack([ch, -e_it * sh, -e_m_it * sh, ch]).reshape(2, 2)
@@ -2146,8 +2146,8 @@ class ControlledZ(DoubleGate):
         """Get the local symplectic matrix acting on annihilation and creation operators."""
         # correspond to: U^+ (a a^+) U = s @ (a a^+)
         s = self.inputs_to_tensor(s).reshape(-1)
-        one = s.new_ones(1)
-        zero = s.new_zeros(1)
+        one = s.new_ones(1) + 0j
+        zero = s.new_zeros(1) + 0j
         x = 1j * s / 2
         mat = torch.stack([one, x, zero, x, x, one, x, zero, zero, -x, one, -x, -x, zero, -x, one]).reshape(4, 4)
         return mat

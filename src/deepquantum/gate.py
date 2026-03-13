@@ -611,8 +611,8 @@ class U3Gate(ParametricSingleGate):
     def get_matrix(self, theta: Any, phi: Any, lambd: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
         theta, phi, lambd = self.inputs_to_tensor([theta, phi, lambd])
-        cos_t = torch.cos(theta / 2)
-        sin_t = torch.sin(theta / 2)
+        cos_t = torch.cos(theta / 2) + 0j
+        sin_t = torch.sin(theta / 2) + 0j
         e_il = torch.exp(1j * lambd)
         e_ip = torch.exp(1j * phi)
         e_ipl = torch.exp(1j * (phi + lambd))
@@ -1482,7 +1482,7 @@ class Rx(ParametricSingleGate):
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
         theta = self.inputs_to_tensor(theta)
-        cos = torch.cos(theta / 2)
+        cos = torch.cos(theta / 2) + 0j
         isin = torch.sin(theta / 2) * 1j
         return torch.stack([cos, -isin, -isin, cos]).reshape(2, 2)
 
@@ -1797,12 +1797,12 @@ class ProjectionJ(ParametricSingleGate):
         """Get the local unitary matrix."""
         theta = self.inputs_to_tensor(theta)
         if self.plane in ['xy', 'yx']:
-            one = torch.ones_like(theta)
+            one = torch.ones_like(theta) + 0j
             e_m_theta = torch.exp(-1j * theta)
             return torch.stack([one, e_m_theta, one, -e_m_theta]).reshape(2, 2) / 2**0.5
         elif self.plane in ['yz', 'zy']:
-            c_p_s = torch.cos(theta / 2) + torch.sin(theta / 2)
-            c_m_s = torch.cos(theta / 2) - torch.sin(theta / 2)
+            c_p_s = torch.cos(theta / 2) + torch.sin(theta / 2) + 0j
+            c_m_s = torch.cos(theta / 2) - torch.sin(theta / 2) + 0j
             return torch.stack([c_p_s, -1j * c_m_s, c_m_s, 1j * c_p_s]).reshape(2, 2) / 2**0.5
         elif self.plane in ['zx', 'xz']:
             cos = torch.cos(theta / 2)
@@ -2427,7 +2427,7 @@ class Rxy(ParametricDoubleGate):
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
         theta = self.inputs_to_tensor(theta)
-        cos = torch.cos(theta / 2)
+        cos = torch.cos(theta / 2) + 0j
         isin = torch.sin(theta / 2) * 1j
         m1 = torch.eye(1, dtype=theta.dtype, device=theta.device)
         m2 = torch.stack([cos, -isin, -isin, cos]).reshape(2, 2)
