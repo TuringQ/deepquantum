@@ -177,19 +177,6 @@ class QubitCircuit(Operation):
         cir.wires_condition = list(set(cir.wires_condition))
         return cir
 
-    def to(self, arg: Any) -> 'QubitCircuit':
-        """Set dtype or device of the ``QubitCircuit``."""
-        self.init_state.to(arg)
-        if arg in (torch.float, torch.double):
-            for op in self.operators:
-                op.to(arg)
-            for ob in self.observables:
-                ob.to(arg)
-        else:
-            self.operators.to(arg)
-            self.observables.to(arg)
-        return self
-
     def forward(
         self,
         data: torch.Tensor | None = None,
@@ -413,18 +400,18 @@ class QubitCircuit(Operation):
                     elif basis == 'y':
                         cir_basis.sdg(wire)
                         cir_basis.h(wire)
-                cir_basis.to(dtype).to(device)
+                cir_basis.to(device, dtype)
                 cir_basis(state=self.state)
                 wires = sum(observable.wires, [])
                 samples = cir_basis.measure(shots=shots, wires=wires)
                 if isinstance(samples, list):
                     expval = []
                     for sample in samples:
-                        expval_i = sample2expval(sample=sample).to(dtype).to(device)
+                        expval_i = sample2expval(sample=sample).to(device, dtype)
                         expval.append(expval_i)
                     expval = torch.cat(expval)
                 elif isinstance(samples, dict):
-                    expval = sample2expval(sample=samples).to(dtype).to(device)
+                    expval = sample2expval(sample=samples).to(device, dtype)
                     if (not self.mps and self.state.ndim == 2) or (self.mps and self.state[0].ndim == 3):
                         expval = expval.squeeze(0)
                 out.append(expval)
@@ -1755,13 +1742,13 @@ class DistributedQubitCircuit(QubitCircuit):
                     elif basis == 'y':
                         cir_basis.sdg(wire)
                         cir_basis.h(wire)
-                cir_basis.to(dtype).to(device)
+                cir_basis.to(device, dtype)
                 state = deepcopy(self.state)
                 state = cir_basis(state=state)
                 wires = sum(observable.wires, [])
                 samples = measure_dist(state=state, shots=shots, wires=wires)
                 if self.state.rank == 0:
-                    expval = sample2expval(sample=samples).to(dtype).to(device).squeeze(0)
+                    expval = sample2expval(sample=samples).to(device, dtype).squeeze(0)
                 else:
                     expval = torch.tensor([], dtype=dtype, device=device)
                 out.append(expval)

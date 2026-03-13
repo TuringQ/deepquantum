@@ -10,6 +10,7 @@ from torch import nn
 import deepquantum.photonic as dqp
 
 from ..qmath import is_unitary
+from ..utils import apply_complex_fix
 from .operation import Delay, Gate
 from .qmath import ladder_ops
 
@@ -607,7 +608,7 @@ class BeamSplitterTheta(BeamSplitter):
         noise = self.noise
         self.noise = False
         theta, phi = self.inputs_to_tensor([inputs, torch.pi / 2])
-        phi = phi.to(theta.dtype).to(theta.device)
+        phi = phi.to(theta.device, theta.dtype)
         self.noise = noise
         if self.requires_grad:
             self.theta = nn.Parameter(theta)
@@ -705,7 +706,7 @@ class BeamSplitterPhi(BeamSplitter):
         noise = self.noise
         self.noise = False
         theta, phi = self.inputs_to_tensor([torch.pi / 4, inputs])
-        theta = theta.to(phi.dtype).to(phi.device)
+        theta = theta.to(phi.device, phi.dtype)
         self.noise = noise
         if self.requires_grad:
             self.phi = nn.Parameter(phi)
@@ -925,18 +926,22 @@ class UAnyGate(Gate):
         self.register_buffer('matrix', unitary)
         self.register_buffer('matrix_state', None)
 
-    def to(self, arg: Any) -> 'UAnyGate':
-        """Set dtype or device of the ``UAnyGate``."""
-        if arg == torch.float:
-            self.matrix = self.matrix.to(torch.cfloat)
-            if self.matrix_state is not None:
-                self.matrix_state = self.matrix_state.to(torch.cfloat)
-        elif arg == torch.double:
-            self.matrix = self.matrix.to(torch.cdouble)
-            if self.matrix_state is not None:
-                self.matrix_state = self.matrix_state.to(torch.cdouble)
-        else:
-            super().to(arg)
+    def _apply(self, fn: Any) -> 'UAnyGate':
+        tensors_dict = {}
+        none_dict = {}
+        names = ['matrix', 'matrix_state']
+        for name in names:
+            tensor = self._buffers.pop(name)
+            if tensor is None:
+                none_dict[name] = tensor
+            else:
+                tensors_dict[name] = tensor
+        super()._apply(fn)
+        corrected = apply_complex_fix(fn, tensors_dict)
+        for key, value in corrected.items():
+            self.register_buffer(key, value)
+        for key, value in none_dict.items():
+            self.register_buffer(key, value)
         return self
 
     def get_matrix_state(self, matrix: torch.Tensor) -> torch.Tensor:
@@ -1570,7 +1575,7 @@ class DisplacementPosition(Displacement):
         noise = self.noise
         self.noise = False
         r, theta = self.inputs_to_tensor([inputs, 0])
-        theta = theta.to(r.dtype).to(r.device)
+        theta = theta.to(r.device, r.dtype)
         self.noise = noise
         if self.requires_grad:
             self.r = nn.Parameter(r)
@@ -1655,7 +1660,7 @@ class DisplacementMomentum(Displacement):
         noise = self.noise
         self.noise = False
         r, theta = self.inputs_to_tensor([inputs, torch.pi / 2])
-        theta = theta.to(r.dtype).to(r.device)
+        theta = theta.to(r.device, r.dtype)
         self.noise = noise
         if self.requires_grad:
             self.r = nn.Parameter(r)

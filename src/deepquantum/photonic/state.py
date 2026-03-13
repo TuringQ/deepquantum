@@ -12,6 +12,7 @@ import deepquantum.photonic as dqp
 
 from ..communication import comm_get_rank, comm_get_world_size
 from ..qmath import is_power, list_to_decimal, multi_kron
+from ..utils import apply_complex_fix
 from .qmath import cv_to_wigner, dirac_ket, fock_to_wigner, xpxp_to_xxpp, xxpp_to_xpxp
 
 
@@ -102,16 +103,19 @@ class FockState(nn.Module):
             assert all(i == self.cutoff for i in state_ts.shape[1:])
         self.register_buffer('state', state_ts)
 
-    def to(self, arg: Any) -> 'FockState':
-        """Set dtype or device of the ``FockState``."""
-        if arg == torch.float:
-            if not self.basis:
-                self.state = self.state.to(torch.cfloat)
-        elif arg == torch.double:
-            if not self.basis:
-                self.state = self.state.to(torch.cdouble)
+    def _apply(self, fn: Any) -> 'FockState':
+        if self.basis:
+            super()._apply(fn)
         else:
-            self.state = self.state.to(arg)
+            tensors_dict = {}
+            name = 'state'
+            tensor = self._buffers.pop(name)
+            if tensor is not None:
+                tensors_dict[name] = tensor
+            super()._apply(fn)
+            corrected = apply_complex_fix(fn, tensors_dict)
+            for key, value in corrected.items():
+                self.register_buffer(key, value)
         return self
 
     def wigner(
@@ -318,20 +322,14 @@ class BosonicState(nn.Module):
             cutoff = 5
         self.cutoff = cutoff
 
-    def to(self, arg: Any) -> 'BosonicState':
-        """Set dtype or device of the ``BosonicState``."""
-        if arg == torch.float:
-            self.cov = self.cov.to(arg)
-            self.mean = self.mean.to(torch.cfloat)
-            self.weight = self.weight.to(torch.cfloat)
-        elif arg == torch.double:
-            self.cov = self.cov.to(arg)
-            self.mean = self.mean.to(torch.cdouble)
-            self.weight = self.weight.to(torch.cdouble)
-        else:
-            self.cov = self.cov.to(arg)
-            self.mean = self.mean.to(arg)
-            self.weight = self.weight.to(arg)
+    def _apply(self, fn: Any) -> 'BosonicState':
+        tensors_dict = {}
+        names = ['mean', 'weight']
+        tensors_dict = {name: tensor for name in names if (tensor := self._buffers.pop(name)) is not None}
+        super()._apply(fn)
+        corrected = apply_complex_fix(fn, tensors_dict)
+        for key, value in corrected.items():
+            self.register_buffer(key, value)
         return self
 
     def tensor_product(self, state: 'BosonicState') -> 'BosonicState':
@@ -386,7 +384,7 @@ class BosonicState(nn.Module):
         cov = self.cov[..., idx[:, None], idx]
         mean = self.mean[..., idx, :]
         r = PhaseShift(inputs=-phi, nmode=1, wires=[0], cutoff=self.cutoff)
-        r.to(cov.dtype).to(cov.device)
+        r.to(cov.device, cov.dtype)
         cov, mean = r([cov, mean])  # (batch, ncomb, 2, 2)
         cov = cov[..., 0, 0].unsqueeze(1)
         mean = mean[..., 0, 0].unsqueeze(1)
@@ -654,17 +652,14 @@ class DistributedFockState(nn.Module):
         self.register_buffer('buffer', buffer)
         self.reset()
 
-    def to(self, arg: Any) -> 'DistributedFockState':
-        """Set dtype or device of the DistributedFockState."""
-        if arg == torch.float:
-            self.amps = self.amps.to(torch.cfloat)
-            self.buffer = self.buffer.to(torch.cfloat)
-        elif arg == torch.double:
-            self.amps = self.amps.to(torch.cdouble)
-            self.buffer = self.buffer.to(torch.cdouble)
-        else:
-            self.amps = self.amps.to(arg)
-            self.buffer = self.buffer.to(arg)
+    def _apply(self, fn: Any) -> 'DistributedFockState':
+        tensors_dict = {}
+        names = ['amps', 'buffer']
+        tensors_dict = {name: tensor for name in names if (tensor := self._buffers.pop(name)) is not None}
+        super()._apply(fn)
+        corrected = apply_complex_fix(fn, tensors_dict)
+        for key, value in corrected.items():
+            self.register_buffer(key, value)
         return self
 
     def reset(self):
