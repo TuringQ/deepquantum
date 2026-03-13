@@ -313,7 +313,7 @@ def photon_number_mean_var_fock(
     """Get the expectation value and variance of the photon number for Fock state tensors."""
     if den_mat:
         rho = state.reshape(-1, cutoff**nmode, cutoff**nmode)
-        prob = torch.diagonal(rho, dim1=1, dim2=2).reshape([-1] + [cutoff] * nmode)
+        prob = torch.diagonal(rho, dim1=1, dim2=2).reshape([-1] + [cutoff] * nmode).real
     else:
         if state.ndim == nmode:
             state = state.unsqueeze(0)
@@ -328,7 +328,7 @@ def photon_number_mean_var_fock(
         var = num2_exp - num_exp**2
         num_exp_list.append(num_exp)
         var_list.append(var)
-    return torch.stack(num_exp_list).real, torch.stack(var_list).real
+    return torch.stack(num_exp_list), torch.stack(var_list)
 
 
 def quadrature_mean_fock(

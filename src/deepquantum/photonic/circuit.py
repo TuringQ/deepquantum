@@ -154,7 +154,7 @@ class QumodeCircuit(Operation):
         self._reset_fock_basis = True  # whether to recompute the output Fock basis states in forward()
         self._init_state_sample = None  # for _sample_mcmc_fock()
         # Bosonic
-        self._bosonic_states = None  # list of initial Bosonic states
+        self._bosonic_states = None  # ModuleList of initial Bosonic states
         # TDM
         self._with_delay = False
         self._nmode_tdm = self.nmode
@@ -256,22 +256,6 @@ class QumodeCircuit(Operation):
             cir._ntau_dict[key].extend(value)
         return cir
 
-    def to(self, arg: Any) -> 'QumodeCircuit':
-        """Set dtype or device of the ``QumodeCircuit``."""
-        self.init_state.to(arg)
-        if arg in (torch.float, torch.double):
-            for op in self.operators:
-                op.to(arg)
-            for op_m in self.measurements:
-                op_m.to(arg)
-        else:
-            self.operators.to(arg)
-            self.measurements.to(arg)
-        if self.backend == 'bosonic' and isinstance(self._bosonic_states, list):
-            for bs in self._bosonic_states:
-                bs.to(arg)
-        return self
-
     def forward(
         self,
         data: torch.Tensor | None = None,
@@ -333,6 +317,19 @@ class QumodeCircuit(Operation):
             state = state.state
         elif not isinstance(state, torch.Tensor):
             state = FockState(state, self.nmode, self.cutoff, self.basis, self.den_mat).state
+        if not self.basis and isinstance(state, torch.Tensor) and state.device.type == 'mps':
+            max_mps_dim = 16
+            mps_dim = 2 * self.nmode + 1 if self.den_mat else self.nmode + 1
+            if mps_dim > max_mps_dim:
+                warnings.warn(
+                    f'Apple Silicon MPS limit ({max_mps_dim} dims) exceeded. Auto-falling back to CPU.',
+                    UserWarning,
+                    stacklevel=4,
+                )
+                self.cpu()
+                state = state.cpu()
+                if isinstance(data, torch.Tensor):
+                    data = data.cpu()
         # preprocessing of batched initial states
         if self.basis:
             self._is_batch_expanded = False  # reset
@@ -1175,7 +1172,7 @@ class QumodeCircuit(Operation):
             else:
                 sub_mat[torch.arange(len(sub_gamma)), torch.arange(len(sub_gamma))] = sub_gamma
             haf = abs(hafnian(sub_mat, loop=loop)) ** 2 if purity else hafnian(sub_mat, loop=loop)
-            prob = p_vac * haf / product_factorial(final_state).to(device=haf.device, dtype=haf.dtype)
+            prob = p_vac * haf / product_factorial(final_state).to(haf.device, haf.dtype)
         elif detector == 'threshold':
             final_state_double = torch.cat([final_state, final_state])
             sub_mat = sub_matrix(matrix, final_state_double, final_state_double)
@@ -1902,7 +1899,7 @@ class QumodeCircuit(Operation):
         ``p`` is the parity, corresponding to an even or odd cat state when ``p=0`` or ``p=1`` respectively.
         """
         if self._bosonic_states is None:
-            self._bosonic_states = [BosonicState(state='vac', nmode=1, cutoff=self.cutoff)] * self.nmode
+            self._bosonic_states = nn.ModuleList([BosonicState(state='vac', nmode=1, cutoff=self.cutoff)] * self.nmode)
         cat = CatState(r=r, theta=theta, p=p, cutoff=self.cutoff)
         self._bosonic_states[wires] = cat
 
@@ -1916,7 +1913,7 @@ class QumodeCircuit(Operation):
         ``epsilon`` is the finite energy damping parameter.
         """
         if self._bosonic_states is None:
-            self._bosonic_states = [BosonicState(state='vac', nmode=1, cutoff=self.cutoff)] * self.nmode
+            self._bosonic_states = nn.ModuleList([BosonicState(state='vac', nmode=1, cutoff=self.cutoff)] * self.nmode)
         gkp = GKPState(theta=theta, phi=phi, amp_cutoff=amp_cutoff, epsilon=epsilon, cutoff=self.cutoff)
         self._bosonic_states[wires] = gkp
 
