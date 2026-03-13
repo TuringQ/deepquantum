@@ -317,6 +317,19 @@ class QumodeCircuit(Operation):
             state = state.state
         elif not isinstance(state, torch.Tensor):
             state = FockState(state, self.nmode, self.cutoff, self.basis, self.den_mat).state
+        if not self.basis and isinstance(state, torch.Tensor) and state.device.type == 'mps':
+            max_mps_dim = 16
+            mps_dim = 2 * self.nmode + 1 if self.den_mat else self.nmode + 1
+            if mps_dim > max_mps_dim:
+                warnings.warn(
+                    f'Apple Silicon MPS limit ({max_mps_dim} dims) exceeded. Auto-falling back to CPU.',
+                    UserWarning,
+                    stacklevel=4,
+                )
+                self.cpu()
+                state = state.cpu()
+                if isinstance(data, torch.Tensor):
+                    data = data.cpu()
         # preprocessing of batched initial states
         if self.basis:
             self._is_batch_expanded = False  # reset
