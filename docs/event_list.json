@@ -1,0 +1,39 @@
+[
+    {
+      "eventUid": "EVT00001",
+      "type": 1,
+      "title": "第三届全国先进计算技术创新大赛",
+      "desc1": "基于光量子计算框架的应用与创新｜2025",
+      "desc2": "技术突破",
+      "imageUrl": "https://turingq-web.oss-cn-shanghai.aliyuncs.com/deepquantum-cover-test/event-banner.jpeg",
+      "detailUrl": "http://www.ac-innovation.com/entryInformation/entryDetail?_t=KV8qovBUCLHNg8wk%2FPpTCi9Z2H2Vzw%2FqX%2BMptigouBk%3D"
+    },
+    {
+      "eventUid": "EVT00002",
+      "type": 2,
+      "title": "基于光量子计算框架的应用与创新",
+      "desc1": "量子计算被誉为驱动下一次工业革命的颠覆性技术，其中的光量子计算因其在室温下运行、比特相干性好等独特优势，成为全球科技竞争的焦点赛道之一。光量子系统天然适合构建量子神经网络，其强大的非线性表达能力使其在作为通用函数逼近器、解决复杂机器学习任务上展现出巨大潜力。",
+      "desc2": "报名时间：2025.09.28-2026.02.28",
+      "imageUrl": "https://turingq-web.oss-cn-shanghai.aliyuncs.com/deepquantum-cover-test/new-1.jpeg",
+      "detailUrl": "http://www.ac-innovation.com/entryInformation/entryDetail?_t=KV8qovBUCLHNg8wk%2FPpTCi9Z2H2Vzw%2FqX%2BMptigouBk%3D"
+    },
+    {
+      "eventUid": "EVT00003",
+      "type": 3,
+      "title": "面向函数分类问题的量子线路搭建",
+      "desc1": "本次面向函数分类问题的量子线路搭建的竞赛题目，参赛团队使用「图灵量子」自主开发的DeepQauntum 量子人工智能平台与Quantum Optimus量擎量子计算开发平台完成赛题的搭建、训练，推理与判分流程。",
+      "desc2": "",
+      "imageUrl": "https://turingq-web.oss-cn-shanghai.aliyuncs.com/deepquantum-cover-test/his-11.jpeg",
+      "detailUrl": "https://mp.weixin.qq.com/s/N-xP2jgUMlalKHCTYpaN3g"
+    }
+    ,
+    {
+      "eventUid": "EVT00004",
+      "type": 3,
+      "title": "面向函数分类问题的量子线路搭建2",
+      "desc1": "本次面向函数分类问题的量子线路搭建的竞赛题目，参赛团队使用「图灵量子」自主开发的DeepQauntum 量子人工智能平台与Quantum Optimus量擎量子计算开发平台完成赛题的搭建、训练，推理与判分流程。",
+      "desc2": "",
+      "imageUrl": "https://turingq-web.oss-cn-shanghai.aliyuncs.com/deepquantum-cover-test/his-11.jpeg",
+      "detailUrl": "https://mp.weixin.qq.com/s/N-xP2jgUMlalKHCTYpaN3g"
+    }
+    ]
