@@ -657,7 +657,7 @@ class GateQPD(Gate):
 
     def __init__(
         self,
-        bases: nn.ModuleList[nn.ModuleList[nn.Sequential, ...]],
+        bases: nn.ModuleList,
         coeffs: list[float],
         label: int | None = None,
         name: str | None = None,
