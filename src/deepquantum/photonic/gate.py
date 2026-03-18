@@ -353,7 +353,7 @@ class BeamSplitter(DoubleGate):
 
         See https://arxiv.org/pdf/2004.11002.pdf Eq.(74) and Eq.(75)
         """
-        sqrt = torch.sqrt(torch.arange(self.cutoff, dtype=torch.double, device=matrix.device))
+        sqrt = torch.sqrt(torch.arange(self.cutoff, dtype=matrix.real.dtype, device=matrix.device))
         tran_mat = matrix.new_zeros([self.cutoff] * 4)
         tran_mat[0, 0, 0, 0] = 1.0
         # rank 3
@@ -950,7 +950,7 @@ class UAnyGate(Gate):
         See https://arxiv.org/pdf/2004.11002.pdf Eq.(71)
         """
         nt = len(self.wires)
-        sqrt = torch.sqrt(torch.arange(self.cutoff, dtype=torch.double, device=matrix.device))
+        sqrt = torch.sqrt(torch.arange(self.cutoff, dtype=matrix.real.dtype, device=matrix.device))
         tran_mat = matrix.new_zeros([self.cutoff] * 2 * nt)
         tran_mat[tuple([0] * 2 * nt)] = 1.0
         for rank in range(nt + 1, 2 * nt + 1):
