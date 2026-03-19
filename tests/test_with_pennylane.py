@@ -34,7 +34,7 @@ def test_number_operator_exp():
             cir.bs(wires=[i, i + 1], inputs=bs_angles[i])
     cir()
     exp_dq, _ = cir.photon_number_mean_var()
-    assert (exp_dq.flatten() - exp_qml.numpy()).sum() < 1e-6
+    assert (exp_dq.flatten().numpy() - exp_qml).sum() < 1e-6
 
 
 def test_quadrature_operator_exp():
@@ -67,4 +67,4 @@ def test_quadrature_operator_exp():
     cir.to(torch.double)
     cir()
     exp_dq = cir.quadrature_mean(wires=list(range(nmode)), phi=list(phi))
-    assert (exp_dq.flatten() - exp_qml.numpy()).sum() < 1e-6
+    assert (exp_dq.flatten().numpy() - exp_qml).sum() < 1e-6
