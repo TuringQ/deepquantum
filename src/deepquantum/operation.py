@@ -637,8 +637,9 @@ class GateQPD(Gate):
     r"""A base class for quasiprobability-decomposition gates.
 
     Args:
-        bases: A list of tuples describing the operations probabilistically used to
-            simulate an ideal quantum operation.
+        bases: The probabilistic basis operations for the decomposition. A nested structure where:
+            - `bases[i]` is the i-th term of the QPD (corresponding to `coeffs[i]`).
+            - `bases[i][j]` is the `nn.Sequential` operations applied to the j-th qubit.
         coeffs: The coefficients for quasiprobability representation.
         label: The label of the gate. Default: ``None``
         name: The name of the quantum operation. Default: ``None``
