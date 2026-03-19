@@ -26,7 +26,7 @@ class SingleGateQPD(GateQPD):
 
     def __init__(
         self,
-        bases: nn.ModuleList,
+        bases: 'nn.ModuleList[nn.ModuleList[nn.Sequential]]',
         coeffs: list[float],
         label: int | None = None,
         name: str | None = None,
@@ -72,7 +72,7 @@ class DoubleGateQPD(GateQPD):
 
     def __init__(
         self,
-        bases: nn.ModuleList,
+        bases: 'nn.ModuleList[nn.ModuleList[nn.Sequential]]',
         coeffs: list[float],
         label: int | None = None,
         name: str | None = None,
