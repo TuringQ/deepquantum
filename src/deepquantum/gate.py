@@ -11,6 +11,7 @@ from .distributed import dist_many_ctrl_one_targ_gate, dist_one_targ_gate, dist_
 from .operation import Gate
 from .qmath import evolve_state, inverse_permutation, is_unitary, multi_kron, svd
 from .state import DistributedQubitState
+from .utils import apply_complex_fix
 
 if TYPE_CHECKING:
     from .qpd import MoveQPD
@@ -593,8 +594,8 @@ class U3Gate(ParametricSingleGate):
     def get_matrix(self, theta: Any, phi: Any, lambd: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
         theta, phi, lambd = self.inputs_to_tensor([theta, phi, lambd])
-        cos_t = torch.cos(theta / 2)
-        sin_t = torch.sin(theta / 2)
+        cos_t = torch.cos(theta / 2) + 0j
+        sin_t = torch.sin(theta / 2) + 0j
         e_il = torch.exp(1j * lambd)
         e_ip = torch.exp(1j * phi)
         e_ipl = torch.exp(1j * (phi + lambd))
@@ -1442,7 +1443,7 @@ class Rx(ParametricSingleGate):
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
         theta = self.inputs_to_tensor(theta)
-        cos = torch.cos(theta / 2)
+        cos = torch.cos(theta / 2) + 0j
         isin = torch.sin(theta / 2) * 1j
         return torch.stack([cos, -isin, -isin, cos]).reshape(2, 2)
 
@@ -1751,12 +1752,12 @@ class ProjectionJ(ParametricSingleGate):
         """Get the local unitary matrix."""
         theta = self.inputs_to_tensor(theta)
         if self.plane in ['xy', 'yx']:
-            one = torch.ones_like(theta)
+            one = torch.ones_like(theta) + 0j
             e_m_theta = torch.exp(-1j * theta)
             return torch.stack([one, e_m_theta, one, -e_m_theta]).reshape(2, 2) / 2**0.5
         elif self.plane in ['yz', 'zy']:
-            c_p_s = torch.cos(theta / 2) + torch.sin(theta / 2)
-            c_m_s = torch.cos(theta / 2) - torch.sin(theta / 2)
+            c_p_s = torch.cos(theta / 2) + torch.sin(theta / 2) + 0j
+            c_m_s = torch.cos(theta / 2) - torch.sin(theta / 2) + 0j
             return torch.stack([c_p_s, -1j * c_m_s, c_m_s, 1j * c_p_s]).reshape(2, 2) / 2**0.5
         elif self.plane in ['zx', 'xz']:
             cos = torch.cos(theta / 2)
@@ -2365,7 +2366,7 @@ class Rxy(ParametricDoubleGate):
     def get_matrix(self, theta: Any) -> torch.Tensor:
         """Get the local unitary matrix."""
         theta = self.inputs_to_tensor(theta)
-        cos = torch.cos(theta / 2)
+        cos = torch.cos(theta / 2) + 0j
         isin = torch.sin(theta / 2) * 1j
         m1 = torch.eye(1, dtype=theta.dtype, device=theta.device)
         m2 = torch.stack([cos, -isin, -isin, cos]).reshape(2, 2)
@@ -2915,22 +2916,14 @@ class HamiltonianGate(ArbitraryGate):
         self.register_buffer('z', PauliZ().matrix)
         self.init_para([hamiltonian, t])
 
-    def to(self, arg: Any) -> 'HamiltonianGate':
-        """Set dtype or device of the ``HamiltonianGate``."""
-        if arg == torch.float:
-            self.x = self.x.to(torch.cfloat)
-            self.y = self.y.to(torch.cfloat)
-            self.z = self.z.to(torch.cfloat)
-            self.ham_tsr = self.ham_tsr.to(torch.cfloat)
-            self.t = self.t.to(torch.float)
-        elif arg == torch.double:
-            self.x = self.x.to(torch.cdouble)
-            self.y = self.y.to(torch.cdouble)
-            self.z = self.z.to(torch.cdouble)
-            self.ham_tsr = self.ham_tsr.to(torch.cdouble)
-            self.t = self.t.to(torch.double)
-        else:
-            super().to(arg)
+    def _apply(self, fn: Any) -> 'HamiltonianGate':
+        tensors_dict = {}
+        names = ['x', 'y', 'z', 'ham_tsr']
+        tensors_dict = {name: tensor for name in names if (tensor := self._buffers.pop(name)) is not None}
+        super()._apply(fn)
+        corrected = apply_complex_fix(fn, tensors_dict)
+        for key, value in corrected.items():
+            self.register_buffer(key, value)
         return self
 
     def _convert_hamiltonian(self, hamiltonian: list) -> list[list]:
@@ -3051,10 +3044,6 @@ class Reset(Gate):
         super().__init__(name='Reset', nqubit=nqubit, wires=wires, tsr_mode=tsr_mode)
         self.postselect = postselect
 
-    def to(self, arg: Any) -> 'Reset':
-        """Set dtype or device of the ``Reset``."""
-        return self
-
     def op_state(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass for state vectors."""
         if len(self.wires) == self.nqubit:
@@ -3120,10 +3109,6 @@ class Barrier(Gate):
         super().__init__(name=name, nqubit=nqubit, wires=wires)
         self.nancilla = 0
 
-    def to(self, arg: Any) -> 'Barrier':
-        """Set dtype or device of the ``Barrier``."""
-        return self
-
     def forward(self, x: Any) -> Any:
         """Perform a forward pass."""
         return x
@@ -3172,12 +3157,6 @@ class Move(DoubleGate):
         reset = Reset(nqubit=nqubit, wires=self.wires[1], postselect=postselect, tsr_mode=True)
         swap = Swap(nqubit=nqubit, wires=self.wires, tsr_mode=True)
         self.gates = nn.Sequential(reset, swap)
-
-    def to(self, arg: Any) -> 'Move':
-        """Set dtype or device of the ``Move``."""
-        for gate in self.gates:
-            gate.to(arg)
-        return self
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass."""

@@ -8,6 +8,7 @@ from torch import nn
 from .bitmath import is_power_of_2, log_base2, power_of_2
 from .communication import comm_get_rank, comm_get_world_size
 from .qmath import amplitude_encoding, inner_product_mps, is_density_matrix, qr, svd
+from .utils import apply_complex_fix
 
 
 class QubitState(nn.Module):
@@ -60,14 +61,16 @@ class QubitState(nn.Module):
                     state = state @ state.mH
                 self.register_buffer('state', state)
 
-    def to(self, arg: Any) -> 'QubitState':
-        """Set dtype or device of the ``QubitState``."""
-        if arg == torch.float:
-            self.state = self.state.to(torch.cfloat)
-        elif arg == torch.double:
-            self.state = self.state.to(torch.cdouble)
-        else:
-            self.state = self.state.to(arg)
+    def _apply(self, fn: Any) -> 'QubitState':
+        tensors_dict = {}
+        name = 'state'
+        tensor = self._buffers.pop(name)
+        if tensor is not None:
+            tensors_dict[name] = tensor
+        super()._apply(fn)
+        corrected = apply_complex_fix(fn, tensors_dict)
+        for key, value in corrected.items():
+            self.register_buffer(key, value)
         return self
 
     def forward(self) -> None:
@@ -114,16 +117,14 @@ class MatrixProductState(nn.Module):
         self.center = -1
         self.set_tensors(state)
 
-    def to(self, arg: Any) -> 'MatrixProductState':
-        """Set dtype or device of the ``MatrixProductState``."""
-        tensors = self.tensors
-        for i in range(self.nsite):
-            if arg == torch.float:
-                self._buffers[f'tensor{i}'] = tensors[i].to(torch.cfloat)
-            elif arg == torch.double:
-                self._buffers[f'tensor{i}'] = tensors[i].to(torch.cdouble)
-            else:
-                self._buffers[f'tensor{i}'] = tensors[i].to(arg)
+    def _apply(self, fn: Any) -> 'MatrixProductState':
+        tensors_dict = {
+            name: tensor for i in range(self.nsite) if (tensor := self._buffers.pop(name := f'tensor{i}')) is not None
+        }
+        super()._apply(fn)
+        corrected = apply_complex_fix(fn, tensors_dict)
+        for key, value in corrected.items():
+            self.register_buffer(key, value)
         return self
 
     @property
@@ -364,17 +365,14 @@ class DistributedQubitState(nn.Module):
         self.register_buffer('buffer', buffer)
         self.reset()
 
-    def to(self, arg: Any) -> 'DistributedQubitState':
-        """Set dtype or device of the ``DistributedQubitState``."""
-        if arg == torch.float:
-            self.amps = self.amps.to(torch.cfloat)
-            self.buffer = self.buffer.to(torch.cfloat)
-        elif arg == torch.double:
-            self.amps = self.amps.to(torch.cdouble)
-            self.buffer = self.buffer.to(torch.cdouble)
-        else:
-            self.amps = self.amps.to(arg)
-            self.buffer = self.buffer.to(arg)
+    def _apply(self, fn: Any) -> 'DistributedQubitState':
+        tensors_dict = {}
+        names = ['amps', 'buffer']
+        tensors_dict = {name: tensor for name in names if (tensor := self._buffers.pop(name)) is not None}
+        super()._apply(fn)
+        corrected = apply_complex_fix(fn, tensors_dict)
+        for key, value in corrected.items():
+            self.register_buffer(key, value)
         return self
 
     def reset(self):

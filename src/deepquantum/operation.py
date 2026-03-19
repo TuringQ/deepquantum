@@ -10,6 +10,7 @@ from torch import nn, vmap
 from .distributed import dist_many_targ_gate
 from .qmath import evolve_den_mat, evolve_state, inverse_permutation, state_to_tensors
 from .state import DistributedQubitState, MatrixProductState
+from .utils import apply_complex_fix
 
 
 class Operation(nn.Module):
@@ -152,20 +153,19 @@ class Gate(Operation):
         self.nodes = self.wires
         self.nancilla = 1
 
-    def to(self, arg: Any) -> 'Gate':
-        """Set dtype or device of the ``Gate``."""
-        if arg == torch.float:
-            if self.npara == 0:
-                self.matrix = self.matrix.to(torch.cfloat)
-            elif self.npara > 0:
-                super().to(torch.float)
-        elif arg == torch.double:
-            if self.npara == 0:
-                self.matrix = self.matrix.to(torch.cdouble)
-            elif self.npara > 0:
-                super().to(torch.double)
-        else:
-            super().to(arg)
+    def _apply(self, fn: Any) -> 'Gate':
+        if self.npara > 0:
+            super()._apply(fn)
+        elif self.npara == 0:
+            tensors_dict = {}
+            name = 'matrix'
+            tensor = self._buffers.pop(name) if name in self._buffers else None  # Consider Reset and Barrier
+            if tensor is not None:
+                tensors_dict[name] = tensor
+            super()._apply(fn)
+            corrected = apply_complex_fix(fn, tensors_dict)
+            for key, value in corrected.items():
+                self.register_buffer(key, value)
         return self
 
     def set_controls(self, controls: int | list[int]) -> None:
@@ -438,12 +438,6 @@ class Layer(Operation):
         # MBQC
         self.nodes = copy(self.wires)
 
-    def to(self, arg: Any) -> 'Layer':
-        """Set dtype or device of the ``Layer``."""
-        for gate in self.gates:
-            gate.to(arg)
-        return self
-
     def get_unitary(self) -> torch.Tensor:
         """Get the global unitary matrix."""
         u = None
@@ -658,7 +652,7 @@ class GateQPD(Gate):
 
     def __init__(
         self,
-        bases: list[tuple[nn.Sequential, ...]],
+        bases: 'nn.ModuleList[nn.ModuleList[nn.Sequential]]',
         coeffs: list[float],
         label: int | None = None,
         name: str | None = None,
@@ -676,14 +670,6 @@ class GateQPD(Gate):
         self.coeffs = coeffs
         self.label = label
         self.idx = 0
-
-    def to(self, arg: Any) -> 'GateQPD':
-        """Set dtype or device of the ``GateQPD``."""
-        for basis in self.bases:
-            for ops in basis:
-                for op in ops:
-                    op.to(arg)
-        return self
 
     def set_nqubit(self, nqubit: int) -> None:
         """Set the number of qubits of the ``GateQPD``."""

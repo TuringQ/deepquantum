@@ -11,6 +11,7 @@ from torch import nn, vmap
 from ..circuit import QubitCircuit
 from ..qmath import inverse_permutation, multi_kron
 from ..state import QubitState
+from ..utils import apply_complex_fix
 
 
 class SubGraphState(nn.Module):
@@ -38,14 +39,16 @@ class SubGraphState(nn.Module):
         self.set_state(state)
         self.measure_dict = defaultdict(list)  # record the measurement results: {node: batched_bit}
 
-    def to(self, arg: Any) -> 'SubGraphState':
-        """Set dtype or device of the ``SubGraphState``."""
-        if arg == torch.float:
-            self.state = self.state.to(torch.cfloat)
-        elif arg == torch.double:
-            self.state = self.state.to(torch.cdouble)
-        else:
-            self.state = self.state.to(arg)
+    def _apply(self, fn: Any) -> 'SubGraphState':
+        tensors_dict = {}
+        name = 'state'
+        tensor = self._buffers.pop(name)
+        if tensor is not None:
+            tensors_dict[name] = tensor
+        super()._apply(fn)
+        corrected = apply_complex_fix(fn, tensors_dict)
+        for key, value in corrected.items():
+            self.register_buffer(key, value)
         return self
 
     @property
@@ -74,7 +77,7 @@ class SubGraphState(nn.Module):
         edges = list(filter(lambda edge: edge[2]['cz'], self.edges(data=True)))
         for edge in edges:
             cir.cz(self.node2wire_dict[edge[0]], self.node2wire_dict[edge[1]])
-        cir.to(init_state.real.dtype).to(init_state.device)
+        cir.to(init_state.device, init_state.real.dtype)
         return cir()
 
     def set_graph(
@@ -228,12 +231,6 @@ class GraphState(nn.Module):
         self.subgraphs = nn.ModuleList([sgs])
         self.nodes_out_seq = None
 
-    def to(self, arg: Any) -> 'GraphState':
-        """Set dtype or device of the ``GraphState``."""
-        for sgs in self.subgraphs:
-            sgs.to(arg)
-        return self
-
     def add_subgraph(
         self,
         nodes_state: int | list[int] | None = None,
@@ -259,7 +256,7 @@ class GraphState(nn.Module):
         if index is None:
             dtype = self.subgraphs[0].state.real.dtype
             device = self.subgraphs[0].state.device
-            sgs.to(dtype).to(device)
+            sgs.to(device, dtype)
         if measure_dict is not None:
             sgs.measure_dict = measure_dict
         if index is None:

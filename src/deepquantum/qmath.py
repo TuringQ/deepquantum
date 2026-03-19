@@ -739,7 +739,7 @@ def get_prob_mps(mps_lst: list[torch.Tensor], wire: int) -> torch.Tensor:
             Contracted tensor.
         """
         if not tensors:  # Handle empty tensor list case
-            return torch.tensor(1).reshape(1, 1, 1, 1).to(mps_lst[0].dtype).to(mps_lst[0].device)
+            return torch.tensor(1).reshape(1, 1, 1, 1).to(mps_lst[0].device, mps_lst[0].dtype)
 
         # Contract first tensor with its conjugate
         contracted = torch.tensordot(tensors[0].conj(), tensors[0], dims=([1], [1]))
