@@ -542,7 +542,8 @@ def sample_homodyne_fock(
     xs = torch.linspace(-x_range, x_range, nbin, dtype=state.real.dtype, device=state.device)  # (nbin)
     h_vals = torch.special.hermite_polynomial_h(coef**0.5 * xs, orders)  # （cutoff, nbin)
     # H_n / \sqrt{2^n * n!}
-    h_vals = h_vals / torch.sqrt(2**orders * torch.exp(torch.lgamma(orders.double() + 1))).to(orders.dtype)
+    factorial = torch.exp(torch.lgamma(orders.cpu().double() + 1)).to(orders.device, orders.dtype)
+    h_vals = h_vals / torch.sqrt(2**orders * factorial)
     h_mat = h_vals.reshape(1, cutoff, nbin) * h_vals.reshape(cutoff, 1, nbin)  # (cutoff, cutoff, nbin)
     h_terms = reduced_dm.unsqueeze(-1) * h_mat  # (batch, cutoff, cutoff, nbin)
     probs = (h_terms.sum(dim=[-3, -2]) * torch.exp(-coef * xs**2)).real  # (batch, nbin)

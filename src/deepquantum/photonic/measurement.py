@@ -214,8 +214,9 @@ class Homodyne(Generaldyne):
         vac_state[0] = 1
         inf_sqz_vac = torch.zeros_like(vac_state)  # (cutoff)
         orders = torch.arange(np.ceil(self.cutoff / 2), dtype=x.real.dtype, device=x.device)
-        fac_2n = torch.tensor(factorial(2 * orders), dtype=orders.dtype, device=orders.device)
-        fac_n = torch.tensor(factorial(orders), dtype=orders.dtype, device=orders.device)
+        orders_cpu = orders.cpu()
+        fac_2n = torch.tensor(factorial(2 * orders_cpu), dtype=orders.dtype, device=orders.device)
+        fac_n = torch.tensor(factorial(orders_cpu), dtype=orders.dtype, device=orders.device)
         inf_sqz_vac[::2] = (-0.5) ** orders * fac_2n**0.5 / fac_n  # unnormalized
         alpha = self.samples * dqp.kappa / dqp.hbar**0.5
         d = Displacement(cutoff=self.cutoff)
