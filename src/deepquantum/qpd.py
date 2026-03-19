@@ -26,7 +26,7 @@ class SingleGateQPD(GateQPD):
 
     def __init__(
         self,
-        bases: list[tuple[nn.Sequential, ...]],
+        bases: 'nn.ModuleList[nn.ModuleList[nn.Sequential]]',
         coeffs: list[float],
         label: int | None = None,
         name: str | None = None,
@@ -72,7 +72,7 @@ class DoubleGateQPD(GateQPD):
 
     def __init__(
         self,
-        bases: list[tuple[nn.Sequential, ...]],
+        bases: 'nn.ModuleList[nn.ModuleList[nn.Sequential]]',
         coeffs: list[float],
         label: int | None = None,
         name: str | None = None,
@@ -99,11 +99,11 @@ class DoubleGateQPD(GateQPD):
 
     def decompose(self) -> tuple[SingleGateQPD, SingleGateQPD]:
         """Decompose the gate into two single-qubit QPD gates."""
-        bases1 = []
-        bases2 = []
+        bases1 = nn.ModuleList([])
+        bases2 = nn.ModuleList([])
         for basis in self.bases:
-            bases1.append(tuple([basis[0]]))
-            bases2.append(tuple([basis[1]]))
+            bases1.append(nn.ModuleList([basis[0]]))
+            bases2.append(nn.ModuleList([basis[1]]))
         name = self.name + f'_label{self.label}_'
         gate1 = SingleGateQPD(
             bases1, self.coeffs, self.label, name + '1', self.nqubit, [self.wires[0]], self.den_mat, self.tsr_mode
@@ -157,16 +157,18 @@ class MoveQPD(DoubleGateQPD):
         prep_iplus = nn.Sequential(h2, s2)
         prep_iminus = nn.Sequential(x2, h2, s2)
 
-        bases = [
-            (measure_i, prep_0),
-            (measure_i, prep_1),
-            (measure_x, prep_plus),
-            (measure_x, prep_minus),
-            (measure_y, prep_iplus),
-            (measure_y, prep_iminus),
-            (measure_z, prep_0),
-            (measure_z, prep_1),
-        ]
+        bases = nn.ModuleList(
+            [
+                nn.ModuleList([measure_i, prep_0]),
+                nn.ModuleList([measure_i, prep_1]),
+                nn.ModuleList([measure_x, prep_plus]),
+                nn.ModuleList([measure_x, prep_minus]),
+                nn.ModuleList([measure_y, prep_iplus]),
+                nn.ModuleList([measure_y, prep_iminus]),
+                nn.ModuleList([measure_z, prep_0]),
+                nn.ModuleList([measure_z, prep_1]),
+            ]
+        )
         coeffs = [0.5, 0.5, 0.5, -0.5, 0.5, -0.5, 0.5, -0.5]
         super().__init__(
             bases=bases,

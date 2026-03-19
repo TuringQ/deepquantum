@@ -3,6 +3,8 @@
 __version__ = '4.4.0'
 
 
+import torch
+
 from . import (
     adjoint,
     ansatz,
@@ -109,3 +111,8 @@ from .photonic import (
 from .qasm3 import cir_to_qasm3, qasm3_to_cir
 from .qmath import amplitude_encoding, expectation, measure, meyer_wallach_measure, multi_kron, partial_trace
 from .state import DistributedQubitState, MatrixProductState, QubitState
+
+dtype_map = {
+    torch.float: torch.cfloat,
+    torch.double: torch.cdouble,
+}

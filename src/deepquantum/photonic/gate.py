@@ -10,6 +10,7 @@ from torch import nn
 import deepquantum.photonic as dqp
 
 from ..qmath import is_unitary
+from ..utils import apply_complex_fix
 from .operation import Delay, Gate
 from .qmath import ladder_ops
 
@@ -335,8 +336,8 @@ class BeamSplitter(DoubleGate):
         """Get the local unitary matrix acting on creation operators."""
         # correspond to: U a^+ U^+ = u^T @ a^+
         theta, phi = self.inputs_to_tensor([theta, phi])
-        cos = torch.cos(theta)
-        sin = torch.sin(theta)
+        cos = torch.cos(theta) + 0j
+        sin = torch.sin(theta) + 0j
         e_m_ip = torch.exp(-1j * phi)
         e_ip = torch.exp(1j * phi)
         return torch.stack([cos, -e_m_ip * sin, e_ip * sin, cos]).reshape(2, 2)
@@ -352,7 +353,7 @@ class BeamSplitter(DoubleGate):
 
         See https://arxiv.org/pdf/2004.11002.pdf Eq.(74) and Eq.(75)
         """
-        sqrt = torch.sqrt(torch.arange(self.cutoff, dtype=torch.double, device=matrix.device))
+        sqrt = torch.sqrt(torch.arange(self.cutoff, dtype=matrix.real.dtype, device=matrix.device))
         tran_mat = matrix.new_zeros([self.cutoff] * 4)
         tran_mat[0, 0, 0, 0] = 1.0
         # rank 3
@@ -510,8 +511,8 @@ class MZI(BeamSplitter):
         """Get the local unitary matrix acting on creation operators."""
         # correspond to: U a^+ U^+ = u^T @ a^+
         theta, phi = self.inputs_to_tensor([theta, phi])
-        cos = torch.cos(theta / 2)
-        sin = torch.sin(theta / 2)
+        cos = torch.cos(theta / 2) + 0j
+        sin = torch.sin(theta / 2) + 0j
         e_it = torch.exp(1j * theta / 2)
         e_ip = torch.exp(1j * phi)
         mat = 1j * e_it * torch.stack([e_ip * sin, cos, e_ip * cos, -sin]).reshape(2, 2)
@@ -607,7 +608,7 @@ class BeamSplitterTheta(BeamSplitter):
         noise = self.noise
         self.noise = False
         theta, phi = self.inputs_to_tensor([inputs, torch.pi / 2])
-        phi = phi.to(theta.dtype).to(theta.device)
+        phi = phi.to(theta.device, theta.dtype)
         self.noise = noise
         if self.requires_grad:
             self.theta = nn.Parameter(theta)
@@ -705,7 +706,7 @@ class BeamSplitterPhi(BeamSplitter):
         noise = self.noise
         self.noise = False
         theta, phi = self.inputs_to_tensor([torch.pi / 4, inputs])
-        theta = theta.to(phi.dtype).to(phi.device)
+        theta = theta.to(phi.device, phi.dtype)
         self.noise = noise
         if self.requires_grad:
             self.phi = nn.Parameter(phi)
@@ -925,18 +926,22 @@ class UAnyGate(Gate):
         self.register_buffer('matrix', unitary)
         self.register_buffer('matrix_state', None)
 
-    def to(self, arg: Any) -> 'UAnyGate':
-        """Set dtype or device of the ``UAnyGate``."""
-        if arg == torch.float:
-            self.matrix = self.matrix.to(torch.cfloat)
-            if self.matrix_state is not None:
-                self.matrix_state = self.matrix_state.to(torch.cfloat)
-        elif arg == torch.double:
-            self.matrix = self.matrix.to(torch.cdouble)
-            if self.matrix_state is not None:
-                self.matrix_state = self.matrix_state.to(torch.cdouble)
-        else:
-            super().to(arg)
+    def _apply(self, fn: Any) -> 'UAnyGate':
+        tensors_dict = {}
+        none_dict = {}
+        names = ['matrix', 'matrix_state']
+        for name in names:
+            tensor = self._buffers.pop(name)
+            if tensor is None:
+                none_dict[name] = tensor
+            else:
+                tensors_dict[name] = tensor
+        super()._apply(fn)
+        corrected = apply_complex_fix(fn, tensors_dict)
+        for key, value in corrected.items():
+            self.register_buffer(key, value)
+        for key, value in none_dict.items():
+            self.register_buffer(key, value)
         return self
 
     def get_matrix_state(self, matrix: torch.Tensor) -> torch.Tensor:
@@ -945,7 +950,7 @@ class UAnyGate(Gate):
         See https://arxiv.org/pdf/2004.11002.pdf Eq.(71)
         """
         nt = len(self.wires)
-        sqrt = torch.sqrt(torch.arange(self.cutoff, dtype=torch.double, device=matrix.device))
+        sqrt = torch.sqrt(torch.arange(self.cutoff, dtype=matrix.real.dtype, device=matrix.device))
         tran_mat = matrix.new_zeros([self.cutoff] * 2 * nt)
         tran_mat[tuple([0] * 2 * nt)] = 1.0
         for rank in range(nt + 1, 2 * nt + 1):
@@ -1081,8 +1086,8 @@ class Squeezing(SingleGate):
         """Get the local symplectic matrix acting on annihilation and creation operators."""
         # correspond to: U^+ (a a^+) U = s @ (a a^+)
         r, theta = self.inputs_to_tensor([r, theta])
-        ch = torch.cosh(r)
-        sh = torch.sinh(r)
+        ch = torch.cosh(r) + 0j
+        sh = torch.sinh(r) + 0j
         e_it = torch.exp(1j * theta)
         e_m_it = torch.exp(-1j * theta)
         return torch.stack([ch, -e_it * sh, -e_m_it * sh, ch]).reshape(2, 2)
@@ -1570,7 +1575,7 @@ class DisplacementPosition(Displacement):
         noise = self.noise
         self.noise = False
         r, theta = self.inputs_to_tensor([inputs, 0])
-        theta = theta.to(r.dtype).to(r.device)
+        theta = theta.to(r.device, r.dtype)
         self.noise = noise
         if self.requires_grad:
             self.r = nn.Parameter(r)
@@ -1655,7 +1660,7 @@ class DisplacementMomentum(Displacement):
         noise = self.noise
         self.noise = False
         r, theta = self.inputs_to_tensor([inputs, torch.pi / 2])
-        theta = theta.to(r.dtype).to(r.device)
+        theta = theta.to(r.device, r.dtype)
         self.noise = noise
         if self.requires_grad:
             self.r = nn.Parameter(r)
@@ -2141,8 +2146,8 @@ class ControlledZ(DoubleGate):
         """Get the local symplectic matrix acting on annihilation and creation operators."""
         # correspond to: U^+ (a a^+) U = s @ (a a^+)
         s = self.inputs_to_tensor(s).reshape(-1)
-        one = s.new_ones(1)
-        zero = s.new_zeros(1)
+        one = s.new_ones(1) + 0j
+        zero = s.new_zeros(1) + 0j
         x = 1j * s / 2
         mat = torch.stack([one, x, zero, x, x, one, x, zero, zero, -x, one, -x, -x, zero, -x, one]).reshape(4, 4)
         return mat

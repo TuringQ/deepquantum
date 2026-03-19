@@ -135,7 +135,9 @@ def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
 
 def product_factorial(state: torch.Tensor) -> torch.Tensor:
     """Get the product of the factorial from the Fock state, i.e., :math:`|s_1,s_2,...s_n> -> s_1!s_2!...s_n!`."""
-    return torch.exp(torch.lgamma(state.double() + 1).sum(-1, keepdim=True))  # nature log gamma function
+    state = state + 0.0
+    # nature log gamma function
+    return torch.exp(torch.lgamma(state.cpu().double() + 1).sum(-1, keepdim=True)).to(state.device, state.dtype)
 
 
 def fock_combinations(nmode: int, nphoton: int, cutoff: int | None = None, nancilla: int = 0) -> list:
@@ -313,7 +315,7 @@ def photon_number_mean_var_fock(
     """Get the expectation value and variance of the photon number for Fock state tensors."""
     if den_mat:
         rho = state.reshape(-1, cutoff**nmode, cutoff**nmode)
-        prob = torch.diagonal(rho, dim1=1, dim2=2).reshape([-1] + [cutoff] * nmode)
+        prob = torch.diagonal(rho, dim1=1, dim2=2).reshape([-1] + [cutoff] * nmode).real
     else:
         if state.ndim == nmode:
             state = state.unsqueeze(0)
@@ -328,7 +330,7 @@ def photon_number_mean_var_fock(
         var = num2_exp - num_exp**2
         num_exp_list.append(num_exp)
         var_list.append(var)
-    return torch.stack(num_exp_list).real, torch.stack(var_list).real
+    return torch.stack(num_exp_list), torch.stack(var_list)
 
 
 def quadrature_mean_fock(
@@ -540,7 +542,8 @@ def sample_homodyne_fock(
     xs = torch.linspace(-x_range, x_range, nbin, dtype=state.real.dtype, device=state.device)  # (nbin)
     h_vals = torch.special.hermite_polynomial_h(coef**0.5 * xs, orders)  # （cutoff, nbin)
     # H_n / \sqrt{2^n * n!}
-    h_vals = h_vals / torch.sqrt(2**orders * torch.exp(torch.lgamma(orders.double() + 1))).to(orders.dtype)
+    factorial = torch.exp(torch.lgamma(orders.cpu().double() + 1)).to(orders.device, orders.dtype)
+    h_vals = h_vals / torch.sqrt(2**orders * factorial)
     h_mat = h_vals.reshape(1, cutoff, nbin) * h_vals.reshape(cutoff, 1, nbin)  # (cutoff, cutoff, nbin)
     h_terms = reduced_dm.unsqueeze(-1) * h_mat  # (batch, cutoff, cutoff, nbin)
     probs = (h_terms.sum(dim=[-3, -2]) * torch.exp(-coef * xs**2)).real  # (batch, nbin)
