@@ -6,6 +6,8 @@ from collections import Counter
 from collections.abc import Generator
 
 import matplotlib.pyplot as plt
+import networkx as nx
+import numpy as np
 import torch
 from matplotlib import cm
 from torch import vmap
@@ -807,5 +809,43 @@ def plot_wigner(wigner: torch.Tensor, xvec: torch.Tensor, pvec: torch.Tensor, k:
     ax2.set_xlabel('Quadrature x')
     ax2.set_ylabel('Quadrature p')
     ax2.set_zlabel('W(x, p)')
+    plt.tight_layout()
+    plt.show()
+
+
+def visualize_pure_gaussian_graph(cov, node_size=2000, font_size=15, threshold=1e-3):
+    """Visualize the graph state for gaussian pure state
+
+    See https://arxiv.org/pdf/1007.0725 Eq.(2.25) and Eq.(2.26)
+    """
+    if not isinstance(cov, torch.Tensor):
+        cov = torch.tensor(cov)
+    nmode = cov.shape[-1] // 2
+    # u for squeezing of qudrature p and v for entanglements
+    u = 0.5 * torch.linalg.inv(cov[:nmode, :nmode])
+    v = 2 * u @ cov[:nmode, nmode:]
+    z = v + 1j * u
+    n = z.shape[0]
+    g = nx.Graph()
+    g.add_nodes_from(range(n))
+    edge_labels = {}
+    node_labels = {}
+    for i in range(n):
+        val_diag = z[i, i]
+        node_labels[i] = f'{i}\n({val_diag.real:.2f}+{val_diag.imag:.2f}i)'
+        for j in range(i + 1, n):
+            val_edge = z[i, j]
+            if np.abs(val_edge) > threshold:
+                g.add_edge(i, j, weight=np.abs(val_edge))
+                edge_labels[(i, j)] = f'{val_edge.real:.2f}+{val_edge.imag:.2f}i'
+    pos = nx.circular_layout(g)
+    plt.figure(figsize=(10, 8))
+    nx.draw_networkx_nodes(g, pos, node_size=node_size, node_color='lightblue', edgecolors='red')
+    nx.draw_networkx_labels(g, pos, labels=node_labels, font_size=font_size - 3, font_weight='bold')
+    weights = [g[u][v]['weight'] * 5 for u, v in g.edges()]
+    nx.draw_networkx_edges(g, pos, width=weights, edge_color='gray', alpha=0.7)
+    nx.draw_networkx_edge_labels(g, pos, edge_labels=edge_labels, font_size=font_size, label_pos=0.3)
+    plt.title('Graphical Representation of Gaussian Pure State', fontsize=font_size)
+    plt.axis('off')
     plt.tight_layout()
     plt.show()

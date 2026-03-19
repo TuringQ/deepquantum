@@ -12,7 +12,7 @@ import deepquantum.photonic as dqp
 
 from ..communication import comm_get_rank, comm_get_world_size
 from ..qmath import is_power, list_to_decimal, multi_kron
-from .qmath import cv_to_wigner, dirac_ket, fock_to_wigner, xpxp_to_xxpp, xxpp_to_xpxp
+from .qmath import cv_to_wigner, dirac_ket, fock_to_wigner, visualize_pure_gaussian_graph, xpxp_to_xxpp, xxpp_to_xpxp
 
 
 class FockState(nn.Module):
@@ -256,6 +256,11 @@ class GaussianState(nn.Module):
             normalize (bool, optional): Whether to normalize the wigner function. Default: ``True``
         """
         return cv_to_wigner([self.cov, self.mean], wire, xrange, prange, npoints, plot, k, normalize)
+
+    def visualize_gaussian_graph(self, k=0, node_size=2000, font_size=15, threshold=1e-3):
+        assert self.is_pure, 'The visualization is valid for Gaussian pure state'
+        cov = 2 * dqp.kappa**2 / dqp.hbar * self.cov[k]
+        visualize_pure_gaussian_graph(cov, node_size, font_size, threshold)
 
 
 class BosonicState(nn.Module):
