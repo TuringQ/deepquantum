@@ -13,7 +13,9 @@ repos:
     hooks:
       - id: ruff-check
         args: ['--fix']
+        exclude: ^(examples/demos|tutorials)/.*\.py$
       - id: ruff-format
+        exclude: ^(examples/demos|tutorials)/.*\.py$
 
   - repo: https://github.com/mwouts/jupytext
     rev: v1.19.1
