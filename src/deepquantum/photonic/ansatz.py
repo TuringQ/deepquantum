@@ -167,6 +167,7 @@ class GraphGBS(GaussianBosonSampling):
             mean_photon_num = nmode
         unitary, lambd = takagi(adj_mat)
         c = self.norm_factor_c(mean_photon_num, lambd)[0]
+        self.c = c
         lambda_c = lambd * c
         squeezing = np.arctanh(lambda_c)
         super().__init__(
