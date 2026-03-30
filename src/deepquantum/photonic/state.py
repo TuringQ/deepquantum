@@ -12,7 +12,8 @@ import deepquantum.photonic as dqp
 
 from ..communication import comm_get_rank, comm_get_world_size
 from ..qmath import is_power, list_to_decimal, multi_kron
-from .qmath import cv_to_wigner, dirac_ket, fock_to_wigner, visualize_pure_gaussian_graph, xpxp_to_xxpp, xxpp_to_xpxp
+from .draw import visualize_pure_gaussian_graph
+from .qmath import cv_to_wigner, dirac_ket, fock_to_wigner, xpxp_to_xxpp, xxpp_to_xpxp
 
 
 class FockState(nn.Module):
