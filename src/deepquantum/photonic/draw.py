@@ -2,6 +2,7 @@
 
 from collections import defaultdict
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
@@ -832,39 +833,102 @@ def plot_wigner(wigner: torch.Tensor, xvec: torch.Tensor, pvec: torch.Tensor, k:
     plt.show()
 
 
-def visualize_pure_gaussian_graph(cov, node_size=2000, font_size=15, threshold=1e-3):
-    """Visualize the graph state for gaussian pure state
+def visualize_pure_gaussian_graph(cov, threshold=1e-3, layout='spring'):
+    """Advanced Visualization for large-scale Gaussian pure state graphs."""
+    cov = cov.detach().cpu().numpy() if hasattr(cov, 'detach') else np.array(cov, dtype=np.float64)
 
-    See https://arxiv.org/pdf/1007.0725 Eq.(2.25) and Eq.(2.26)
-    """
-    if not isinstance(cov, torch.Tensor):
-        cov = torch.tensor(cov)
     nmode = cov.shape[-1] // 2
-    # u for squeezing of qudrature p and v for entanglements
-    u = 0.5 * torch.linalg.inv(cov[:nmode, :nmode])
-    v = 2 * u @ cov[:nmode, nmode:]
+
+    cov_qq = cov[:nmode, :nmode]
+    cov_qp = cov[:nmode, nmode:]
+
+    u = 0.5 * np.linalg.inv(cov_qq)
+    v = 2 * (u @ cov_qp)
     z = v + 1j * u
-    n = z.shape[0]
+
     g = nx.Graph()
-    g.add_nodes_from(range(n))
-    edge_labels = {}
+    g.add_nodes_from(range(nmode))
+
     node_labels = {}
-    for i in range(n):
+    node_squeezing = []
+    for i in range(nmode):
         val_diag = z[i, i]
-        node_labels[i] = f'{i}\n({val_diag.real:.2f}+{val_diag.imag:.2f}i)'
-        for j in range(i + 1, n):
-            val_edge = z[i, j]
-            if np.abs(val_edge) > threshold:
-                g.add_edge(i, j, weight=np.abs(val_edge))
-                edge_labels[(i, j)] = f'{val_edge.real:.2f}+{val_edge.imag:.2f}i'
-    pos = nx.circular_layout(g)
-    plt.figure(figsize=(10, 8))
-    nx.draw_networkx_nodes(g, pos, node_size=node_size, node_color='lightblue', edgecolors='red')
-    nx.draw_networkx_labels(g, pos, labels=node_labels, font_size=font_size - 3, font_weight='bold')
-    weights = [g[u][v]['weight'] * 5 for u, v in g.edges()]
-    nx.draw_networkx_edges(g, pos, width=weights, edge_color='gray', alpha=0.7)
-    nx.draw_networkx_edge_labels(g, pos, edge_labels=edge_labels, font_size=font_size, label_pos=0.3)
-    plt.title('Graphical Representation of Gaussian Pure State', fontsize=font_size)
+        node_labels[i] = f'{val_diag.real:.2f}+{val_diag.imag:.2f}i'
+        node_squeezing.append(z[i, i].imag)
+        for j in range(i + 1, nmode):
+            weight = abs(z[i, j])
+            if np.abs(weight) > threshold:
+                g.add_edge(i, j, weight=weight, abs_weight=np.abs(weight))
+
+    if layout == 'circular':
+        pos = nx.circular_layout(g)
+    elif layout == 'kamada':
+        pos = nx.kamada_kawai_layout(g, weight='abs_weight')
+    else:
+        pos = nx.spring_layout(g, seed=42, weight='abs_weight')
+
+    fig, ax = plt.subplots(figsize=(12, 10))
+    cmap_nodes = plt.cm.winter
+    vmin_n, vmax_n = min(node_squeezing), max(node_squeezing)
+    nx.draw_networkx_nodes(
+        g,
+        pos,
+        ax=ax,
+        node_size=3000 / np.sqrt(nmode),
+        node_color=node_squeezing,
+        cmap=cmap_nodes,
+        vmin=vmin_n,
+        vmax=vmax_n,
+        edgecolors='white',
+    )
+
+    label_offset = 0.05 - nmode / 2000
+    pos_labels = {node: (x, y - label_offset) for node, (x, y) in pos.items()}
+    nx.draw_networkx_labels(g, pos_labels, labels=node_labels, font_size=8, font_weight='bold')
+
+    cbar_n = plt.colorbar(
+        mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin_n, vmax=vmax_n), cmap=cmap_nodes),
+        ax=ax,
+        shrink=0.6,
+        pad=0.02,
+        location='left',
+    )
+    cbar_n.set_label(r'p-Squeezing Level - Im($Z_{ii}$) (Smaller is highly squeezed)', fontsize=12)
+
+    if g.edges():
+        edges = g.edges(data=True)
+        edge_colors = [d['weight'] for u, v, d in edges]
+        edge_widths = [d['abs_weight'] * 5 for u, v, d in edges]
+
+        cmap_edges = plt.cm.Oranges
+        vmax_e = max(np.abs(edge_colors)) if edge_colors else 1.0
+        vmin_e = 0
+
+        nx.draw_networkx_edges(
+            g,
+            pos,
+            ax=ax,
+            width=edge_widths,
+            edge_color=edge_colors,
+            edge_cmap=cmap_edges,
+            edge_vmin=vmin_e,
+            edge_vmax=vmax_e,
+            alpha=0.8,
+        )
+
+        cbar_e = plt.colorbar(
+            mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin_e, vmax=vmax_e), cmap=cmap_edges),
+            ax=ax,
+            shrink=0.6,
+            pad=0.02,
+            location='right',
+        )
+        cbar_e.set_label(r'Entanglement Strength - abs($Z_{ij}$)', fontsize=12)
+
+    if nmode <= 20:
+        nx.draw_networkx_labels(g, pos, font_size=10, font_color='white', font_weight='bold')
+
+    plt.title(f'Graphical Representation of Gaussian Pure State ({nmode} Modes)', fontsize=16)
     plt.axis('off')
     plt.tight_layout()
     plt.show()

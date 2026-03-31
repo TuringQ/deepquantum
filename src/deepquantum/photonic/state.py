@@ -258,10 +258,10 @@ class GaussianState(nn.Module):
         """
         return cv_to_wigner([self.cov, self.mean], wire, xrange, prange, npoints, plot, k, normalize)
 
-    def visualize_gaussian_graph(self, k=0, node_size=2000, font_size=15, threshold=1e-3):
+    def visualize_gaussian_graph(self, k=0, threshold=1e-3, layout='spring'):
         assert self.is_pure, 'The visualization is valid for Gaussian pure state'
         cov = 2 * dqp.kappa**2 / dqp.hbar * self.cov[k]
-        visualize_pure_gaussian_graph(cov, node_size, font_size, threshold)
+        visualize_pure_gaussian_graph(cov, threshold, layout)
 
 
 class BosonicState(nn.Module):
