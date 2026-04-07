@@ -97,6 +97,8 @@ select = ['E', 'W', 'F', 'I', 'B', 'UP', 'N', 'A', 'SIM']
 [tool.ruff.lint.isort]
 order-by-type = false
 case-sensitive = true
+known-first-party = []
+known-third-party = ['deepquantum']
 
 [tool.uv.sources]
 strawberryfields = { git = 'https://github.com/XanaduAI/strawberryfields.git', branch = 'master' }
