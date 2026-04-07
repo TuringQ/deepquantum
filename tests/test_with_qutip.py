@@ -1,8 +1,7 @@
+import deepquantum as dq
 import numpy as np
 import qutip as qp
 import torch
-
-import deepquantum as dq
 
 
 def test_with_qutip_fock_wigner():

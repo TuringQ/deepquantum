@@ -1,7 +1,6 @@
+import deepquantum as dq
 import numpy as np
 import torch
-
-import deepquantum as dq
 
 
 def test_mapper():

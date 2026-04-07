@@ -1,6 +1,5 @@
-import torch
-
 import deepquantum as dq
+import torch
 
 
 def test_qubit_mps():
