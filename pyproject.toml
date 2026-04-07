@@ -89,16 +89,22 @@ line-length = 120
 quote-style = 'single'
 
 [tool.ruff.lint]
-select = ['E', 'W', 'F', 'I', 'B', 'UP', 'N', 'A', 'SIM']
+select = ['E', 'W', 'F', 'I', 'B', 'UP', 'N', 'A', 'SIM', 'D']
+ignore = ['D102', 'D105', 'D107', 'D415']
 
 [tool.ruff.lint.extend-per-file-ignores]
 '__init__.py' = ['F401']
+'docs/**' = ['D']
+'examples/**' = ['D']
+'tests/**' = ['D']
+'tutorials/**' = ['E402', 'D']
 
 [tool.ruff.lint.isort]
 order-by-type = false
 case-sensitive = true
-known-first-party = []
-known-third-party = ['deepquantum']
+
+[tool.ruff.lint.pydocstyle]
+convention = 'google'
 
 [tool.uv.sources]
 strawberryfields = { git = 'https://github.com/XanaduAI/strawberryfields.git', branch = 'master' }

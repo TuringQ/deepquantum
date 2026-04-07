@@ -1,5 +1,6 @@
-import deepquantum as dq
 import torch
+
+import deepquantum as dq
 
 
 def test_2_mode_squeezing_gate():

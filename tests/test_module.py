@@ -1,6 +1,7 @@
-import deepquantum as dq
 import torch
 from torch import nn
+
+import deepquantum as dq
 
 
 def test_module_to_func():

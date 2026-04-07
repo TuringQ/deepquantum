@@ -1,7 +1,8 @@
 import random
 
-import deepquantum as dq
 import torch
+
+import deepquantum as dq
 from deepquantum.qmath import get_prob_mps, slice_state_vector
 
 

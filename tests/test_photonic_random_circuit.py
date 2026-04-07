@@ -1,5 +1,6 @@
-import deepquantum as dq
 import numpy as np
+
+import deepquantum as dq
 
 
 def test_random_circuit_two_approaches():

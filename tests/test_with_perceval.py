@@ -1,9 +1,10 @@
-import deepquantum as dq
 import numpy as np
 import perceval as pcvl
 import perceval.components as comp
 import torch
 from perceval.components import BS
+
+import deepquantum as dq
 
 
 def test_random_circuit():

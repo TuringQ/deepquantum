@@ -1,7 +1,8 @@
-import deepquantum as dq
 import numpy as np
 import strawberryfields as sf
 import torch
+
+import deepquantum as dq
 from deepquantum.photonic import xxpp_to_xpxp
 
 

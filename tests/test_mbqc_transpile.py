@@ -1,7 +1,8 @@
 import random
 
-import deepquantum as dq
 import torch
+
+import deepquantum as dq
 
 
 def test_random_circuit_transpilation():

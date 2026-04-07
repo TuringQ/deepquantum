@@ -1,5 +1,6 @@
-import deepquantum as dq
 import torch
+
+import deepquantum as dq
 
 
 def test_forward_unitary():
