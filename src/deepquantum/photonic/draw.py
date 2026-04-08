@@ -833,102 +833,188 @@ def plot_wigner(wigner: torch.Tensor, xvec: torch.Tensor, pvec: torch.Tensor, k:
     plt.show()
 
 
-def visualize_pure_gaussian_graph(cov, threshold=1e-3, layout='spring'):
-    """Advanced Visualization for large-scale Gaussian pure state graphs."""
-    cov = cov.detach().cpu().numpy() if hasattr(cov, 'detach') else np.array(cov, dtype=np.float64)
+class VisualizeGaussianGraph:
+    """Visualize the graph state for a Gaussian pure state.
 
-    nmode = cov.shape[-1] // 2
+    Args:
+        cov (torch.Tensor): The covariance matrix of the Gaussian state.
+        threshold (float): Cutoff threshold for ignoring extremely small numerical edge weights
+            in the visualization.
+        layout (str): The graph layout algorithm to use. Options are 'kamada', 'spring',
+            or 'circular'. Default: ``'circular'``
+        mode (str): 'simplified' mode for the core structure (node squeezing Im(Z_jj) and edge entanglement Re(Z_jk)).
+            'full' mode for all structure including local shear Re(Z_jj) and correlated noise Im(Z_jk).
+            Default: ``'simplified'``
+    """
 
-    cov_qq = cov[:nmode, :nmode]
-    cov_qp = cov[:nmode, nmode:]
+    def __init__(
+        self, cov: torch.Tensor, threshold: float = 1e-3, layout: str = 'circular', mode: str = 'simplified'
+    ) -> None:
 
-    u = 0.5 * np.linalg.inv(cov_qq)
-    v = 2 * (u @ cov_qp)
-    z = v + 1j * u
+        cov = cov.detach().cpu().numpy() if hasattr(cov, 'detach') else np.array(cov, dtype=np.float64)
+        nmode = cov.shape[-1] // 2
+        cov_qq = cov[:nmode, :nmode]
+        cov_qp = cov[:nmode, nmode:]
+        u = 0.5 * np.linalg.inv(cov_qq)
+        v = 2 * (u @ cov_qp)
+        z = v + 1j * u
 
-    g = nx.Graph()
-    g.add_nodes_from(range(nmode))
+        self.nmode = nmode
+        self.z = z
+        self.cov = cov
+        self.threshold = threshold
+        self.layout = layout
+        self.mode = mode
 
-    node_labels = {}
-    node_squeezing = []
-    for i in range(nmode):
-        val_diag = z[i, i]
-        node_labels[i] = f'{val_diag.real:.2f}+{val_diag.imag:.2f}i'
-        node_squeezing.append(z[i, i].imag)
-        for j in range(i + 1, nmode):
-            weight = abs(z[i, j])
-            if np.abs(weight) > threshold:
-                g.add_edge(i, j, weight=weight, abs_weight=np.abs(weight))
-
-    if layout == 'circular':
-        pos = nx.circular_layout(g)
-    elif layout == 'kamada':
-        pos = nx.kamada_kawai_layout(g, weight='abs_weight')
-    else:
-        pos = nx.spring_layout(g, seed=42, weight='abs_weight')
-
-    fig, ax = plt.subplots(figsize=(12, 10))
-    cmap_nodes = plt.cm.winter
-    vmin_n, vmax_n = min(node_squeezing), max(node_squeezing)
-    nx.draw_networkx_nodes(
-        g,
-        pos,
-        ax=ax,
-        node_size=3000 / np.sqrt(nmode),
-        node_color=node_squeezing,
-        cmap=cmap_nodes,
-        vmin=vmin_n,
-        vmax=vmax_n,
-        edgecolors='white',
-    )
-
-    label_offset = 0.05 - nmode / 2000
-    pos_labels = {node: (x, y - label_offset) for node, (x, y) in pos.items()}
-    nx.draw_networkx_labels(g, pos_labels, labels=node_labels, font_size=8, font_weight='bold')
-
-    cbar_n = plt.colorbar(
-        mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin_n, vmax=vmax_n), cmap=cmap_nodes),
-        ax=ax,
-        shrink=0.6,
-        pad=0.02,
-        location='left',
-    )
-    cbar_n.set_label(r'p-Squeezing Level - Im($Z_{ii}$) (Smaller is highly squeezed)', fontsize=12)
-
-    if g.edges():
-        edges = g.edges(data=True)
-        edge_colors = [d['weight'] for u, v, d in edges]
-        edge_widths = [d['abs_weight'] * 5 for u, v, d in edges]
-
-        cmap_edges = plt.cm.Oranges
-        vmax_e = max(np.abs(edge_colors)) if edge_colors else 1.0
-        vmin_e = 0
-
-        nx.draw_networkx_edges(
-            g,
-            pos,
+    def draw(self, z=None, threshold=None, layout=None, mode=None):
+        if threshold is None:
+            threshold = self.threshold
+        if layout is None:
+            layout = self.layout
+        if mode is None:
+            mode = self.mode
+        if z is None:
+            z = self.z
+        nmode = z.shape[-1]
+        g = nx.Graph()
+        g.add_nodes_from(range(nmode))
+        node_u, node_v = [], []
+        edges_real, edges_imag = [], []
+        for i in range(nmode):
+            node_u.append(z[i, i].imag)
+            if mode == 'full':
+                node_v.append(z[i, i].real)
+            for j in range(i + 1, nmode):
+                val = z[i, j]
+                layout_weight = np.abs(val) if mode == 'full' else np.abs(val.real)
+                if layout_weight > threshold:
+                    g.add_edge(i, j, layout_weight=layout_weight)
+                if np.abs(val.real) > threshold:
+                    edges_real.append((i, j, val.real))
+                if mode == 'full' and np.abs(val.imag) > threshold:
+                    edges_imag.append((i, j, val.imag))
+        if layout == 'circular':
+            pos = nx.circular_layout(g)
+        elif layout == 'kamada':
+            pos = nx.kamada_kawai_layout(g, weight='layout_weight')
+        else:
+            pos = nx.spring_layout(g, seed=42, weight='layout_weight')
+        fig, ax = plt.subplots(figsize=(12 if mode == 'simplified' else 15, 10 if mode == 'simplified' else 12))
+        cmap_node_u = plt.cm.winter
+        vmin_u, vmax_u = min(node_u), max(node_u)
+        if mode == 'simplified':
+            nx.draw_networkx_nodes(
+                g,
+                pos,
+                ax=ax,
+                node_size=4000 / np.sqrt(nmode),
+                node_color=node_u,
+                cmap=cmap_node_u,
+                vmin=vmin_u,
+                vmax=vmax_u,
+                edgecolors='lightgray',
+                linewidths=2,
+            )
+        else:
+            cmap_node_v = plt.cm.copper
+            vmin_v, vmax_v = (min(node_v), max(node_v))
+            if abs(vmax_v) > threshold:
+                edgecolors = [cmap_node_v(mpl.colors.Normalize(vmin=vmin_v, vmax=vmax_v)(val)) for val in node_v]
+            else:
+                edgecolors = 'lightgray'
+            nx.draw_networkx_nodes(
+                g,
+                pos,
+                ax=ax,
+                node_size=4000 / np.sqrt(nmode),
+                node_color=node_u,
+                cmap=cmap_node_u,
+                vmin=vmin_u,
+                vmax=vmax_u,
+                edgecolors=edgecolors,
+                linewidths=5,
+            )
+        _, _, edges_val = zip(*(edges_imag + edges_real), strict=True)
+        vmax_e = max(edges_val)
+        vmin_e = min(edges_val)
+        if edges_real:
+            e_real_u, e_real_v, e_real_w = zip(*edges_real, strict=True)
+            cmap_e_real = plt.cm.PRGn
+            nx.draw_networkx_edges(
+                g,
+                pos,
+                ax=ax,
+                edgelist=list(zip(e_real_u, e_real_v, strict=True)),
+                width=[np.abs(w) * 4 for w in e_real_w],
+                edge_color=e_real_w,
+                edge_cmap=cmap_e_real,
+                edge_vmin=vmin_e,
+                edge_vmax=vmax_e,
+                style='solid',
+                alpha=0.9,
+            )
+        if mode == 'full' and edges_imag:
+            e_imag_u, e_imag_v, e_imag_w = zip(*edges_imag, strict=True)
+            cmap_e_imag = plt.cm.PRGn
+            nx.draw_networkx_edges(
+                g,
+                pos,
+                ax=ax,
+                edgelist=list(zip(e_imag_u, e_imag_v, strict=True)),
+                width=[np.abs(w) * 4 for w in e_imag_w],
+                edge_color=e_imag_w,
+                edge_cmap=cmap_e_imag,
+                edge_vmin=vmin_e,
+                edge_vmax=vmax_e,
+                style='dashed',
+                alpha=0.8,
+                connectionstyle='arc3,rad=0.2',
+                arrows=True,
+                arrowstyle='-',
+            )
+        if nmode <= 30:
+            nx.draw_networkx_labels(g, pos, font_size=12, font_color='white', font_weight='bold')
+        cbar_nu = fig.colorbar(
+            mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin_u, vmax=vmax_u), cmap=cmap_node_u),
             ax=ax,
-            width=edge_widths,
-            edge_color=edge_colors,
-            edge_cmap=cmap_edges,
-            edge_vmin=vmin_e,
-            edge_vmax=vmax_e,
-            alpha=0.8,
-        )
-
-        cbar_e = plt.colorbar(
-            mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin_e, vmax=vmax_e), cmap=cmap_edges),
-            ax=ax,
-            shrink=0.6,
+            shrink=0.5,
             pad=0.02,
-            location='right',
+            location='left',
         )
-        cbar_e.set_label(r'Entanglement Strength - abs($Z_{ij}$)', fontsize=12)
-
-    if nmode <= 20:
-        nx.draw_networkx_labels(g, pos, font_size=10, font_color='white', font_weight='bold')
-
-    plt.title(f'Graphical Representation of Gaussian Pure State ({nmode} Modes)', fontsize=16)
-    plt.axis('off')
-    plt.tight_layout()
-    plt.show()
+        cbar_nu.set_label(r'p-Squeezing Level: Im($Z_{jj}$)', fontsize=12)
+        if edges_real:
+            cbar_er = fig.colorbar(
+                mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin_e, vmax=vmax_e), cmap=cmap_e_real),
+                ax=ax,
+                shrink=0.5,
+                pad=0.02,
+                location='right',
+            )
+            cbar_er.set_label(r'$C_Z$ Entanglement Strength: Re($Z_{jk}$)', fontsize=12)
+        if mode == 'full' and abs(vmax_v) > threshold:
+            cbar_nv = fig.colorbar(
+                mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin_v, vmax=vmax_v), cmap=cmap_node_v),
+                ax=ax,
+                shrink=0.35,
+                pad=0.08,
+                location='left',
+            )
+            cbar_nv.set_label(r'Node Border: Re($Z_{jj}$) [Local Shear]', fontsize=11)
+            if edges_imag:
+                cbar_ei = fig.colorbar(
+                    mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin_e, vmax=vmax_e), cmap=cmap_e_imag),
+                    ax=ax,
+                    shrink=0.35,
+                    pad=0.08,
+                    location='right',
+                )
+                cbar_ei.set_label(r'Curved Edge: Im($Z_{jk}$) [Correlated Noise]', fontsize=11)
+        title_mode = 'Simplified Graph' if mode == 'simplified' else 'Full Graph'
+        plt.title(
+            f'Gaussian Pure State ({nmode} Modes) - {title_mode}\n'
+            r'$\mathbf{Z} = \mathbf{V} + i\mathbf{U}$',
+            fontsize=16,
+        )
+        plt.axis('off')
+        plt.tight_layout()
+        plt.show()
