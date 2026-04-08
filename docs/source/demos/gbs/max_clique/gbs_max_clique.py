@@ -104,8 +104,7 @@ def clique_shrink(samples, graph, node_select='uniform') -> list:
 
 
 def plot_subgraph(graph, subgraph_idx):
-    """plot the subgraph in graph G"""
-
+    """Plot the subgraph in graph G"""
     sub_g = graph.subgraph(subgraph_idx).copy()
     edge_list = list(sub_g.edges)
 

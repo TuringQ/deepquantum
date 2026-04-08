@@ -1,5 +1,5 @@
-"""
-Gradient evaluation comparison between qiskit, tensorcircuit, pyvqnet and deepquantum
+"""Gradient evaluation comparison between qiskit, tensorcircuit, pyvqnet and deepquantum
+
 Modified from the implementation of tensorcircuit
 """
 

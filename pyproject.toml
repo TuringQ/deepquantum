@@ -94,12 +94,12 @@ ignore = ['D102', 'D105', 'D107', 'D415']
 
 [tool.ruff.lint.extend-per-file-ignores]
 '__init__.py' = ['F401']
-'docs/**' = ['D']
-'docs/source/demos/**' = ['E501']
-'examples/**' = ['D', 'E501']
-'examples/benchmarks/**/*.py' = ['D']
-'tests/**' = ['D']
-'tutorials/**' = ['D', 'E402', 'E501']
+'docs/source/conf.py' = ['D100', 'D101', 'D103']
+'docs/source/demos/**' = ['D100', 'D101', 'D103', 'E501']
+'examples/**' = ['D100', 'D101', 'D103', 'E501']
+'examples/benchmarks/**/*.py' = ['D100', 'D101', 'D103']
+'tests/**' = ['D100', 'D101', 'D103']
+'tutorials/**' = ['D100', 'D101', 'D103', 'E402', 'E501']
 
 [tool.ruff.lint.isort]
 order-by-type = false
