@@ -15,11 +15,12 @@ class QubitState(nn.Module):
     """A quantum state of n qubits, including both pure states and density matrices.
 
     Args:
-        nqubit (int, optional): The number of qubits in the state. Default: 1
-        state (Any, optional): The representation of the state. It can be one of the following strings:
-            ``'zeros'``, ``'equal'``, ``'entangle'``, ``'GHZ'``, or ``'ghz'``. Alternatively, it can be
-            a tensor that represents a custom state vector or density matrix. Default: ``'zeros'``
-        den_mat (bool, optional): Whether the state is a density matrix or not. Default: ``False``
+        nqubit: The number of qubits in the state. Default: 1
+        state: The representation of the state. It can be one of the following strings:
+            ``'zeros'``, ``'equal'``, ``'entangle'``, ``'GHZ'``, or ``'ghz'``.
+            Alternatively, it can be a tensor that represents a custom state vector or density matrix.
+            Default: ``'zeros'``
+        den_mat: Whether the state is a density matrix or not. Default: ``False``
     """
 
     def __init__(self, nqubit: int = 1, state: Any = 'zeros', den_mat: bool = False) -> None:
@@ -86,14 +87,16 @@ class MatrixProductState(nn.Module):
     between qudits.
 
     Args:
-        nsite (int, optional): The number of sites of the MPS. Default: 1
-        state (str, List[torch.Tensor] or List[int], optional): The representation of the MPS.
-            If ``'zeros'`` or ``'vac'``, the MPS is initialized to the all-zero state. If a list of tensors,
-            the MPS is initialized to the given tensors. The tensors must have the correct shape and dtype.
-            If a list of integers, the MPS is initialized to the corresponding basis state. Default: ``'zeros'``
-        chi (int or None, optional): The maximum bond dimension of the MPS. Default: 10 * ``nsite``
-        qudit (int, optional): The local Hilbert space dimension of each qudit. Default: 2
-        normalize (bool, optional): Whether to normalize the MPS after each operation. Default: ``True``
+        nsite: The number of sites of the MPS. Default: 1
+        state: The representation of the MPS.
+            If ``'zeros'`` or ``'vac'``, the MPS is initialized to the all-zero state.
+            If a list of tensors, the MPS is initialized to the given tensors.
+            The tensors must have the correct shape and dtype.
+            If a list of integers, the MPS is initialized to the corresponding basis state.
+            Default: ``'zeros'``
+        chi: The maximum bond dimension of the MPS. Default: None (which means 10 * ``nsite``)
+        qudit: The local Hilbert space dimension of each qudit. Default: 2
+        normalize: Whether to normalize the MPS after each operation. Default: ``True``
     """
 
     def __init__(
@@ -240,10 +243,9 @@ class MatrixProductState(nn.Module):
         The tensor at ``site`` + 1 is updated by :math:`R`.
 
         Args:
-            site (int): The site of tensor to be orthogonalized.
-            dc (int, optional): Keep the first ``dc`` singular values after truncation.
-                Default: -1 (which means no truncation)
-            normalize (bool, optional): Whether to normalize the tensor :math:`R`. Default: ``False``
+            site: The site of tensor to be orthogonalized.
+            dc: Keep the first ``dc`` singular values after truncation. Default: -1 (which means no truncation)
+            normalize: Whether to normalize the tensor :math:`R`. Default: ``False``
         """
         assert site < self.nsite - 1
         tensors = self.tensors
@@ -276,10 +278,9 @@ class MatrixProductState(nn.Module):
         updated by :math:`L`.
 
         Args:
-            site (int): The site of tensor to be orthogonalized.
-            dc (int, optional): Keep the first ``dc`` singular values after truncation.
-                Default: -1 (which means no truncation)
-            normalize (bool, optional): Whether to normalize the tensor :math:`L`. Default: ``False``
+            site: The site of tensor to be orthogonalized.
+            dc: Keep the first ``dc`` singular values after truncation. Default: -1 (which means no truncation)
+            normalize: Whether to normalize the tensor :math:`L`. Default: ``False``
         """
         assert site > 0
         tensors = self.tensors
@@ -342,7 +343,7 @@ class DistributedQubitState(nn.Module):
     """A quantum state of n qubits distributed between w nodes.
 
     Args:
-        nqubit (int): The number of qubits in the state.
+        nqubit: The number of qubits in the state.
     """
 
     def __init__(self, nqubit: int) -> None:

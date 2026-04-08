@@ -388,7 +388,6 @@ def hilbert_schmidt(m1, m2):
 
 def decompose(h):
     """Decompose Hermitian matrix into Pauli matrices"""
-
     sx = np.array([[0, 1], [1, 0]], dtype=np.complex128)
     sy = np.array([[0, -1j], [1j, 0]], dtype=np.complex128)
     sz = np.array([[1, 0], [0, -1]], dtype=np.complex128)

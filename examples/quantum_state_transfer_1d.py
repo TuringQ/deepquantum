@@ -36,6 +36,7 @@ from numpy import linalg as la
 # %%
 def get_probs_(sigmaz_exp):
     """Obtain probs of |0> and |1> for each qubit
+
     input: expectation values of sigmaz, type: torch.Tensor
     output: prob for |0> and |1> for each qubit, size: (num_qubits, batch, 2)
     """

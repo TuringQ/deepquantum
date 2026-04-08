@@ -94,9 +94,9 @@ def test_gaussian_prob_random_circuit():
 
 def test_measure_homodyne():
     n = 3
-    r1 = np.random.rand(1)
-    r2 = np.random.rand(1)
-    r3 = np.random.rand(1)
+    r1 = np.random.rand(1)[0]
+    r2 = np.random.rand(1)[0]
+    r3 = np.random.rand(1)[0]
     bs1 = np.random.rand(2)
     bs2 = np.random.rand(2)
     phi = np.random.rand(2)
@@ -125,7 +125,7 @@ def test_measure_homodyne():
     cir()
     cir.measure_homodyne()
     state = cir.state_measured
-    err = abs(state[0] - result.state.cov()).max()  # compare the covariance matrix after the measurement
+    err = abs(state[0].numpy() - result.state.cov()).max()  # compare the covariance matrix after the measurement
     assert err < 1e-6
 
 
@@ -195,5 +195,5 @@ def test_non_adjacent_bs_gaussian():
     cir.bs([1, 3], [angles[10], angles[11]])
 
     state = cir()
-    err = abs(state[0].squeeze() - cov_sf).sum() + abs(state[1].squeeze() - mean_sf).sum()
+    err = abs(state[0].squeeze().numpy() - cov_sf).sum() + abs(state[1].squeeze().numpy() - mean_sf).sum()
     assert err < 1e-5

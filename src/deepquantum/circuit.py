@@ -85,15 +85,14 @@ class QubitCircuit(Operation):
     and measuring quantum states.
 
     Args:
-        nqubit (int): The number of qubits in the circuit.
-        init_state (Any, optional): The initial state of the circuit. Default: ``'zeros'``
-        name (str or None, optional): The name of the circuit. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        reupload (bool, optional): Whether to use data re-uploading. Default: ``False``
-        mps (bool, optional): Whether to use matrix product state representation. Default: ``False``
-        chi (int or None, optional): The bond dimension for matrix product state representation.
-            Default: ``None``
-        shots (int, optional): The number of shots for the measurement. Default: 1024
+        nqubit: The number of qubits in the circuit.
+        init_state: The initial state of the circuit. Default: ``'zeros'``
+        name: The name of the circuit. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        reupload: Whether to use data re-uploading. Default: ``False``
+        mps: Whether to use matrix product state representation. Default: ``False``
+        chi: The bond dimension for matrix product state representation. Default: ``None``
+        shots: The number of shots for the measurement. Default: 1024
 
     Raises:
         AssertionError: If the type or dimension of ``init_state`` does not match ``nqubit`` or ``den_mat``.
@@ -191,13 +190,11 @@ class QubitCircuit(Operation):
         representation of them. The ``data`` must be a 1D or 2D tensor.
 
         Args:
-            data (torch.Tensor or None, optional): The input data for the ``encoders``. Default: ``None``
-            state (torch.Tensor, QubitState, List[torch.Tensor], MatrixProductState or None, optional):
-                The initial state for the quantum circuit. Default: ``None``
+            data: The input data for the ``encoders``. Default: ``None``
+            state: The initial state for the quantum circuit. Default: ``None``
 
         Returns:
-            Union[torch.Tensor, List[torch.Tensor]]: The final state of the quantum circuit after
-            applying the ``operators``.
+            The final state of the quantum circuit after applying the ``operators``.
         """
         if state is None:
             state = self.init_state
@@ -274,7 +271,7 @@ class QubitCircuit(Operation):
         the parameters.
 
         Args:
-            data (torch.Tensor or None): The input data for the ``encoders``, must be a 1D tensor.
+            data: The input data for the ``encoders``, must be a 1D tensor.
 
         Raises:
             AssertionError: If ``reupload`` is ``False`` and the input data is shorter than the number of
@@ -327,9 +324,8 @@ class QubitCircuit(Operation):
         """Add an ``Observable``.
 
         Args:
-            wires (int, List[int] or None, optional): The wires to measure. Default: ``None`` (which means
-                all wires are measured)
-            basis (str, optional): The measurement basis for each wire. It can be ``'x'``, ``'y'``, or ``'z'``.
+            wires: The wires to measure. Default: ``None`` (which means all wires are measured)
+            basis: The measurement basis for each wire. It can be ``'x'``, ``'y'``, or ``'z'``.
                 If only one character is given, it is repeated for all wires. Default: ``'z'``
         """
         observable = Observable(nqubit=self.nqubit, wires=wires, basis=basis, den_mat=self.den_mat, tsr_mode=False)
@@ -349,11 +345,10 @@ class QubitCircuit(Operation):
         """Measure the final state.
 
         Args:
-            shots (int or None, optional): The number of shots for the measurement. Default: ``None`` (which means
-                ``self.shots``)
-            with_prob (bool, optional): Whether to show the true probability of the measurement. Default: ``False``
-            wires (int, List[int] or None, optional): The wires to measure. Default: ``None`` (which means all wires)
-            block_size (int, optional): The block size for sampling. Default: 2 ** 24
+            shots: The number of shots for the measurement. Default: ``None`` (which means ``self.shots``)
+            with_prob: Whether to show the true probability of the measurement. Default: ``False``
+            wires: The wires to measure. Default: ``None`` (which means all wires)
+            block_size: The block size for sampling. Default: 2**24
         """
         if shots is None:
             shots = self.shots
@@ -387,8 +382,8 @@ class QubitCircuit(Operation):
         """Get the expectation value according to the final state and ``observables``.
 
         Args:
-            shots (int or None, optional): The number of shots for the expectation value.
-                Default: ``None`` (which means the exact and differentiable expectation value).
+            shots: The number of shots for the expectation value. Default: ``None``
+                (which means the exact and differentiable expectation value)
         """
         assert len(self.observables) > 0, 'There is no observable'
         if isinstance(self.state, list):
@@ -485,7 +480,7 @@ class QubitCircuit(Operation):
         """Get the amplitude for the given bit string.
 
         Args:
-            bits (str): A bit string.
+            bits: A bit string.
         """
         assert not self.den_mat
         assert len(bits) == self.nqubit
@@ -503,9 +498,9 @@ class QubitCircuit(Operation):
         """Get the probability for the given bit string.
 
         Args:
-            bits (str): A bit string.
-            wires (int, List[int] or None, optional): The wires to measure. It can be an integer or a list of
-                integers specifying the indices of the wires.
+            bits: A bit string.
+            wires: The wires to measure. It can be an integer or a list of integers specifying
+                the indices of the wires.
         """
         if wires is not None:
             wires = self._convert_indices(wires)
@@ -528,7 +523,7 @@ class QubitCircuit(Operation):
         """During MCMC measurement, Get the probability for the given bit string.
 
         Args:
-            bits (str): A bit string.
+            bits: A bit string.
         """
         return self.get_prob(bits, self.wires_measure)
 
@@ -835,15 +830,14 @@ class QubitCircuit(Operation):
         attributes of the quantum circuit. If ``wires`` is specified, the parameters of gates are shared.
 
         Args:
-            op (Operation): The operation to add. It is an instance of ``Operation`` class or its subclasses,
-                such as ``Gate``, ``Layer``, ``Channel``, or ``QubitCircuit``.
-            encode (bool, optional): Whether the gate or layer is to encode data. Default: ``False``
-            wires (int, List[int] or None, optional): The wires to apply the gate on. It can be an integer
-                or a list of integers specifying the indices of the wires. Default: ``None`` (which means
-                the gate has its own wires)
-            controls (int, List[int] or None, optional): The control wires for the gate. It can be an integer
-                or a list of integers specifying the indices of the control wires. Only valid when ``wires``
-                is not ``None``. Default: ``None`` (which means the gate has its own control wires)
+            op: The operation to add. It is an instance of ``Operation`` class or its subclasses, such as
+                ``Gate``, ``Layer``, ``Channel``, or ``QubitCircuit``.
+            encode: Whether the gate or layer is to encode data. Default: ``False``
+            wires: The wires to apply the gate on. It can be an integer or a list of integers specifying
+                the indices of the wires. Default: ``None`` (which means the gate has its own wires)
+            controls: The control wires for the gate. It can be an integer or a list of integers specifying
+                the indices of the control wires. Only valid when ``wires`` is not ``None``.
+                Default: ``None`` (which means the gate has its own control wires)
 
         Raises:
             AssertionError: If the input arguments are invalid or incompatible with the quantum circuit.
@@ -1632,13 +1626,13 @@ class DistributedQubitCircuit(QubitCircuit):
     """Quantum circuit for a distributed state vector.
 
     Args:
-        nqubit (int): The number of qubits in the circuit.
-        name (str or None, optional): The name of the circuit. Default: ``None``
-        reupload (bool, optional): Whether to use data re-uploading. Default: ``False``
-        shots (int, optional): The number of shots for the measurement. Default: 1024
+        nqubit: The number of qubits in the circuit.
+        name: The name of the circuit. Default: ``None``
+        reupload: Whether to use data re-uploading. Default: ``False``
+        shots: The number of shots for the measurement. Default: 1024
     """
 
-    def __init__(self, nqubit, name=None, reupload=False, shots=1024) -> None:
+    def __init__(self, nqubit: int, name: str | None = None, reupload: bool = False, shots: int = 1024) -> None:
         super().__init__(
             nqubit=nqubit,
             init_state='zeros',
@@ -1668,9 +1662,8 @@ class DistributedQubitCircuit(QubitCircuit):
         The ``data`` must be a 1D tensor.
 
         Args:
-            data (torch.Tensor or None, optional): The input data for the ``encoders``. Default: ``None``
-            state (DistributedQubitState or None, optional): The initial state for the quantum circuit.
-                Default: ``None``
+            data: The input data for the ``encoders``. Default: ``None``
+            state: The initial state for the quantum circuit. Default: ``None``
         """
         if state is None:
             self.init_state.reset()
@@ -1691,11 +1684,10 @@ class DistributedQubitCircuit(QubitCircuit):
         """Measure the final state.
 
         Args:
-            shots (int or None, optional): The number of shots for the measurement. Default: ``None`` (which means
-                ``self.shots``)
-            with_prob (bool, optional): Whether to show the true probability of the measurement. Default: ``False``
-            wires (int, List[int] or None, optional): The wires to measure. Default: ``None`` (which means all wires)
-            block_size (int, optional): The block size for sampling. Default: 2 ** 24
+            shots: The number of shots for the measurement. Default: ``None`` (which means ``self.shots``)
+            with_prob: Whether to show the true probability of the measurement. Default: ``False``
+            wires: The wires to measure. Default: ``None`` (which means all wires)
+            block_size: The block size for sampling. Default: 2**24
         """
         if shots is None:
             shots = self.shots
@@ -1715,8 +1707,8 @@ class DistributedQubitCircuit(QubitCircuit):
         """Get the expectation value according to the final state and ``observables``.
 
         Args:
-            shots (int or None, optional): The number of shots for the expectation value.
-                Default: ``None`` (which means the exact and differentiable expectation value).
+            shots: The number of shots for the expectation value. Default: ``None``
+                (which means the exact and differentiable expectation value)
         """
         assert len(self.observables) > 0, 'There is no observable'
         assert isinstance(self.state, DistributedQubitState), 'There is no final state'

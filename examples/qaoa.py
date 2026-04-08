@@ -68,7 +68,8 @@ class QAOA(nn.Module):
 def trainer(model, epoch, lr):
     # 选择优化器
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    # optimizer = torch.optim.RMSprop(model.parameters(), lr, alpha=0.99, eps=1e-08, weight_decay=0, momentum=0, centered=False)
+    # optimizer = torch.optim.RMSprop(model.parameters(), lr, alpha=0.99, eps=1e-08,
+    #                                 weight_decay=0, momentum=0, centered=False)
     train_loss_list = []
     for e in range(epoch):
         y_pred = model()

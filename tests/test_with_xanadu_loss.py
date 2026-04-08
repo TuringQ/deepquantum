@@ -135,5 +135,5 @@ def test_loss_gaussian():
     cir.to(torch.float64)
     state = cir()
     cov, mean = state
-    err = (abs(cov[0] - sf_cov).flatten()).sum() + (abs(mean[0].flatten() - sf_mean).flatten()).sum()
+    err = (abs(cov[0].numpy() - sf_cov).flatten()).sum() + (abs(mean[0].flatten().numpy() - sf_mean).flatten()).sum()
     assert err < 1e-6

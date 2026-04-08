@@ -16,15 +16,14 @@ class Operation(nn.Module):
     """A base class for quantum operations.
 
     Args:
-        name (str or None, optional): The name of the quantum operation. Default: ``None``
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
-        wires (int, List or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int, optional): The Fock space truncation. Default: 2
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        name: The name of the quantum operation. Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 1
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: 2
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -87,15 +86,14 @@ class Gate(Operation):
     r"""A base class for photonic quantum gates.
 
     Args:
-        name (str or None, optional): The name of the gate. Default: ``None``
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        name: The name of the gate. Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 1
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -280,11 +278,10 @@ class Channel(Operation):
     r"""A base class for photonic quantum channels.
 
     Args:
-        name (str or None, optional): The name of the channel. Default: ``None``
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        name: The name of the channel. Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 1
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
     """
 
     def __init__(
@@ -349,16 +346,15 @@ class Delay(Operation):
     r"""Delay loop.
 
     Args:
-        name (str or None, optional): The name of the quantum operation. Default: ``'Delay'``
-        ntau (int, optional): The number of modes in the delay loop. Default: 1
-        nmode (int, optional): The number of spatial modes that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        name: The name of the quantum operation. Default: ``'Delay'``
+        ntau: The number of modes in the delay loop. Default: 1
+        nmode: The number of spatial modes that the quantum operation acts on. Default: 1
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
