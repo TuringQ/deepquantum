@@ -833,66 +833,71 @@ def plot_wigner(wigner: torch.Tensor, xvec: torch.Tensor, pvec: torch.Tensor, k:
     plt.show()
 
 
-class VisualizeGaussianGraph:
-    """Visualize the graph state for a Gaussian pure state.
+class GaussianGraphVisualizer:
+    r"""Visualize the graph state for a Gaussian pure state.
 
     Args:
-        cov (torch.Tensor): The covariance matrix of the Gaussian state.
-        threshold (float): Cutoff threshold for ignoring extremely small numerical edge weights
+        cov: The covariance matrix of the Gaussian state.
+        threshold: Cutoff threshold for ignoring extremely small numerical edge weights
             in the visualization.
-        layout (str): The graph layout algorithm to use. Options are 'kamada', 'spring',
-            or 'circular'. Default: ``'circular'``
-        mode (str): 'simplified' mode for the core structure (node squeezing Im(Z_jj) and edge entanglement Re(Z_jk)).
-            'full' mode for all structure including local shear Re(Z_jj) and correlated noise Im(Z_jk).
-            Default: ``'simplified'``
+        mode: The 'simplified' mode for the core structure including node squeezing :math:`Im(Z_{jj})` and
+            edge entanglement :math:`Re(Z_{jk})`. The 'full' mode for all structure including
+            local shear :math:`Re(Z_{jj})` and correlated noise :math:`Im(Z_{jk})`. Default: ``'simplified'``
     """
 
-    def __init__(
-        self, cov: torch.Tensor, threshold: float = 1e-3, layout: str = 'circular', mode: str = 'simplified'
-    ) -> None:
+    def __init__(self, cov: torch.Tensor, threshold: float = 1e-3, mode='simplified') -> None:
 
         cov = cov.detach().cpu().numpy() if hasattr(cov, 'detach') else np.array(cov, dtype=np.float64)
         nmode = cov.shape[-1] // 2
-        cov_qq = cov[:nmode, :nmode]
-        cov_qp = cov[:nmode, nmode:]
-        u = 0.5 * np.linalg.inv(cov_qq)
-        v = 2 * (u @ cov_qp)
-        z = v + 1j * u
 
-        self.nmode = nmode
-        self.z = z
         self.cov = cov
+        self.nmode = nmode
         self.threshold = threshold
-        self.layout = layout
         self.mode = mode
 
-    def draw(self, z=None, threshold=None, layout=None, mode=None):
-        if threshold is None:
-            threshold = self.threshold
-        if layout is None:
-            layout = self.layout
-        if mode is None:
-            mode = self.mode
-        if z is None:
-            z = self.z
-        nmode = z.shape[-1]
+        self.z = self._extract_z_matrix(self.cov)
+        self.graph = self._build_networkx_graph(self.z)
+
+    def _extract_z_matrix(self, cov):
+        """Extract the complex adjacency matrix :math:`Z = V + iU` from the covariance matrix.
+
+        See https://arxiv.org/abs/1007.0725.
+        """
+        nmode = cov.shape[-1] // 2
+        cov_qq = cov[:nmode, :nmode]
+        cov_qp = cov[:nmode, nmode:]
+        u = 0.5 * np.linalg.inv(cov_qq)  # Eq.(2.25)
+        v = 2 * (u @ cov_qp)  # Eq.(2.26)
+        z = v + 1j * u
+        return z
+
+    def _build_networkx_graph(self, z):
+        """Build a NetworkX graph from the complex adjacency matrix."""
         g = nx.Graph()
-        g.add_nodes_from(range(nmode))
-        node_u, node_v = [], []
-        edges_real, edges_imag = [], []
-        for i in range(nmode):
-            node_u.append(z[i, i].imag)
-            if mode == 'full':
-                node_v.append(z[i, i].real)
-            for j in range(i + 1, nmode):
+        n = self.nmode
+        g.add_nodes_from(range(n))
+        self._node_u, self._node_v = [], []
+        self._edges_real, self._edges_imag = [], []
+        for i in range(n):
+            self._node_u.append(z[i, i].imag)
+            if self.mode == 'full':
+                self._node_v.append(z[i, i].real)
+            for j in range(i + 1, n):
                 val = z[i, j]
-                layout_weight = np.abs(val) if mode == 'full' else np.abs(val.real)
-                if layout_weight > threshold:
+                layout_weight = np.abs(val) if self.mode == 'full' else np.abs(val.real)
+                if layout_weight > self.threshold:
                     g.add_edge(i, j, layout_weight=layout_weight)
-                if np.abs(val.real) > threshold:
-                    edges_real.append((i, j, val.real))
-                if mode == 'full' and np.abs(val.imag) > threshold:
-                    edges_imag.append((i, j, val.imag))
+                if np.abs(val.real) > self.threshold:
+                    self._edges_real.append((i, j, val.real))
+                if self.mode == 'full' and np.abs(val.imag) > self.threshold:
+                    self._edges_imag.append((i, j, val.imag))
+        return g
+
+    def draw(self, layout: str = 'circular'):
+        """Draw Gaussian graph state."""
+        g = self.graph
+        nmode = self.nmode
+        mode = self.mode
         if layout == 'circular':
             pos = nx.circular_layout(g)
         elif layout == 'kamada':
@@ -901,14 +906,14 @@ class VisualizeGaussianGraph:
             pos = nx.spring_layout(g, seed=42, weight='layout_weight')
         fig, ax = plt.subplots(figsize=(12 if mode == 'simplified' else 15, 10 if mode == 'simplified' else 12))
         cmap_node_u = plt.cm.winter
-        vmin_u, vmax_u = min(node_u), max(node_u)
+        vmin_u, vmax_u = min(self._node_u), max(self._node_u)
         if mode == 'simplified':
             nx.draw_networkx_nodes(
                 g,
                 pos,
                 ax=ax,
                 node_size=4000 / np.sqrt(nmode),
-                node_color=node_u,
+                node_color=self._node_u,
                 cmap=cmap_node_u,
                 vmin=vmin_u,
                 vmax=vmax_u,
@@ -917,9 +922,9 @@ class VisualizeGaussianGraph:
             )
         else:
             cmap_node_v = plt.cm.copper
-            vmin_v, vmax_v = (min(node_v), max(node_v))
-            if abs(vmax_v) > threshold:
-                edgecolors = [cmap_node_v(mpl.colors.Normalize(vmin=vmin_v, vmax=vmax_v)(val)) for val in node_v]
+            vmin_v, vmax_v = (min(self._node_v), max(self._node_v))
+            if abs(vmax_v) > self.threshold:
+                edgecolors = [cmap_node_v(mpl.colors.Normalize(vmin=vmin_v, vmax=vmax_v)(val)) for val in self._node_v]
             else:
                 edgecolors = 'lightgray'
             nx.draw_networkx_nodes(
@@ -927,18 +932,18 @@ class VisualizeGaussianGraph:
                 pos,
                 ax=ax,
                 node_size=4000 / np.sqrt(nmode),
-                node_color=node_u,
+                node_color=self._node_u,
                 cmap=cmap_node_u,
                 vmin=vmin_u,
                 vmax=vmax_u,
                 edgecolors=edgecolors,
                 linewidths=5,
             )
-        _, _, edges_val = zip(*(edges_imag + edges_real), strict=True)
+        _, _, edges_val = zip(*(self._edges_imag + self._edges_real), strict=True)
         vmax_e = max(edges_val)
         vmin_e = min(edges_val)
-        if edges_real:
-            e_real_u, e_real_v, e_real_w = zip(*edges_real, strict=True)
+        if self._edges_real:
+            e_real_u, e_real_v, e_real_w = zip(*self._edges_real, strict=True)
             cmap_e_real = plt.cm.PRGn
             nx.draw_networkx_edges(
                 g,
@@ -953,8 +958,8 @@ class VisualizeGaussianGraph:
                 style='solid',
                 alpha=0.9,
             )
-        if mode == 'full' and edges_imag:
-            e_imag_u, e_imag_v, e_imag_w = zip(*edges_imag, strict=True)
+        if mode == 'full' and self._edges_imag:
+            e_imag_u, e_imag_v, e_imag_w = zip(*self._edges_imag, strict=True)
             cmap_e_imag = plt.cm.PRGn
             nx.draw_networkx_edges(
                 g,
@@ -982,7 +987,7 @@ class VisualizeGaussianGraph:
             location='left',
         )
         cbar_nu.set_label(r'p-Squeezing Level: Im($Z_{jj}$)', fontsize=12)
-        if edges_real:
+        if self._edges_real:
             cbar_er = fig.colorbar(
                 mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin_e, vmax=vmax_e), cmap=cmap_e_real),
                 ax=ax,
@@ -991,7 +996,7 @@ class VisualizeGaussianGraph:
                 location='right',
             )
             cbar_er.set_label(r'$C_Z$ Entanglement Strength: Re($Z_{jk}$)', fontsize=12)
-        if mode == 'full' and abs(vmax_v) > threshold:
+        if mode == 'full' and abs(vmax_v) > self.threshold:
             cbar_nv = fig.colorbar(
                 mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin_v, vmax=vmax_v), cmap=cmap_node_v),
                 ax=ax,
@@ -1000,7 +1005,7 @@ class VisualizeGaussianGraph:
                 location='left',
             )
             cbar_nv.set_label(r'Node Border: Re($Z_{jj}$) [Local Shear]', fontsize=11)
-            if edges_imag:
+            if self._edges_imag:
                 cbar_ei = fig.colorbar(
                     mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin_e, vmax=vmax_e), cmap=cmap_e_imag),
                     ax=ax,
