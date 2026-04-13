@@ -49,14 +49,19 @@ def save_adj(filename, data):
 def mem_to_chunksize(device: torch.device, dtype: torch.dtype) -> int | None:
     """Return the chunk size of vmap according to device free memory and dtype.
 
-    Note: Currently only optimized for permanent and complex dtype.
+    Note:
+        Currently only optimized for permanent and complex dtype.
     """
     if (device, dtype) in dqp.perm_chunksize_dict:
         return dqp.perm_chunksize_dict[device, dtype]
-    if device == torch.device('cpu'):
+    if device.type == 'cpu':
         mem_free_gb = psutil.virtual_memory().free / 1024**3
-    else:
+    elif device.type == 'cuda':
         mem_free_gb = torch.cuda.mem_get_info(device=device)[0] / 1024**3
+    elif device.type == 'mps':
+        mem_free_gb = torch.mps.recommended_max_memory() / 1024**3
+    else:
+        raise ValueError(f'Unknown device type: {device.type}')
     if dtype == torch.cfloat:
         if mem_free_gb > 80:
             # requires checking when we have such GPUs:)

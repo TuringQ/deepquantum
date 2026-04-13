@@ -10,6 +10,7 @@ from torch import nn
 import deepquantum.photonic as dqp
 
 from ..qmath import is_unitary
+from ..utils import apply_complex_fix
 from .operation import Delay, Gate
 from .qmath import ladder_ops
 
@@ -18,18 +19,17 @@ class SingleGate(Gate):
     """A base class for single-mode photonic quantum gates.
 
     Args:
-        name (str or None, optional): The name of the gate. Default: ``None``
-        inputs (Any, optional): The parameters of the gate. Default: ``None``
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+        name: The name of the gate. Default: ``None``
+        inputs: The parameters of the gate. Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 1
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -57,18 +57,17 @@ class DoubleGate(Gate):
     """A base class for two-mode photonic quantum gates.
 
     Args:
-        name (str or None, optional): The name of the gate. Default: ``None``
-        inputs (Any, optional): The parameters of the gate. Default: ``None``
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 2
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+        name: The name of the gate. Default: ``None``
+        inputs: The parameters of the gate. Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 2
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -123,18 +122,17 @@ class PhaseShift(SingleGate):
         \end{pmatrix}
 
     Args:
-        inputs (Any, optional): The parameter of the gate. Default: ``None``
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+        inputs: The parameter of the gate. Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 1
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
-        inv_mode (bool, optional): Whether the rotation in the phase space is clockwise. Default: ``False``
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
+        inv_mode: Whether the rotation in the phase space is clockwise. Default: ``False``
     """
 
     def __init__(
@@ -270,17 +268,16 @@ class BeamSplitter(DoubleGate):
         \end{pmatrix}
 
     Args:
-        inputs (Any, optional): The parameters of the gate (:math:`\theta` and :math:`\phi`). Default: ``None``
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 2
-        wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
+        inputs: The parameters of the gate (:math:`\theta` and :math:`\phi`). Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 2
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -335,8 +332,8 @@ class BeamSplitter(DoubleGate):
         """Get the local unitary matrix acting on creation operators."""
         # correspond to: U a^+ U^+ = u^T @ a^+
         theta, phi = self.inputs_to_tensor([theta, phi])
-        cos = torch.cos(theta)
-        sin = torch.sin(theta)
+        cos = torch.cos(theta) + 0j
+        sin = torch.sin(theta) + 0j
         e_m_ip = torch.exp(-1j * phi)
         e_ip = torch.exp(1j * phi)
         return torch.stack([cos, -e_m_ip * sin, e_ip * sin, cos]).reshape(2, 2)
@@ -352,7 +349,7 @@ class BeamSplitter(DoubleGate):
 
         See https://arxiv.org/pdf/2004.11002.pdf Eq.(74) and Eq.(75)
         """
-        sqrt = torch.sqrt(torch.arange(self.cutoff, dtype=torch.double, device=matrix.device))
+        sqrt = torch.sqrt(torch.arange(self.cutoff, dtype=matrix.real.dtype, device=matrix.device))
         tran_mat = matrix.new_zeros([self.cutoff] * 4)
         tran_mat[0, 0, 0, 0] = 1.0
         # rank 3
@@ -465,18 +462,17 @@ class MZI(BeamSplitter):
         \end{pmatrix}
 
     Args:
-        inputs (Any, optional): The parameters of the gate (:math:`\theta` and :math:`\phi`). Default: ``None``
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 2
-        wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        phi_first (bool, optional): Whether :math:`\phi` is the first phase shifter. Default: ``True``
-        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
+        inputs: The parameters of the gate (:math:`\theta` and :math:`\phi`). Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 2
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        phi_first: Whether :math:`\phi` is the first phase shifter. Default: ``True``
+        requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -510,8 +506,8 @@ class MZI(BeamSplitter):
         """Get the local unitary matrix acting on creation operators."""
         # correspond to: U a^+ U^+ = u^T @ a^+
         theta, phi = self.inputs_to_tensor([theta, phi])
-        cos = torch.cos(theta / 2)
-        sin = torch.sin(theta / 2)
+        cos = torch.cos(theta / 2) + 0j
+        sin = torch.sin(theta / 2) + 0j
         e_it = torch.exp(1j * theta / 2)
         e_ip = torch.exp(1j * phi)
         mat = 1j * e_it * torch.stack([e_ip * sin, cos, e_ip * cos, -sin]).reshape(2, 2)
@@ -557,17 +553,16 @@ class BeamSplitterTheta(BeamSplitter):
         \end{pmatrix}
 
     Args:
-        inputs (Any, optional): The parameter of the gate. Default: ``None``
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 2
-        wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+        inputs: The parameter of the gate. Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 2
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -607,7 +602,7 @@ class BeamSplitterTheta(BeamSplitter):
         noise = self.noise
         self.noise = False
         theta, phi = self.inputs_to_tensor([inputs, torch.pi / 2])
-        phi = phi.to(theta.dtype).to(theta.device)
+        phi = phi.to(theta.device, theta.dtype)
         self.noise = noise
         if self.requires_grad:
             self.theta = nn.Parameter(theta)
@@ -655,17 +650,16 @@ class BeamSplitterPhi(BeamSplitter):
         \end{pmatrix}
 
     Args:
-        inputs (Any, optional): The parameter of the gate. Default: ``None``
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 2
-        wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+        inputs: The parameter of the gate. Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 2
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -705,7 +699,7 @@ class BeamSplitterPhi(BeamSplitter):
         noise = self.noise
         self.noise = False
         theta, phi = self.inputs_to_tensor([torch.pi / 4, inputs])
-        theta = theta.to(phi.dtype).to(phi.device)
+        theta = theta.to(phi.device, phi.dtype)
         self.noise = noise
         if self.requires_grad:
             self.phi = nn.Parameter(phi)
@@ -775,19 +769,18 @@ class BeamSplitterSingle(BeamSplitter):
         \end{pmatrix}
 
     Args:
-        inputs (Any, optional): The parameter of the gate. Default: ``None``
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 2
-        wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        convention (str, optional): The convention of the type of the beam splitter, including ``'rx'``,
-            ``'ry'`` and ``'h'``. Default: ``'rx'``
-        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+        inputs: The parameter of the gate. Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 2
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        convention: The convention of the type of the beam splitter, including ``'rx'``, ``'ry'`` and ``'h'``.
+            Default: ``'rx'``
+        requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -888,15 +881,14 @@ class UAnyGate(Gate):
     """Arbitrary unitary gate.
 
     Args:
-        unitary (Any): Any given unitary matrix.
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
-        wires (List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        minmax (List[int] or None, optional): The minimum and maximum indices of the modes that the quantum
+        unitary: Any given unitary matrix.
+        nmode: The number of modes that the quantum operation acts on. Default: 1
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        minmax: The minimum and maximum indices of the modes that the quantum
             operation acts on. Only valid when ``wires`` is ``None``. Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        name (str, optional): The name of the gate. Default: ``'UAnyGate'``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        name: The name of the gate. Default: ``'UAnyGate'``
     """
 
     def __init__(
@@ -925,18 +917,22 @@ class UAnyGate(Gate):
         self.register_buffer('matrix', unitary)
         self.register_buffer('matrix_state', None)
 
-    def to(self, arg: Any) -> 'UAnyGate':
-        """Set dtype or device of the ``UAnyGate``."""
-        if arg == torch.float:
-            self.matrix = self.matrix.to(torch.cfloat)
-            if self.matrix_state is not None:
-                self.matrix_state = self.matrix_state.to(torch.cfloat)
-        elif arg == torch.double:
-            self.matrix = self.matrix.to(torch.cdouble)
-            if self.matrix_state is not None:
-                self.matrix_state = self.matrix_state.to(torch.cdouble)
-        else:
-            super().to(arg)
+    def _apply(self, fn: Any) -> 'UAnyGate':
+        tensors_dict = {}
+        none_dict = {}
+        names = ['matrix', 'matrix_state']
+        for name in names:
+            tensor = self._buffers.pop(name)
+            if tensor is None:
+                none_dict[name] = tensor
+            else:
+                tensors_dict[name] = tensor
+        super()._apply(fn)
+        corrected = apply_complex_fix(fn, tensors_dict)
+        for key, value in corrected.items():
+            self.register_buffer(key, value)
+        for key, value in none_dict.items():
+            self.register_buffer(key, value)
         return self
 
     def get_matrix_state(self, matrix: torch.Tensor) -> torch.Tensor:
@@ -945,7 +941,7 @@ class UAnyGate(Gate):
         See https://arxiv.org/pdf/2004.11002.pdf Eq.(71)
         """
         nt = len(self.wires)
-        sqrt = torch.sqrt(torch.arange(self.cutoff, dtype=torch.double, device=matrix.device))
+        sqrt = torch.sqrt(torch.arange(self.cutoff, dtype=matrix.real.dtype, device=matrix.device))
         tran_mat = matrix.new_zeros([self.cutoff] * 2 * nt)
         tran_mat[tuple([0] * 2 * nt)] = 1.0
         for rank in range(nt + 1, 2 * nt + 1):
@@ -1021,17 +1017,16 @@ class Squeezing(SingleGate):
         \end{pmatrix}
 
     Args:
-        inputs (Any, optional): The parameters of the gate (:math:`r` and :math:`\theta`). Default: ``None``
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
+        inputs: The parameters of the gate (:math:`r` and :math:`\theta`). Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 1
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -1081,8 +1076,8 @@ class Squeezing(SingleGate):
         """Get the local symplectic matrix acting on annihilation and creation operators."""
         # correspond to: U^+ (a a^+) U = s @ (a a^+)
         r, theta = self.inputs_to_tensor([r, theta])
-        ch = torch.cosh(r)
-        sh = torch.sinh(r)
+        ch = torch.cosh(r) + 0j
+        sh = torch.sinh(r) + 0j
         e_it = torch.exp(1j * theta)
         e_m_it = torch.exp(-1j * theta)
         return torch.stack([ch, -e_it * sh, -e_m_it * sh, ch]).reshape(2, 2)
@@ -1188,17 +1183,16 @@ class Squeezing2(DoubleGate):
         \end{pmatrix}
 
     Args:
-        inputs (Any, optional): The parameters of the gate (:math:`r` and :math:`\theta`). Default: ``None``
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 2
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
+        inputs: The parameters of the gate (:math:`r` and :math:`\theta`). Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 2
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -1362,17 +1356,16 @@ class Displacement(SingleGate):
         \end{pmatrix}
 
     Args:
-        inputs (Any, optional): The parameters of the gate (:math:`r` and :math:`\theta`). Default: ``None``
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
+        inputs: The parameters of the gate (:math:`r` and :math:`\theta`). Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 1
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -1518,17 +1511,16 @@ class DisplacementPosition(Displacement):
         \end{pmatrix}
 
     Args:
-        inputs (Any, optional): The parameter of the gate. Default: ``None``
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+        inputs: The parameter of the gate. Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 1
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -1570,7 +1562,7 @@ class DisplacementPosition(Displacement):
         noise = self.noise
         self.noise = False
         r, theta = self.inputs_to_tensor([inputs, 0])
-        theta = theta.to(r.dtype).to(r.device)
+        theta = theta.to(r.device, r.dtype)
         self.noise = noise
         if self.requires_grad:
             self.r = nn.Parameter(r)
@@ -1603,17 +1595,16 @@ class DisplacementMomentum(Displacement):
         \end{pmatrix}
 
     Args:
-        inputs (Any, optional): The parameter of the gate. Default: ``None``
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+        inputs: The parameter of the gate. Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 1
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -1655,7 +1646,7 @@ class DisplacementMomentum(Displacement):
         noise = self.noise
         self.noise = False
         r, theta = self.inputs_to_tensor([inputs, torch.pi / 2])
-        theta = theta.to(r.dtype).to(r.device)
+        theta = theta.to(r.device, r.dtype)
         self.noise = noise
         if self.requires_grad:
             self.r = nn.Parameter(r)
@@ -1722,17 +1713,16 @@ class QuadraticPhase(SingleGate):
     \phi = -\sign(s)\frac{\pi}{2} - \theta`.
 
     Args:
-        inputs (Any, optional): The parameter of the gate. Default: ``None``
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
+        inputs: The parameter of the gate. Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 1
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -1902,17 +1892,16 @@ class ControlledX(DoubleGate):
     \sinh(r) = -\frac{s}{2}`.
 
     Args:
-        inputs (Any, optional): The parameter of the gate. Default: ``None``
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 2
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
+        inputs: The parameter of the gate. Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 2
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -2086,17 +2075,16 @@ class ControlledZ(DoubleGate):
         CZ(s) = PS_2(\pi/2) CX(s) PS_2^\dagger(\pi/2)
 
     Args:
-        inputs (Any, optional): The parameter of the gate. Default: ``None``
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 2
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
+        inputs: The parameter of the gate. Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 2
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -2141,8 +2129,8 @@ class ControlledZ(DoubleGate):
         """Get the local symplectic matrix acting on annihilation and creation operators."""
         # correspond to: U^+ (a a^+) U = s @ (a a^+)
         s = self.inputs_to_tensor(s).reshape(-1)
-        one = s.new_ones(1)
-        zero = s.new_zeros(1)
+        one = s.new_ones(1) + 0j
+        zero = s.new_zeros(1) + 0j
         x = 1j * s / 2
         mat = torch.stack([one, x, zero, x, x, one, x, zero, zero, -x, one, -x, -x, zero, -x, one]).reshape(4, 4)
         return mat
@@ -2223,17 +2211,16 @@ class CubicPhase(SingleGate):
         CP^\dagger(\gamma) \hat{p} CP(\gamma) &= \hat{p} + \gamma\hat{x}^2.
 
     Args:
-        inputs (Any, optional): The parameter of the gate. Default: ``None``
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
+        inputs: The parameter of the gate. Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 1
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -2320,17 +2307,16 @@ class Kerr(SingleGate):
                                                      = e^{i \kappa (2 \hat{a}^\dagger \hat{a} + 1)} \hat{a}^\dagger.
 
     Args:
-        inputs (Any, optional): The parameter of the gate. Default: ``None``
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
+        inputs: The parameter of the gate. Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 1
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -2420,17 +2406,16 @@ class CrossKerr(DoubleGate):
                                                          = \hat{a}_2^\dagger e^{-i \kappa \hat{n}_1}.
 
     Args:
-        inputs (Any, optional): The parameter of the gate. Default: ``None``
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 2
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
+        inputs: The parameter of the gate. Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 2
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -2502,19 +2487,18 @@ class DelayBS(Delay):
     r"""Delay loop with ``BeamSplitterTheta`` and ``PhaseShift``.
 
     Args:
-        inputs (Any, optional): The parameters of the gate. Default: ``None``
-        ntau (int, optional): The number of modes in the delay loop. Default: 1
-        nmode (int, optional): The number of spatial modes that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
+        inputs: The parameters of the gate. Default: ``None``
+        ntau: The number of modes in the delay loop. Default: 1
+        nmode: The number of spatial modes that the quantum operation acts on. Default: 1
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        loop_gates (List[Gate] or None, optional): The list of gates added to the delay loop. Default: ``None``
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        loop_gates: The list of gates added to the delay loop. Default: ``None``
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -2590,19 +2574,18 @@ class DelayMZI(Delay):
     r"""Delay loop with MZI.
 
     Args:
-        inputs (Any, optional): The parameters of the gate. Default: ``None``
-        ntau (int, optional): The number of modes in the delay loop. Default: 1
-        nmode (int, optional): The number of spatial modes that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        requires_grad (bool, optional): Whether the parameters are ``nn.Parameter`` or ``buffer``.
+        inputs: The parameters of the gate. Default: ``None``
+        ntau: The number of modes in the delay loop. Default: 1
+        nmode: The number of spatial modes that the quantum operation acts on. Default: 1
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        loop_gates (List[Gate] or None, optional): The list of gates added to the delay loop. Default: ``None``
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        loop_gates: The list of gates added to the delay loop. Default: ``None``
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -2666,10 +2649,9 @@ class Barrier(Gate):
     """Barrier.
 
     Args:
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 1
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
     """
 
     def __init__(self, nmode: int = 1, wires: int | list[int] | None = None, cutoff: int | None = None) -> None:

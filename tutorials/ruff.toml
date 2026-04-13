@@ -1,8 +1,5 @@
 extend = '../pyproject.toml'
 
-[lint]
-extend-ignore = ['E402', 'E501']
-
 [lint.isort]
-known-first-party = []
 known-third-party = ['deepquantum']
+known-first-party = []

@@ -143,12 +143,11 @@ def orbit_sample(orbit, samples):
 
 ## event sample
 def event_sample(k, n, samples):
-    """
-    Pick the sample belonging to the given even E_{k,n}
+    """Pick the sample belonging to the given even E_{k,n}
+
     k: total number of photons in all modes
     n: maximum number of photons for single mode+1
     """
-
     orbit_list = integer_partition(k, n - 1)
     orbit_list_sort = [sorted(orbit) for orbit in orbit_list]
     orbit_sample_list = [{} for i in range(len(orbit_list))]
@@ -162,7 +161,7 @@ def event_sample(k, n, samples):
 
 
 def integer_partition(m, n):
-    """integer partition"""
+    """Integer partition"""
     results = []
 
     def back_trace(m, n, result=None):

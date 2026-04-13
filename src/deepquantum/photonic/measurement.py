@@ -20,16 +20,15 @@ class Generaldyne(Operation):
     """General-dyne measurement.
 
     Args:
-        cov_m (Any): The covariance matrix for the general-dyne measurement.
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        name (str, optional): The name of the measurement. Default: ``'Generaldyne'``
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
+        cov_m: The covariance matrix for the general-dyne measurement.
+        nmode: The number of modes that the quantum operation acts on. Default: 1
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        name: The name of the measurement. Default: ``'Generaldyne'``
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -128,19 +127,18 @@ class Homodyne(Generaldyne):
     """Homodyne measurement.
 
     Args:
-        phi (Any, optional): The homodyne measurement angle. Default: ``None``
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        den_mat (bool, optional): Whether to use density matrix representation. Default: ``False``
-        eps (float, optional): The measurement accuracy. Default: 2e-4
-        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+        phi: The homodyne measurement angle. Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 1
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        den_mat: Whether to use density matrix representation. Default: ``False``
+        eps: The measurement accuracy. Default: 2e-4
+        requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise (bool, optional): Whether to introduce Gaussian noise. Default: ``False``
-        mu (float, optional): The mean of Gaussian noise. Default: 0
-        sigma (float, optional): The standard deviation of Gaussian noise. Default: 0.1
-        name (str, optional): The name of the measurement. Default: ``'Homodyne'``
+        noise: Whether to introduce Gaussian noise. Default: ``False``
+        mu: The mean of Gaussian noise. Default: 0
+        sigma: The standard deviation of Gaussian noise. Default: 0.1
+        name: The name of the measurement. Default: ``'Homodyne'``
     """
 
     def __init__(
@@ -214,8 +212,9 @@ class Homodyne(Generaldyne):
         vac_state[0] = 1
         inf_sqz_vac = torch.zeros_like(vac_state)  # (cutoff)
         orders = torch.arange(np.ceil(self.cutoff / 2), dtype=x.real.dtype, device=x.device)
-        fac_2n = torch.tensor(factorial(2 * orders), dtype=orders.dtype, device=orders.device)
-        fac_n = torch.tensor(factorial(orders), dtype=orders.dtype, device=orders.device)
+        orders_cpu = orders.cpu()
+        fac_2n = torch.tensor(factorial(2 * orders_cpu), dtype=orders.dtype, device=orders.device)
+        fac_n = torch.tensor(factorial(orders_cpu), dtype=orders.dtype, device=orders.device)
         inf_sqz_vac[::2] = (-0.5) ** orders * fac_2n**0.5 / fac_n  # unnormalized
         alpha = self.samples * dqp.kappa / dqp.hbar**0.5
         d = Displacement(cutoff=self.cutoff)
@@ -259,13 +258,12 @@ class GeneralBosonic(Operation):
     """General Bosonic measurement.
 
     Args:
-        cov (Any): The covariance matrices for the general Bosonic measurement.
-        weight (Any): The weights for the general Bosonic measurement.
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        name (str, optional): The name of the measurement. Default: ``'GeneralBosonic'``
+        cov: The covariance matrices for the general Bosonic measurement.
+        weight: The weights for the general Bosonic measurement.
+        nmode: The number of modes that the quantum operation acts on. Default: 1
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        name: The name of the measurement. Default: ``'GeneralBosonic'``
     """
 
     def __init__(
@@ -366,13 +364,12 @@ class PhotonNumberResolvingBosonic(GeneralBosonic):
     """Photon-number-resolving measurement for Bosonic state.
 
     Args:
-        n (int): Photon number.
-        r (Any, optional): The quality parameter for the approximation. Default: 0.05
-        nmode (int, optional): The number of modes that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the modes that the quantum operation acts on.
-            Default: ``None``
-        cutoff (int or None, optional): The Fock space truncation. Default: ``None``
-        name (str, optional): The name of the measurement. Default: ``'PhotonNumberResolvingBosonic'``
+        n: Photon number.
+        r: The quality parameter for the approximation. Default: 0.05
+        nmode: The number of modes that the quantum operation acts on. Default: 1
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        name: The name of the measurement. Default: ``'PhotonNumberResolvingBosonic'``
     """
 
     def __init__(

@@ -10,20 +10,20 @@ from torch import nn, vmap
 from .distributed import dist_many_targ_gate
 from .qmath import evolve_den_mat, evolve_state, inverse_permutation, state_to_tensors
 from .state import DistributedQubitState, MatrixProductState
+from .utils import apply_complex_fix
 
 
 class Operation(nn.Module):
     r"""A base class for quantum operations.
 
     Args:
-        name (str or None, optional): The name of the quantum operation. Default: ``None``
-        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
-        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+        name: The name of the quantum operation. Default: ``None``
+        nqubit: The number of qubits that the quantum operation acts on. Default: 1
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
+        den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
 
     def __init__(
@@ -111,16 +111,15 @@ class Gate(Operation):
     r"""A base class for quantum gates.
 
     Args:
-        name (str or None, optional): The name of the gate. Default: ``None``
-        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
-        controls (int, List[int] or None, optional): The indices of the control qubits. Default: ``None``
-        condition (bool, optional): Whether to use ``controls`` as conditional measurement. Default: ``False``
-        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+        name: The name of the gate. Default: ``None``
+        nqubit: The number of qubits that the quantum operation acts on. Default: 1
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
+        controls: The indices of the control qubits. Default: ``None``
+        condition: Whether to use ``controls`` as conditional measurement. Default: ``False``
+        den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
 
     # include default names in QASM
@@ -154,20 +153,19 @@ class Gate(Operation):
         self.nodes = self.wires
         self.nancilla = 1
 
-    def to(self, arg: Any) -> 'Gate':
-        """Set dtype or device of the ``Gate``."""
-        if arg == torch.float:
-            if self.npara == 0:
-                self.matrix = self.matrix.to(torch.cfloat)
-            elif self.npara > 0:
-                super().to(torch.float)
-        elif arg == torch.double:
-            if self.npara == 0:
-                self.matrix = self.matrix.to(torch.cdouble)
-            elif self.npara > 0:
-                super().to(torch.double)
-        else:
-            super().to(arg)
+    def _apply(self, fn: Any) -> 'Gate':
+        if self.npara > 0:
+            super()._apply(fn)
+        elif self.npara == 0:
+            tensors_dict = {}
+            name = 'matrix'
+            tensor = self._buffers.pop(name) if name in self._buffers else None  # Consider Reset and Barrier
+            if tensor is not None:
+                tensors_dict[name] = tensor
+            super()._apply(fn)
+            corrected = apply_complex_fix(fn, tensors_dict)
+            for key, value in corrected.items():
+                self.register_buffer(key, value)
         return self
 
     def set_controls(self, controls: int | list[int]) -> None:
@@ -415,14 +413,13 @@ class Layer(Operation):
     r"""A base class for quantum layers.
 
     Args:
-        name (str, optional): The name of the layer. Default: ``None``
-        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (int | list[int] | list[list[int]] | None, optional): The indices of the qubits that
-            the quantum operation acts on. Default: ``None``
-        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+        name: The name of the layer. Default: ``None``
+        nqubit: The number of qubits that the quantum operation acts on. Default: 1
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
+        den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
 
     def __init__(
@@ -440,12 +437,6 @@ class Layer(Operation):
         self.gates = nn.Sequential()
         # MBQC
         self.nodes = copy(self.wires)
-
-    def to(self, arg: Any) -> 'Layer':
-        """Set dtype or device of the ``Layer``."""
-        for gate in self.gates:
-            gate.to(arg)
-        return self
 
     def get_unitary(self) -> torch.Tensor:
         """Get the global unitary matrix."""
@@ -535,14 +526,13 @@ class Channel(Operation):
     r"""A base class for quantum channels.
 
     Args:
-        inputs (Any, optional): The parameter of the channel. Default: ``None``
-        name (str or None, optional): The name of the channel. Default: ``None``
-        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
-        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
-        requires_grad (bool, optional): Whether the parameter is ``nn.Parameter`` or ``buffer``.
+        inputs: The parameter of the channel. Default: ``None``
+        name: The name of the channel. Default: ``None``
+        nqubit: The number of qubits that the quantum operation acts on. Default: 1
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+        requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
 
@@ -647,23 +637,23 @@ class GateQPD(Gate):
     r"""A base class for quasiprobability-decomposition gates.
 
     Args:
-        bases (List[Tuple[nn.Sequential, ...]]): A list of tuples describing the operations probabilistically used to
-            simulate an ideal quantum operation.
-        coeffs (List[float]): The coefficients for quasiprobability representation.
-        label (int or None, optional): The label of the gate. Default: ``None``
-        name (str or None, optional): The name of the quantum operation. Default: ``None``
-        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
-        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+        bases: The probabilistic basis operations for the decomposition. A nested structure where:
+            - `bases[i]` is the i-th term of the QPD (corresponding to `coeffs[i]`).
+            - `bases[i][j]` is the `nn.Sequential` operations applied to the j-th qubit.
+        coeffs: The coefficients for quasiprobability representation.
+        label: The label of the gate. Default: ``None``
+        name: The name of the quantum operation. Default: ``None``
+        nqubit: The number of qubits that the quantum operation acts on. Default: 1
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
+        den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
 
     def __init__(
         self,
-        bases: list[tuple[nn.Sequential, ...]],
+        bases: 'nn.ModuleList[nn.ModuleList[nn.Sequential]]',
         coeffs: list[float],
         label: int | None = None,
         name: str | None = None,
@@ -681,14 +671,6 @@ class GateQPD(Gate):
         self.coeffs = coeffs
         self.label = label
         self.idx = 0
-
-    def to(self, arg: Any) -> 'GateQPD':
-        """Set dtype or device of the ``GateQPD``."""
-        for basis in self.bases:
-            for ops in basis:
-                for op in ops:
-                    op.to(arg)
-        return self
 
     def set_nqubit(self, nqubit: int) -> None:
         """Set the number of qubits of the ``GateQPD``."""
@@ -710,8 +692,8 @@ class GateQPD(Gate):
         """Perform a forward pass.
 
         Args:
-            x (torch.Tensor): The input tensor.
-            idx (int, optional): The index of the operation to be applied. Default: 0
+            x: The input tensor.
+            idx: The index of the operation to be applied. Default: ``None``
         """
         if idx is not None:
             self.idx = idx
@@ -728,9 +710,8 @@ class MeasureQPD(Operation):
     """A operation for denoting a QPD measurement location.
 
     Args:
-        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (int, List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
+        nqubit: The number of qubits that the quantum operation acts on. Default: 1
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
     """
 
     def __init__(self, nqubit: int = 1, wires: int | list[int] | None = None) -> None:

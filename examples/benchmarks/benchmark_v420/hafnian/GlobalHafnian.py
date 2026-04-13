@@ -56,7 +56,6 @@ def random_hafnian_matrix(cov):
 
 def test_sequence_hafnian(nmode, number_of_sequence=64, device=device, start=None, end=None):
     """Generate a sequence of hafnian matrices."""
-
     # 判断文件是否存在，如果不存在，则保存矩阵U(复数)
     try:
         u = torch.load(f'hafnian/hafnian_matrix_{nmode}_{number_of_sequence}.pt')

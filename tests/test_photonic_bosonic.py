@@ -21,9 +21,9 @@ def test_catstate():
     weights_sf = state.weights()
 
     cat = dq.CatState(r=r, theta=theta, p=1)
-    err1 = abs(cat.cov - covs_sf).sum()
-    err2 = abs(cat.mean[0].squeeze() - means_sf).sum()
-    err3 = abs(cat.weight - weights_sf).sum() / abs(weights_sf).sum()  # relative error
+    err1 = abs(cat.cov.numpy() - covs_sf).sum()
+    err2 = abs(cat.mean[0].squeeze().numpy() - means_sf).sum()
+    err3 = abs(cat.weight.numpy() - weights_sf).sum() / abs(weights_sf).sum()  # relative error
     assert err1 + err2 + err3 < 3e-4
 
 
@@ -51,9 +51,9 @@ def test_forward_cov_mean():
     means_sf = state.means()
     covs_sf = state.covs()
     weights_sf = state.weights()
-    err1 = abs(xxpp_to_xpxp(test[0][0]) - covs_sf).sum()
-    err2 = abs(xxpp_to_xpxp(test[1][0]).squeeze() - means_sf).sum()
-    err3 = abs(test[2] - weights_sf).sum() / abs(weights_sf).sum()  # relative error
+    err1 = abs(xxpp_to_xpxp(test[0][0]).numpy() - covs_sf).sum()
+    err2 = abs(xxpp_to_xpxp(test[1][0]).squeeze().numpy() - means_sf).sum()
+    err3 = abs(test[2].numpy() - weights_sf).sum() / abs(weights_sf).sum()  # relative error
     assert err1 + err2 + err3 < 3e-4
 
 
@@ -75,7 +75,7 @@ def test_photon_number_mean_var():
     cir()
     test1 = cir.photon_number_mean_var()
     test2 = state.mean_photon(0)
-    err = abs(torch.tensor(test1) - np.array(test2)).sum()
+    err = abs(torch.tensor(test1).numpy() - np.array(test2)).sum()
     assert err < 1e-4
 
 
@@ -98,5 +98,5 @@ def test_wigner():
     pvec = torch.linspace(-prange, prange, npoints)
     w_sf = state.wigner(0, xvec, pvec)
     w_dq = gkp.wigner(0, xrange, prange, npoints, plot=False, normalize=False)
-    err = abs(w_dq[0].mT - w_sf).max()
+    err = abs(w_dq[0].mT.numpy() - w_sf).max()
     assert err < 1e-5

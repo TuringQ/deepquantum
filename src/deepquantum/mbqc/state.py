@@ -11,18 +11,19 @@ from torch import nn, vmap
 from ..circuit import QubitCircuit
 from ..qmath import inverse_permutation, multi_kron
 from ..state import QubitState
+from ..utils import apply_complex_fix
 
 
 class SubGraphState(nn.Module):
     """A subgraph state of a quantum state.
 
     Args:
-        nodes_state (int, List[int] or None, optional): The nodes of the input state in the subgraph state.
+        nodes_state: The nodes of the input state in the subgraph state.
             It can be an integer representing the number of nodes or a list of node indices. Default: ``None``
-        state (Any, optional): The input state of the subgraph state. The string representation of state
-            could be ``'plus'``, ``'minus'``, ``'zero'``, and ``'one'``. Default: ``'plus'``
-        edges (List or None, optional): Additional edges connecting the nodes in the subgraph state. Default: ``None``
-        nodes (int, List[int] or None, optional): Additional nodes to include in the subgraph state. Default: ``None``
+        state: The input state of the subgraph state. The string representation of state could be
+            ``'plus'``, ``'minus'``, ``'zero'``, and ``'one'``. Default: ``'plus'``
+        edges: Additional edges connecting the nodes in the subgraph state. Default: ``None``
+        nodes: Additional nodes to include in the subgraph state. Default: ``None``
     """
 
     def __init__(
@@ -38,14 +39,16 @@ class SubGraphState(nn.Module):
         self.set_state(state)
         self.measure_dict = defaultdict(list)  # record the measurement results: {node: batched_bit}
 
-    def to(self, arg: Any) -> 'SubGraphState':
-        """Set dtype or device of the ``SubGraphState``."""
-        if arg == torch.float:
-            self.state = self.state.to(torch.cfloat)
-        elif arg == torch.double:
-            self.state = self.state.to(torch.cdouble)
-        else:
-            self.state = self.state.to(arg)
+    def _apply(self, fn: Any) -> 'SubGraphState':
+        tensors_dict = {}
+        name = 'state'
+        tensor = self._buffers.pop(name)
+        if tensor is not None:
+            tensors_dict[name] = tensor
+        super()._apply(fn)
+        corrected = apply_complex_fix(fn, tensors_dict)
+        for key, value in corrected.items():
+            self.register_buffer(key, value)
         return self
 
     @property
@@ -74,7 +77,7 @@ class SubGraphState(nn.Module):
         edges = list(filter(lambda edge: edge[2]['cz'], self.edges(data=True)))
         for edge in edges:
             cir.cz(self.node2wire_dict[edge[0]], self.node2wire_dict[edge[1]])
-        cir.to(init_state.real.dtype).to(init_state.device)
+        cir.to(init_state.device, init_state.real.dtype)
         return cir()
 
     def set_graph(
@@ -157,11 +160,11 @@ class SubGraphState(nn.Module):
         """Compose this subgraph state with another subgraph state.
 
         Args:
-            other (SubGraphState): The other subgraph state to compose with.
-            relabel (bool, optional): Whether to relabel nodes to avoid conflicts. Default: ``True``
+            other: The other subgraph state to compose with.
+            relabel: Whether to relabel nodes to avoid conflicts. Default: ``True``
 
         Returns:
-            SubGraphState: A new subgraph state that is the composition of the two.
+            A new subgraph state that is the composition of the two.
         """
         if relabel and (set(self.nodes) & set(other.nodes)):
             shift = max(self.nodes) - min(other.nodes) + 1
@@ -187,7 +190,7 @@ class SubGraphState(nn.Module):
         """Update the mapping from nodes to wire indices.
 
         Returns:
-            Dict: A dictionary mapping nodes to their corresponding wire indices.
+            A dictionary mapping nodes to their corresponding wire indices.
         """
         if self.nodes_out_seq is None:
             wires = inverse_permutation(np.argsort(self.nodes).tolist())
@@ -208,14 +211,12 @@ class GraphState(nn.Module):
     """A graph state composed by several SubGraphStates.
 
     Args:
-        nodes_state (int, List[int] or None, optional): The nodes of the input state in the initial graph state.
+        nodes_state: The nodes of the input state in the initial graph state.
             It can be an integer representing the number of nodes or a list of node indices. Default: ``None``
-        state (Any, optional): The input state of the initial graph state. The string representation of state
-            could be ``'plus'``, ``'minus'``, ``'zero'``, and ``'one'``. Default: ``'plus'``
-        edges (List or None, optional): Additional edges connecting the nodes in the initial graph state.
-            Default: ``None``
-        nodes (int, List[int] or None, optional): Additional nodes to include in the initial graph state.
-            Default: ``None``
+        state: The input state of the initial graph state. The string representation of state could be
+            ``'plus'``, ``'minus'``, ``'zero'``, and ``'one'``. Default: ``'plus'``
+        edges: Additional edges connecting the nodes in the initial graph state. Default: ``None``
+        nodes: Additional nodes to include in the initial graph state. Default: ``None``
     """
 
     def __init__(
@@ -230,12 +231,6 @@ class GraphState(nn.Module):
         self.subgraphs = nn.ModuleList([sgs])
         self.nodes_out_seq = None
 
-    def to(self, arg: Any) -> 'GraphState':
-        """Set dtype or device of the ``GraphState``."""
-        for sgs in self.subgraphs:
-            sgs.to(arg)
-        return self
-
     def add_subgraph(
         self,
         nodes_state: int | list[int] | None = None,
@@ -248,22 +243,20 @@ class GraphState(nn.Module):
         """Add a subgraph state to the graph state.
 
         Args:
-            nodes_state (int, List[int] or None, optional): The nodes of the input state in the subgraph state.
+            nodes_state: The nodes of the input state in the subgraph state.
                 It can be an integer representing the number of nodes or a list of node indices. Default: ``None``
-            state (Any, optional): The input state of the subgraph state. The string representation of state
-                could be ``'plus'``, ``'minus'``, ``'zero'``, and ``'one'``. Default: ``'plus'``
-            edges (List or None, optional): Additional edges connecting the nodes in the subgraph state.
-                Default: ``None``
-            nodes (int, List[int] or None, optional): Additional nodes to include in the subgraph state.
-                Default: ``None``
-            measure_dict (Dict or None, optional): A dictionary containing all measurement results. Default: ``None``
-            index (int or None, optional): The index where to insert the subgraph state. Default: ``None``
+            state: The input state of the subgraph state. The string representation of state could be
+                ``'plus'``, ``'minus'``, ``'zero'``, and ``'one'``. Default: ``'plus'``
+            edges: Additional edges connecting the nodes in the subgraph state. Default: ``None``
+            nodes: Additional nodes to include in the subgraph state. Default: ``None``
+            measure_dict: A dictionary containing all measurement results. Default: ``None``
+            index: The index where to insert the subgraph state. Default: ``None``
         """
         sgs = SubGraphState(nodes_state, state, edges, nodes)
         if index is None:
             dtype = self.subgraphs[0].state.real.dtype
             device = self.subgraphs[0].state.device
-            sgs.to(dtype).to(device)
+            sgs.to(device, dtype)
         if measure_dict is not None:
             sgs.measure_dict = measure_dict
         if index is None:

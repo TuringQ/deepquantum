@@ -1,5 +1,5 @@
 [build-system]
-requires = ['setuptools >= 80.0', 'wheel']
+requires = ['setuptools', 'wheel']
 build-backend = 'setuptools.build_meta'
 
 [project]
@@ -57,8 +57,14 @@ dev = [
     'pytest',
     'qutip',
     'ruff',
+    'setuptools<82.0.0',
     'strawberryfields',
     'thewalrus',
+]
+docs = [
+    'myst-nb',
+    'sphinx',
+    'sphinx_book_theme',
 ]
 
 [project.urls]
@@ -83,14 +89,24 @@ line-length = 120
 quote-style = 'single'
 
 [tool.ruff.lint]
-select = ['E', 'W', 'F', 'I', 'B', 'UP', 'N', 'A', 'SIM']
+select = ['E', 'W', 'F', 'I', 'B', 'UP', 'N', 'A', 'SIM', 'D']
+ignore = ['D102', 'D105', 'D107', 'D415']
 
 [tool.ruff.lint.extend-per-file-ignores]
 '__init__.py' = ['F401']
+'docs/source/conf.py' = ['D100', 'D101', 'D103']
+'docs/source/demos/**' = ['D100', 'D101', 'D103', 'E501']
+'examples/**' = ['D100', 'D101', 'D103', 'E501']
+'examples/benchmarks/**/*.py' = ['D100', 'D101', 'D103']
+'tests/**' = ['D100', 'D101', 'D103']
+'tutorials/**' = ['D100', 'D101', 'D103', 'E402', 'E501']
 
 [tool.ruff.lint.isort]
 order-by-type = false
 case-sensitive = true
+
+[tool.ruff.lint.pydocstyle]
+convention = 'google'
 
 [tool.uv.sources]
 strawberryfields = { git = 'https://github.com/XanaduAI/strawberryfields.git', branch = 'master' }

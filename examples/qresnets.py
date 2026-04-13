@@ -30,7 +30,8 @@ torch.manual_seed(43)
 # %%
 class Y1Dataset(Dataset):
     def __init__(self, omega, a):
-        """
+        """Prepare Y1Dataset
+
         Args:
             omega (tensor): A tensor of omega values.
             a (tensor): A complex number representing the amplitude.
@@ -53,7 +54,8 @@ class Y1Dataset(Dataset):
 
 class Y2Dataset(Dataset):
     def __init__(self, omega, amps):
-        """
+        """Prepare Y2Dataset
+
         Args:
             omega (tensor): A tensor of omega values.
             amps (tensor): A tensor of complex numbers representing the amplitudes.

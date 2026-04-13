@@ -10,23 +10,23 @@ class SingleGateQPD(GateQPD):
     r"""A base class for single-qubit QPD gates.
 
     Args:
-        bases (List[Tuple[nn.Sequential, ...]]): A list of tuples describing the operations probabilistically used to
-            simulate an ideal quantum operation.
-        coeffs (List[float]): The coefficients for quasiprobability representation.
-        label (int or None, optional): The label of the gate. Default: ``None``
-        name (str or None, optional): The name of the quantum operation. Default: ``None``
-        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 1
-        wires (List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
-        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+        bases: The probabilistic basis operations for the decomposition. A nested structure where:
+            - `bases[i]` is the i-th term of the QPD (corresponding to `coeffs[i]`).
+            - `bases[i][j]` is the `nn.Sequential` operations applied to the j-th qubit.
+        coeffs: The coefficients for quasiprobability representation.
+        label: The label of the gate. Default: ``None``
+        name: The name of the quantum operation. Default: ``None``
+        nqubit: The number of qubits that the quantum operation acts on. Default: 1
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
+        den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
 
     def __init__(
         self,
-        bases: list[tuple[nn.Sequential, ...]],
+        bases: 'nn.ModuleList[nn.ModuleList[nn.Sequential]]',
         coeffs: list[float],
         label: int | None = None,
         name: str | None = None,
@@ -56,23 +56,23 @@ class DoubleGateQPD(GateQPD):
     r"""A base class for two-qubit QPD gates.
 
     Args:
-        bases (List[Tuple[nn.Sequential, ...]]): A list of tuples describing the operations probabilistically used to
-            simulate an ideal quantum operation.
-        coeffs (List[float]): The coefficients for quasiprobability representation.
-        label (int or None, optional): The label of the gate. Default: ``None``
-        name (str or None, optional): The name of the quantum operation. Default: ``None``
-        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 2
-        wires (List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
-        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+        bases: The probabilistic basis operations for the decomposition. A nested structure where:
+            - `bases[i]` is the i-th term of the QPD (corresponding to `coeffs[i]`).
+            - `bases[i][j]` is the `nn.Sequential` operations applied to the j-th qubit.
+        coeffs: The coefficients for quasiprobability representation.
+        label: The label of the gate. Default: ``None``
+        name: The name of the quantum operation. Default: ``None``
+        nqubit: The number of qubits that the quantum operation acts on. Default: 2
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
+        den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
 
     def __init__(
         self,
-        bases: list[tuple[nn.Sequential, ...]],
+        bases: 'nn.ModuleList[nn.ModuleList[nn.Sequential]]',
         coeffs: list[float],
         label: int | None = None,
         name: str | None = None,
@@ -99,11 +99,11 @@ class DoubleGateQPD(GateQPD):
 
     def decompose(self) -> tuple[SingleGateQPD, SingleGateQPD]:
         """Decompose the gate into two single-qubit QPD gates."""
-        bases1 = []
-        bases2 = []
+        bases1 = nn.ModuleList([])
+        bases2 = nn.ModuleList([])
         for basis in self.bases:
-            bases1.append(tuple([basis[0]]))
-            bases2.append(tuple([basis[1]]))
+            bases1.append(nn.ModuleList([basis[0]]))
+            bases2.append(nn.ModuleList([basis[1]]))
         name = self.name + f'_label{self.label}_'
         gate1 = SingleGateQPD(
             bases1, self.coeffs, self.label, name + '1', self.nqubit, [self.wires[0]], self.den_mat, self.tsr_mode
@@ -118,14 +118,13 @@ class MoveQPD(DoubleGateQPD):
     r"""QPD representation of the move operation.
 
     Args:
-        nqubit (int, optional): The number of qubits that the quantum operation acts on. Default: 2
-        wires (List[int] or None, optional): The indices of the qubits that the quantum operation acts on.
-            Default: ``None``
-        label (int or None, optional): The label of the gate. Default: ``None``
-        den_mat (bool, optional): Whether the quantum operation acts on density matrices or state vectors.
+        nqubit: The number of qubits that the quantum operation acts on. Default: 2
+        wires: The indices of the qubits that the quantum operation acts on. Default: ``None``
+        label: The label of the gate. Default: ``None``
+        den_mat: Whether the quantum operation acts on density matrices or state vectors.
             Default: ``False`` (which means state vectors)
-        tsr_mode (bool, optional): Whether the quantum operation is in tensor mode, which means the input
-            and output are represented by a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
+        tsr_mode: Whether the quantum operation is in tensor mode, which means the input and output are represented by
+            a tensor of shape :math:`(\text{batch}, 2, ..., 2)`. Default: ``False``
     """
 
     def __init__(
@@ -157,16 +156,18 @@ class MoveQPD(DoubleGateQPD):
         prep_iplus = nn.Sequential(h2, s2)
         prep_iminus = nn.Sequential(x2, h2, s2)
 
-        bases = [
-            (measure_i, prep_0),
-            (measure_i, prep_1),
-            (measure_x, prep_plus),
-            (measure_x, prep_minus),
-            (measure_y, prep_iplus),
-            (measure_y, prep_iminus),
-            (measure_z, prep_0),
-            (measure_z, prep_1),
-        ]
+        bases = nn.ModuleList(
+            [
+                nn.ModuleList([measure_i, prep_0]),
+                nn.ModuleList([measure_i, prep_1]),
+                nn.ModuleList([measure_x, prep_plus]),
+                nn.ModuleList([measure_x, prep_minus]),
+                nn.ModuleList([measure_y, prep_iplus]),
+                nn.ModuleList([measure_y, prep_iminus]),
+                nn.ModuleList([measure_z, prep_0]),
+                nn.ModuleList([measure_z, prep_1]),
+            ]
+        )
         coeffs = [0.5, 0.5, 0.5, -0.5, 0.5, -0.5, 0.5, -0.5]
         super().__init__(
             bases=bases,

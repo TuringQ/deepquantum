@@ -8,17 +8,19 @@ from torch import nn
 from .bitmath import is_power_of_2, log_base2, power_of_2
 from .communication import comm_get_rank, comm_get_world_size
 from .qmath import amplitude_encoding, inner_product_mps, is_density_matrix, qr, svd
+from .utils import apply_complex_fix
 
 
 class QubitState(nn.Module):
     """A quantum state of n qubits, including both pure states and density matrices.
 
     Args:
-        nqubit (int, optional): The number of qubits in the state. Default: 1
-        state (Any, optional): The representation of the state. It can be one of the following strings:
-            ``'zeros'``, ``'equal'``, ``'entangle'``, ``'GHZ'``, or ``'ghz'``. Alternatively, it can be
-            a tensor that represents a custom state vector or density matrix. Default: ``'zeros'``
-        den_mat (bool, optional): Whether the state is a density matrix or not. Default: ``False``
+        nqubit: The number of qubits in the state. Default: 1
+        state: The representation of the state. It can be one of the following strings:
+            ``'zeros'``, ``'equal'``, ``'entangle'``, ``'GHZ'``, or ``'ghz'``.
+            Alternatively, it can be a tensor that represents a custom state vector or density matrix.
+            Default: ``'zeros'``
+        den_mat: Whether the state is a density matrix or not. Default: ``False``
     """
 
     def __init__(self, nqubit: int = 1, state: Any = 'zeros', den_mat: bool = False) -> None:
@@ -59,14 +61,16 @@ class QubitState(nn.Module):
                     state = state @ state.mH
                 self.register_buffer('state', state)
 
-    def to(self, arg: Any) -> 'QubitState':
-        """Set dtype or device of the ``QubitState``."""
-        if arg == torch.float:
-            self.state = self.state.to(torch.cfloat)
-        elif arg == torch.double:
-            self.state = self.state.to(torch.cdouble)
-        else:
-            self.state = self.state.to(arg)
+    def _apply(self, fn: Any) -> 'QubitState':
+        tensors_dict = {}
+        name = 'state'
+        tensor = self._buffers.pop(name)
+        if tensor is not None:
+            tensors_dict[name] = tensor
+        super()._apply(fn)
+        corrected = apply_complex_fix(fn, tensors_dict)
+        for key, value in corrected.items():
+            self.register_buffer(key, value)
         return self
 
     def forward(self) -> None:
@@ -83,14 +87,16 @@ class MatrixProductState(nn.Module):
     between qudits.
 
     Args:
-        nsite (int, optional): The number of sites of the MPS. Default: 1
-        state (str, List[torch.Tensor] or List[int], optional): The representation of the MPS.
-            If ``'zeros'`` or ``'vac'``, the MPS is initialized to the all-zero state. If a list of tensors,
-            the MPS is initialized to the given tensors. The tensors must have the correct shape and dtype.
-            If a list of integers, the MPS is initialized to the corresponding basis state. Default: ``'zeros'``
-        chi (int or None, optional): The maximum bond dimension of the MPS. Default: 10 * ``nsite``
-        qudit (int, optional): The local Hilbert space dimension of each qudit. Default: 2
-        normalize (bool, optional): Whether to normalize the MPS after each operation. Default: ``True``
+        nsite: The number of sites of the MPS. Default: 1
+        state: The representation of the MPS.
+            If ``'zeros'`` or ``'vac'``, the MPS is initialized to the all-zero state.
+            If a list of tensors, the MPS is initialized to the given tensors.
+            The tensors must have the correct shape and dtype.
+            If a list of integers, the MPS is initialized to the corresponding basis state.
+            Default: ``'zeros'``
+        chi: The maximum bond dimension of the MPS. Default: None (which means 10 * ``nsite``)
+        qudit: The local Hilbert space dimension of each qudit. Default: 2
+        normalize: Whether to normalize the MPS after each operation. Default: ``True``
     """
 
     def __init__(
@@ -111,16 +117,14 @@ class MatrixProductState(nn.Module):
         self.center = -1
         self.set_tensors(state)
 
-    def to(self, arg: Any) -> 'MatrixProductState':
-        """Set dtype or device of the ``MatrixProductState``."""
-        tensors = self.tensors
-        for i in range(self.nsite):
-            if arg == torch.float:
-                self._buffers[f'tensor{i}'] = tensors[i].to(torch.cfloat)
-            elif arg == torch.double:
-                self._buffers[f'tensor{i}'] = tensors[i].to(torch.cdouble)
-            else:
-                self._buffers[f'tensor{i}'] = tensors[i].to(arg)
+    def _apply(self, fn: Any) -> 'MatrixProductState':
+        tensors_dict = {
+            name: tensor for i in range(self.nsite) if (tensor := self._buffers.pop(name := f'tensor{i}')) is not None
+        }
+        super()._apply(fn)
+        corrected = apply_complex_fix(fn, tensors_dict)
+        for key, value in corrected.items():
+            self.register_buffer(key, value)
         return self
 
     @property
@@ -239,10 +243,9 @@ class MatrixProductState(nn.Module):
         The tensor at ``site`` + 1 is updated by :math:`R`.
 
         Args:
-            site (int): The site of tensor to be orthogonalized.
-            dc (int, optional): Keep the first ``dc`` singular values after truncation.
-                Default: -1 (which means no truncation)
-            normalize (bool, optional): Whether to normalize the tensor :math:`R`. Default: ``False``
+            site: The site of tensor to be orthogonalized.
+            dc: Keep the first ``dc`` singular values after truncation. Default: -1 (which means no truncation)
+            normalize: Whether to normalize the tensor :math:`R`. Default: ``False``
         """
         assert site < self.nsite - 1
         tensors = self.tensors
@@ -275,10 +278,9 @@ class MatrixProductState(nn.Module):
         updated by :math:`L`.
 
         Args:
-            site (int): The site of tensor to be orthogonalized.
-            dc (int, optional): Keep the first ``dc`` singular values after truncation.
-                Default: -1 (which means no truncation)
-            normalize (bool, optional): Whether to normalize the tensor :math:`L`. Default: ``False``
+            site: The site of tensor to be orthogonalized.
+            dc: Keep the first ``dc`` singular values after truncation. Default: -1 (which means no truncation)
+            normalize: Whether to normalize the tensor :math:`L`. Default: ``False``
         """
         assert site > 0
         tensors = self.tensors
@@ -341,7 +343,7 @@ class DistributedQubitState(nn.Module):
     """A quantum state of n qubits distributed between w nodes.
 
     Args:
-        nqubit (int): The number of qubits in the state.
+        nqubit: The number of qubits in the state.
     """
 
     def __init__(self, nqubit: int) -> None:
@@ -363,17 +365,14 @@ class DistributedQubitState(nn.Module):
         self.register_buffer('buffer', buffer)
         self.reset()
 
-    def to(self, arg: Any) -> 'DistributedQubitState':
-        """Set dtype or device of the ``DistributedQubitState``."""
-        if arg == torch.float:
-            self.amps = self.amps.to(torch.cfloat)
-            self.buffer = self.buffer.to(torch.cfloat)
-        elif arg == torch.double:
-            self.amps = self.amps.to(torch.cdouble)
-            self.buffer = self.buffer.to(torch.cdouble)
-        else:
-            self.amps = self.amps.to(arg)
-            self.buffer = self.buffer.to(arg)
+    def _apply(self, fn: Any) -> 'DistributedQubitState':
+        tensors_dict = {}
+        names = ['amps', 'buffer']
+        tensors_dict = {name: tensor for name in names if (tensor := self._buffers.pop(name)) is not None}
+        super()._apply(fn)
+        corrected = apply_complex_fix(fn, tensors_dict)
+        for key, value in corrected.items():
+            self.register_buffer(key, value)
         return self
 
     def reset(self):

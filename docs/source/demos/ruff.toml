@@ -1,4 +1,4 @@
-extend = '../pyproject.toml'
+extend = '../../../pyproject.toml'
 
 [lint.isort]
 known-third-party = ['deepquantum']
