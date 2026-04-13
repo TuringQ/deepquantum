@@ -25,10 +25,9 @@
 # ### 甲酸分子的振动激发
 
 # %%
+import deepquantum as dq
 import matplotlib.pyplot as plt
 import numpy as np
-
-import deepquantum as dq
 
 # %% [markdown]
 # 我们还需要描述分子振动模式和分子在振动跃迁过程中几何结构变化的分子参数。

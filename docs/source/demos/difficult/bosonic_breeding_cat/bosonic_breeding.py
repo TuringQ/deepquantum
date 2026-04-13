@@ -78,10 +78,9 @@
 # # Breeding过程代码模拟
 
 # %%
+import deepquantum as dq
 import numpy as np
 import torch
-
-import deepquantum as dq
 
 # %% [markdown]
 # ## 压缩猫态的制备

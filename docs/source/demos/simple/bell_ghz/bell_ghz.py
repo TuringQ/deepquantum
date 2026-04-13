@@ -60,9 +60,8 @@
 # Bell态可以通过1个H门和1个CNOT门制备得到，线路如下：
 
 # %%
-import matplotlib.pyplot as plt
-
 import deepquantum as dq
+import matplotlib.pyplot as plt
 
 cir = dq.QubitCircuit(2)
 cir.h(0)

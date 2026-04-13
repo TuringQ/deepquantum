@@ -137,13 +137,12 @@
 # 下面以单模压缩态为例， 计算算符$|n+\lambda\rangle\langle n|$的平均值
 
 # %%
+import deepquantum as dq
 import mpmath
 import numpy as np
 import scipy
 from mpmath import mp
 from scipy.special import comb, factorial
-
-import deepquantum as dq
 
 nmode = 1
 cir = dq.QumodeCircuit(nmode=nmode, init_state='vac', cutoff=3, backend='gaussian')
@@ -158,9 +157,7 @@ mp.pretty = True
 
 
 def kernel_a(x, phi, n, lambd):
-    """
-    Kernel function for calculating expetation value of |n+lambd><n|
-    """
+    """Kernel function for calculating expetation value of |n+lambd><n|"""
     mp.dps = 15  # 设置mpmath的精度
     factor1 = 2 * np.exp(-1j * lambd * phi) * np.exp(-(x**2)) * np.sqrt(factorial(n) / factorial(n + lambd))
     sum_part = 0
@@ -174,9 +171,7 @@ def kernel_a(x, phi, n, lambd):
 
 
 def fun_(phi, x, n, lambd, mu_x, mu_p, sigma_x, sigma_p):
-    """
-    calculating expectation value of operator |n+lambd><n|
-    """
+    """Calculating expectation value of operator |n+lambd><n|"""
     mu = (np.cos(phi) * (mu_x) + np.sin(phi) * (mu_p)) / 2
     sigma = (np.cos(phi) ** 2 * sigma_x + np.sin(phi) ** 2 * sigma_p) / 4
     p_phi_x = 1 / np.sqrt(2 * np.pi * sigma) * np.exp(-((x - mu) ** 2) / (2 * sigma))
@@ -369,9 +364,7 @@ def get_mu_sigma(phi_1, phi_2, mu, sigma):
 
 
 def fun_twomode(phi_1, phi_2, x_1, x_2, n_1, lambd_1, n_2, lambd_2, mu, sigma):
-    r"""
-    calculating expectation value of operator |n_1+lambd_1><n1| \otimes |n_2+lambd_2><n2|
-    """
+    r"""Calculating expectation value of operator |n_1+lambd_1><n1| \otimes |n_2+lambd_2><n2|"""
     mu_, sigma_ = get_mu_sigma(phi_1, phi_2, mu, sigma)
     sigma_inv = np.linalg.inv(sigma_)
     x_ = np.array([x_1, x_2]) - mu_

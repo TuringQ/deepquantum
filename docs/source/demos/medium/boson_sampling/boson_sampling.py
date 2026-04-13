@@ -108,9 +108,8 @@
 
 # %%
 ## 构建一个由ps门和bs门组成的4模线路，设置初态为[1,1,0,0]
-import numpy as np
-
 import deepquantum as dq
+import numpy as np
 
 # %%
 init_state = [1, 1, 0, 0]

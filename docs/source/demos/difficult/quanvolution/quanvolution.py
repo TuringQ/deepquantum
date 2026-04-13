@@ -60,6 +60,7 @@
 import os
 import random
 
+import deepquantum as dq
 import numpy as np
 import torch
 import torch.optim as optim
@@ -69,8 +70,6 @@ from sklearn.model_selection import train_test_split
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
-
-import deepquantum as dq
 
 # %% [markdown]
 # 加载数据集
@@ -244,8 +243,7 @@ def calculate_score(y_true, y_preds):
 
 # %%
 def train_model(model, criterion, optimizer, train_loader, valid_loader, num_epochs, device):
-    """
-    训练和验证模型。
+    """训练和验证模型
 
     Args:
         model (torch.nn.Module): 要训练的模型。
@@ -254,11 +252,11 @@ def train_model(model, criterion, optimizer, train_loader, valid_loader, num_epo
         train_loader (torch.utils.data.DataLoader): 训练数据加载器。
         valid_loader (torch.utils.data.DataLoader): 验证数据加载器。
         num_epochs (int): 训练的epoch数。
+        device (str): `cpu` 或者 `cuda`。
 
     Returns:
         model (torch.nn.Module): 训练后的模型。
     """
-
     model.train()
     train_loss_list = []
     valid_loss_list = []

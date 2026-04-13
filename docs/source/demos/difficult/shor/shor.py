@@ -139,12 +139,11 @@ from fractions import Fraction
 from math import gcd
 from typing import Any
 
+import deepquantum as dq
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
-
-import deepquantum as dq
 
 
 class Camod15(dq.Ansatz):

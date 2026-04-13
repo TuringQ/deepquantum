@@ -130,9 +130,8 @@
 # 下面简单演示6个模式的高斯玻色采样任务
 
 # %%
-import numpy as np
-
 import deepquantum as dq
+import numpy as np
 
 squeezing = [1] * 6
 unitary = np.eye(6)

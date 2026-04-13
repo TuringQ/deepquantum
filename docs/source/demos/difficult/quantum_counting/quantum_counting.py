@@ -88,9 +88,8 @@
 # %%
 import math
 
-import matplotlib.pyplot as plt
-
 import deepquantum as dq
+import matplotlib.pyplot as plt
 
 
 def example_grover_iteration():

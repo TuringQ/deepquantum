@@ -80,12 +80,11 @@
 # 首先调用DeepQauntum和相关包：
 
 # %%
+import deepquantum as dq
 import matplotlib.pyplot as plt
 import networkx as nx
 import torch
 import torch.nn as nn
-
-import deepquantum as dq
 
 # %% [markdown]
 # 调用networkx包以生成5节点的棒棒糖🍭图，并获得邻接矩阵以对应GBS中特征值在 $-1$ 和$1$间的的对称矩阵$A$。

@@ -55,13 +55,12 @@
 # ## 代码演示
 
 # %%
+import deepquantum.photonic as dqp
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 import torch
 from strawberryfields.apps import clique
-
-import deepquantum.photonic as dqp
 
 
 # %%
@@ -105,8 +104,7 @@ def clique_shrink(samples, graph, node_select='uniform') -> list:
 
 
 def plot_subgraph(graph, subgraph_idx):
-    """plot the subgraph in graph G"""
-
+    """Plot the subgraph in graph G"""
     sub_g = graph.subgraph(subgraph_idx).copy()
     edge_list = list(sub_g.edges)
 

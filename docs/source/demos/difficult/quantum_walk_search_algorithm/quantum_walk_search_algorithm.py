@@ -182,10 +182,9 @@
 # %%
 from typing import Any
 
+import deepquantum as dq
 import matplotlib.pyplot as plt
 import torch
-
-import deepquantum as dq
 
 cir = dq.QubitCircuit(6)
 

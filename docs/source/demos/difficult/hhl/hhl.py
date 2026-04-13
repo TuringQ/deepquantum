@@ -44,7 +44,7 @@
 #
 # $$ A|x\rangle=|b\rangle$$
 #
-# 由于 $A$ 是厄米矩阵，它具有谱分解  
+# 由于 $A$ 是厄米矩阵，它具有谱分解
 #
 # $$
 # A=\sum_{j=0}^{N-1}\lambda_{j}|u_{j}\rangle\langle u_{j}|,\quad \lambda_{j}\in\mathbb{ R }
@@ -54,9 +54,9 @@
 #
 # $$
 # A^{-1}=\sum_{j=0}^{N-1}\lambda_{j}^{-1}|u_{j}\rangle\langle u_{j}|
-# $$ 
+# $$
 #
-# 由于 $A$ 是可逆和厄米的，它必须具有正交的特征向量基，因此我们可以在 $A$ 的特征基下写出 $b$ 
+# 由于 $A$ 是可逆和厄米的，它必须具有正交的特征向量基，因此我们可以在 $A$ 的特征基下写出 $b$
 #
 # $$
 # |b\rangle=\sum_{j=0}^{N-1}b_{j}|u_{j}\rangle,\quad b_{j}\in\mathbb{ C }
@@ -110,9 +110,9 @@
 # 5. 在计算基底下测量辅助量子比特。如果结果为 $1$ ，则寄存器处于后测量态
 #
 #    $$
-#    \left( \sqrt { \frac { 1 } { \sum_{j=0}^{N-1} \left| b _ { j } \right| ^ { 2 } / \left| \lambda _ { j } \right| ^ { 2 } } } \right) \sum _{j=0}^{N-1} \frac{b _ { j }}{\lambda _ { j }} |0\rangle_{n_{l}}|u_{j}\rangle_{n_{b}} 
+#    \left( \sqrt { \frac { 1 } { \sum_{j=0}^{N-1} \left| b _ { j } \right| ^ { 2 } / \left| \lambda _ { j } \right| ^ { 2 } } } \right) \sum _{j=0}^{N-1} \frac{b _ { j }}{\lambda _ { j }} |0\rangle_{n_{l}}|u_{j}\rangle_{n_{b}}
 #    $$
-#    
+#
 #    这对应于归一化因子的解。
 #
 # 6. 应用一个可观测量 $M$ 来计算 $F(x):=\langle x|M|x\rangle$ 。
@@ -164,7 +164,7 @@
 #
 # $$
 # \sum_{j=0}^{N-1}b_{j}|\lambda_{j}\rangle_{n_{l}}|u_{j}\rangle_{n_{b}}
-# $$ 
+# $$
 #
 # 否则，当且仅当 $\frac{\lambda_{j}t}{2\pi}\approx\frac{l+\tilde{\lambda}_{j}}{2^{n_{l}}}$ 时，| $\alpha_{l|j}|$ 很大，寄存器的状态为
 #
@@ -178,11 +178,10 @@
 # %%
 from typing import Any
 
+import deepquantum as dq
 import numpy as np
 import torch
 from scipy.linalg import expm
-
-import deepquantum as dq
 
 
 class QuantumFourierTransform(dq.Ansatz):

@@ -59,19 +59,18 @@
 # -------------
 #
 # 我们需要定义用于制备分子试探态的量子线路。我们希望制备如下形式的态:
-#  
-# $$\vert \Psi(\theta) \rangle = \cos(\theta/2)~|1100\rangle -\sin(\theta/2)~|0011\rangle$$ 
+#
+# $$\vert \Psi(\theta) \rangle = \cos(\theta/2)~|1100\rangle -\sin(\theta/2)~|0011\rangle$$
 #
 # 其中 $\theta$ 是变分参数，需要优化以找到真实基态的最佳近似。在Jordan-Wigner编码中，第一项 $|1100\rangle$ 表示两个电子占据最低能量轨道的Hartree-Fock (HF)态。第二项 $|0011\rangle$ 编码了HF态的双重激发，其中两个粒子从量子比特0，1激发到2，3。
 #
 # 制备试探态 $\vert \Psi(\theta) \rangle$ 的量子线路如下图所示。
 
 # %%
+import deepquantum as dq
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
-
-import deepquantum as dq
 
 phi = 0
 n_qubits = 4  # 定义比特个数
@@ -317,7 +316,7 @@ plt.show()
 
 # %% [markdown]
 # 在这个例子中，最优线路参数 $\theta^* = 0.208$ 定义了态：
-#   
+#
 # $$\vert \Psi(\theta^*) \rangle = 0.994~\vert 1100 \rangle - 0.104~\vert 0011 \rangle$$
 #
 # 这正是最小基组近似下 $\mathrm{H}_2$ 分子的基态。
@@ -325,7 +324,7 @@ plt.show()
 # 结论
 # ----------
 #
-# 在本教程中，我们实现了VQE算法来求解氢分子的基态。我们使用一个简单线路制备超越Hartree-Fock近似的分子量子态。通过最小化试探态下分子哈密顿量期望值定义的损失函数，得到了基态能量。 
+# 在本教程中，我们实现了VQE算法来求解氢分子的基态。我们使用一个简单线路制备超越Hartree-Fock近似的分子量子态。通过最小化试探态下分子哈密顿量期望值定义的损失函数，得到了基态能量。
 #
 # 参考文献
 # --------------

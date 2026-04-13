@@ -79,6 +79,8 @@
 import math
 import random
 
+# DeepQuantum的导入
+import deepquantum as dq
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
@@ -90,9 +92,6 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision.transforms as transforms
 from torch.utils.data import Dataset
-
-# DeepQuantum的导入
-import deepquantum as dq
 
 # 设置随机种子以确保结果可复现
 seed = 1024
@@ -112,10 +111,10 @@ class DigitsDataset(Dataset):
     """用于手写数字光学识别数据集的Pytorch数据加载器"""
 
     def __init__(self, csv_file, label=0, transform=None):
-        """
-        参数:
-            csv_file (字符串): 注释的csv文件路径.
-            transform (可调用, 可选): 可以在样本上应用的可选转换.
+        """参数:
+
+        csv_file (字符串): 注释的csv文件路径.
+        transform (可调用, 可选): 可以在样本上应用的可选转换.
         """
         self.csv_file = csv_file
         self.transform = transform
@@ -313,12 +312,11 @@ class PatchQuantumGenerator(nn.Module):
     """用于分块方法的量子生成器类"""
 
     def __init__(self, n_generators, q_delta=1):
-        """
-        参数:
-            n_generators (int): 在分块方法中使用的子生成器数量。
-            q_delta (float, 可选): 参数初始化的随机分布的扩散。
-        """
+        """参数:
 
+        n_generators (int): 在分块方法中使用的子生成器数量。
+        q_delta (float, 可选): 参数初始化的随机分布的扩散。
+        """
         super().__init__()
 
         self.q_params = nn.ParameterList(

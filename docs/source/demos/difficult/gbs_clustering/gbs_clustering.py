@@ -54,11 +54,10 @@
 # %%
 import itertools
 
+import deepquantum.photonic as dqp
 import networkx as nx
 import numpy as np
 import torch
-
-import deepquantum.photonic as dqp
 
 # %% [markdown]
 # 这里采用西瓜数据集进行聚类， 每一个数据点包含密度和含糖率两个特征， 分别对应data_ws第一行和第二行。

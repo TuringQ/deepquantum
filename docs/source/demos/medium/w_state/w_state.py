@@ -66,10 +66,9 @@
 # #### 方案一（线路深度 O（N））
 
 # %%
+import deepquantum as dq
 import matplotlib.pyplot as plt
 import numpy as np
-
-import deepquantum as dq
 
 cir = dq.QubitCircuit(4)
 # 可以用X门来任意设置初态中1的个数

@@ -103,11 +103,10 @@
 # 首先，我们导入 DeepQuantum 和其他相关的库。
 
 # %%
+import deepquantum as dq
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
-
-import deepquantum as dq
 
 # %% [markdown]
 # 用 `qubit_num` 指定量子比特（顶点）数，并根据上面的定义构造酉算符。$U_B$ 算符作用在单个量子线路上，而 $U_C$ 算符作用在图中有边相连的顶点对应的量子线路上。我们还用元组列表 `graph` 定义图，其中每个元组表示图中的一条边。

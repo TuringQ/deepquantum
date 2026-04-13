@@ -171,11 +171,10 @@
 # 我们以甲酸（$1^{1}A'\rightarrow1^{2}A'$）为例计算分子振动光谱：
 
 # %%
+import deepquantum as dq
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-
-import deepquantum as dq
 
 # %% [markdown]
 # $1^1A'$ 态及$1^2A'$ 态的平衡结构坐标如下

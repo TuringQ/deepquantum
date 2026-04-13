@@ -407,9 +407,8 @@
 # %%
 from typing import Any
 
-import torch
-
 import deepquantum as dq
+import torch
 
 
 class QuantumFourierTransform(dq.Ansatz):

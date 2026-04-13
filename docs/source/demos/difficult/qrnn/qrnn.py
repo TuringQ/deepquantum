@@ -49,13 +49,12 @@
 
 # %%
 # 首先我们导入所有需要的包：
+import deepquantum as dq
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
-
-import deepquantum as dq
 
 # 我们设计的VQC线路如下 这里我们以4个bit作为例子
 cir = dq.QubitCircuit(4)

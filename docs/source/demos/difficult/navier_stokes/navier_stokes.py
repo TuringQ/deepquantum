@@ -98,13 +98,12 @@
 # "forward"函数实现前向计算过程，经典数据经过量子特征映射以及量子线路的演化，所得到的可观测量期望值之和即作为输出。
 
 # %%
+import deepquantum as dq
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
 from tqdm import tqdm
-
-import deepquantum as dq
 
 
 # 变分量子算法

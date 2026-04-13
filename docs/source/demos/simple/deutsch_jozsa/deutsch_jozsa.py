@@ -128,9 +128,8 @@
 # 对于均衡函数，我们可以创建许多不同的电路。我们可以保证电路是均衡的一种方法是，对寄存器1中的每个量子比特执行CNOT，以寄存器2中的量子比特作为目标。例如：
 
 # %%
-import numpy as np
-
 import deepquantum as dq
+import numpy as np
 
 cir = dq.QubitCircuit(4)
 

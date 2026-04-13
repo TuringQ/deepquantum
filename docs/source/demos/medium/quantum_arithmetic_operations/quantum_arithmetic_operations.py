@@ -93,8 +93,8 @@ import deepquantum as dq
 
 
 def maj(cir, ci, bi, ai):
-    """
-    实现 MAJ 量子门，其中
+    """实现 MAJ 量子门，其中：
+
     ai, bi 是输入比特，
     ci 是用于存储计算进位结果的辅助比特。
     """
@@ -164,13 +164,12 @@ cir.draw()
 
 # %%
 def uma(cir, ci, bi, ai):
-    """
-    实现 UMA 量子门，其中
+    """实现 UMA 量子门，其中:
+
     ai, bi, ci 分别为输入的比特，
     ai 初始为 c_{i+1}（由MAJ模块计算得到的进位值），
     bi 初始为 (a_i + b_i) mod 2，
     ci 初始为 (a_i + c_i) mod 2。
-
     输出将 ai 复原为 a_i，ci 复原为 c_i，bi 更新为 s_i。
     """
     # 使用逆Toffoli门恢复 a_i，ai 恢复为 a_i

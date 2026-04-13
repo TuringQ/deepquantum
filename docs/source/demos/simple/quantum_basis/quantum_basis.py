@@ -124,9 +124,8 @@
 # Hadamard门在Deepquantum中的实现代码如下：
 
 # %%
-import numpy as np
-
 import deepquantum as dq
+import numpy as np
 
 cir = dq.QubitCircuit(1)
 # 创建有一个量子比特的量子线路（初始量子比特默认处于基态|0>）

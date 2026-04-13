@@ -137,10 +137,9 @@
 #  ## EPR 态
 
 # %%
+import deepquantum as dq
 import numpy as np
 import torch
-
-import deepquantum as dq
 
 # %% [markdown]
 # 先使用`QumodeCircuitTDM`模块搭建单模时域复用线路，这个模块使用高斯后端。延时线圈参数 $n_\tau=1$，对应着延时线里只能同时存在一个量子态。周期性参数编码为 $[\frac{\pi}{2}, \frac{\pi}{2}]$ 和 $[\frac{\pi}{4}, 0]$，对应着分束器周期性变化角度为 $\frac{\pi}{2}$、$\frac{\pi}{4}$，旋转门的周期性变化角度为 $\frac{\pi}{2}$、$0$。

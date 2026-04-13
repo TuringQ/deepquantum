@@ -158,9 +158,8 @@
 # 以下是用DeepQuantum设计的量子隐形传态实验线路图：
 
 # %%
-import numpy as np
-
 import deepquantum as dq
+import numpy as np
 
 
 def quantum_teleportation_circuit():

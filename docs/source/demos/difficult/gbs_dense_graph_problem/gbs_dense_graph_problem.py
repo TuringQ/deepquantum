@@ -64,12 +64,11 @@
 # %%
 from collections import defaultdict
 
+import deepquantum.photonic as dqp
 import networkx as nx
 import numpy as np
 import torch
 from strawberryfields.apps.subgraph import resize
-
-import deepquantum.photonic as dqp
 
 # %% [markdown]
 # ### 经典算法
@@ -107,7 +106,8 @@ r[6], nx.density(graph.subgraph(r[6]))
 
 # %% code_folding=[0]
 def search_subgpraph(samples: list, graph: nx.Graph, min_size: int, max_size: int):
-    """Get the densest subgraph with size in [min_size, max_size],
+    """Get the densest subgraph with size in [min_size, max_size]
+
     using classical algorithm with samples from GBS
     """
     dic_list = defaultdict(list)

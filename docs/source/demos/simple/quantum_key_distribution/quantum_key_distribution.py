@@ -86,10 +86,9 @@
 # Alice生成她的随机比特集：
 
 # %%
+import deepquantum as dq
 import numpy as np
 from numpy.random import randint
-
-import deepquantum as dq
 
 np.random.seed(seed=0)
 n = 100

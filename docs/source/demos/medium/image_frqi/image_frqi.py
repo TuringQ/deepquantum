@@ -105,10 +105,9 @@
 # ### 示例1：$\theta_{i}=0$ ; 所有像素强度最小
 
 # %%
+import deepquantum as dq
 import matplotlib.pyplot as plt
 import numpy as np
-
-import deepquantum as dq
 
 theta = 0
 

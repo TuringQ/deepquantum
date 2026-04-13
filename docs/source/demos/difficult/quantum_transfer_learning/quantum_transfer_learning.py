@@ -74,6 +74,7 @@ import copy
 import os
 import time
 
+import deepquantum as dq
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -82,8 +83,6 @@ import torch.optim as optim
 import torchvision
 from torch.optim import lr_scheduler
 from torchvision import datasets, transforms
-
-import deepquantum as dq
 
 torch.manual_seed(42)
 np.random.seed(42)
@@ -226,23 +225,17 @@ class QuLinear(nn.Module):
 
 # %%
 class QuantumNet(nn.Module):
-    """
-    定义一个名为“QuantumNet”的Torch模块。
-    """
+    """定义一个名为“QuantumNet”的Torch模块。"""
 
     def __init__(self):
-        """
-        初始化量子网络的结构。
-        """
+        """初始化量子网络的结构。"""
         super().__init__()
         self.pre_net = nn.Linear(512, n_qubits)  # 将输入特征维度从512降至量子位数
         self.Qulinear = QuLinear(n_qubits, n_qubits)
         self.post_net = nn.Linear(n_qubits, 2)  # 后处理网络，将量子位输出映射到两个输出类别
 
     def forward(self, input_features):
-        """
-        定义输入特征通过“dressed”量子网络的传递方式。
-        """
+        """定义输入特征通过“dressed”量子网络的传递方式。"""
         # 使用前处理网络减小特征维度，并将结果缩放到π/2的范围内
         pre_out = self.pre_net(input_features)
         q_in = torch.tanh(pre_out / 10) * np.pi / 2.0

@@ -103,10 +103,9 @@
 # ### 代码演示
 
 # %%
+import deepquantum as dq
 import numpy as np
 import torch
-
-import deepquantum as dq
 
 # %%
 r = 6

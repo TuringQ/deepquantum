@@ -107,9 +107,8 @@
 # 接下来，我们将 Hadamard 门添加到位置量子位，以便我们可以利用 2×2 图像中的所有位置。
 
 # %%
-import matplotlib.pyplot as plt
-
 import deepquantum as dq
+import matplotlib.pyplot as plt
 
 theta = 0
 

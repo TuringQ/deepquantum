@@ -100,12 +100,11 @@
 # 在$H_2$基态能量的理论求解案例中已经展示了利用两模BS线路和GBS线路，对于求解$H_2$基态能量随原子核距离变化的问题，得到了和“金标准”FCI一致的解，但是在变分GBS线路用了8个单模门和1个BS门。如果硬件达不到该要求，只能实现如下6个单模门和1个BS门，则常规的变分VQE方法无法得到好的解。
 
 # %%
+import deepquantum as dq
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from scipy import io
-
-import deepquantum as dq
 
 dic = io.loadmat('boson_coeff2.mat')
 g1 = dic['g1'][0]

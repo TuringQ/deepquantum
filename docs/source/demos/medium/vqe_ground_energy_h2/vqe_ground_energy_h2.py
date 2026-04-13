@@ -308,12 +308,11 @@
 # 对应的数值随原子核距离变化如下
 
 # %%
+import deepquantum as dq
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from scipy import io
-
-import deepquantum as dq
 
 dic = io.loadmat('boson_coeff2.mat')
 g1 = dic['g1'][0]
