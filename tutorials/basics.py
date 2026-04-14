@@ -13,7 +13,7 @@
 # ---
 
 # %% [markdown]
-# # Tutorial
+# # 量子线路教程
 
 # %% [markdown]
 # import DeepQuantum以及相关的库。
