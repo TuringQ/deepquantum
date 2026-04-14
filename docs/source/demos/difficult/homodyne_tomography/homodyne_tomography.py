@@ -217,7 +217,7 @@ for bound in range(0, 6):
 # %% [markdown]
 # 1. 投点法
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
-#     <img src="./images/003.png" width="30%"/>
+#     <img src="./images/002.png" width="30%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
 #         <b>
 #     </p>
@@ -226,7 +226,7 @@ for bound in range(0, 6):
 #
 # 2. 期望法
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
-#     <img src="./images/004.png" width="30%"/>
+#     <img src="./images/003.png" width="30%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
 #         <b>
 #     </p>

@@ -7,9 +7,9 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.19.1
 #   kernelspec:
-#     display_name: dq_draw
+#     display_name: dq202602
 #     language: python
-#     name: python3
+#     name: dq202602
 # ---
 
 # %% [markdown]
@@ -198,14 +198,7 @@ data_ws2 = np.delete(data_ws, target, 1)
 # %%
 a_2 = construct_adj_mat(data_ws2, 0.2, distance)
 g2 = nx.from_numpy_array(a_2)
-
-# %% [markdown]
-# <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
-#     <img src="./images/f5.png" width="50%"/>
-#     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
-#         <b>
-#     </p>
-# </div>
+nx.draw(g2, pos=data_ws2.transpose(), with_labels=True)
 
 # %%
 gbs2 = dqp.GraphGBS(adj_mat=a_2, cutoff=2)

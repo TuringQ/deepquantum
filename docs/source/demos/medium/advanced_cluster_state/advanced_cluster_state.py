@@ -7,9 +7,9 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.19.1
 #   kernelspec:
-#     display_name: dq_v3
+#     display_name: dq202602
 #     language: python
-#     name: dq_v3
+#     name: dq202602
 # ---
 
 # %% [markdown]
@@ -155,7 +155,7 @@ print('mean:', x_delta2.mean())
 # %% [markdown]
 # 2019 年东京大学组通过下面的四模线路加上两个延时线圈实现了二维簇态的制备[2]
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
-#     <img src="./images/004.png" width="50%"/>
+#     <img src="./images/002.png" width="50%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
 #         <b>
 #     </p>
@@ -173,7 +173,7 @@ print('mean:', x_delta2.mean())
 # 随时间的纠缠过程如下图所示，
 #
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
-#     <img src="./images/005.png" width="30%"/>
+#     <img src="./images/003.png" width="30%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
 #         <b>
 #     </p>
