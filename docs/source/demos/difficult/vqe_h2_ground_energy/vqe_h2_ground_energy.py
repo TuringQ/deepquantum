@@ -184,7 +184,7 @@ for idx in range(50):
 # %%
 R_values = np.linspace(0.1, 2.5, 50)
 hartree_dis = R_values / 0.529177  # using Bohr radius
-images = plt.imagesure()
+fig = plt.figure()
 nuclear_v = 1 / hartree_dis
 openfermion_h2_fci = np.load('openfermion_h2_fci.npy')
 plt.plot(R_values, torch.stack(loss_gbs3).detach().numpy() + nuclear_v, lw=2, label='vqe_GBS_shallow')
@@ -272,7 +272,7 @@ for idx in range(50):
     print(idx, loss, end='\r')
 
 # %%
-images = plt.imagesure()
+fig = plt.figure()
 plt.plot(R_values, torch.stack(loss_gbs3).detach().numpy() + nuclear_v, lw=2, label='vqe_GBS_shallow')
 plt.plot(
     R_values, torch.stack(loss_gbs_4).mT[0].detach().numpy() + nuclear_v, lw=2, label='vqe_GBS_random', color='red'

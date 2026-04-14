@@ -106,10 +106,7 @@ r[6], nx.density(graph.subgraph(r[6]))
 
 # %% code_folding=[0]
 def search_subgpraph(samples: list, graph: nx.Graph, min_size: int, max_size: int):
-    """Get the densest subgraph with size in [min_size, max_size]
-
-    using classical algorithm with samples from GBS
-    """
+    """Get the densest subgraph with size in [min_size, max_size] from samples of GBS"""
     dic_list = defaultdict(list)
     for i in range(len(samples)):
         temp = samples[i]

@@ -222,7 +222,7 @@ for bound in range(0, 6):
 #         <b>
 #     </p>
 # </div>
-# 这里随机的点落在积分区域的概率正比于积分区域的面积， 因此红点所占的比例乘以矩形的面积就是函数f(x)的积分。
+# 这里随机的点落在积分区域的概率正比于积分区域的面积， 因此红点所占的比例乘以矩形的面积就是函数 $f(x)$ 的积分。
 #
 # 2. 期望法
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
