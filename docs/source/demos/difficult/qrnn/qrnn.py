@@ -23,7 +23,7 @@
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
 #     <img src="./images/3_4_0001.png" width="30%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
-#         <b>图 1 </b>变分量子线路（VQC）的通用架构。U(x) 编码经典输入数据 x，V(θ) 是变分线路。线路最后是对部分或全部量子比特的测量
+#         图 1 </b>变分量子线路（VQC）的通用架构。U(x) 编码经典输入数据 x，V(θ) 是变分线路。线路最后是对部分或全部量子比特的测量
 #     </p>
 # </div>
 #
@@ -86,7 +86,7 @@ cir.draw()  # 画出量子线路图
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
 #     <img src="./images/3_4_0002.png" width="15%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
-#         <b>图 2 </b>经典RNN模型示意图
+#         图 2 </b>经典RNN模型示意图
 #     </p>
 # </div>
 #
@@ -143,7 +143,7 @@ class QuLinear(nn.Module):
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
 #     <img src="./images/3_4_0003.png" width="30%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
-#         <b>图 3 </b> 量子RNN模型示意图
+#         图 3 </b> 量子RNN模型示意图
 #     </p>
 # </div>
 

@@ -100,15 +100,9 @@ print(alice_bits)
 # %% [markdown]
 # 此时，比特集 `alice_bits` 只有Alice知道。我们将跟踪只有Alice知道的信息、只有Bob知道的信息以及通过Eve的信道发送的信息，如下表所示：
 #
-# $$
-# \begin{array}{|c|c|c|}
-# \hline
-# \text{Alice知道的信息} & \text{通过Eve的信道} & \text{Bob知道的信息} \\
-# \hline
-# \text{alice\_bits} &  &  \\
-# \hline
-# \end{array}
-# $$
+# | Alice知道的信息 | 通过Eve的信道 | Bob知道的信息 |
+# | :--- | :--- | :--- |
+# | alice_bits | | |
 #
 # ### 第2步：
 #
@@ -131,17 +125,10 @@ print(alice_bases)
 # %% [markdown]
 # Alice也对这一知识保密：
 #
-# $$
-# \begin{array}{|c|c|c|}
-# \hline
-# \text{Alice知道的信息} & \text{通过Eve的信道} & \text{Bob知道的信息} \\
-# \hline
-# \text{alice\_bits} & & \\
-# \text{alice\_bases} & & \\
-# \hline
-# \end{array}
-# $$
-#
+# | Alice 知道的信息 | 通过 Eve 的信道 | Bob 知道的信息 |
+# | :---: | :---: | :---: |
+# | alice_bits | | |
+# | alice_bases | | |
 #
 # 下面的 `encode_message` 函数创建了一个 `QuantumCircuit` 的列表，每个线路代表Alice消息中的一个量子比特：
 
@@ -203,17 +190,11 @@ message[4].draw()
 # %% [markdown]
 # 然后这个量子比特消息通过Eve的量子信道发送给Bob：
 #
-# $$
-# \begin{array}{|c|c|c|}
-# \hline
-# \text{Alice知道的信息} & \text{通过Eve的信道} & \text{Bob知道的信息} \\
-# \hline
-# \text{alice\_bits} & & \\
-# \text{alice\_bases} & & \\
-# \text{message} & \text{message} & \text{message} \\
-# \hline
-# \end{array}
-# $$
+# | Alice 知道的信息 | 通过 Eve 的信道 | Bob 知道的信息 |
+# | :---: | :---: | :---: |
+# | alice_bits | | |
+# | alice_bases | | |
+# | message | message | message |
 #
 # ### 第3步：
 #
@@ -294,56 +275,38 @@ print(bob_results)
 # %% [markdown]
 # Bob对他的测量结果保密。
 #
-# $$
-# \begin{array}{|c|c|c|}
-# \hline
-# \text{Alice知道的信息} & \text{经过Eve的信道} & \text{Bob知道的信息} \\
-# \hline
-# \text{alice\_bits}  &  &  \\
-# \text{alice\_bases} &  &  \\
-# \text{message}      & \text{message} & \text{message} \\
-#                      &  & \text{bob\_bases} \\
-#                      &  & \text{bob\_results} \\
-# \hline
-# \end{array}
-# $$
+# | Alice 知道的信息 | 经过 Eve 的信道 | Bob 知道的信息 |
+# | :---: | :---: | :---: |
+# | alice_bits | | |
+# | alice_bases | | |
+# | message | message | message |
+# | | | bob_bases |
+# | | | bob_results |
 #
 # ### 第4步：
 #
 # 此后，Alice 通过 Eve 的频道公开了每个量子比特是用哪种基态编码的：
 #
-# $$
-# \begin{array}{|c|c|c|}
-# \hline
-# \text{Alice知道的信息} & \text{经过Eve的信道} & \text{Bob知道的信息} \\
-# \hline
-# \text{alice\_bits}  &  &  \\
-# \text{alice\_bases} &  &  \\
-# \text{message}      & \text{message} & \text{message} \\
-#                     &  & \text{bob\_bases} \\
-#                     &  & \text{bob\_results} \\
-#                     & \text{alice\_bases} & \text{alice\_bases} \\
-# \hline
-# \end{array}
-# $$
+# | Alice 知道的信息 | 经过 Eve 的信道 | Bob 知道的信息 |
+# | :---: | :---: | :---: |
+# | alice_bits | | |
+# | alice_bases | | |
+# | message | message | message |
+# | | | bob_bases |
+# | | | bob_results |
+# | | alice_bases | alice_bases |
 #
 # 然后 Bob 公开他测量每个量子比特所用的基态：
 #
-# $$
-# \begin{array}{|c|c|c|}
-# \hline
-# \text{Alice知道的信息} & \text{经过Eve的信道} & \text{Bob知道的信息} \\
-# \hline
-# \text{alice\_bits}  &  &  \\
-# \text{alice\_bases} &  &  \\
-# \text{message}      & \text{message} & \text{message} \\
-#                    &  & \text{bob\_bases} \\
-#                    &  & \text{bob\_results} \\
-#                    & \text{alice\_bases} & \text{alice\_bases} \\
-# \text{bob\_bases}  & \text{bob\_bases} &  \\
-# \hline
-# \end{array}
-# $$
+# | Alice 知道的信息 | 经过 Eve 的信道 | Bob 知道的信息 |
+# | :---: | :---: | :---: |
+# | alice_bits | | |
+# | alice_bases | | |
+# | message | message | message |
+# | | | bob_bases |
+# | | | bob_results |
+# | | alice_bases | alice_bases |
+# | bob_bases | bob_bases | |
 #
 # 如果 Bob 恰好使用 Alice 准备的相同基态测量了某个比特，这意味着 `bob_results` 中的相应条目将与 `alice_bits` 中的相应条目匹配，他们可以将该比特作为他们密钥的一部分。如果他们使用不同的基态进行测量，Bob 的结果就是随机的，他们都需要丢弃该条目。以下是一个名为 `remove_garbage` 的函数，它为我们完成了这项工作：
 
@@ -412,22 +375,16 @@ print(bob_key)
 
 
 # %% [markdown]
-# $$
-# \begin{array}{|c|c|c|}
-# \hline
-# \text{Alice知道的信息} & \text{经过Eve的信道} & \text{Bob知道的信息} \\
-# \hline
-# \text{alice\_bits}   &                   &                   \\
-# \text{alice\_bases}  &                   &                   \\
-# \text{message}       & \text{message}    & \text{message}    \\
-#                     &                   & \text{bob\_bases} \\
-#                     &                   & \text{bob\_results} \\
-#                     & \text{alice\_bases} & \text{alice\_bases} \\
-# \text{bob\_bases}    & \text{bob\_bases} &                   \\
-# \text{alice\_key}    &                   & \text{bob\_key}   \\
-# \hline
-# \end{array}
-# $$
+# | Alice 知道的信息 | 经过 Eve 的信道 | Bob 知道的信息 |
+# | :---: | :---: | :---: |
+# | alice_bits | | |
+# | alice_bases | | |
+# | message | message | message |
+# | | | bob_bases |
+# | | | bob_results |
+# | | alice_bases | alice_bases |
+# | bob_bases | bob_bases | |
+# | alice_key | | bob_key |
 
 # %% [markdown]
 # ### 第5步：
@@ -484,24 +441,18 @@ alice_sample = sample_bits(alice_key, bit_selection)
 print('alice_sample = ' + str(alice_sample))
 
 # %% [markdown]
-# $$
-# \begin{array}{|c|c|c|}
-# \hline
-# \text{Alice知道的信息} & \text{经过Eve的信道} & \text{Bob知道的信息} \\
-# \hline
-# \text{alice\_bits}     &                     &                     \\
-# \text{alice\_bases}    &                     &                     \\
-# \text{message}         & \text{message}      & \text{message}      \\
-#                        &                     & \text{bob\_bases}   \\
-#                        &                     & \text{bob\_results} \\
-#                        & \text{alice\_bases} & \text{alice\_bases} \\
-# \text{bob\_bases}      & \text{bob\_bases}   &                     \\
-# \text{alice\_key}      &                     & \text{bob\_key}     \\
-# \text{bob\_sample}     & \text{bob\_sample}  & \text{bob\_sample}  \\
-# \text{alice\_sample}   & \text{alice\_sample}& \text{alice\_sample}\\
-# \hline
-# \end{array}
-# $$
+# | Alice 知道的信息 | 经过 Eve 的信道 | Bob 知道的信息 |
+# | :---: | :---: | :---: |
+# | alice_bits | | |
+# | alice_bases | | |
+# | message | message | message |
+# | | | bob_bases |
+# | | | bob_results |
+# | | alice_bases | alice_bases |
+# | bob_bases | bob_bases | |
+# | alice_key | | bob_key |
+# | bob_sample | bob_sample | bob_sample |
+# | alice_sample | alice_sample | alice_sample |
 #
 # 如果协议正确工作且没有干扰，他们的样本应该匹配：
 
@@ -511,25 +462,20 @@ print(bob_sample == alice_sample)
 # %% [markdown]
 # 如果他们的样本匹配，这意味着（以很高的概率）`alice_key == bob_key`。现在他们共享了一个秘密密钥，可以用来加密他们的消息！
 #
-# $$
-# \begin{array}{|c|c|c|}
-# \hline
-# \text{Alice知道的信息} & \text{经过Eve的信道} & \text{Bob知道的信息} \\
-# \hline
-# \text{alice\_bits}     &                     &                     \\
-# \text{alice\_bases}    &                     &                     \\
-# \text{message}         & \text{message}      & \text{message}      \\
-#                        &                     & \text{bob\_bases}   \\
-#                        &                     & \text{bob\_results} \\
-#                        & \text{alice\_bases} & \text{alice\_bases} \\
-# \text{bob\_bases}      & \text{bob\_bases}   &                     \\
-# \text{alice\_key}      &                     & \text{bob\_key}     \\
-# \text{bob\_sample}     & \text{bob\_sample}  & \text{bob\_sample}  \\
-# \text{alice\_sample}   & \text{alice\_sample}& \text{alice\_sample}\\
-# \text{shared\_key}     &                     & \text{shared\_key}  \\
-# \hline
-# \end{array}
-# $$
+# | Alice 知道的信息 | 经过 Eve 的信道 | Bob 知道的信息 |
+# | :---: | :---: | :---: |
+# | alice_bits | | |
+# | alice_bases | | |
+# | message | message | message |
+# | | | bob_bases |
+# | | | bob_results |
+# | | alice_bases | alice_bases |
+# | bob_bases | bob_bases | |
+# | alice_key | | bob_key |
+# | bob_sample | bob_sample | bob_sample |
+# | alice_sample | alice_sample | alice_sample |
+# | shared_key | | shared_key |
+#
 
 # %% [markdown]
 # ## DeepQuantum示例：有窃听

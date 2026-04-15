@@ -37,7 +37,6 @@
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
 #     <img src="./images/001.png" width="40%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
-#         <b>
 #     </p>
 # </div>
 #
@@ -53,7 +52,6 @@
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
 #     <img src="./images/002.png" title='变分波函数表达能力集合' width="40%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
-#         <b>
 #     </p>
 # </div>
 
@@ -69,7 +67,6 @@
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
 #     <img src="./images/003.png" width="60%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
-#         <b>
 #     </p>
 # </div>
 #

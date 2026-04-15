@@ -149,7 +149,6 @@ g = nx.from_numpy_array(a)
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
 #     <img src="./images/f2.png" width="50%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
-#         <b>
 #     </p>
 # </div>
 
@@ -185,7 +184,6 @@ while not flag:
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
 #     <img src="./images/f3.png" width="60%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
-#         <b>
 #     </p>
 # </div>
 
@@ -226,7 +224,6 @@ while not flag:
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
 #     <img src="./images/f4.png" width="60%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
-#         <b>
 #     </p>
 # </div>
 

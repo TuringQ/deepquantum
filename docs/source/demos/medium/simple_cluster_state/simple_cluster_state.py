@@ -32,7 +32,6 @@
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
 #     <img src="./images/001.png" width="30%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
-#         <b>
 #     </p>
 # </div>
 #
@@ -56,7 +55,6 @@
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
 #     <img src="./images/002.png" width="50%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
-#         <b>
 #     </p>
 # </div>
 #
@@ -90,7 +88,6 @@
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
 #     <img src="./images/003.png" width="30%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
-#         <b>
 #     </p>
 # </div>
 
@@ -103,7 +100,6 @@
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
 #     <img src="./images/004.png" width="30%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
-#         <b>
 #     </p>
 # </div>
 
@@ -112,7 +108,6 @@
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
 #     <img src="./images/005.jpg" width="30%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
-#         <b>
 #     </p>
 # </div>
 # 1.EPR 态的制备

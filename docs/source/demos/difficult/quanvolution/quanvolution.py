@@ -47,7 +47,7 @@
 # <div style="text-align:center">
 #     <img src="./images/3_9_0001.png" alt="Local Image">
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
-#         <b>二维数据集的量子-经典混合卷积模型架构图
+#         二维数据集的量子-经典混合卷积模型架构图
 #     </p>
 # </div>
 
