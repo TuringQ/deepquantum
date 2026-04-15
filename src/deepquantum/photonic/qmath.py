@@ -17,28 +17,33 @@ from ..qmath import block_sample, decimal_to_list, is_unitary, list_to_decimal, 
 from .utils import mem_to_chunksize
 
 
-def dirac_ket(matrix: torch.Tensor) -> dict:
+def dirac_ket(state: torch.Tensor, den_mat: bool = False, topk: int = 5) -> dict:
     """Convert the batched Fock state tensor to the dictionary of Dirac ket."""
     ket_dict = {}
-    for i in range(matrix.shape[0]):  # consider batch i
+    if den_mat:
+        nmode = (state.ndim - 1) // 2
+        cutoff = state.shape[-1]
+        matrix = state.reshape(-1, cutoff**nmode, cutoff**nmode).diagonal(dim1=-2, dim2=-1).real
+        matrix = matrix.reshape([-1] + [cutoff] * nmode)
+    else:
+        matrix = state
+    for i in range(matrix.shape[0]):  # consider batch
         state_i = matrix[i]
-        abs_state = abs(state_i)
-        # get the largest k values with abs(amplitudes)
-        top_k = torch.topk(abs_state.flatten(), k=min(len(abs_state), 5), largest=True).values
-        idx_all = []
+        abs_state = abs(state_i).flatten()
+        top_vals, top_indices = torch.topk(abs_state, k=min(len(abs_state), topk))
+        coords = torch.stack(torch.unravel_index(top_indices, state_i.shape), dim=1)
         ket_lst = []
-        for amp in top_k:
-            idx = torch.nonzero(abs_state == amp)[0].tolist()
-            idx_all.append(idx)
-            # after finding the indx, set the value to 0, avoid the same abs values
-            abs_state[tuple(idx)] = 0
-            state_b = ''.join(map(str, idx))
-            if amp > 0:
-                state_str = f' + ({state_i[tuple(idx)]:6.3f})|{state_b}>'
-                ket_lst.append(state_str)
-            ket = ''.join(ket_lst)
-        batch_i = f'state_{i}'
-        ket_dict[batch_i] = ket[3:]
+        for val, idx_coords in zip(top_vals, coords, strict=True):
+            if val <= 1e-5:
+                continue
+            idx = idx_coords.tolist()
+            state_b = ','.join(map(str, idx)) if any(x > 9 for x in idx) else ''.join(map(str, idx))
+            if den_mat:
+                state_str = f'{val.item():+6.3f}|{state_b}><{state_b}|'
+            else:
+                state_str = f'{state_i[tuple(idx)]:+6.3f}|{state_b}>'
+            ket_lst.append(state_str)
+        ket_dict[f'state_{i}'] = ' '.join(ket_lst)
     return ket_dict
 
 

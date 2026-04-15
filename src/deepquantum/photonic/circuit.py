@@ -1372,11 +1372,11 @@ class QumodeCircuit(Operation):
         if self.state.is_complex():
             if self.den_mat:
                 state_tensor = self.state.reshape(-1, self.cutoff**self.nmode, self.cutoff**self.nmode)
-                state_tensor = self.tensor_rep(abs(state_tensor.diagonal(dim1=-2, dim2=-1)))
+                state_tensor = abs(state_tensor.diagonal(dim1=-2, dim2=-1)).reshape([-1] + [self.cutoff] * self.nmode)
             else:
                 state_tensor = self.tensor_rep(abs(self.state) ** 2)
         else:
-            state_tensor = self.tensor_rep(self.state)
+            state_tensor = self.state.reshape([-1] + [self.cutoff] * self.nmode)
         batch = state_tensor.shape[0]
         combi = list(itertools.product(range(self.cutoff), repeat=len(wires)))
         for i in range(batch):

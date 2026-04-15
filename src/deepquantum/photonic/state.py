@@ -129,12 +129,12 @@ class FockState(nn.Module):
         """Get the discretized Wigner function of the specified mode.
 
         Args:
-            wire: The wigner function for given wire.
-            xrange: The range of quadrature q. Default: 10
+            wire: The Wigner function for the given wire.
+            xrange: The range of quadrature x. Default: 10
             prange: The range of quadrature p. Default: 10
             npoints: The number of discretization points for quadratures. Default: 100
-            plot: Whether to plot the wigner function. Default: ``True``
-            k: The wigner function of kth batch to plot. Default: 0
+            plot: Whether to plot the Wigner function. Default: ``True``
+            k: The index of the Wigner function within the batch to plot. Default: 0
         """
         return fock_to_wigner(self.state, wire, self.nmode, self.cutoff, self.den_mat, xrange, prange, npoints, plot, k)
 
@@ -146,18 +146,18 @@ class FockState(nn.Module):
                 state_str = ''.join(map(str, self.state.tolist()))
                 return f'|{state_str}>'
             else:
-                temp = ''
+                repr_str = ''
                 for i in range(self.state.shape[0]):
                     state_str = ''.join(map(str, self.state[i].tolist()))
-                    temp += f'state_{i}: |{state_str}>\n'
-                return temp
+                    repr_str += f'state_{i}: |{state_str}>\n'
+                return repr_str
         else:
             # Represent Fock state tensor using Dirac notation
-            ket_dict = dirac_ket(self.state)
-            temp = ''
+            ket_dict = dirac_ket(self.state, self.den_mat)
+            repr_str = ''
             for key, value in ket_dict.items():
-                temp += f'{key}: {value}\n'
-            return temp
+                repr_str += f'{key}: {value}\n'
+            return repr_str
 
     def __eq__(self, other: 'FockState') -> bool:
         """Check if two ``FockState`` instances are equal."""
@@ -167,17 +167,7 @@ class FockState(nn.Module):
         """Compute the hash value for the ``FockState``."""
         if self.state.device.type == 'meta':
             return hash(id(self))
-        if self.basis:
-            # Hash Fock basis state as a string
-            state_str = ''.join(map(str, self.state.tolist()))
-            return hash(state_str)
-        else:
-            # Hash Fock state tensor using Dirac notation
-            ket_dict = dirac_ket(self.state)
-            temp = ''
-            for key, value in ket_dict.items():
-                temp += f'{key}: {value}\n'
-            return hash(temp)
+        return hash(self.__repr__())
 
     def __lt__(self, other: 'FockState') -> bool:
         tuple_self = tuple(self.state.tolist())
@@ -250,13 +240,13 @@ class GaussianState(nn.Module):
         """Get the discretized Wigner function of the specified mode.
 
         Args:
-            wire: The wigner function for given wire.
-            xrange: The range of quadrature q. Default: 10
+            wire: The Wigner function for the given wire.
+            xrange: The range of quadrature x. Default: 10
             prange: The range of quadrature p. Default: 10
             npoints: The number of discretization points for quadratures. Default: 100
-            plot: Whether to plot the wigner function. Default: ``True``
-            k: The wigner function of kth batch to plot. Default: 0
-            normalize: Whether to normalize the wigner function. Default: ``True``
+            plot: Whether to plot the Wigner function. Default: ``True``
+            k: The index of the Wigner function within the batch to plot. Default: 0
+            normalize: Whether to normalize the Wigner function. Default: ``True``
         """
         return cv_to_wigner([self.cov, self.mean], wire, xrange, prange, npoints, plot, k, normalize)
 
@@ -348,13 +338,13 @@ class BosonicState(nn.Module):
         """Get the discretized Wigner function of the specified mode.
 
         Args:
-            wire: The wigner function for given wire.
-            xrange: The range of quadrature q. Default: 10
+            wire: The Wigner function for the given wire.
+            xrange: The range of quadrature x. Default: 10
             prange: The range of quadrature p. Default: 10
             npoints: The number of discretization points for quadratures. Default: 100
-            plot: Whether to plot the wigner function. Default: ``True``
-            k: The wigner function of kth batch to plot. Default: 0
-            normalize: Whether to normalize the wigner function. Default: ``True``
+            plot: Whether to plot the Wigner function. Default: ``True``
+            k: The index of the Wigner function within the batch to plot. Default: 0
+            normalize: Whether to normalize the Wigner function. Default: ``True``
         """
         return cv_to_wigner([self.cov, self.mean, self.weight], wire, xrange, prange, npoints, plot, k, normalize)
 
