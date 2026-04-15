@@ -17,11 +17,8 @@ quick_start/basic_examples.md
 :caption: Quick Start
 :hidden:
 
-quick_start/introduction.md
 quick_start/introduction_cn.md
-quick_start/basic_usage.md
 quick_start/basic_usage_cn.md
-quick_start/basic_examples.md
 quick_start/basic_examples_cn.md
 ```
 
