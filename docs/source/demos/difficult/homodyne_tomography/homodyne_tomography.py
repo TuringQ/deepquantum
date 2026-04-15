@@ -40,7 +40,7 @@
 # i_{out}(t) \sim X_\theta(t)
 # $$
 #
-# $X_\theta = X cos\theta + P sin\theta$， $X, P$ 对应于算符$\hat{x}, \hat{p}$ 的本征值，$\theta$ 对应分束器的可调角度。
+# $X_\theta = X \cos\theta + P \sin\theta$， $X, P$ 对应于算符 $\hat{x}, \hat{p}$ 的本征值，$\theta$ 对应分束器的可调角度。
 #
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
 #     <img src="./images/001.png" width="30%"/>

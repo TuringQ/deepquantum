@@ -24,17 +24,22 @@
 # $$
 #
 # 可以看到它是一个规律的离散的分布，用坐标本征态的表示如下，
+#
 # $$\left|k\right\rangle_{\mathrm{gkp}}=\sum_{s=-\infty}^\infty\left|\sqrt{\pi\hbar}(2s+k)\right\rangle_q,k=\{0,1\}$$
+#
 # 使用GKP态编码量子比特，一般的量子态可以表示成
+#
 # $$|\psi\rangle=\cos\frac{\theta}{2}|0\rangle_{\mathrm{gkp}}+e^{-i\phi}\sin\frac{\theta}{2}|1\rangle_{\mathrm{gkp}}$$
+#
 # 但是在实际模拟中一般会考虑有限能量的GKP态，即作用一个Fock阻尼算符 $\hat{E}(\epsilon)$，
+#
 # $$\hat{E}(\epsilon) = e^{-\epsilon \hat{n}}$$
+#
 # 它等效于很多个高斯波包的叠加，对应的包络也是高斯函数，如下图
 #
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
 #     <img src="./images/graph1.png" width="50%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
-#         <b>
 #     </p>
 # </div>
 #
@@ -45,14 +50,12 @@
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
 #     <img src="./images/graph4.png" width="50%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
-#         <b>
 #     </p>
 # </div>
 #
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
 #     <img src="./images/graph2.png" width="50%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
-#         <b>
 #     </p>
 # </div>
 #
@@ -61,18 +64,23 @@
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
 #     <img src="./images/graph3.png" width="50%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
-#         <b>
 #     </p>
 # </div>
 
 # %% [markdown]
 # 这里对第一次breeding过程做理论分析，
 # 压缩猫态的定义如下
+#
 # $$|\mathrm{sq.~cat}\rangle\propto\left(\hat{D}(\alpha/2)+\hat{D}(-\alpha/2)\right)\hat{S}(r)|\mathrm{vac}\rangle,$$
+#
 # 它的正交分量q方向波函数是两个高斯分布的叠加
+#
 # $$\psi_{\mathrm{sq.~cat}}(q)=\langle q|\mathrm{sq.~cat}\rangle\propto\exp\left(-\frac{\left(q-\frac{\alpha}{\sqrt{2}}\right)^2}{2e^{-2r}}\right)+\exp\left(-\frac{\left(q+\frac{\alpha}{\sqrt{2}}\right)^2}{2e^{-2r}}\right),$$
+#
 # 经过一个分束器然后对第二模做正交分量p测量等价于将对应的量子态投影到基矢$\bra{p_2}$ 上，投影的结果为三个高斯态的叠加
+#
 # $$\int dq_2e^{-ip_mq_2}\Psi(q_1,q_2)\propto e^{-\frac{(q_1+\alpha)^2}{2e^{-2r}}}+2\cos(p_m\alpha)e^{-\frac{q_1^2}{2e^{-2r}}}+e^{-\frac{(q_1-\alpha)^2}{2e^{-2r}}}$$
+#
 # 第一次breeding过程就得到三个峰的非高斯态。
 #
 
