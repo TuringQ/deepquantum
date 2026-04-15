@@ -4,6 +4,7 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
 import os
+import shutil
 import sys
 
 import deepquantum as dq
@@ -50,6 +51,8 @@ myst_enable_extensions = [
     'dollarmath',
 ]
 
+mathjax_path = 'https://unpkg.com/mathjax@3.2.2/es5/tex-mml-chtml.js'
+
 templates_path = ['_templates']
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 
@@ -65,7 +68,7 @@ html_title = f'{project} v{release}'
 
 html_theme_options = {
     # 启用右侧的“在 GitHub 上编辑/查看”按钮
-    'repository_url': 'https://github.com/TuringQ/deepquantum',  # 改成你的仓库地址
+    'repository_url': 'https://github.com/TuringQ/deepquantum',
     'use_repository_button': True,  # 开启 GitHub 仓库链接
     'use_download_button': True,  # 开启当前页面(ipynb)下载按钮
     'use_fullscreen_button': True,  # 开启全屏阅读按钮
@@ -74,3 +77,25 @@ html_theme_options = {
     'show_navbar_depth': 3,
     'collapse_navigation': False,
 }
+
+
+def _copy_demos_fig_folders(app, exception):
+    """Copy 'images' directories from subfolders in 'docs/source/demos' to the HTML build directory."""
+    if exception:
+        return
+    conf_dir = os.path.dirname(os.path.abspath(__file__))
+    demos_src = os.path.join(conf_dir, 'demos')
+    outdir_demos = os.path.join(app.outdir, 'demos')
+    for root, dirs, _ in os.walk(demos_src):
+        rel = os.path.relpath(root, demos_src)
+        if 'images' in dirs:
+            img_src = os.path.join(root, 'images')
+            img_dst = os.path.join(outdir_demos, rel, 'images')
+            os.makedirs(os.path.dirname(img_dst), exist_ok=True)
+            if os.path.exists(img_dst):
+                shutil.rmtree(img_dst)
+            shutil.copytree(img_src, img_dst)
+
+
+def setup(app):
+    app.connect('build-finished', _copy_demos_fig_folders)

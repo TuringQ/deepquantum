@@ -12,6 +12,9 @@
 #     name: python3
 # ---
 
+# %% [markdown]
+# # 光量子线路教程
+
 # %%
 import random
 
@@ -34,10 +37,10 @@ if torch.cuda.is_available():
     torch.backends.cudnn.benchmark = False
 
 # %% [markdown]
-# # 基于Fock后端构建光量子线路
+# ## 基于Fock后端构建光量子线路
 
 # %% [markdown]
-# ## Fock态
+# ### Fock态
 #
 # 光量子线路Fock态（量子数态）可以表示为 $ \left |n_1,n_2,...,n_m\right \rangle$，其中 $ n_k $ 表示第 $k$ 模的光子数。
 # 在DeepQuantum的Photonic模块中，Fock态用 ``FockState`` 表示。
@@ -124,10 +127,10 @@ sorted_dict = dict(sorted(result_dict.items(), key=lambda x: x[0], reverse=True)
 print('采样结果（按样本态字典序排序）：', sorted_dict)
 
 # %% [markdown]
-# ## 构建光量子线路
+# ### 构建光量子线路
 
 # %% [markdown]
-# ### 初始化
+# #### 初始化
 #
 # 光量子线路对应着DeepQuantum Photonic模块的 ``QumodeCircuit`` 类。仅需指定空间模式数 ``nmode`` 和初态 ``init_state``，即可完成初始化：
 
@@ -156,7 +159,7 @@ cir = dq.QumodeCircuit(nmode=3, init_state=[2, 1, 0], cutoff=3)
 print('cutff=3时,末态概率分布为:\n', cir(is_prob=True))
 
 # %% [markdown]
-# ### 量子门
+# #### 量子门
 #
 # 初始化后，可以加入各种光量子门
 #
@@ -442,7 +445,7 @@ print(cir.operators[2])
 print(cir.operators[2].get_unitary())
 
 # %% [markdown]
-# ### 前向演化
+# #### 前向演化
 #
 # 调用前向函数对线路进行演化。可以通过改变 ``is_prob`` 的值以控制返回的类型：
 #
@@ -491,7 +494,7 @@ print(cir2(state=[0, 2, 0]))
 cir2(data, state=[1, 1, 1], is_prob=True)
 
 # %% [markdown]
-# ### 采样测量
+# #### 采样测量
 #
 # 可以对线路进行测量，返回的结果是字典或者字典的列表，字典的key是Fock态，value是对应测量到的次数，shots默认为1024。
 
@@ -534,10 +537,10 @@ print(cir.get_amplitude([1, 1, 0]))
 print(cir.get_prob([1, 0, 1]))
 
 # %% [markdown]
-# ## 支持batch输入
+# ### 支持batch输入
 
 # %% [markdown]
-# ### 初态的batch输入
+# #### 初态的batch输入
 
 # %% [markdown]
 # 无线路参数输入的情况：
@@ -577,7 +580,7 @@ print('线路对应酉矩阵为:', unitary)
 cir.measure()
 
 # %% [markdown]
-# ### 线路参数的batch输入
+# #### 线路参数的batch输入
 
 # %%
 # 构建batch的线路参数
@@ -620,7 +623,7 @@ print('线路对应酉矩阵为:', unitary)
 cir.measure()
 
 # %% [markdown]
-# ## 支持简单的噪声模拟（Gaussian noise）
+# ### 支持简单的噪声模拟（Gaussian noise）
 #
 # 噪声模拟使用 ``QumodeCircuit(noise=True)``，这里默认所有参数的噪声都是高斯分布，平均值 ``mu`` 为0，标准差 ``sigma`` 为0.1，支持自定义整条线路的全局噪声。
 
@@ -676,7 +679,7 @@ fidelity = torch.abs(f) ** 2
 print('加入噪声后的保真度为：', fidelity)
 
 # %% [markdown]
-# ## 支持GPU计算
+# ### 支持GPU计算
 #
 #
 
@@ -716,7 +719,7 @@ print('线路对应酉矩阵为:', unitary)
 cir.measure()
 
 # %% [markdown]
-# ## Clements架构光量子线路
+# ### Clements架构光量子线路
 
 # %% [markdown]
 # 内置了 ``Clements`` 类可以模拟任意的酉矩阵，通过 ``dq.Clements`` 直接调用。
@@ -761,7 +764,7 @@ clements.draw()
 abs(clements.get_unitary() - torch.tensor(u6x6)).sum()
 
 # %% [markdown]
-# ## 支持MPS计算
+# ### 支持MPS计算
 #
 # 当内存成为模拟大规模量子线路瓶颈时，可以采用 MPS（Matrix Product State）功能。MPS模拟基于张量网络，通过局部的矩阵运算而不是全局矩阵的方式减少内存占用，输出末态的近似值。
 #
@@ -849,10 +852,10 @@ samples = cir.measure(shots=100)
 print(samples)
 
 # %% [markdown]
-# # 基于高斯后端构建光量子线路
+# ## 基于高斯后端构建光量子线路
 
 # %% [markdown]
-# ##  构建连续变量光量子线路
+# ###  构建连续变量光量子线路
 
 # %% [markdown]
 # 基于高斯后端的光量子线路演化的量子态是高斯态，高斯态的概念来源于连续变量光量子计算，它对应的wigner函数为多元高斯分布，比如相干态。\
@@ -1090,7 +1093,7 @@ samples = cir.measure(shots=100, mcmc=False)
 print('使用chain-rule进行采样', samples)
 
 # %% [markdown]
-# ## 高斯玻色采样(GBS)
+# ### 高斯玻色采样(GBS)
 
 # %% [markdown]
 # 基于压缩门和线性光学器件可以构建高斯玻色采样线路，通过`GaussianBosonSampling`可以使用高斯玻色采样模拟，`nmode`表示GBS线路的模数，`squeezing`表示第一列单模压缩门的压缩度，`cutoff`表示每条线路探测到的最大光子数+1，`'pnrd'`表示单光子分辨探测器，默认设为`'pnrd'`，`'threshold'`表示阈值探测器，`noise` 表示是否加入高斯噪声。然后正常运行高斯玻色采样线路采样即可。
@@ -1171,7 +1174,7 @@ print(key[0], subgraph_density[key[0]])
 print(subgraph_density)
 
 # %% [markdown]
-# ## 部分Homodyne测量
+# ### 部分Homodyne测量
 
 # %% [markdown]
 # 高斯后端还可以对几个mode做部分测量，那么剩余的量子态会根据相应的测量结果塌缩，先通过`QumodeCircuit.homodyne`添加测量操作，`wires`表示作用单条线路，`phi`对应测量角度，然后通过`QumodeCircuit.measure_homodyne`进行测量操作实现量子态坍缩。
@@ -1194,7 +1197,7 @@ state_measured = cir.state_measured  # 得到采样后坍缩的量子态
 print(sample, state_measured)
 
 # %% [markdown]
-# ## 延时线圈组成的时域复用线路
+# ### 延时线圈组成的时域复用线路
 
 # %% [markdown]
 # 通过`QumodeCircuit`构造带延时线圈线路，通过`QumodeCircuit.delay`加入可调延时线圈，参数`wires` 表示作用的波导，`ntau`表示延时线圈内延时的个数，`inputs`表示延时线圈中可调参数，`convention` 对应两种，bs和mzi，对应延时线是`DelayBS`和`DelayMZI` 类型，默认是bs，对应一个单参数theta可调分束器和一个移相器。`encode`控制角度自由编码。
@@ -1291,10 +1294,10 @@ cir(data=data, nstep=13)
 print(cir.samples)
 
 # %% [markdown]
-# # 基于Bosonic后端构建光量子线路
+# ## 基于Bosonic后端构建光量子线路
 
 # %% [markdown]
-# ##  Bosonic态
+# ###  Bosonic态
 
 # %% [markdown]
 # 基于Bosonic后端的光量子线路演化的量子态不再是高斯态，而是非高斯态，它对应的Wigner函数可以写成多个高斯函数的线性叠加。
@@ -1335,7 +1338,7 @@ wigner = bosonic_state_1.wigner(wire=0, qrange=qrange, prange=prange, npoints=np
 marginal = bosonic_state_1.marginal(wire=0, qrange=qrange)  # 边缘分布p(x)可视化
 
 # %% [markdown]
-# ### 猫态和GKP态
+# #### 猫态和GKP态
 
 # %% [markdown]
 # 猫态和GKP态作为常见的Bosonic态，可以通过`CatState`和`GKPState`来实现。
@@ -1371,7 +1374,7 @@ wigner = gkp_0.wigner(wire=0, qrange=10, prange=10, npoints=500)  # Wigner函数
 marginal = gkp_0.marginal(wire=0, qrange=10)  # 边缘分布p(x)可视化
 
 # %% [markdown]
-# ### 单模Fock态的Bosonic表示
+# #### 单模Fock态的Bosonic表示
 
 # %% [markdown]
 # `FockStateBosonic`可以实现单模Fock态的Bosonic表示，即通过一组协方差矩阵、位移矢量和权重表示。输入参数`n`表示粒子数，`r`用来表示近似程度，`cutoff`表示Fock态空间的截断数。下面是两光子Fock态的例子。
@@ -1385,7 +1388,7 @@ marginal = bosonic_fock2.marginal(wire=0, qrange=5, npoints=500)
 wigner = bosonic_fock2.wigner(wire=0, qrange=5, prange=5, npoints=500)
 
 # %% [markdown]
-# ## Bosonic后端构建光量子线路
+# ### Bosonic后端构建光量子线路
 
 # %% [markdown]
 # Bosonic后端构建光量子线路时要设置`backend`为`'bosonic'`，初态`init_state`设置可以为真空态`'vac'`，可以是自定义的[cov, mean, weight]，也可以通过`QumodeCircuit.cat`和`QumodeCircuit.gkp`自定义猫态和GKP态作为初态。
@@ -1407,7 +1410,7 @@ for i in state:
     print(i.shape)
 
 # %% [markdown]
-# ## Bosonic后端的Homodyne探测
+# ### Bosonic后端的Homodyne探测
 
 # %% [markdown]
 # `QumodeCircuit.measure_homodyne` 对指定线路的正交分量进行测量，`shots`对应测量次数，`wires` 表示指定线路。此时测量指定线路得到的是一对正交分量X、P的测量值。
@@ -1445,7 +1448,7 @@ state = cir(is_prob=True, detector='pnrd')
 print(state)
 
 # %% [markdown]
-# ## Bosonic态的粒子数分辨探测
+# ### Bosonic态的粒子数分辨探测
 
 # %% [markdown]
 # 基于单模Fock态的Bosonic表示可以实现对Bosonic态的指定线路做Fock态测量，并得到测量坍缩后的结果，这个功能通过`PhotonNumberResolvingBosonic`实现。
