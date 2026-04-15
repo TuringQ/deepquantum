@@ -150,7 +150,7 @@ print('variance:', x_delta2.std() ** 2)
 print('mean:', x_delta2.mean())
 
 # %% [markdown]
-# # 案例二：二维簇态的制备
+# ## 案例二：二维簇态的制备
 
 # %% [markdown]
 # 2019 年东京大学组通过下面的四模线路加上两个延时线圈实现了二维簇态的制备[2]
@@ -238,7 +238,7 @@ print('variance:', err.std() ** 2)
 print('mean:', err.mean())
 
 # %% [markdown]
-# # 附录
+# ## 附录
 
 # %% [markdown]
 # [1] Yokoyama S, Ukai R, Armstrong S C, et al. Ultra-large-scale continuous-variable cluster states multiplexed in the time domain[J]. Nature Photonics, 2013, 7(12): 982-986.

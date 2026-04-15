@@ -18,9 +18,11 @@
 
 # %% [markdown]
 # GKP态是光量子计算中一种特殊的量子态，它的全名是Gottesman-Knill-Preskill (GKP) 码态。这个态是一种量子纠错码，用于量子计算中来保护量子信息免受噪声干扰。这种态的核心思想是将量子信息编码在相空间（通常是坐标和动量）中的特定位置，使得即使存在一定的噪声和误差，仍然能够恢复原始信息。在连续变量量子计算中，方形晶格形状的GKP态的Wigner函数由一组狄拉克 $\delta$ 函数决定，
+#
 # $$
 # W_{\mathrm{gkp}}^{0}(q,p)=\sum_{s,t--\infty}^{\infty}(-1)^{st}\delta\left(p-\frac{s\sqrt{\pi\hbar}}{2}\right)\delta\left(q-l\sqrt{\pi\hbar}\right).
 # $$
+#
 # 可以看到它是一个规律的离散的分布，用坐标本征态的表示如下，
 # $$\left|k\right\rangle_{\mathrm{gkp}}=\sum_{s=-\infty}^\infty\left|\sqrt{\pi\hbar}(2s+k)\right\rangle_q,k=\{0,1\}$$
 # 使用GKP态编码量子比特，一般的量子态可以表示成
@@ -30,7 +32,7 @@
 # 它等效于很多个高斯波包的叠加，对应的包络也是高斯函数，如下图
 #
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
-#     <img src="./fig/graph1.png" width="50%"/>
+#     <img src="./images/graph1.png" width="50%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
 #         <b>
 #     </p>
@@ -41,14 +43,14 @@
 # 文章[1]附录中提出了一种基于压缩猫态有效制备近似GKP态的方法，通过breeding技术将两个峰的猫态作为初态然后经过一个分束器，对其中一个模式做正交分量p测量，那么剩下的一个模式会有纠缠坍缩发生，通过对正交分量q做Homodyne测量可以发现坍缩的态是三个峰叠加的非高斯态。
 #
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
-#     <img src="./fig/graph4.png" width="50%"/>
+#     <img src="./images/graph4.png" width="50%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
 #         <b>
 #     </p>
 # </div>
 #
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
-#     <img src="./fig/graph2.png" width="50%"/>
+#     <img src="./images/graph2.png" width="50%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
 #         <b>
 #     </p>
@@ -57,7 +59,7 @@
 # 将这个坍缩后的量子态作为两模线路的两个输入再次经过一个分束器，对其中一个模式做正交分量p测量，未被测量的部分将会坍缩成五个峰的非高斯态。依次重复上面的过程可以逐步制备出近似GKP态。
 #
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
-#     <img src="./fig/graph3.png" width="50%"/>
+#     <img src="./images/graph3.png" width="50%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
 #         <b>
 #     </p>

@@ -199,7 +199,7 @@ def feature_map_event_sample(event_photon_numbers, n, samples):
 
 # %% [markdown]
 # 先将四个mutag数据图对应的邻接矩阵编码放入高斯玻色采样线路中， 使用 ``deepquantum.photonic.GraphGBS.measure`` 进行采样，默认使用5条马尔可夫链进行采样， 每条链采样次数为30000次， 我们对应的采样结果为
-# $samples\_1$, $samples\_2$, $samples\_3$, $samples\_4$, 这里我们直接读取已经采样数据。
+# $\text{samples}\_1$, $\text{samples}\_2$, $\text{samples}\_3$, $\text{samples}\_4$, 这里我们直接读取已经采样数据。
 
 # %%
 a_1 = dqp.utils.load_adj('mutag_1_adj')

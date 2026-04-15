@@ -42,19 +42,12 @@
 #
 # 当处理混合系统时，根据网络 $A$ 和 $B$ 的物理性质（经典或量子），可以有不同的迁移学习实现方式，总结如下表：
 #
-#   -------------------------------------------------------------------------
-#   Network A   Network B   Transfer learning scheme
-#   ----------- ----------- -------------------------------------------------
-#   经典           经典          CC - Standard classical method. See e.g., Ref.\[2\].
-#
-#   经典           量子          CQ - **Hybrid model presented in this tutorial.**
-#
-#   量子           经典          QC - Model studied in Ref. \[1\].
-#
-#   量子           量子          QQ - Model studied in Ref. \[1\].
-#
-#   -------------------------------------------------------------------------
-#
+# | Network A | Network B | Transfer learning scheme |
+# | :--- | :--- | :--- |
+# | 经典 | 经典 | CC - Standard classical method. See e.g., Ref.[2]. |
+# | 经典 | 量子 | CQ - **Hybrid model presented in this tutorial.** |
+# | 量子 | 经典 | QC - Model studied in Ref. [1]. |
+# | 量子 | 量子 | QQ - Model studied in Ref. [1]. |
 #
 # 经典-量子迁移学习
 # -----------------

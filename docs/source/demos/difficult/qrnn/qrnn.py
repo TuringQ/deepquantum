@@ -23,7 +23,7 @@
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
 #     <img src="./images/3_4_0001.png" width="30%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
-#         <b>图 1 </b>变分量子线路（VQC）的通用架构。U(x) 是将经典输入数据 x 编码为量子态的量子线路，V(θ) 是具有可调节或可学习参数 θ 的变分线路。线路最后是对部分或全部量子比特的测量
+#         <b>图 1 </b>变分量子线路（VQC）的通用架构。U(x) 编码经典输入数据 x，V(θ) 是变分线路。线路最后是对部分或全部量子比特的测量
 #     </p>
 # </div>
 #

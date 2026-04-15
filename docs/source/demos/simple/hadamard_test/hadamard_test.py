@@ -94,15 +94,15 @@ def hadamard_test():
 
 
 # 绘制量子线路图
-Hadamard_Test_circuit = hadamard_test()
-Hadamard_Test_circuit.draw()
+hadamard_test_circuit = hadamard_test()
+hadamard_test_circuit.draw()
 
 # %% [markdown]
-# 输出结果应如下所示，分别以 $\frac{1+\sqrt2/2}{2}$ 和 $1-\frac{1+\sqrt2/2}{2}$ 的概率得到 |0⟩和 |1⟩ ：
+# 输出结果应如下所示，分别以 $\frac{1+\sqrt2/2}{2}$ 和 $1-\frac{1+\sqrt2/2}{2}$ 的概率得到 $\ket{0}$ 和 $\ket{1}$ ：
 
 # %%
-Hadamard_Test_circuit()
-res = Hadamard_Test_circuit.measure(shots=10000)
+hadamard_test_circuit()
+res = hadamard_test_circuit.measure(shots=10000)
 
 p_0 = (res['00'] + res['01']) / (res['00'] + res['01'] + res['10'] + res['11'])
 p_1 = (res['10'] + res['11']) / (res['00'] + res['01'] + res['10'] + res['11'])

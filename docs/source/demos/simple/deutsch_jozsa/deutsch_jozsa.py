@@ -49,26 +49,27 @@
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
 #     <img src="./images/deutsch_steps.png" width="40%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
-#         <b>
 #     </p>
 # </div>
 #
 #
 # 现在，让我们来看算法的步骤：
 #
-# 1. 准备两个量子寄存器。第一个是初始化为 $\vert0\rangle$ 的 $n$ -比特寄存器，第二个是初始化为 $\vert1\rangle$ 的单比特寄存器:   $$\vert \psi_0 \rangle = \vert0\rangle^{\otimes n} \vert 1\rangle$$
+# 1. 准备两个量子寄存器。第一个是初始化为 $\vert0\rangle$ 的 $n$ -比特寄存器，第二个是初始化为 $\vert1\rangle$ 的单比特寄存器：
 #
-# 2. 对每个比特应用 Hadamard 门:
+# $$\vert \psi_0 \rangle = \vert0\rangle^{\otimes n} \vert 1\rangle$$
+#
+# 2. 对每个比特应用 Hadamard 门：
 #
 # $$\vert \psi_1 \rangle = \frac{1}{\sqrt{2^{n+1}}}\sum_{x=0}^{2^n-1} \vert x\rangle \left(\vert0\rangle - \vert1\rangle \right)$$
 #
-# 3. 应用量子oracle $\vert x\rangle \vert y\rangle$ 到 $\vert x\rangle \vert y \oplus f(x)\rangle$:
+# 3. 应用量子oracle $\vert x\rangle \vert y\rangle$ 到 $\vert x\rangle \vert y \oplus f(x)\rangle$：
 #
 # $$   \begin{aligned}   \lvert \psi_2 \rangle   & = \frac{1}{\sqrt{2^{n+1}}}\sum_{x=0}^{2^n-1} \vert x\rangle (\vert f(x)\rangle - \vert 1 \oplus f(x)\rangle) \\   & = \frac{1}{\sqrt{2^{n+1}}}\sum_{x=0}^{2^n-1}(-1)^{f(x)}\vert x\rangle ( \vert0\rangle - \vert1\rangle )   \end{aligned}   $$
 #
 # 因为对每个 $x$，  $f(x)$ 要么是 $0$ 要么是 $1$。
 #
-# 4. 此时可以忽略第二个单比特寄存器。对第一个寄存器的每个比特应用 Hadamard 门:
+# 4. 此时可以忽略第二个单比特寄存器。对第一个寄存器的每个比特应用 Hadamard 门：
 #
 #     $$
 #     \begin{aligned}
@@ -121,9 +122,9 @@
 #
 # 对于常数函数，很简单：
 #
-# $\qquad$ 1. 如果f(x) = 0，则对寄存器2中的量子比特应用 $I$ 门。
+# $\qquad$ 1. 如果 $f(x) = 0$，则对寄存器2中的量子比特应用 $I$ 门。
 #
-# $\qquad$ 2. 如果f(x) = 1，则对寄存器2中的量子比特应用 $X$ 门。
+# $\qquad$ 2. 如果 $f(x) = 1$，则对寄存器2中的量子比特应用 $X$ 门。
 #
 # 对于均衡函数，我们可以创建许多不同的电路。我们可以保证电路是均衡的一种方法是，对寄存器1中的每个量子比特执行CNOT，以寄存器2中的量子比特作为目标。例如：
 
@@ -155,7 +156,7 @@ cir.draw()
 # \end{array}
 # $$
 #
-# 我们可以通过将选定的控制位包裹在X门中来改变结果，同时保持它们的均衡性。例如，看下面的线路及其结果表：
+# 我们可以通过将选定的控制位包裹在 $X$ 门中来改变结果，同时保持它们的均衡性。例如，看下面的线路及其结果表：
 
 # %%
 cir = dq.QubitCircuit(4)

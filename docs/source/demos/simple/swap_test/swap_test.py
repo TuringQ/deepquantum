@@ -95,15 +95,15 @@ def swap_test():
 
 
 # 绘制量子线路图
-SWAP_Test_circuit = swap_test()
-SWAP_Test_circuit.draw()
+swap_test_circuit = swap_test()
+swap_test_circuit.draw()
 
 # %% [markdown]
-# 输出结果应如下所示，分别以 0.75 和 0.25 的概率得到 |0⟩和 |1⟩ ：
+# 输出结果应如下所示，分别以 0.75 和 0.25 的概率得到 $\ket{0}$ 和 $\ket{1}$ ：
 
 # %%
-SWAP_Test_circuit()
-res = SWAP_Test_circuit.measure(shots=10000)
+swap_test_circuit()
+res = swap_test_circuit.measure(shots=10000)
 
 # 筛选出第一位为 '0' 的键，并计算这些键对应的值的总和
 first_digit_zero_sum = sum(value for key, value in res.items() if key.startswith('0'))

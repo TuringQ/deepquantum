@@ -36,7 +36,7 @@
 #     </p>
 # </div>
 #
-# 对应两模输入的量子态分别是$|0\rangle_p, |0\rangle_x$, 其中$|0\rangle_p$ 可以通过傅里叶变换用$x$ 基矢表示。
+# 对应两模输入的量子态分别是$|0\rangle_p， |0\rangle_x$， 其中$|0\rangle_p$ 可以通过傅里叶变换用$x$ 基矢表示。
 #
 # $$
 # |0\rangle_p = \int_{-\infty}^{+\infty} |a\rangle_x d a
@@ -48,7 +48,7 @@
 # BS \int_{-\infty}^{+\infty} |a\rangle_x^A |0\rangle_x^Bd a = \int_{-\infty}^{+\infty} |\frac{a}{\sqrt{2}}\rangle_x^A |\frac{a}{\sqrt{2}}\rangle_x^Bd a \sim \int_{-\infty}^{+\infty} |x\rangle_x^A |x\rangle_x^Bd x
 # $$
 #
-# 从最后的结果可看到当第一个模式进行Homodyne测量到$x_0$时， 第二个模式进行Homodyne测量同样会得到$x_0$。
+# 从最后的结果可看到当第一个模式进行Homodyne测量到$x_0$时，第二个模式进行Homodyne测量同样会得到$x_0$。
 
 # %% [markdown]
 # 2. 三模线路制备GHZ态的图示如下:
@@ -60,7 +60,7 @@
 #     </p>
 # </div>
 #
-# 对应三模输入的量子态分别是$|0\rangle_p^A, |0\rangle_x^B, |0\rangle_x^C$, 其中$|0\rangle_p$ 可以通过傅里叶变换用$x$ 基矢表示, 初始系统的量子态如下，
+# 对应三模输入的量子态分别是$|0\rangle_p^A，|0\rangle_x^B，|0\rangle_x^C$，其中$|0\rangle_p$ 可以通过傅里叶变换用$x$ 基矢表示, 初始系统的量子态如下，
 #
 # $$
 # \int_{-\infty}^{+\infty} |a\rangle_x^A |0\rangle_x^B |0\rangle_x^C d a
@@ -79,7 +79,7 @@
 # \int_{-\infty}^{+\infty} |x\rangle_x^A |x\rangle_x^B|x\rangle_x^C dx
 # $$
 #
-# 从最后的结果可看到当第一个模式进行Homodyne测量到$x_0$时， 第二、三个模式进行Homodyne测量同样会得到$x_0$。
+# 从最后的结果可看到当第一个模式进行Homodyne测量到$x_0$时，第二、三个模式进行Homodyne测量同样会得到 $x_0$。
 #
 # 注意这里$|0\rangle_p, |0\rangle_x$ 都是理想情况下的连续变量量子态，分别表示$p$方向和$x$方向的完美压缩态， 一般实验中会采用压缩态来近似， 通过$\frac{\pi}{2}$的旋转门可以实现$|0\rangle_p$和$|0\rangle_x$ 的相互转换。
 
@@ -108,7 +108,7 @@
 # </div>
 
 # %% [markdown]
-# 通过时域复用模块来制备EPR态和GHZ态其实就是通过设置周期性分束器和移相器角度，使得时域复用线路可以等效1.1中的光量子线路。下面介绍如何通过时域复用线路制备EPR态和GHZ态。
+# 通过时域复用模块来制备EPR态和GHZ态其实就是通过设置周期性分束器和移相器角度，使得时域复用线路可以等效上面的空间光量子线路。下面介绍如何通过时域复用线路制备EPR态和GHZ态。
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
 #     <img src="./images/005.jpg" width="30%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
@@ -161,7 +161,7 @@ cir()
 cir.draw(unroll=True)
 
 # %% [markdown]
-# 现在编码周期性参数，然后运行线路同时进行Homodyne 测量采样， 可以看到采样结果是两两关联的(第一次是真空态的采样结果)
+# 现在编码周期性参数，然后运行线路同时进行Homodyne 测量采样， 可以看到采样结果是两两关联的（第一次是真空态的采样结果）
 
 # %%
 data1 = torch.tensor([[np.pi / 2, np.pi / 2], [np.pi / 4, 0]])
@@ -201,7 +201,7 @@ cir()
 cir.draw(unroll=True)
 
 # %% [markdown]
-# 现在编码周期性参数，然后运行线路同时进行Homodyne 测量采样， 可以看到相邻的三个采样结果是关联的(第一次采样是真空态的采样结果)。
+# 现在编码周期性参数，然后运行线路同时进行Homodyne 测量采样， 可以看到相邻的三个采样结果是关联的（第一次采样是真空态的采样结果）。
 
 # %%
 data1 = torch.tensor([[np.pi / 2, np.pi / 2], [theta1, 0], [theta2, 0]])

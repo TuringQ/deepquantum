@@ -63,7 +63,7 @@
 #
 # ### 生成 4-qubit W 态
 #
-# #### 方案一（线路深度 O（N））
+# #### 方案一（线路深度 $O(N)$）
 
 # %%
 import deepquantum as dq
@@ -98,7 +98,7 @@ plt.bar(labels, values)  # 绘制条形图
 cir.draw()
 
 # %% [markdown]
-# #### 方案二（线路深度 O（N/2））
+# #### 方案二（线路深度 $O(N/2)$）
 
 # %%
 cir = dq.QubitCircuit(4)
@@ -130,7 +130,7 @@ plt.bar(labels, values)  # 绘制条形图
 cir.draw()
 
 # %% [markdown]
-# #### 方案三（线路深度 O（log(N)））
+# #### 方案三（线路深度 $O(\log (N))$）
 
 # %%
 cir = dq.QubitCircuit(4)
@@ -166,7 +166,7 @@ cir.draw()
 # ### 生成 n-qubit W 态
 
 # %% [markdown]
-# 基于方案三的 O（log(N)）线路深度，我们可以利用递归的方法，设计生成 n-qubit W 态的通用线路：
+# 基于方案三的 $O(\log (N))$线路深度，我们可以利用递归的方法，设计生成 n-qubit W 态的通用线路：
 
 # %%
 def distribute_shares(cir, a, b):

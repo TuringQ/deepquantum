@@ -26,9 +26,9 @@
 #
 # $$y_k=\frac{1}{\sqrt{N}}\sum_{j=0}^{N-1}x_j\omega_N^{jk}$$
 #
-# 其中$\omega_N^{jk}=e^{2\pi i\frac{jk}{N}}$。
+# 其中$\omega_N^{jk}=e^{2\pi i\frac{jk}{N}}$。s
 #
-# 类似地，量子傅里叶变换作用于量子态 $\vert X\rangle=\sum_{j=0}^{N-1}x_j\vert j\rangle$ ，并根据以下公式将其映射到量子态 $\vert Y\rangle=\sum_{k=0}^{N-1}y_k\vert k\rangle$ ：
+# 类似地，量子傅里叶变换作用于量子态 $\ket{X}=\sum_{j=0}^{N-1}x_j\ket{j}$ ，并根据以下公式将其映射到量子态 $\ket{Y}=\sum_{k=0}^{N-1}y_k\ket{k}$ ：
 #
 # $$y_k=\frac{1}{\sqrt{N}}\sum_{j=0}^{N-1}x_j\omega_N^{jk}$$
 #
@@ -36,29 +36,29 @@
 #
 # 这也可以表示为映射:
 #
-# $$\vert j\rangle\mapsto\frac{1}{\sqrt{N}}\sum_{k=0}^{N-1}\omega_N^{jk}\vert k\rangle$$
+# $$\ket{j}\mapsto\frac{1}{\sqrt{N}}\sum_{k=0}^{N-1}\omega_N^{jk}\ket{k}$$
 #
 # 或酉矩阵:
 #
-# $$U_{QFT}=\frac{1}{\sqrt{N}}\sum_{j=0}^{N-1}\sum_{k=0}^{N-1}\omega_N^{jk}\vert k\rangle\langle j\vert$$
+# $$U_{QFT}=\frac{1}{\sqrt{N}}\sum_{j=0}^{N-1}\sum_{k=0}^{N-1}\omega_N^{jk}\ket{k}\ket{j}$$
 #
 # ## 直观理解
 #
-# 量子傅里叶变换（QFT）在计算基和傅里叶基之间进行变换。H门是单比特QFT，它在Z基态 $|0\rangle$ 和 $|1\rangle$ 与X基态 $|{+}\rangle$ 和 $|{-}\rangle$ 之间进行变换。QFT是在这些基之间进行变换的函数。
+# 量子傅里叶变换（QFT）在计算基和傅里叶基之间进行变换。H门是单比特QFT，它在Z基态 $ket{0}$ 和 $ket{1}$ 与X基态 $\ket{+}$ 和 $\ket{-}$ 之间进行变换。QFT是在这些基之间进行变换的函数。
 #
 # $$
-# |\text{计算基态}\rangle\quad\xrightarrow[]{\text{QFT}}\quad|\text{傅里叶基态}\rangle
+# |\text{计算基态}\quad\xrightarrow[]{\text{QFT}}\quad|\text{傅里叶基态}
 # $$
 #
 # $$
-# \text{QFT}|x\rangle=|\widetilde{x}\rangle
+# \text{QFT}\ket{x}=\ket{\widetilde{x}}
 # $$
 #
 # 我们通常使用波浪号(~)表示傅里叶基态。
 #
 # ## 示例1: 1-qubit QFT
 #
-# 让我们考虑上文定义的QFT算子如何作用于单量子比特态$\vert\psi\rangle = \alpha \vert 0 \rangle + \beta \vert 1 \rangle$。在这种情况下，我们有$x_0 = \alpha$，$x_1 = \beta$，以及$N = 2$。那么，
+# 让我们考虑上文定义的QFT算子如何作用于单量子比特态 $\ket{\psi} = \alpha \ket{0} + \beta \ket{1}$。在这种情况下，我们有$x_0 = \alpha$，$x_1 = \beta$，以及$N = 2$。那么，
 #
 # $$y_0 = \frac{1}{\sqrt{2}}\left(    \alpha \exp\left(2\pi i\frac{0\times0}{2}\right) + \beta \exp\left(2\pi i\frac{1\times0}{2}\right)      \right) = \frac{1}{\sqrt{2}}\left(\alpha + \beta\right)$$
 #
@@ -66,49 +66,49 @@
 #
 # 最终结果为态
 #
-# $$U_{QFT}\vert\psi\rangle = \frac{1}{\sqrt{2}}(\alpha + \beta) \vert 0 \rangle + \frac{1}{\sqrt{2}}(\alpha - \beta)  \vert 1 \rangle$$
+# $$U_{QFT}\ket{\psi} = \frac{1}{\sqrt{2}}(\alpha + \beta) \ket{0} + \frac{1}{\sqrt{2}}(\alpha - \beta)  \ket{1}$$
 #
 # 这一操作恰好等同于对量子比特应用Hadamard算子（ $H$ ）:
 #
 # $$H = \frac{1}{\sqrt{2}}\begin{bmatrix} 1 & 1 \\ 1 & -1 \end{bmatrix}$$
 #
-# 如果我们将 $H$ 算子作用于态 $\vert\psi\rangle = \alpha \vert 0 \rangle + \beta \vert 1 \rangle$ ，将得到新的态:
+# 如果我们将 $H$ 算子作用于态 $\ket{\psi} = \alpha \ket{0} + \beta \ket{1}$ ，将得到新的态:
 #
-# $$\frac{1}{\sqrt{2}}(\alpha + \beta) \vert 0 \rangle + \frac{1}{\sqrt{2}}(\alpha - \beta)  \vert 1 \rangle
-# \equiv \tilde{\alpha}\vert 0 \rangle + \tilde{\beta}\vert 1 \rangle$$
+# $$\frac{1}{\sqrt{2}}(\alpha + \beta) \ket{0} + \frac{1}{\sqrt{2}}(\alpha - \beta)  \ket{1}
+# \equiv \tilde{\alpha}\ket{0} + \tilde{\beta}\ket{1}$$
 #
 # 注意Hadamard门如何对态的振幅执行了 $N=2$ 的离散Fourier变换。
 #
 # ## 量子Fourier变换
 #
-# 当 $N$ 取更大值时，量子Fourier变换会是什么样子？让我们推导 $N=2^n$ 时的变换 $QFT_N$ ，它作用于态 $\vert x \rangle = \vert x_1\ldots x_n \rangle$ ，其中 $x_1$ 为最高有效位。
+# 当 $N$ 取更大值时，量子Fourier变换会是什么样子？让我们推导 $N=2^n$ 时的变换 $QFT_N$ ，它作用于态 $\ket{x} = \ket{x_1 \ldots x_n}$ ，其中 $x_1$ 为最高有效位。
 #
-# $\begin{aligned}
-# QFT_N\vert x \rangle & = \frac{1}{\sqrt{N}} \sum_{y=0}^{N-1}\omega_N^{xy} \vert y \rangle
+# $$\begin{aligned}
+# QFT_N\ket{x} & = \frac{1}{\sqrt{N}} \sum_{y=0}^{N-1}\omega_N^{xy} \ket{y}
 # \\
-# & = \frac{1}{\sqrt{N}} \sum_{y=0}^{N-1} e^{2 \pi i xy / 2^n} \vert y \rangle （~\text{其中}\: \omega_N^{xy} = e^{2\pi i \frac{xy}{N}} \:\text{，}\: N = 2^n ）
+# & = \frac{1}{\sqrt{N}} \sum_{y=0}^{N-1} e^{2 \pi i xy / 2^n} \ket{y} (~\text{其中}\: \omega_N^{xy} = e^{2\pi i \frac{xy}{N}} \:\text{，}\: N = 2^n)
 # \\
-# & = \frac{1}{\sqrt{N}} \sum_{y=0}^{N-1} e^{2 \pi i \left(\sum_{k=1}^n y_k/2^k\right) x} \vert y_1 \ldots y_n \rangle \:（\text{分数二进制记数法}\: y = y_1\ldots y_n，y/2^n = \sum_{k=1}^n y_k/2^k ）
+# & = \frac{1}{\sqrt{N}} \sum_{y=0}^{N-1} e^{2 \pi i \left(\sum_{k=1}^n y_k/2^k\right) x} \ket{y_1 \ldots y_n} \:(\text{分数二进制记数法}\: y = y_1\ldots y_n，y/2^n = \sum_{k=1}^n y_k/2^k)
 # \\
-# & = \frac{1}{\sqrt{N}} \sum_{y=0}^{N-1} \prod_{k=1}^n e^{2 \pi i x y_k/2^k } \vert y_1 \ldots y_n \rangle \:（\text{将和的指数展开为指数的乘积}）
+# & = \frac{1}{\sqrt{N}} \sum_{y=0}^{N-1} \prod_{k=1}^n e^{2 \pi i x y_k/2^k } \ket{y_1 \ldots y_n} \:(\text{将和的指数展开为指数的乘积})
 # \\
-# & = \frac{1}{\sqrt{N}} \bigotimes_{k=1}^n  \left(\vert0\rangle + e^{2 \pi i x /2^k } \vert1\rangle \right) \:（\text{重新排列总和和乘积} ）
+# & = \frac{1}{\sqrt{N}} \bigotimes_{k=1}^n  \left(\ket{0} + e^{2 \pi i x /2^k } \ket{1} \right) \: (\text{重新排列总和和乘积})
 # \\
-# & = \frac{1}{\sqrt{N}}\left(\vert0\rangle + e^{\frac{2\pi i}{2}x} \vert1\rangle\right)
-# \otimes\left(\vert0\rangle + e^{\frac{2\pi i}{2^2}x} \vert1\rangle\right)
+# & = \frac{1}{\sqrt{N}}\left(\ket{0} + e^{\frac{2\pi i}{2}x} \ket{1}\right)
+# \otimes\left(\ket{0} + e^{\frac{2\pi i}{2^2}x} \ket{1}\right)
 # \otimes\ldots
 # \otimes
-# \left(\vert0\rangle + e^{\frac{2\pi i}{2^{n-1}}x} \vert1\rangle\right)
+# \left(\ket{0} + e^{\frac{2\pi i}{2^{n-1}}x} \ket{1}\right)
 # \otimes
-# \left(\vert0\rangle + e^{\frac{2\pi i}{2^n}x} \vert1\rangle\right)
-# \end{aligned}$
+# \left(\ket{0} + e^{\frac{2\pi i}{2^n}x} \ket{1}\right)
+# \end{aligned}$$
 
 # %% [markdown]
 # ## 实现量子Fourier变换的电路
 #
-# 实现QFT的电路使用两种门。第一个是你已经知道的单量子比特Hadamard门 $H$ 。从示例1的讨论中，你已经看到 $H$ 作用于单量子比特态 $\vert x_k\rangle$ 的效果为
+# 实现QFT的电路使用两种门。第一个是你已经知道的单量子比特Hadamard门 $H$ 。从示例1的讨论中，你已经看到 $H$ 作用于单量子比特态 $\ket{x_k}$ 的效果为
 #
-# $$H\vert x_k \rangle = \frac{1}{\sqrt{2}}\left(\vert0\rangle + \exp\left(\frac{2\pi i}{2}x_k\right)\vert1\rangle\right)$$
+# $$H\ket{x_k} = \frac{1}{\sqrt{2}}\left(\ket{0} + \exp\left(\frac{2\pi i}{2}x_k\right)\ket{1}\right)$$
 #
 # 第二个是两量子比特受控旋转门$CROT_k$，它的分块对角形式为
 #
@@ -124,11 +124,11 @@
 # 0&\exp\left(\frac{2\pi i}{2^k}\right)\\
 # \end{matrix}\right]$$
 #
-# $CROT_k$作用于两量子比特态$\vert x_l x_j\rangle$ （第一个量子比特为控制位，第二个为目标位）的效果为
+# $CROT_k$作用于两量子比特态$\ket{x_l x_j}$ （第一个量子比特为控制位，第二个为目标位）的效果为
 #
-# $$CROT_k\vert 0x_j\rangle = \vert 0x_j\rangle$$
+# $$CROT_k\ket{0x_j} = \ket{0x_j}$$
 #
-# $$CROT_k\vert 1x_j\rangle = \exp\left( \frac{2\pi i}{2^k}x_j \right)\vert 1x_j\rangle$$
+# $$CROT_k\ket{1x_j} = \exp\left( \frac{2\pi i}{2^k}x_j \right)\ket{1x_j}$$
 #
 # 有了这两个门，实现n-qubit QFT的线路如下图所示。
 
@@ -141,32 +141,32 @@
 # </div>
 
 # %% [markdown]
-# 首先，我们从一个 n 量子比特的输入态 $\vert x_1x_2\ldots x_n\rangle$ 开始。
+# 首先，我们从一个 n 量子比特的输入态 $\ket{x_1x_2\ldots x_n}$ 开始。
 #
 # 1. 在对量子比特 1 进行第一个 Hadamard 门操作后，态由输入态转变为:
 #
 #    $$
-#    H_1\vert x_1x_2\ldots x_n\rangle =
+#    H_1\ket{x_1x_2\ldots x_n} =
 #    \frac{1}{\sqrt{2}}
-#    \left[\vert0\rangle + \exp\left(\frac{2\pi i}{2}x_1\right)\vert1\rangle\right]
+#    \left[\ket{0} + \exp\left(\frac{2\pi i}{2}x_1\right)\ket{1}\right]
 #    \otimes
-#    \vert x_2x_3\ldots x_n\rangle
+#    \ket{x_2x_3\ldots x_n}
 #    $$
 #
 # 2. 在由量子比特 2 控制对量子比特 1 进行 $UROT_2$ 门操作后，态转变为:
 #
 #    $$
 #    \frac{1}{\sqrt{2}}
-#    \left[\vert0\rangle + \exp\left(\frac{2\pi i}{2^2}x_2 + \frac{2\pi i}{2}x_1\right)\vert1\rangle\right]
+#    \left[\ket{0} + \exp\left(\frac{2\pi i}{2^2}x_2 + \frac{2\pi i}{2}x_1\right)\ket{1}\right]
 #    \otimes
-#    \vert x_2x_3\ldots x_n\rangle
+#    \ket{x_2x_3\ldots x_n}
 #    $$
 #
 # 3. 在由量子比特 $n$ 控制对量子比特 1 应用最后一个 $UROT_n$ 门后，态变为:
 #
 #    $$
 #    \frac{1}{\sqrt{2}}
-#    \left[\vert0\rangle +
+#    \left[\ket{0} +
 #    \exp\left(
 #    \frac{2\pi i}{2^n}x_n +
 #    \frac{2\pi i}{2^{n-1}}x_{n-1} +
@@ -174,9 +174,9 @@
 #    \frac{2\pi i}{2^2}x_2 +
 #    \frac{2\pi i}{2}x_1
 #    \right)
-#    \vert1\rangle\right]
+#    \ket{1}\right]
 #    \otimes
-#    \vert x_2x_3\ldots x_n\rangle
+#    \ket{x_2x_3\ldots x_n}
 #    $$
 #
 #    注意到:
@@ -189,47 +189,47 @@
 #
 #    $$
 #    \frac{1}{\sqrt{2}}
-#    \left[\vert0\rangle +
+#    \left[\ket{0} +
 #    \exp\left(
 #    \frac{2\pi i}{2^n}x
 #    \right)
-#    \vert1\rangle\right]
+#    \ket{1}\right]
 #    \otimes
-#    \vert x_2x_3\ldots x_n\rangle
+#    \ket{x_2x_3\ldots x_n}
 #    $$
 #
 # 4. 在对量子比特 $2\ldots n$ 应用类似的门序列后，我们发现最终态为:
 #
 #    $$
 #    \frac{1}{\sqrt{2}}
-#    \left[\vert0\rangle +
+#    \left[\ket{0} +
 #    \exp\left(
 #    \frac{2\pi i}{2^n}x
 #    \right)
-#    \vert1\rangle\right]
+#    \ket{1}\right]
 #    \otimes
 #    \frac{1}{\sqrt{2}}
-#    \left[\vert0\rangle +
+#    \left[\ket{0} +
 #    \exp\left(
 #    \frac{2\pi i}{2^{n-1}}x
 #    \right)
-#    \vert1\rangle\right]
+#    \ket{1}\right]
 #    \otimes
 #    \ldots
 #    \otimes
 #    \frac{1}{\sqrt{2}}
-#    \left[\vert0\rangle +
+#    \left[\ket{0} +
 #    \exp\left(
 #    \frac{2\pi i}{2^{2}}x
 #    \right)
-#    \vert1\rangle\right]
+#    \ket{1}\right]
 #    \otimes
 #    \frac{1}{\sqrt{2}}
-#    \left[\vert0\rangle +
+#    \left[\ket{0} +
 #    \exp\left(
 #    \frac{2\pi i}{2^{1}}x
 #    \right)
-#    \vert1\rangle\right]
+#    \ket{1}\right]
 #    $$
 #
 # 这正是如上文所述的输入态的量子傅里叶变换。
@@ -239,130 +239,130 @@
 # %% [markdown]
 # ## 示例 2: 3量子比特的QFT
 #
-# 生成量子电路 $\vert y_3y_2y_1\rangle = QFT_8\vert x_3x_2x_1\rangle$ 的步骤如下:
+# 生成量子电路 $\ket{y_3y_2y_1} = QFT_8\ket{x_3x_2x_1}$ 的步骤如下:
 #
-# 1. 对 $\vert x_1 \rangle$ 应用 Hadamard 门
+# 1. 对 $\ket{x_1}$ 应用 Hadamard 门
 #
 # $$
-# |\psi_1\rangle =
-# \vert x_3\rangle
+# \ket{\psi_1} =
+# \ket{x_3}
 # \otimes
-# \vert x_2\rangle
+# \ket{x_2}
 # \otimes
 # \frac{1}{\sqrt{2}}
 # \left[
-# \vert0\rangle +
+# \ket{0} +
 # \exp\left(\frac{2\pi i}{2}x_1\right)
-# \vert1\rangle\right]
+# \ket{1}\right]
 # $$
 #
-# 2. 根据 $\vert x_2\rangle$ 对 $\vert x_1\rangle$ 应用 $UROT_2$ 门
+# 2. 根据 $\ket{x_2}$ 对 $\ket{x_1}$ 应用 $UROT_2$ 门
 #
 # $$
-# |\psi_2\rangle =
-# \vert x_3\rangle
+# \ket{\psi_2} =
+# \ket{x_3}
 # \otimes
-# \vert x_2\rangle
+# \ket{x_2}
 # \otimes
 # \frac{1}{\sqrt{2}}
 # \left[
-# \vert0\rangle +
+# \ket{0} +
 # \exp\left(
 # \frac{2\pi i}{2^2}x_2 + \frac{2\pi i}{2}x_1
 # \right)
-# \vert1\rangle\right]
+# \ket{1}\right]
 # $$
 #
-# 3. 根据 $\vert x_3\rangle$ 对 $\vert x_1\rangle$ 应用 $UROT_3$ 门
+# 3. 根据 $\ket{x_3}$ 对 $\ket{x_1}$ 应用 $UROT_3$ 门
 #
 # $$
-# |\psi_3\rangle =
-# \vert x_3\rangle
+# \ket{\psi_3} =
+# \ket{x_3}
 # \otimes
-# \vert x_2\rangle
+# \ket{x_2}
 # \otimes
 # \frac{1}{\sqrt{2}}
 # \left[
-# \vert0\rangle +
+# \ket{0} +
 # \exp\left(
 # \frac{2\pi i}{2^3}x_3 + \frac{2\pi i}{2^2}x_2 + \frac{2\pi i}{2}x_1
 # \right)
-# \vert1\rangle\right]
+# \ket{1}\right]
 # $$
 #
-# 4. 对 $\vert x_2 \rangle$ 应用 Hadamard 门
+# 4. 对 $\ket{x_2}$ 应用 Hadamard 门
 #
 # $$
-# |\psi_4\rangle =
-# \vert x_3\rangle
+# \ket{\psi_4} =
+# \ket{x_3}
 # \otimes
 # \frac{1}{\sqrt{2}}
 # \left[
-# \vert0\rangle +
+# \ket{0} +
 # \exp\left(
 # \frac{2\pi i}{2}x_2
 # \right)
-# \vert1\rangle\right]
+# \ket{1}\right]
 # \otimes
 # \frac{1}{\sqrt{2}}
 # \left[
-# \vert0\rangle +
+# \ket{0} +
 # \exp\left(
 # \frac{2\pi i}{2^3}x_3 + \frac{2\pi i}{2^2}x_2 + \frac{2\pi i}{2}x_1
 # \right)
-# \vert1\rangle\right]
+# \ket{1}\right]
 # $$
 #
-# 5. 根据 $\vert x_3\rangle$ 对 $\vert x_2\rangle$ 应用 $UROT_2$ 门
+# 5. 根据 $\ket{x_3}$ 对 $\ket{x_2}$ 应用 $UROT_2$ 门
 #
 # $$
-# |\psi_5\rangle =
-# \vert x_3\rangle
+# \ket{\psi_5} =
+# \ket{x_3}
 # \otimes
 # \frac{1}{\sqrt{2}}
 # \left[
-# \vert0\rangle +
+# \ket{0} +
 # \exp\left(
 # \frac{2\pi i}{2^2}x_3 + \frac{2\pi i}{2}x_2
 # \right)
-# \vert1\rangle\right]
+# \ket{1}\right]
 # \otimes
 # \frac{1}{\sqrt{2}}
 # \left[
-# \vert0\rangle +
+# \ket{0} +
 # \exp\left(
 # \frac{2\pi i}{2^3}x_3 + \frac{2\pi i}{2^2}x_2 + \frac{2\pi i}{2}x_1
 # \right)
-# \vert1\rangle\right]
+# \ket{1}\right]
 # $$
 #
-# 6. 对 $\vert x_3\rangle$ 应用 Hadamard 门
+# 6. 对 $\ket{x_3}$ 应用 Hadamard 门
 #
 # $$
-# |\psi_6\rangle =
+# \ket{\psi_6} =
 # \frac{1}{\sqrt{2}}
 # \left[
-# \vert0\rangle +
+# \ket{0} +
 # \exp\left(
 # \frac{2\pi i}{2}x_3
 # \right)
-# \vert1\rangle\right]
+# \ket{1}\right]
 # \otimes
 # \frac{1}{\sqrt{2}}
 # \left[
-# \vert0\rangle +
+# \ket{0} +
 # \exp\left(
 # \frac{2\pi i}{2^2}x_3 + \frac{2\pi i}{2}x_2
 # \right)
-# \vert1\rangle\right]
+# \ket{1}\right]
 # \otimes
 # \frac{1}{\sqrt{2}}
 # \left[
-# \vert0\rangle +
+# \ket{0} +
 # \exp\left(
 # \frac{2\pi i}{2^3}x_3 + \frac{2\pi i}{2^2}x_2 + \frac{2\pi i}{2}x_1
 # \right)
-# \vert1\rangle\right]
+# \ket{1}\right]
 # $$
 #
 # 7. 注意输出态的顺序与期望的QFT结果相反。因此，我们需要交换量子比特的顺序（本例中交换 $y_1$ 和 $y_3$）。
