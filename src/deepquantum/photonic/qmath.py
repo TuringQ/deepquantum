@@ -43,7 +43,8 @@ def dirac_ket(state: torch.Tensor, den_mat: bool = False, topk: int = 5) -> dict
             else:
                 state_str = f'{state_i[tuple(idx)]:+6.3f}|{state_b}>'
             ket_lst.append(state_str)
-        ket_dict[f'state_{i}'] = ' '.join(ket_lst)
+        ket = ' '.join(ket_lst)
+        ket_dict[f'state_{i}'] = ket[1:] if ket[0] == '+' else ket
     return ket_dict
 
 

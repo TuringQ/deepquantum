@@ -893,6 +893,9 @@ class QumodeCircuit(Operation):
                     idx_r = torch.tensor(op.wires, device=u.device)
                     idx_c = torch.arange(op.nmode + nloss, device=u.device)
                     u_local = op.update_matrix()
+                    assert u_local.shape[-2] == u_local.shape[-1] == len(op.wires), (
+                        'The matrix may not act on creation operators.'
+                    )
             u_update = u[idx_r[:, None], idx_c]
             new_val = u_local @ u_update
             u = u.index_put([idx_r[:, None], idx_c], new_val)
