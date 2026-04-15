@@ -88,13 +88,6 @@ def _copy_demos_fig_folders(app, exception):
     outdir_demos = os.path.join(app.outdir, 'demos')
     for root, dirs, _ in os.walk(demos_src):
         rel = os.path.relpath(root, demos_src)
-        if 'fig' in dirs:  # 统一改为images
-            fig_src = os.path.join(root, 'fig')
-            fig_dst = os.path.join(outdir_demos, rel, 'fig')
-            os.makedirs(os.path.dirname(fig_dst), exist_ok=True)
-            if os.path.exists(fig_dst):
-                shutil.rmtree(fig_dst)
-            shutil.copytree(fig_src, fig_dst)
         if 'images' in dirs:
             img_src = os.path.join(root, 'images')
             img_dst = os.path.join(outdir_demos, rel, 'images')
