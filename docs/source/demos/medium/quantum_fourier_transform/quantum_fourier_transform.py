@@ -26,7 +26,7 @@
 #
 # $$y_k=\frac{1}{\sqrt{N}}\sum_{j=0}^{N-1}x_j\omega_N^{jk}$$
 #
-# 其中$\omega_N^{jk}=e^{2\pi i\frac{jk}{N}}$。s
+# 其中$\omega_N^{jk}=e^{2\pi i\frac{jk}{N}}$。
 #
 # 类似地，量子傅里叶变换作用于量子态 $\ket{X}=\sum_{j=0}^{N-1}x_j\ket{j}$ ，并根据以下公式将其映射到量子态 $\ket{Y}=\sum_{k=0}^{N-1}y_k\ket{k}$ ：
 #
@@ -47,7 +47,7 @@
 # 量子傅里叶变换（QFT）在计算基和傅里叶基之间进行变换。H门是单比特QFT，它在Z基态 $\ket{0}$ 和 $\ket{1}$ 与X基态 $\ket{+}$ 和 $\ket{-}$ 之间进行变换。QFT是在这些基之间进行变换的函数。
 #
 # $$
-# |\text{计算基态}\quad\xrightarrow[]{\text{QFT}}\quad|\text{傅里叶基态}
+# \ket{\text{计算基态}}\quad\xrightarrow[]{\text{QFT}}\quad\ket{\text{傅里叶基态}}
 # $$
 #
 # $$
