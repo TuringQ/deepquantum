@@ -17,35 +17,34 @@ from ..qmath import block_sample, decimal_to_list, is_unitary, list_to_decimal, 
 from .utils import mem_to_chunksize
 
 
-def dirac_ket(state: torch.Tensor, den_mat: bool = False, topk: int = 5) -> dict:
-    """Convert the batched Fock state tensor to the dictionary of Dirac ket."""
-    ket_dict = {}
-    if den_mat:
-        nmode = (state.ndim - 1) // 2
-        cutoff = state.shape[-1]
-        matrix = state.reshape(-1, cutoff**nmode, cutoff**nmode).diagonal(dim1=-2, dim2=-1).real
-        matrix = matrix.reshape([-1] + [cutoff] * nmode)
-    else:
-        matrix = state
-    for i in range(matrix.shape[0]):  # consider batch
-        state_i = matrix[i]
+def dirac_rep(state: torch.Tensor, den_mat: bool = False, topk: int = 5) -> dict:
+    """Convert the batched Fock state tensors to the dictionary of Dirac representation."""
+    dirac_dict = {}
+    for i in range(state.shape[0]):  # consider batch
+        state_i = state[i]
         abs_state = abs(state_i).flatten()
         top_vals, top_indices = torch.topk(abs_state, k=min(len(abs_state), topk))
         coords = torch.stack(torch.unravel_index(top_indices, state_i.shape), dim=1)
-        ket_lst = []
+        dirac_lst = []
         for val, idx_coords in zip(top_vals, coords, strict=True):
             if val <= 1e-5:
                 continue
             idx = idx_coords.tolist()
-            state_b = ','.join(map(str, idx)) if any(x > 9 for x in idx) else ''.join(map(str, idx))
+            use_comma = any(x > 9 for x in idx)
+            coeff = state_i[tuple(idx)].item()
             if den_mat:
-                state_str = f'{val.item():+6.3f}|{state_b}><{state_b}|'
+                idx1 = idx[: len(idx) // 2]
+                idx2 = idx[len(idx) // 2 :]
+                state_b1 = ','.join(map(str, idx1)) if use_comma else ''.join(map(str, idx1))
+                state_b2 = ','.join(map(str, idx2)) if use_comma else ''.join(map(str, idx2))
+                state_str = f'{coeff:+6.3f}|{state_b1}><{state_b2}|'
             else:
-                state_str = f'{state_i[tuple(idx)]:+6.3f}|{state_b}>'
-            ket_lst.append(state_str)
-        ket = ' '.join(ket_lst)
-        ket_dict[f'state_{i}'] = ket[1:] if ket[0] == '+' else ket
-    return ket_dict
+                state_b = ','.join(map(str, idx)) if use_comma else ''.join(map(str, idx))
+                state_str = f'{coeff:+6.3f}|{state_b}>'
+            dirac_lst.append(state_str)
+        dirac = ' '.join(dirac_lst)
+        dirac_dict[f'state_{i}'] = dirac[1:] if dirac[0] == '+' else dirac
+    return dirac_dict
 
 
 def sort_dict_fock_basis(state_dict: dict, idx: int = 0) -> dict:

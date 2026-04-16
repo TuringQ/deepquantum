@@ -13,7 +13,7 @@ import deepquantum.photonic as dqp
 from ..communication import comm_get_rank, comm_get_world_size
 from ..qmath import is_power, list_to_decimal, multi_kron
 from ..utils import apply_complex_fix
-from .qmath import cv_to_wigner, dirac_ket, fock_to_wigner, xpxp_to_xxpp, xxpp_to_xpxp
+from .qmath import cv_to_wigner, dirac_rep, fock_to_wigner, xpxp_to_xxpp, xxpp_to_xpxp
 
 
 class FockState(nn.Module):
@@ -153,7 +153,7 @@ class FockState(nn.Module):
                 return repr_str
         else:
             # Represent Fock state tensor using Dirac notation
-            ket_dict = dirac_ket(self.state, self.den_mat)
+            ket_dict = dirac_rep(self.state, self.den_mat)
             repr_str = ''
             for key, value in ket_dict.items():
                 repr_str += f'{key}: {value}\n'
