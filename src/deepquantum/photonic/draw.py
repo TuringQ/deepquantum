@@ -840,8 +840,8 @@ class GaussianGraphVisualizer:
         cov: The covariance matrix of the Gaussian state.
         threshold: Cutoff threshold for ignoring extremely small numerical edge weights
             in the visualization.
-        mode: The 'simplified' mode for the core structure including node squeezing :math:`Im(Z_{jj})` and
-            edge entanglement :math:`Re(Z_{jk})`. The 'full' mode for all structure including
+        mode: The ``'simplified'`` mode for the core structure including node squeezing :math:`Im(Z_{jj})` and
+            edge entanglement :math:`Re(Z_{jk})`. The ``'full'`` mode for all structure including
             local shear :math:`Re(Z_{jj})` and correlated noise :math:`Im(Z_{jk})`. Default: ``'simplified'``
     """
 

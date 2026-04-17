@@ -270,8 +270,8 @@ class GaussianState(nn.Module):
             in the visualization.
             layout: The layout algorithm (``'spring'``, ``'circular'``,
                 ``'kamada_kawai'``, ``'grid'``, ``'custom'``). Default ``'circular'``
-            mode: The 'simplified' mode for the core structure including node squeezing :math:`Im(Z_{jj})` and
-            edge entanglement :math:`Re(Z_{jk})`. The 'full' mode for all structure including
+            mode: The ``'simplified'`` mode for the core structure including node squeezing :math:`Im(Z_{jj})` and
+            edge entanglement :math:`Re(Z_{jk})`. The ``'full'`` mode for all structure including
             local shear :math:`Re(Z_{jj})` and correlated noise :math:`Im(Z_{jk})`. Default: ``'simplified'``
         """
         assert self.is_pure, 'The visualization is valid for Gaussian pure state'
