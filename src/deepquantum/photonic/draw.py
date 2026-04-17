@@ -1,6 +1,7 @@
 """Draw photonic quantum circuit"""
 
 from collections import defaultdict
+from typing import Any
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -857,7 +858,7 @@ class GaussianGraphVisualizer:
         self.z = self._extract_z_matrix(self.cov)
         self.graph = self._build_networkx_graph(self.z)
 
-    def _extract_z_matrix(self, cov):
+    def _extract_z_matrix(self, cov: np.ndarray | torch.Tensor):
         """Extract the complex adjacency matrix :math:`Z = V + iU` from the covariance matrix.
 
         See https://arxiv.org/abs/1007.0725.
@@ -870,7 +871,7 @@ class GaussianGraphVisualizer:
         z = v + 1j * u
         return z
 
-    def _build_networkx_graph(self, z):
+    def _build_networkx_graph(self, z: np.ndarray | torch.Tensor):
         """Build a NetworkX graph from the complex adjacency matrix."""
         g = nx.Graph()
         n = self.nmode
@@ -892,11 +893,41 @@ class GaussianGraphVisualizer:
                     self._edges_imag.append((i, j, val.imag))
         return g
 
-    def draw(self, layout: str = 'circular'):
-        """Draw Gaussian graph state."""
+    def draw(
+        self,
+        layout: str = 'circular',
+        pos_dict: dict[int, tuple[float, float]] | None = None,
+        style_config: dict[str, Any] | None = None,
+    ):
+        """Draw Gaussian graph state.
+
+        Args:
+            layout: The layout algorithm (``'spring'``, ``'circular'``,
+                ``'kamada_kawai'``, ``'grid'``, ``'custom'``). Default ``'circular'``
+            pos_dict: Custom positions if layout=``'custom'``.
+            style_config: Dictionary to override default visual styles.
+        """
         g = self.graph
         nmode = self.nmode
         mode = self.mode
+
+        is_large_scale = self.nmode > 50
+        default_style = {
+            'edge_cmap': plt.cm.copper,
+            'node_cmap': plt.cm.winter,
+            'edge_cmap_real': plt.cm.PRGn,
+            'edge_cmap_imag': plt.cm.PRGn,
+            'with_labels': not is_large_scale,
+            'font_size': 10,
+            'edge_alpha_real': 0.9,
+            'edge_alpha_imag': 0.8,
+        }
+        if style_config:
+            default_style.update(style_config)
+        cfg = default_style
+
+        if layout == 'custom' and pos_dict is not None:
+            pos = pos_dict
         if layout == 'circular':
             pos = nx.circular_layout(g)
         elif layout == 'kamada':
@@ -904,7 +935,7 @@ class GaussianGraphVisualizer:
         else:
             pos = nx.spring_layout(g, seed=42, weight='layout_weight')
         fig, ax = plt.subplots(figsize=(12 if mode == 'simplified' else 15, 10 if mode == 'simplified' else 12))
-        cmap_node_u = plt.cm.winter
+        cmap_node_u = cfg['node_cmap']
         vmin_u, vmax_u = min(self._node_u), max(self._node_u)
         if mode == 'simplified':
             nx.draw_networkx_nodes(
@@ -920,7 +951,7 @@ class GaussianGraphVisualizer:
                 linewidths=2,
             )
         else:
-            cmap_node_v = plt.cm.copper
+            cmap_node_v = cfg['edge_cmap']
             vmin_v, vmax_v = (min(self._node_v), max(self._node_v))
             if abs(vmax_v) > self.threshold:
                 edgecolors = [cmap_node_v(mpl.colors.Normalize(vmin=vmin_v, vmax=vmax_v)(val)) for val in self._node_v]
@@ -943,7 +974,7 @@ class GaussianGraphVisualizer:
         vmin_e = min(edges_val)
         if self._edges_real:
             e_real_u, e_real_v, e_real_w = zip(*self._edges_real, strict=True)
-            cmap_e_real = plt.cm.PRGn
+            cmap_e_real = cfg['edge_cmap_real']
             nx.draw_networkx_edges(
                 g,
                 pos,
@@ -955,11 +986,11 @@ class GaussianGraphVisualizer:
                 edge_vmin=vmin_e,
                 edge_vmax=vmax_e,
                 style='solid',
-                alpha=0.9,
+                alpha=cfg['edge_alpha_real'],
             )
         if mode == 'full' and self._edges_imag:
             e_imag_u, e_imag_v, e_imag_w = zip(*self._edges_imag, strict=True)
-            cmap_e_imag = plt.cm.PRGn
+            cmap_e_imag = cfg['edge_cmap_imag']
             nx.draw_networkx_edges(
                 g,
                 pos,
@@ -971,13 +1002,13 @@ class GaussianGraphVisualizer:
                 edge_vmin=vmin_e,
                 edge_vmax=vmax_e,
                 style='dashed',
-                alpha=0.8,
+                alpha=cfg['edge_alpha_imag'],
                 connectionstyle='arc3,rad=0.2',
                 arrows=True,
                 arrowstyle='-',
             )
-        if nmode <= 30:
-            nx.draw_networkx_labels(g, pos, font_size=12, font_color='white', font_weight='bold')
+        if cfg['with_labels']:
+            nx.draw_networkx_labels(g, pos, font_size=cfg['font_size'], font_color='white', font_weight='bold')
         cbar_nu = fig.colorbar(
             mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin_u, vmax=vmax_u), cmap=cmap_node_u),
             ax=ax,
@@ -985,7 +1016,7 @@ class GaussianGraphVisualizer:
             pad=0.02,
             location='left',
         )
-        cbar_nu.set_label(r'p-Squeezing Level: Im($Z_{jj}$)', fontsize=12)
+        cbar_nu.set_label(r'p-Squeezing Level: Im($Z_{jj}$)', fontsize=cfg['font_size'])
         if self._edges_real:
             cbar_er = fig.colorbar(
                 mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin_e, vmax=vmax_e), cmap=cmap_e_real),
@@ -994,7 +1025,7 @@ class GaussianGraphVisualizer:
                 pad=0.02,
                 location='right',
             )
-            cbar_er.set_label(r'$C_Z$ Entanglement Strength: Re($Z_{jk}$)', fontsize=12)
+            cbar_er.set_label(r'$C_Z$ Entanglement Strength: Re($Z_{jk}$)', fontsize=cfg['font_size'])
         if mode == 'full' and abs(vmax_v) > self.threshold:
             cbar_nv = fig.colorbar(
                 mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin_v, vmax=vmax_v), cmap=cmap_node_v),
@@ -1003,7 +1034,7 @@ class GaussianGraphVisualizer:
                 pad=0.08,
                 location='left',
             )
-            cbar_nv.set_label(r'Node Border: Re($Z_{jj}$) [Local Shear]', fontsize=11)
+            cbar_nv.set_label(r'Node Border: Re($Z_{jj}$) [Local Shear]', fontsize=cfg['font_size'])
             if self._edges_imag:
                 cbar_ei = fig.colorbar(
                     mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin_e, vmax=vmax_e), cmap=cmap_e_imag),
@@ -1012,12 +1043,12 @@ class GaussianGraphVisualizer:
                     pad=0.08,
                     location='right',
                 )
-                cbar_ei.set_label(r'Curved Edge: Im($Z_{jk}$) [Correlated Noise]', fontsize=11)
+                cbar_ei.set_label(r'Curved Edge: Im($Z_{jk}$) [Correlated Noise]', fontsize=cfg['font_size'])
         title_mode = 'Simplified Graph' if mode == 'simplified' else 'Full Graph'
         plt.title(
             f'Gaussian Pure State ({nmode} Modes) - {title_mode}\n'
             r'$\mathbf{Z} = \mathbf{V} + i\mathbf{U}$',
-            fontsize=16,
+            fontsize=cfg['font_size'] + 4,
         )
         plt.axis('off')
         plt.tight_layout()
