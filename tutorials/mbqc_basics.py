@@ -20,7 +20,7 @@ import torch
 print('version', dq.__version__)
 
 # %% [markdown]
-# # 基于测量的量子计算（MBQC）模块
+# # 基于测量的量子计算（MBQC）教程
 
 # %% [markdown]
 # ## 构建Pattern

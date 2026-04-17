@@ -893,6 +893,9 @@ class QumodeCircuit(Operation):
                     idx_r = torch.tensor(op.wires, device=u.device)
                     idx_c = torch.arange(op.nmode + nloss, device=u.device)
                     u_local = op.update_matrix()
+                    assert u_local.shape[-2] == u_local.shape[-1] == len(op.wires), (
+                        'The matrix may not act on creation operators.'
+                    )
             u_update = u[idx_r[:, None], idx_c]
             new_val = u_local @ u_update
             u = u.index_put([idx_r[:, None], idx_c], new_val)
@@ -1372,11 +1375,11 @@ class QumodeCircuit(Operation):
         if self.state.is_complex():
             if self.den_mat:
                 state_tensor = self.state.reshape(-1, self.cutoff**self.nmode, self.cutoff**self.nmode)
-                state_tensor = self.tensor_rep(abs(state_tensor.diagonal(dim1=-2, dim2=-1)))
+                state_tensor = abs(state_tensor.diagonal(dim1=-2, dim2=-1)).reshape([-1] + [self.cutoff] * self.nmode)
             else:
                 state_tensor = self.tensor_rep(abs(self.state) ** 2)
         else:
-            state_tensor = self.tensor_rep(self.state)
+            state_tensor = self.state.reshape([-1] + [self.cutoff] * self.nmode)
         batch = state_tensor.shape[0]
         combi = list(itertools.product(range(self.cutoff), repeat=len(wires)))
         for i in range(batch):

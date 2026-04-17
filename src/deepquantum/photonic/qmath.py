@@ -16,29 +16,34 @@ from .draw import plot_wigner
 from .utils import mem_to_chunksize
 
 
-def dirac_ket(matrix: torch.Tensor) -> dict:
-    """Convert the batched Fock state tensor to the dictionary of Dirac ket."""
-    ket_dict = {}
-    for i in range(matrix.shape[0]):  # consider batch i
-        state_i = matrix[i]
-        abs_state = abs(state_i)
-        # get the largest k values with abs(amplitudes)
-        top_k = torch.topk(abs_state.flatten(), k=min(len(abs_state), 5), largest=True).values
-        idx_all = []
-        ket_lst = []
-        for amp in top_k:
-            idx = torch.nonzero(abs_state == amp)[0].tolist()
-            idx_all.append(idx)
-            # after finding the indx, set the value to 0, avoid the same abs values
-            abs_state[tuple(idx)] = 0
-            state_b = ''.join(map(str, idx))
-            if amp > 0:
-                state_str = f' + ({state_i[tuple(idx)]:6.3f})|{state_b}>'
-                ket_lst.append(state_str)
-            ket = ''.join(ket_lst)
-        batch_i = f'state_{i}'
-        ket_dict[batch_i] = ket[3:]
-    return ket_dict
+def dirac_rep(state: torch.Tensor, den_mat: bool = False, topk: int = 5) -> dict:
+    """Convert the batched Fock state tensors to the dictionary of Dirac representation."""
+    dirac_dict = {}
+    for i in range(state.shape[0]):  # consider batch
+        state_i = state[i]
+        abs_state = abs(state_i).flatten()
+        top_vals, top_indices = torch.topk(abs_state, k=min(len(abs_state), topk))
+        coords = torch.stack(torch.unravel_index(top_indices, state_i.shape), dim=1)
+        dirac_lst = []
+        for val, idx_coords in zip(top_vals, coords, strict=True):
+            if val <= 1e-5:
+                continue
+            idx = idx_coords.tolist()
+            use_comma = any(x > 9 for x in idx)
+            coeff = state_i[tuple(idx)].item()
+            if den_mat:
+                idx1 = idx[: len(idx) // 2]
+                idx2 = idx[len(idx) // 2 :]
+                state_b1 = ','.join(map(str, idx1)) if use_comma else ''.join(map(str, idx1))
+                state_b2 = ','.join(map(str, idx2)) if use_comma else ''.join(map(str, idx2))
+                state_str = f'{coeff:+6.3f}|{state_b1}><{state_b2}|'
+            else:
+                state_b = ','.join(map(str, idx)) if use_comma else ''.join(map(str, idx))
+                state_str = f'{coeff:+6.3f}|{state_b}>'
+            dirac_lst.append(state_str)
+        dirac = ' '.join(dirac_lst)
+        dirac_dict[f'state_{i}'] = dirac[1:] if dirac[0] == '+' else dirac
+    return dirac_dict
 
 
 def sort_dict_fock_basis(state_dict: dict, idx: int = 0) -> dict:
