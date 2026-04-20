@@ -858,7 +858,7 @@ class GaussianGraphVisualizer:
         self.z = self._extract_z_matrix(self.cov)
         self.graph = self._build_networkx_graph(self.z)
 
-    def _extract_z_matrix(self, cov: np.ndarray | torch.Tensor):
+    def _extract_z_matrix(self, cov: np.ndarray | torch.Tensor) -> np.ndarray:
         """Extract the complex adjacency matrix :math:`Z = V + iU` from the covariance matrix.
 
         See https://arxiv.org/abs/1007.0725.
@@ -871,7 +871,7 @@ class GaussianGraphVisualizer:
         z = v + 1j * u
         return z
 
-    def _build_networkx_graph(self, z: np.ndarray | torch.Tensor):
+    def _build_networkx_graph(self, z: np.ndarray | torch.Tensor) -> nx.Graph:
         """Build a NetworkX graph from the complex adjacency matrix."""
         g = nx.Graph()
         n = self.nmode
@@ -921,6 +921,7 @@ class GaussianGraphVisualizer:
             'font_size': 10,
             'edge_alpha_real': 0.9,
             'edge_alpha_imag': 0.8,
+            'cb_shrink': 0.35,
         }
         if style_config:
             default_style.update(style_config)
@@ -1012,7 +1013,7 @@ class GaussianGraphVisualizer:
         cbar_nu = fig.colorbar(
             mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin_u, vmax=vmax_u), cmap=cmap_node_u),
             ax=ax,
-            shrink=0.5,
+            shrink=cfg['cb_shrink'],
             pad=0.02,
             location='left',
         )
@@ -1021,7 +1022,7 @@ class GaussianGraphVisualizer:
             cbar_er = fig.colorbar(
                 mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin_e, vmax=vmax_e), cmap=cmap_e_real),
                 ax=ax,
-                shrink=0.5,
+                shrink=cfg['cb_shrink'],
                 pad=0.02,
                 location='right',
             )
@@ -1030,7 +1031,7 @@ class GaussianGraphVisualizer:
             cbar_nv = fig.colorbar(
                 mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin_v, vmax=vmax_v), cmap=cmap_node_v),
                 ax=ax,
-                shrink=0.35,
+                shrink=cfg['cb_shrink'],
                 pad=0.08,
                 location='left',
             )
@@ -1039,7 +1040,7 @@ class GaussianGraphVisualizer:
                 cbar_ei = fig.colorbar(
                     mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin_e, vmax=vmax_e), cmap=cmap_e_imag),
                     ax=ax,
-                    shrink=0.35,
+                    shrink=cfg['cb_shrink'],
                     pad=0.08,
                     location='right',
                 )
