@@ -83,6 +83,7 @@ demos/difficult/homodyne_tomography/homodyne_tomography.ipynb
 demos/difficult/qrnn/qrnn.ipynb
 demos/difficult/quantum_counting/quantum_counting.ipynb
 demos/difficult/quanvolution/quanvolution.ipynb
+demos/difficult/bosonic_breeding/bosonic_breeding.ipynb
 ```
 
 ```{toctree}

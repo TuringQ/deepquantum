@@ -1,0 +1,30 @@
+{# 固定为浅色主题：PyData 默认会读 localStorage 与 auto（跟随系统），此处在主题脚本之后强制 light #}
+{% extends "!layout.html" %}
+
+{% block css %}
+{{ super() }}
+<script data-cfasync="false">
+(function () {
+  try {
+    localStorage.removeItem('theme');
+    localStorage.removeItem('mode');
+  } catch (e) {}
+  document.documentElement.dataset.theme = 'light';
+  document.documentElement.dataset.mode = 'light';
+})();
+</script>
+{% endblock %}
+
+{# API 参考页打标，供 custom.css 恢复 .rst/.pdf 下载项（非 API 仍仅突出 .ipynb） #}
+{% block body_tag %}
+  <body{% if pagename is defined and (pagename.startswith('api/') or pagename == 'api') %} class="dq-doc-api-page"{% endif %} data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="{{ default_mode }}">
+
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">{{ _("Skip to main content") }}</a></div>
+
+{%- endblock %}
+
+{# 主题自带 bd-footer 之后追加产品站页脚 #}
+{% block footer %}
+{{ super() }}
+{% include "site-footer.html" %}
+{% endblock %}

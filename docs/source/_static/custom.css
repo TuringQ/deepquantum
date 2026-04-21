@@ -1,0 +1,188 @@
+/* 隐藏 color mode 按钮 */
+button.theme-switch-button {
+  display: none !important;
+}
+
+/* 自定义样式：左侧导航链接悬停颜色#3A8FFD*/
+nav.bd-links li > a:hover {
+  color: #3A8FFD!important;
+}
+/* 文章内右侧导航栏链接悬停颜色 */
+.toc-entry a.nav-link:hover{
+  color: #3A8FFD!important;
+}
+.toc-entry a.nav-link.active:hover {
+  color: #3A8FFD!important;
+}
+
+.search-button-field:hover {
+  box-shadow: 0 0 0 1px #3A8FFD!important;
+}
+a.headerlink{
+  color: #3A8FFD!important;
+}
+.prev-next-area a p.prev-next-title{
+  color: #3A8FFD!important;
+}
+.prev-next-area a p.prev-next-title:hover{
+  color: #0F70FD!important;
+}
+.prev-next-area a p.prev-next-title:active{
+  color: #0F70FD!important;
+}
+/* 选中颜色是#0F70FD */
+.search-button-field:active {
+  box-shadow: 0 0 0 1px #0F70FD!important;
+}
+.bd-search:focus-within {
+  box-shadow: 0 0 0 1px #0F70FD!important;
+}
+nav.bd-links li>a:active{
+  color: #0F70FD!important;
+}
+.toc-entry a.nav-link.active{
+  color: #0F70FD!important;
+}
+nav.bd-links .current>a{
+  color: #0F70FD!important;
+}
+a:visited:hover {
+  color: #0F70FD!important;
+}
+/* ========== 自定义图标按钮：统一 24px × 24px ========== */
+
+/* 全屏按钮：用 self-full.png 替换 */
+.btn-fullscreen-button {
+  width: 24px !important;
+  height: 24px !important;
+  min-width: 24px !important;
+  max-width: 24px !important;
+  min-height: 24px !important;
+  max-height: 24px !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+}
+.btn-fullscreen-button .btn__icon-container i {
+  display: none !important;
+}
+.btn-fullscreen-button .btn__icon-container {
+  width: 24px !important;
+  height: 24px !important;
+  min-width: 24px !important;
+  max-width: 24px !important;
+  min-height: 24px !important;
+  max-height: 24px !important;
+  padding: 0 !important;
+  background: url('images/self-full.png') no-repeat center !important;
+  background-size: 24px 24px !important;
+  display: inline-block !important;
+  line-height: 0 !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
+}
+.btn-fullscreen-button .fa-expand {
+  display: none !important;
+}
+
+/* 下载按钮：用 self-download.png 替换 */
+.dropdown-download-buttons > button .fa-download {
+  display: none !important;
+}
+.dropdown-download-buttons > button {
+  margin-right: 16px !important;
+  width: 24px !important;
+  height: 24px !important;
+  min-width: 24px !important;
+  max-width: 24px !important;
+  min-height: 24px !important;
+  max-height: 24px !important;
+  padding: 0 !important;
+  background: url('images/self-download.png') no-repeat center !important;
+  background-size: 24px 24px !important;
+  line-height: 0 !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
+  padding-bottom: 25px !important;
+}
+ .pst-navbar-icon:hover:before {
+  border: none !important;
+}
+/* Git 仓库按钮：用 self-git.png 替换 */
+.btn-source-repository-button {
+  margin-right: 16px !important;
+  width: 24px !important;
+  height: 24px !important;
+  min-width: 24px !important;
+  max-width: 24px !important;
+  min-height: 24px !important;
+  max-height: 24px !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+}
+.btn-source-repository-button .btn__icon-container i {
+  display: none !important;
+}
+.btn-source-repository-button .btn__icon-container {
+  width: 24px !important;
+  height: 24px !important;
+  min-width: 24px !important;
+  max-width: 24px !important;
+  min-height: 24px !important;
+  max-height: 24px !important;
+  padding: 0 !important;
+  background: url('images/self-git.png') no-repeat center !important;
+  background-size: 24px 24px !important;
+  display: inline-block !important;
+  line-height: 0 !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
+}
+.btn-source-repository-button .fa-github {
+  display: none !important;
+}
+.search-button-field {
+  align-items: center;
+  background-color: #EEEFF2 !important;
+}
+
+
+.article-header-buttons{
+  display: flex !important;
+  align-items: center !important;
+}
+.bd-article-container h1, .bd-article-container h2, .bd-article-container h3, .bd-article-container h4, .bd-article-container h5{
+color: #020203 !important;
+font-family: PingFang SC !important;
+}
+.nav.bd-links p.caption{
+  color: #020203 !important;
+  font-family: PingFang SC !important;
+}
+body {
+   color: #414C5A !important;
+   font-family: PingFang SC !important;
+}
+.search-button__button {
+  padding-left: 16px !important;
+}
+
+
+/* 消除下载按钮与下拉菜单之间的空隙，防止移动鼠标时下拉框过早消失 */
+.dropdown-download-buttons .dropdown-menu {
+  margin-top: -8px !important;
+  padding-top: 8px !important;
+}
+.dropdown-menu.show {
+  margin-top: -2px !important;
+}
+
+/*
+ * 非 API 页：下载菜单只突出 .ipynb（隐藏 PDF 与非 ipynb 源码）。
+ * API 参考页（body.dq-doc-api-page，见 _templates/layout.html）保留主题默认 .rst + 打印/PDF。
+ */
+body:not(.dq-doc-api-page) .dropdown-download-buttons .dropdown-menu li:has(.btn-download-pdf-button) {
+  display: none !important;
+}
+body:not(.dq-doc-api-page) .dropdown-download-buttons .dropdown-menu li:has(a.btn-download-source-button:not([href$=".ipynb"])) {
+  display: none !important;
+}
