@@ -71,7 +71,7 @@
 # </div>
 #
 # <center>
-#   <a href="https://chem.libretexts.org/@api/deki/files/79071/800px-Franck_Condon_Diagram.svg.png?revision=1">Franck–Condon原理能级图</a>
+#   Franck–Condon原理能级图
 # </center>
 
 # %% [markdown]
@@ -318,5 +318,5 @@ plt.show()
 # </div>
 #
 # <center>
-#   <a href="https://strawberryfields.ai/photonics/apps/run_tutorial_vibronic.html">甲酸分子振动光谱图</a>
+#   甲酸分子振动光谱图
 # </center>

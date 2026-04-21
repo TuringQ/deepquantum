@@ -75,7 +75,7 @@
 # %% [markdown]
 # 问题转化与参数化
 # -----------------------
-# 我们将会调用DeepQuantum中GBS模块，详情可见[API文档](https://dqapi.turingq.com/deepquantum.photonic.html#deepquantum.photonic.ansatz.GBS_Graph)
+# 我们将会调用DeepQuantum中GBS模块，详情可见API文档。
 #
 # 首先调用DeepQauntum和相关包：
 
@@ -115,7 +115,7 @@ photon_number = gbs.photon_number_mean_var()[0]
 print('每个节点平均光子数为：', photon_number)
 
 # %% [markdown]
-# 为了实现变分优化，需要编码参数$\theta$进GBS设备，即参数化矩阵$A$。论文[Training Gaussian Boson Sampling Distributions](https://arxiv.org/abs/2004.04770)中引入了“WAW”的参数化方式，即将对称矩阵$A$转化为
+# 为了实现变分优化，需要编码参数$\theta$进GBS设备，即参数化矩阵$A$。论文Training Gaussian Boson Sampling Distributions中引入了“WAW”的参数化方式，即将对称矩阵$A$转化为
 #
 # \begin{equation*}
 # A \rightarrow A_W = W A W,
