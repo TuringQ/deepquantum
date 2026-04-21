@@ -21,7 +21,7 @@
 # 本节内容将详细介绍**混合量子经典循环神经网络**（Quantum Recurrent Neural Network，简称 QRNN）的构建过程，并展示其在量子模拟器上的模型架构与实验效果[1] [2]。混合量子经典循环神经网络是传统循环神经网络（Recurrent Neural Network，简称 RNN）的量子化版本，其主要特点在于将 RNN 单元中的全连接层替换为变分量子线路（Variational Quantum Circuit，简称 VQC），同时保留了单元中原有的计算逻辑。通过本节的学习，您将深入理解混合量子经典循环神经网络的基础理论、实现方法，以及在解决实际问题时的应用案例。在探究量子RNN模型的搭建之前，首先需了解其核心组成部分——变分量子线路（Variational Quantum Circuit, VQC）。变分量子线路（VQC），也被称为**参数化量子线路**（Parameterized Quantum Circuit, PQC），通常包含三个关键部分：状态制备、变分量子线路和测量。下图中 $U(x)$ 表示状态制备线路，它的作用是将经典数据 $x$ 编码为量子态。 $V(\theta)$ 表示具有可调节参数 $\theta$ 的变分线路，可以通过梯度下降的方法进行优化。最后通过测量量子态，得到经典的输出值[1] [2]。
 #
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
-#     <img src="./images/3_4_0001.png" width="30%"/>
+#     <img src="./images/3_4_0001.png" width="100%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
 #         图 1 </b>变分量子线路（VQC）的通用架构。U(x) 编码经典输入数据 x，V(θ) 是变分线路。线路最后是对部分或全部量子比特的测量
 #     </p>
@@ -84,7 +84,7 @@ cir.draw()  # 画出量子线路图
 # 其中 $ W_{ih} $ 是作用在 $ x_t $ 上的隐藏层权重参数， $ b_{ih} $ 是对应的隐藏层偏差参数， $ W_{hh} $ 是作用在 $ h_{t-1} $ 上的隐藏层权重参数， $ b_{hh} $ 是对应的隐藏层偏差参数，这里使用 tanh 函数作为激活函数。
 #
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
-#     <img src="./images/3_4_0002.png" width="15%"/>
+#     <img src="./images/3_4_0002.png" width="50%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
 #         图 2 </b>经典RNN模型示意图
 #     </p>
@@ -141,7 +141,7 @@ class QuLinear(nn.Module):
 
 # %% [markdown]
 # <div style="margin-right: 15px; border-radius: 10px; background-color: rgb(255， 255， 255); text-align: center;">
-#     <img src="./images/3_4_0003.png" width="30%"/>
+#     <img src="./images/3_4_0003.png" width="50%"/>
 #     <p style="padding: 10px; font-size: small; text-align: center; line-height: 0%;">
 #         图 3 </b> 量子RNN模型示意图
 #     </p>

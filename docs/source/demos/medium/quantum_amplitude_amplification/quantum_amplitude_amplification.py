@@ -127,10 +127,10 @@ cir.draw()
 #
 # ## 参考文献
 #
-# [1] Wikipedia: [Amplitude Amplification](https://en.wikipedia.org/wiki/Amplitude_amplification).
+# [1] Wikipedia: Amplitude Amplification.
 #
-# [2] G. Brassard, P. Høyer, "An exact quantum polynomial-time algorithm for Simon's problem", Proceedings of Fifth Israeli Symposium on Theory of Computing and Systems. IEEE Computer Society Press: 12–23, [arXiv:quant-ph/9704027](https://arxiv.org/abs/quant-ph/9704027) (1997).
+# [2] G. Brassard, P. Høyer, "An exact quantum polynomial-time algorithm for Simon's problem", Proceedings of Fifth Israeli Symposium on Theory of Computing and Systems. IEEE Computer Society Press: 12–23, arXiv:quant-ph/9704027 (1997).
 #
-# [3] G. Brassard, P. Høyer, M. Mosca, A. Tapp, "Quantum Amplitude Amplification and Estimation", [arXiv:quant-ph/0005055](https://arxiv.org/pdf/quant-ph/0005055.pdf) (2000).
+# [3] G. Brassard, P. Høyer, M. Mosca, A. Tapp, "Quantum Amplitude Amplification and Estimation", arXiv:quant-ph/0005055 (2000).
 #
-# [4] Y. Suzuki, S. Uno, R. Raymond, T. Tanaka, T. Onodera, N. Yamamoto, "Amplitude Estimation without Phase Estimation", [arXiv:1904.10246](https://arxiv.org/pdf/1904.10246.pdf) (2019).
+# [4] Y. Suzuki, S. Uno, R. Raymond, T. Tanaka, T. Onodera, N. Yamamoto, "Amplitude Estimation without Phase Estimation", arXiv:1904.10246 (2019).
