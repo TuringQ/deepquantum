@@ -470,7 +470,7 @@ class FermionMapBoson:
             basis:    list of tuples，基矢列表
         """
         # Step 1: 枚举基矢
-        basis = list(combinations(range(m), m))
+        basis = list(combinations(range(m), n))
         dim = len(basis)
 
         # Step 2: 提取积分系数
