@@ -5,15 +5,14 @@ import warnings
 from collections import Counter
 from collections.abc import Generator
 
-import matplotlib.pyplot as plt
 import torch
-from matplotlib import cm
 from torch import vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 import deepquantum.photonic as dqp
 
 from ..qmath import block_sample, decimal_to_list, is_unitary, list_to_decimal, partial_trace
+from .draw import plot_wigner
 from .utils import mem_to_chunksize
 
 
@@ -786,31 +785,3 @@ def cv_to_wigner(
     if plot:
         plot_wigner(wigner_vals, xvec, pvec, k)
     return wigner_vals
-
-
-def plot_wigner(wigner: torch.Tensor, xvec: torch.Tensor, pvec: torch.Tensor, k: int = 0):
-    """Plot a 2D contour and a 3D surface of a discretized Wigner function W(x, p).
-
-    Args:
-        wigner: Discretized Wigner values with shape (batch, nx, np).
-        xvec: 1D grid for quadrature x.
-        pvec: 1D grid for quadrature p.
-        k: The index of the Wigner function within the batch to plot. Default: 0
-    """
-    grid_x, grid_y = torch.meshgrid(xvec, pvec, indexing='ij')
-    x = grid_x.cpu()
-    y = grid_y.cpu()
-    z = wigner[k].cpu()
-    fig = plt.figure(figsize=(16, 8))
-    ax1 = fig.add_subplot(1, 2, 1)
-    ax1.set_xlabel('Quadrature x')
-    ax1.set_ylabel('Quadrature p')
-    cntr = ax1.contourf(x, y, z, 60, cmap=cm.RdBu)
-    fig.colorbar(cntr, ax=ax1, shrink=0.5)
-    ax2 = fig.add_subplot(1, 2, 2, projection='3d')
-    ax2.plot_surface(x, y, z, cmap=cm.RdBu, alpha=0.8)
-    ax2.set_xlabel('Quadrature x')
-    ax2.set_ylabel('Quadrature p')
-    ax2.set_zlabel('W(x, p)')
-    plt.tight_layout()
-    plt.show()

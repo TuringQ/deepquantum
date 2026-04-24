@@ -1,33 +1,16 @@
 """Draw photonic quantum circuit"""
 
 from collections import defaultdict
+from typing import Any
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
+import networkx as nx
 import numpy as np
 import svgwrite
-from matplotlib import patches
+import torch
+from matplotlib import cm, patches
 from torch import nn
-
-from .channel import PhotonLoss
-from .gate import (
-    Barrier,
-    BeamSplitter,
-    BeamSplitterSingle,
-    ControlledX,
-    ControlledZ,
-    CrossKerr,
-    CubicPhase,
-    Displacement,
-    Kerr,
-    MZI,
-    PhaseShift,
-    QuadraticPhase,
-    Squeezing,
-    Squeezing2,
-    UAnyGate,
-)
-from .measurement import Homodyne
-from .operation import Delay
 
 info_dic = {
     'PS': ['teal', 0],
@@ -70,6 +53,27 @@ class DrawCircuit:
 
     def draw(self, depth=None, ops=None, measurements=None):
         """Draw circuit."""
+        from .channel import PhotonLoss
+        from .gate import (
+            Barrier,
+            BeamSplitter,
+            BeamSplitterSingle,
+            ControlledX,
+            ControlledZ,
+            CrossKerr,
+            CubicPhase,
+            Displacement,
+            Kerr,
+            MZI,
+            PhaseShift,
+            QuadraticPhase,
+            Squeezing,
+            Squeezing2,
+            UAnyGate,
+        )
+        from .measurement import Homodyne
+        from .operation import Delay
+
         order_dic = defaultdict(list)  # 当key不存在时对应的value是[]
         nmode = self.nmode
         if depth is None:
@@ -799,3 +803,254 @@ class DrawClements:
                 for j in range(len_):
                     plt.text(3.2 * j + 0.6 + 1.6, 1 - 0.25 * i[0] + 0.05, f'{temp_values[j][0]:.3f}', fontsize=fs)
                     plt.text(3.2 * j + 0.6 + 2.4, 1 - 0.25 * i[0] + 0.05, f'{temp_values[j][1]:.3f}', fontsize=fs)
+
+
+def plot_wigner(wigner: torch.Tensor, xvec: torch.Tensor, pvec: torch.Tensor, k: int = 0):
+    """Plot a 2D contour and a 3D surface of a discretized Wigner function W(x, p).
+
+    Args:
+        wigner (torch.Tensor): Discretized Wigner values with shape (batch, nx, np).
+        xvec (torch.Tensor): 1D grid for quadrature x.
+        pvec (torch.Tensor): 1D grid for quadrature p.
+        k (int, optional): The index of the Wigner function within the batch to plot. Default: 0
+    """
+    grid_x, grid_y = torch.meshgrid(xvec, pvec, indexing='ij')
+    x = grid_x.cpu()
+    y = grid_y.cpu()
+    z = wigner[k].cpu()
+    fig = plt.figure(figsize=(16, 8))
+    ax1 = fig.add_subplot(1, 2, 1)
+    ax1.set_xlabel('Quadrature x')
+    ax1.set_ylabel('Quadrature p')
+    cntr = ax1.contourf(x, y, z, 60, cmap=cm.RdBu)
+    fig.colorbar(cntr, ax=ax1, shrink=0.5)
+    ax2 = fig.add_subplot(1, 2, 2, projection='3d')
+    ax2.plot_surface(x, y, z, cmap=cm.RdBu, alpha=0.8)
+    ax2.set_xlabel('Quadrature x')
+    ax2.set_ylabel('Quadrature p')
+    ax2.set_zlabel('W(x, p)')
+    plt.tight_layout()
+    plt.show()
+
+
+class GaussianGraphVisualizer:
+    r"""Visualize the graph state for a Gaussian pure state.
+
+    Args:
+        cov: The covariance matrix of the Gaussian state.
+        threshold: Cutoff threshold for ignoring extremely small numerical edge weights
+            in the visualization.
+        mode: The ``'simplified'`` mode for the core structure including node squeezing :math:`Im(Z_{jj})` and
+            edge entanglement :math:`Re(Z_{jk})`. The ``'full'`` mode for all structure including
+            local shear :math:`Re(Z_{jj})` and correlated noise :math:`Im(Z_{jk})`. Default: ``'simplified'``
+    """
+
+    def __init__(self, cov: torch.Tensor, threshold: float = 1e-3, mode='simplified') -> None:
+
+        cov = cov.detach().cpu().numpy() if hasattr(cov, 'detach') else np.array(cov, dtype=np.float64)
+        nmode = cov.shape[-1] // 2
+
+        self.cov = cov
+        self.nmode = nmode
+        self.threshold = threshold
+        self.mode = mode
+
+        self.z = self._extract_z_matrix(self.cov)
+        self.graph = self._build_networkx_graph(self.z)
+
+    def _extract_z_matrix(self, cov: np.ndarray | torch.Tensor) -> np.ndarray:
+        """Extract the complex adjacency matrix :math:`Z = V + iU` from the covariance matrix.
+
+        See https://arxiv.org/abs/1007.0725.
+        """
+        nmode = cov.shape[-1] // 2
+        cov_qq = cov[:nmode, :nmode]
+        cov_qp = cov[:nmode, nmode:]
+        u = 0.5 * np.linalg.inv(cov_qq)  # Eq.(2.25)
+        v = 2 * (u @ cov_qp)  # Eq.(2.26)
+        z = v + 1j * u
+        return z
+
+    def _build_networkx_graph(self, z: np.ndarray | torch.Tensor) -> nx.Graph:
+        """Build a NetworkX graph from the complex adjacency matrix."""
+        g = nx.Graph()
+        n = self.nmode
+        g.add_nodes_from(range(n))
+        self._node_u, self._node_v = [], []
+        self._edges_real, self._edges_imag = [], []
+        for i in range(n):
+            self._node_u.append(z[i, i].imag)
+            if self.mode == 'full':
+                self._node_v.append(z[i, i].real)
+            for j in range(i + 1, n):
+                val = z[i, j]
+                layout_weight = np.abs(val) if self.mode == 'full' else np.abs(val.real)
+                if layout_weight > self.threshold:
+                    g.add_edge(i, j, layout_weight=layout_weight)
+                if np.abs(val.real) > self.threshold:
+                    self._edges_real.append((i, j, val.real))
+                if self.mode == 'full' and np.abs(val.imag) > self.threshold:
+                    self._edges_imag.append((i, j, val.imag))
+        return g
+
+    def draw(
+        self,
+        layout: str = 'circular',
+        pos_dict: dict[int, tuple[float, float]] | None = None,
+        style_config: dict[str, Any] | None = None,
+    ):
+        """Draw Gaussian graph state.
+
+        Args:
+            layout: The layout algorithm (``'spring'``, ``'circular'``,
+                ``'kamada_kawai'``, ``'grid'``, ``'custom'``). Default ``'circular'``
+            pos_dict: Custom positions if layout=``'custom'``.
+            style_config: Dictionary to override default visual styles.
+        """
+        g = self.graph
+        nmode = self.nmode
+        mode = self.mode
+
+        is_large_scale = self.nmode > 50
+        default_style = {
+            'edge_cmap': plt.cm.copper,
+            'node_cmap': plt.cm.winter,
+            'edge_cmap_real': plt.cm.PRGn,
+            'edge_cmap_imag': plt.cm.PRGn,
+            'with_labels': not is_large_scale,
+            'font_size': 10,
+            'edge_alpha_real': 0.9,
+            'edge_alpha_imag': 0.8,
+            'cb_shrink': 0.35,
+        }
+        if style_config:
+            default_style.update(style_config)
+        cfg = default_style
+
+        if layout == 'custom' and pos_dict is not None:
+            pos = pos_dict
+        if layout == 'circular':
+            pos = nx.circular_layout(g)
+        elif layout == 'kamada':
+            pos = nx.kamada_kawai_layout(g, weight='layout_weight')
+        else:
+            pos = nx.spring_layout(g, seed=42, weight='layout_weight')
+        fig, ax = plt.subplots(figsize=(12 if mode == 'simplified' else 15, 10 if mode == 'simplified' else 12))
+        cmap_node_u = cfg['node_cmap']
+        vmin_u, vmax_u = min(self._node_u), max(self._node_u)
+        if mode == 'simplified':
+            nx.draw_networkx_nodes(
+                g,
+                pos,
+                ax=ax,
+                node_size=4000 / np.sqrt(nmode),
+                node_color=self._node_u,
+                cmap=cmap_node_u,
+                vmin=vmin_u,
+                vmax=vmax_u,
+                edgecolors='lightgray',
+                linewidths=2,
+            )
+        else:
+            cmap_node_v = cfg['edge_cmap']
+            vmin_v, vmax_v = (min(self._node_v), max(self._node_v))
+            if abs(vmax_v) > self.threshold:
+                edgecolors = [cmap_node_v(mpl.colors.Normalize(vmin=vmin_v, vmax=vmax_v)(val)) for val in self._node_v]
+            else:
+                edgecolors = 'lightgray'
+            nx.draw_networkx_nodes(
+                g,
+                pos,
+                ax=ax,
+                node_size=4000 / np.sqrt(nmode),
+                node_color=self._node_u,
+                cmap=cmap_node_u,
+                vmin=vmin_u,
+                vmax=vmax_u,
+                edgecolors=edgecolors,
+                linewidths=5,
+            )
+        _, _, edges_val = zip(*(self._edges_imag + self._edges_real), strict=True)
+        vmax_e = max(edges_val)
+        vmin_e = min(edges_val)
+        if self._edges_real:
+            e_real_u, e_real_v, e_real_w = zip(*self._edges_real, strict=True)
+            cmap_e_real = cfg['edge_cmap_real']
+            nx.draw_networkx_edges(
+                g,
+                pos,
+                ax=ax,
+                edgelist=list(zip(e_real_u, e_real_v, strict=True)),
+                width=[np.abs(w) * 4 for w in e_real_w],
+                edge_color=e_real_w,
+                edge_cmap=cmap_e_real,
+                edge_vmin=vmin_e,
+                edge_vmax=vmax_e,
+                style='solid',
+                alpha=cfg['edge_alpha_real'],
+            )
+        if mode == 'full' and self._edges_imag:
+            e_imag_u, e_imag_v, e_imag_w = zip(*self._edges_imag, strict=True)
+            cmap_e_imag = cfg['edge_cmap_imag']
+            nx.draw_networkx_edges(
+                g,
+                pos,
+                ax=ax,
+                edgelist=list(zip(e_imag_u, e_imag_v, strict=True)),
+                width=[np.abs(w) * 4 for w in e_imag_w],
+                edge_color=e_imag_w,
+                edge_cmap=cmap_e_imag,
+                edge_vmin=vmin_e,
+                edge_vmax=vmax_e,
+                style='dashed',
+                alpha=cfg['edge_alpha_imag'],
+                connectionstyle='arc3,rad=0.2',
+                arrows=True,
+                arrowstyle='-',
+            )
+        if cfg['with_labels']:
+            nx.draw_networkx_labels(g, pos, font_size=cfg['font_size'], font_color='white', font_weight='bold')
+        cbar_nu = fig.colorbar(
+            mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin_u, vmax=vmax_u), cmap=cmap_node_u),
+            ax=ax,
+            shrink=cfg['cb_shrink'],
+            pad=0.02,
+            location='left',
+        )
+        cbar_nu.set_label(r'p-Squeezing Level: Im($Z_{jj}$)', fontsize=cfg['font_size'])
+        if self._edges_real:
+            cbar_er = fig.colorbar(
+                mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin_e, vmax=vmax_e), cmap=cmap_e_real),
+                ax=ax,
+                shrink=cfg['cb_shrink'],
+                pad=0.02,
+                location='right',
+            )
+            cbar_er.set_label(r'$C_Z$ Entanglement Strength: Re($Z_{jk}$)', fontsize=cfg['font_size'])
+        if mode == 'full' and abs(vmax_v) > self.threshold:
+            cbar_nv = fig.colorbar(
+                mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin_v, vmax=vmax_v), cmap=cmap_node_v),
+                ax=ax,
+                shrink=cfg['cb_shrink'],
+                pad=0.08,
+                location='left',
+            )
+            cbar_nv.set_label(r'Node Border: Re($Z_{jj}$) [Local Shear]', fontsize=cfg['font_size'])
+            if self._edges_imag:
+                cbar_ei = fig.colorbar(
+                    mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin_e, vmax=vmax_e), cmap=cmap_e_imag),
+                    ax=ax,
+                    shrink=cfg['cb_shrink'],
+                    pad=0.08,
+                    location='right',
+                )
+                cbar_ei.set_label(r'Curved Edge: Im($Z_{jk}$) [Correlated Noise]', fontsize=cfg['font_size'])
+        title_mode = 'Simplified Graph' if mode == 'simplified' else 'Full Graph'
+        plt.title(
+            f'Gaussian Pure State ({nmode} Modes) - {title_mode}\n'
+            r'$\mathbf{Z} = \mathbf{V} + i\mathbf{U}$',
+            fontsize=cfg['font_size'] + 4,
+        )
+        plt.axis('off')
+        plt.tight_layout()
+        plt.show()
