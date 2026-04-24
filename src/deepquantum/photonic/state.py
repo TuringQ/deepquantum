@@ -219,14 +219,14 @@ class GaussianState(nn.Module):
         self.cutoff = cutoff
         self.is_pure = self.check_purity()
 
-    def check_purity(self, rtol=3e-4, atol=3e-4):
+    def check_purity(self, rtol: float = 3e-4, atol: float = 3e-4):
         """Check if the Gaussian state is pure state
 
         See https://arxiv.org/pdf/quant-ph/0503237.pdf Eq.(2.5)
         """
         sign, log_det = torch.linalg.slogdet(4 * dqp.kappa**2 / dqp.hbar * self.cov)
         is_pure = (sign > 0).all() and torch.allclose(
-            log_det, torch.tensor(0.0, device=log_det.device), rtol=rtol, atol=atol
+            log_det, torch.tensor(0.0, device=log_det.device, dtype=log_det.dtype), rtol=rtol, atol=atol
         )
         return is_pure
 
