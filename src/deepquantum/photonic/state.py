@@ -219,7 +219,7 @@ class GaussianState(nn.Module):
         self.cutoff = cutoff
         self.is_pure = self.check_purity()
 
-    def check_purity(self, rtol: float = 3e-4, atol: float = 3e-4):
+    def check_purity(self, rtol: float = 3e-4, atol: float = 3e-4) -> bool:
         """Check if the Gaussian state is pure state
 
         See https://arxiv.org/pdf/quant-ph/0503237.pdf Eq.(2.5)
