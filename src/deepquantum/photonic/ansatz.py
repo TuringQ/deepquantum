@@ -298,7 +298,7 @@ class FermionMapBoson:
         """Apply the annihilation operator :math:`f_k` to a Slater determinant.
 
         Args:
-            state: An ordered list of occupied orbitals (p1, ..., pN) where p1 < p2 < ... < pN.
+            state: An ordered list of occupied orbitals :math:`(p1, ..., pN)` where :math:`p1 < p2 < ... < pN`.
             k: The index of the orbital to be annihilated.
 
         """
@@ -318,7 +318,7 @@ class FermionMapBoson:
         """Apply the creation operator :math:`f^†_k` to a Slater determinant.
 
         Args:
-            state: An ordered list of occupied orbitals (p1, ..., pN) where p1 < p2 < ... < pN.
+            state: An ordered list of occupied orbitals :math:`(p1, ..., pN)` where :math:`p1 < p2 < ... < pN`.
             k: The index of the orbital to be created.
 
         """
@@ -407,7 +407,7 @@ class FermionMapBoson:
 
     @staticmethod
     def extract_integrals(fermion_op: 'FermionOperator'):
-        """Extract one-body integrals :math:`h[p,q]` and two-body integrals :math:`v[p,q,r,s]` from aFermionOperator.
+        """Extract one-body integrals :math:`h[p,q]` and two-body integrals :math:`v[p,q,r,s]` from a FermionOperator.
 
         The FermionOperator format handles terms like:
             FermionOperator(0.5, '0^ 1')       -> 0.5 * f†_0 f_1
