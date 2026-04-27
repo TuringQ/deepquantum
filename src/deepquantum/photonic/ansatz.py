@@ -2,7 +2,7 @@
 
 import copy
 from itertools import combinations
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import networkx as nx
 import numpy as np
@@ -13,6 +13,9 @@ from ..qmath import is_unitary
 from .circuit import QumodeCircuit
 from .qmath import sort_dict_fock_basis, takagi
 from .state import FockState
+
+if TYPE_CHECKING:
+    from openfermion import FermionOperator
 
 
 class Clements(QumodeCircuit):
@@ -291,18 +294,13 @@ class FermionMapBoson:
         return self.molecule.fci_energy
 
     @staticmethod
-    def apply_annihilation(state, k):
-        """湮灭算符 f_k 作用在 Slater 行列式上
+    def apply_annihilation(state: tuple, k: int):
+        """Apply the annihilation operator :math:`f_k` to a Slater determinant.
 
-        输入:
-            state: tuple，有序轨道列表 (p1,...,pN)，p1<p2<...<pN
-            k:     int，要湮灭的轨道
+        Args:
+            state: An ordered list of occupied orbitals (p1, ..., pN) where p1 < p2 < ... < pN.
+            k: The index of the orbital to be annihilated.
 
-        输出:
-            (new_state, sign) 或 None（结果为零）
-
-            new_state: tuple，(N-1)粒子态
-            sign:      +1 或 -1
         """
         state = list(state)
 
@@ -317,14 +315,12 @@ class FermionMapBoson:
 
     @staticmethod
     def apply_creation(state, k):
-        """产生算符 f^†_k 作用在 Slater 行列式上
+        """Apply the creation operator :math:`f^†_k` to a Slater determinant.
 
-        输入:
-            state: tuple，有序轨道列表
-            k:     int，要产生的轨道
+        Args:
+            state: An ordered list of occupied orbitals (p1, ..., pN) where p1 < p2 < ... < pN.
+            k: The index of the orbital to be created.
 
-        输出:
-            (new_state, sign) 或 None（结果为零）
         """
         state = list(state)
 
@@ -338,15 +334,14 @@ class FermionMapBoson:
 
         return (new_state, sign)
 
-    def matrix_element_one_body(self, bra, ket, p, q):
-        """计算单体算符矩阵元 ⟨bra|f^†_p f_q|ket⟩
+    def matrix_element_one_body(self, bra: tuple, ket: tuple, p: int, q: int):
+        """Calculate the matrix element of a one-body operator: :math:`⟨bra|f^†_p f_q|ket⟩`.
 
-        输入:
-            bra, ket: tuple，N粒子Slater行列式
-            p, q:     int，轨道指标
-
-        输出:
-            矩阵元值（实数或复数）
+        Args:
+            bra: N-particle Slater determinant (bra state).
+            ket: N-particle Slater determinant (ket state).
+            p: Index of the creation orbital.
+            q: Index of the annihilation orbital.
         """
         # Step 1: f_q 作用在 ket 上
         result = self.apply_annihilation(ket, q)
@@ -366,17 +361,19 @@ class FermionMapBoson:
         else:
             return 0.0
 
-    def matrix_element_two_body(self, bra, ket, p, q, r, s):
-        """计算双体算符矩阵元 ⟨bra|f†_p f†_q f_r f_s|ket⟩
+    def matrix_element_two_body(self, bra: tuple, ket: tuple, p: int, q: int, r: int, s: int):
+        """Calculate the matrix element of a two-body operator: :math:`⟨bra|f†_p f†_q f_r f_s|ket⟩`.
 
-        注意算符作用顺序：从右到左，先 f_s，再 f_r，再 f†_q，再 f†_p
+        The operators are applied from right to left: :math:`f_s`, then :math:`f_r`,
+        then :math:`f†_q`, then :math:`f†_p`.
 
-        输入:
-            bra, ket: tuple，N粒子Slater行列式
-            p, q, r, s: int，轨道指标
-
-        输出:
-            矩阵元值
+        Args:
+            bra: N-particle Slater determinant (bra state).
+            ket: N-particle Slater determinant (ket state).
+            p: Indices for the creation operators.
+            q: Indices for the creation operators.
+            r: Indices for the annihilation operators.
+            s: Indices for the annihilation operators.
         """
         # Step 1: f_s 作用在 ket 上
         result = self.apply_annihilation(ket, s)
@@ -409,17 +406,15 @@ class FermionMapBoson:
             return 0.0
 
     @staticmethod
-    def extract_integrals(fermion_op):
-        """从 FermionOperator 中提取单体积分 h[p,q] 和双体积分 v[p,q,r,s]
+    def extract_integrals(fermion_op: 'FermionOperator'):
+        """Extract one-body integrals :math:`h[p,q]` and two-body integrals :math:`v[p,q,r,s]` from aFermionOperator.
 
-        OpenFermion 的 FermionOperator 格式：
-            FermionOperator('0^ 1', 0.5)  → 0.5 * f†_0 f_1
-            FermionOperator('0^ 1^ 2 3', 0.25) → 0.25 * f†_0 f†_1 f_2 f_3
+        The FermionOperator format handles terms like:
+            FermionOperator(0.5, '0^ 1')       -> 0.5 * f†_0 f_1
+            FermionOperator(0.25, '0^ 1^ 2 3') -> 0.25 * f†_0 f†_1 f_2 f_3
 
-        输出:
-            h: dict，{(p,q): coefficient}，单体项
-            v: dict，{(p,q,r,s): coefficient}，双体项
-            constant: float，常数项（核排斥能等）
+        Args:
+            fermion_op: The operator object from OpenFermion.
         """
         h = {}  # 单体积分
         v = {}  # 双体积分
@@ -457,17 +452,13 @@ class FermionMapBoson:
 
         return h, v, constant
 
-    def compute_hamiltonian_matrix(self, fermion_op, n, m):
-        """直接计算费米子哈密顿量在 n 粒子子空间的矩阵
+    def compute_hamiltonian_matrix(self, fermion_op: 'FermionOperator', n: int, m: int):
+        """Directly compute the Hamiltonian matrix in the n-particle subspace.
 
-        输入:
-            fermion_op: OpenFermion FermionOperator
-            n: 电子数
-            m: 自旋轨道数
-
-        输出:
-            h_matrix: np.ndarray，dim × dim 的厄米矩阵
-            basis:    list of tuples，基矢列表
+        Args:
+            fermion_op: The input OpenFermion Hamiltonian.
+            n: Number of particles (electrons).
+            m: Number of spin-orbitals.
         """
         # Step 1: 枚举基矢
         basis = list(combinations(range(m), m))
