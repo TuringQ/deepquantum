@@ -124,6 +124,7 @@ class UnitaryDecomposer:
         This helper unifies the behavior of the original `decomp_cr` and `decomp_cl`
         variants, controlled by `mode`, `mode=r` or `mode=l`.
         """
+        assert mode == 'r', 'cssl method is not supported'
         n_dim = len(unitary)
         info = {}
         info['N'] = n_dim
@@ -203,6 +204,7 @@ class UnitaryDecomposer:
         This helper unifies the behavior of the original `decomp_cr` and `decomp_cl`
         variants, controlled by `mode`, `mode=r` or `mode=l`.
         """
+        assert mode == 'r', 'cssl method is not supported'
         n_dim = unitary.shape[-1]
         batch = unitary.shape[0]
         dtype = unitary.dtype
@@ -298,7 +300,7 @@ class UnitaryDecomposer:
 
     @staticmethod
     def period_cut(input_angle: float, period: float = np.pi * 2) -> float:
-        return input_angle - np.floor(input_angle / period) * period
+        return (input_angle - np.floor(input_angle / period) * period).item()
 
     @staticmethod
     def calc_factor_inverse(method, phi, theta):
@@ -425,6 +427,7 @@ class UnitaryDecomposer:
             b2 = a2 + np.pi
             return phi_, theta_, b1, b2
         elif 'ss' in method:
+            # T^-1 * D = D' * T
             theta_ = theta
             phi_ = a1 - a2
             b1 = a2 - phi + np.pi - theta
