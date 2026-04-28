@@ -300,7 +300,7 @@ class UnitaryDecomposer:
 
     @staticmethod
     def period_cut(input_angle: float, period: float = np.pi * 2) -> float:
-        return (input_angle - np.floor(input_angle / period) * period).item()
+        return input_angle - np.floor(input_angle / period) * period
 
     @staticmethod
     def calc_factor_inverse(method, phi, theta):
