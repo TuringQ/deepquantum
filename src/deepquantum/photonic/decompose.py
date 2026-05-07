@@ -124,7 +124,8 @@ class UnitaryDecomposer:
         This helper unifies the behavior of the original `decomp_cr` and `decomp_cl`
         variants, controlled by `mode`, `mode=r` or `mode=l`.
         """
-        assert mode == 'r', 'cssl method is not supported'
+        if mode == 'l':
+            unitary = unitary.mT
         n_dim = len(unitary)
         info = {}
         info['N'] = n_dim
@@ -139,17 +140,11 @@ class UnitaryDecomposer:
                     # 消元顺序：从左上到右下
                     jj = j  # 当前待消元元素列号
                     ii = n_dim - 1 - i + j  # 当前待消元元素行号
-                    # print(ii,jj)
-                    # if unitary[ii,jj] == 0:
-                    #     continue
                     ratio = unitary[ii - 1, jj] / (unitary[ii, jj] + 1e-32)
                     theta = 2 * np.arctan(np.abs(ratio))
-                    if mode == 'r':
-                        phi = -np.angle(ratio)
-                        multiple = self.get_matrix_constr_r([ii - 1, ii, phi, theta], n_dim, method)
-                    if mode == 'l':
-                        phi = np.angle(ratio)
-                        multiple = self.get_matrix_inverse_l([ii - 1, ii, phi, theta], n_dim, method)
+                    # mode == 'r'
+                    phi = -np.angle(ratio)
+                    multiple = self.get_matrix_constr_r([ii - 1, ii, phi, theta], n_dim, method)
                     unitary = multiple @ unitary
                     info['left'].append([ii - 1, ii, phi, theta])
             else:  # 利用UT^{-1}消元，即利用 unitary[ii,jj+1] 消去 unitary[ii,jj]
@@ -157,33 +152,21 @@ class UnitaryDecomposer:
                     # 消元顺序：从右下到左上
                     jj = j  # 当前待消元元素列号
                     ii = n_dim - 1 - i + j  # 当前待消元元素行号
-                    # print(ii,jj)
-                    # if unitary[ii,jj] == 0:
-                    #     continue
                     ratio = unitary[ii, jj + 1] / (unitary[ii, jj] + 1e-32)
                     theta = 2 * np.arctan(np.abs(ratio))
-                    if mode == 'r':
-                        phi = -np.angle(-ratio)
-                        multiple = self.get_matrix_inverse_r([jj, jj + 1, phi, theta], n_dim, method)
-                    if mode == 'l':
-                        phi = np.angle(-ratio)
-                        multiple = self.get_matrix_constr_l([jj, jj + 1, phi, theta], n_dim, method)
+                    # mode == 'r'
+                    phi = -np.angle(-ratio)
+                    multiple = self.get_matrix_inverse_r([jj, jj + 1, phi, theta], n_dim, method)
                     unitary = unitary @ multiple
                     info['right'].append([jj, jj + 1, phi, theta])
         phase_angle = np.angle(np.diag(unitary))
         info['phase_angle_ori'] = phase_angle.copy()  # unitary=LLLDRRR，本行保存D
-        if mode == 'r':
-            for idx in range(len(info['right'])):
-                info['right'][idx][2] = self.period_cut(info['right'][idx][2], period_phi)
-                info['right'][idx][3] = self.period_cut(info['right'][idx][3], period_theta)
-                info['MZI_list'].append(info['right'][idx])
-            left_list = info['left'][::-1]
-        if mode == 'l':
-            for idx in range(len(info['left'])):
-                info['left'][idx][2] = self.period_cut(info['left'][idx][2], period_phi)
-                info['left'][idx][3] = self.period_cut(info['left'][idx][3], period_theta)
-                info['MZI_list'].append(info['left'][idx])
-            left_list = info['right'][::-1]
+        # mode == 'r'
+        for idx in range(len(info['right'])):
+            info['right'][idx][2] = self.period_cut(info['right'][idx][2], period_phi)
+            info['right'][idx][3] = self.period_cut(info['right'][idx][3], period_theta)
+            info['MZI_list'].append(info['right'][idx])
+        left_list = info['left'][::-1]
 
         for idx in range(len(left_list)):
             jj, ii, phi, theta = left_list[idx]
@@ -204,7 +187,8 @@ class UnitaryDecomposer:
         This helper unifies the behavior of the original `decomp_cr` and `decomp_cl`
         variants, controlled by `mode`, `mode=r` or `mode=l`.
         """
-        assert mode == 'r', 'cssl method is not supported'
+        if mode == 'l':
+            unitary = unitary.mT
         n_dim = unitary.shape[-1]
         batch = unitary.shape[0]
         dtype = unitary.dtype
@@ -222,19 +206,11 @@ class UnitaryDecomposer:
                     # 消元顺序：从左上到右下
                     jj = j  # 当前待消元元素列号
                     ii = n_dim - 1 - i + j  # 当前待消元元素行号
-                    # print(ii,jj)
-                    # if unitary[ii,jj] == 0:
-                    #     continue
                     ratio = unitary[:, ii - 1, jj] / (unitary[:, ii, jj] + 1e-32)
                     theta = 2 * torch.arctan(abs(ratio))
-                    if mode == 'r':
-                        phi = -torch.angle(ratio)
-                        multiple = self.get_matrix_constr_r_torch([ii - 1, ii, phi, theta], n_dim, batch, method, dtype)
-                    if mode == 'l':
-                        phi = torch.angle(ratio)
-                        multiple = self.get_matrix_inverse_l_torch(
-                            [ii - 1, ii, phi, theta], n_dim, batch, method, dtype
-                        )
+                    # mode == 'r'
+                    phi = -torch.angle(ratio)
+                    multiple = self.get_matrix_constr_r_torch([ii - 1, ii, phi, theta], n_dim, batch, method, dtype)
                     unitary = multiple @ unitary
                     info['left'].append([ii - 1, ii, phi, theta])
             else:  # 利用UT^{-1}消元，即利用 unitary[ii,jj+1] 消去 unitary[ii,jj]
@@ -242,35 +218,21 @@ class UnitaryDecomposer:
                     # 消元顺序：从右下到左上
                     jj = j  # 当前待消元元素列号
                     ii = n_dim - 1 - i + j  # 当前待消元元素行号
-                    # print(ii,jj)
-                    # if unitary[ii,jj] == 0:
-                    #     continue
                     ratio = unitary[:, ii, jj + 1] / (unitary[:, ii, jj] + 1e-32)
                     theta = 2 * torch.arctan(abs(ratio))
-                    if mode == 'r':
-                        phi = -torch.angle(-ratio)
-                        multiple = self.get_matrix_inverse_r_torch(
-                            [jj, jj + 1, phi, theta], n_dim, batch, method, dtype
-                        )
-                    if mode == 'l':
-                        phi = torch.angle(-ratio)
-                        multiple = self.get_matrix_constr_l_torch([jj, jj + 1, phi, theta], n_dim, batch, method, dtype)
+                    # mode == 'r'
+                    phi = -torch.angle(-ratio)
+                    multiple = self.get_matrix_inverse_r_torch([jj, jj + 1, phi, theta], n_dim, batch, method, dtype)
                     unitary = unitary @ multiple
                     info['right'].append([jj, jj + 1, phi, theta])
         phase_angle = torch.angle(torch.diagonal(unitary, dim1=1, dim2=2))
         info['phase_angle_ori'] = phase_angle.clone()  # unitary=LLLDRRR，本行保存D
-        if mode == 'r':
-            for idx in range(len(info['right'])):
-                info['right'][idx][2] = self.period_cut(info['right'][idx][2], period_phi)
-                info['right'][idx][3] = self.period_cut(info['right'][idx][3], period_theta)
-                info['MZI_list'].append(info['right'][idx])
-            left_list = info['left'][::-1]
-        if mode == 'l':
-            for idx in range(len(info['left'])):
-                info['left'][idx][2] = self.period_cut(info['left'][idx][2], period_phi)
-                info['left'][idx][3] = self.period_cut(info['left'][idx][3], period_theta)
-                info['MZI_list'].append(info['left'][idx])
-            left_list = info['right'][::-1]
+        # mode == 'r'
+        for idx in range(len(info['right'])):
+            info['right'][idx][2] = self.period_cut(info['right'][idx][2], period_phi)
+            info['right'][idx][3] = self.period_cut(info['right'][idx][3], period_theta)
+            info['MZI_list'].append(info['right'][idx])
+        left_list = info['left'][::-1]
 
         for idx in range(len(left_list)):
             jj, ii, phi, theta = left_list[idx]
@@ -450,16 +412,28 @@ class UnitaryDecomposer:
         """Sort mzi parameters in the same array for plotting."""
         dic_mzi = defaultdict(list)  # 当key不存在时对应的value是[]
         mzi_list = mzi_info['MZI_list']
-        for i in mzi_list:
-            dic_mzi[tuple(i[0:2])].append(i[2:])
+        if self.method == 'cssr':
+            for i in mzi_list:
+                dic_mzi[tuple(i[0:2])].append(i[2:])
+        if self.method == 'cssl':  # using u^T for cssl case
+            for i in mzi_list:
+                dic_mzi[tuple(i[0:2])].append(i[2:][::-1])
+            for key in dic_mzi:
+                dic_mzi[key].reverse()
         return dic_mzi
 
     def sort_mzi_torch(self, mzi_info):
         """Sort mzi parameters in the same array for plotting."""
         dic_mzi = defaultdict(list)  # 当key不存在时对应的value是[]
         mzi_list = mzi_info['MZI_list']
-        for i in mzi_list:
-            dic_mzi[tuple(i[0:2])].append(torch.stack(i[2:]).mT)
+        if self.method == 'cssr':
+            for i in mzi_list:
+                dic_mzi[tuple(i[0:2])].append(torch.stack(i[2:]).mT)
+        if self.method == 'cssl':  # using u^T for cssl case
+            for i in mzi_list:
+                dic_mzi[tuple(i[0:2])].append(torch.stack(i[2:][::-1]).mT)
+            for key in dic_mzi:
+                dic_mzi[key].reverse()
         return dic_mzi
 
     def ps_pos(self, dic_mzi, phase_angle):
@@ -479,7 +453,7 @@ class UnitaryDecomposer:
                         dic_pos[(mode, 0)] = np.round((phase_angle[mode]), 4)
                     else:
                         dic_pos[(mode, k + 1)] = np.round((phase_angle[mode]), 4)
-                if self.method == 'cssl':
+                else:
                     dic_pos[(mode, 0)] = np.round((phase_angle[mode]), 4)
                     for k in range(len(value)):
                         dic_pos[(mode, k + 1)] = np.round((value[k]), 4)
@@ -489,17 +463,22 @@ class UnitaryDecomposer:
 
     def ps_pos_torch(self, dic_mzi, phase_angle):
         """Label the position of each phaseshifter for ``'cssr'`` case."""
-        if self.method == 'cssr':
+        if self.method in ['cssr', 'cssl']:
             dic_pos = {}
             dic_ = dic_mzi
             nmode = self.unitary.shape[-1]
             for mode in range(nmode - 1):
                 pair = (mode, mode + 1)
                 value = torch.cat(dic_[pair], dim=1)
-                for k in range(value.shape[-1]):
-                    dic_pos[(mode, k)] = value[:, k]
-                    dic_pos[(mode, k + 1)] = phase_angle[:, mode]
+                if self.method == 'cssr':
+                    for k in range(value.shape[-1]):
+                        dic_pos[(mode, k)] = value[:, k]
+                        dic_pos[(mode, k + 1)] = phase_angle[:, mode]
+                else:
+                    dic_pos[(mode, 0)] = phase_angle[:, mode]
+                    for k in range(value.shape[-1]):
+                        dic_pos[(mode, k + 1)] = value[:, k]
             dic_pos[(nmode - 1, 0)] = phase_angle[:, nmode - 1]
             return dic_pos
         else:
-            raise NotImplementedError(f"ps_pos only supports method='cssr', but got method={self.method!r}.")
+            raise NotImplementedError(f"ps_pos only supports method='cssr','cssl', but got method={self.method!r}.")
