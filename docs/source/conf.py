@@ -6,6 +6,7 @@
 import os
 import shutil
 import sys
+from copy import deepcopy
 
 import deepquantum as dq
 
@@ -62,11 +63,37 @@ language = 'en'
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = 'sphinx_book_theme'
+html_theme = 'turingq_sphinx_theme'
 html_static_path = ['_static']
 html_title = f'{project} v{release}'
+html_context = {'default_mode': 'light'}
+
+_TURINGQ_HOME_URL = 'index.html'
+_TURINGQ_NAV = [
+    {'text': '首页', 'url': _TURINGQ_HOME_URL, 'external': False},
+    {
+        'text': '使用教程',
+        'children': [
+            {'text': '使用教程', 'url': 'https://dqapi.turingq.com', 'external': True},
+            {'text': '安装', 'url': 'https://github.com/TuringQ/deepquantum', 'external': True},
+        ],
+    },
+    {
+        'text': '算法案例',
+        'url': 'https://deepquantum.turingq.com/deep-quantum-case',
+        'external': True,
+    },
+    {
+        'text': '赛事活动',
+        'url': 'https://deepquantum.turingq.com/competition/',
+        'external': True,
+    },
+]
 
 html_theme_options = {
+    'turingq_company_chrome': True,  # 启用 TuringQ 公司页眉、页脚和主题附加资源
+    'turingq_logo_href': _TURINGQ_HOME_URL,
+    'turingq_nav': _TURINGQ_NAV,
     # 启用右侧的“在 GitHub 上编辑/查看”按钮
     'repository_url': 'https://github.com/TuringQ/deepquantum',
     'use_repository_button': True,  # 开启 GitHub 仓库链接
@@ -77,6 +104,22 @@ html_theme_options = {
     'show_navbar_depth': 3,
     'collapse_navigation': False,
 }
+
+
+def _home_href(app, pagename):
+    """Return a page-relative link to the documentation home page."""
+    if pagename == 'index':
+        return _TURINGQ_HOME_URL
+    return app.builder.get_relative_uri(pagename, 'index')
+
+
+def _resolve_home_links(app, pagename, templatename, context, doctree):  # noqa: ARG001
+    """Keep TuringQ chrome home links working under nested Read the Docs paths."""
+    home_href = _home_href(app, pagename)
+    nav = deepcopy(_TURINGQ_NAV)
+    nav[0]['url'] = home_href
+    context['theme_turingq_logo_href'] = home_href
+    context['theme_turingq_nav'] = nav
 
 
 def _copy_demos_fig_folders(app, exception):
@@ -98,4 +141,5 @@ def _copy_demos_fig_folders(app, exception):
 
 
 def setup(app):
+    app.connect('html-page-context', _resolve_home_links)
     app.connect('build-finished', _copy_demos_fig_folders)
