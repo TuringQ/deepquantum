@@ -64,7 +64,7 @@ dev = [
 docs = [
     'myst-nb',
     'sphinx',
-    'sphinx_book_theme',
+    'turingq-sphinx-theme',
 ]
 
 [project.urls]
