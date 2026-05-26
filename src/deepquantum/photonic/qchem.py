@@ -6,11 +6,13 @@ photonic qumode circuits.
 """
 
 from itertools import combinations
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING
+
 import numpy as np
 
 if TYPE_CHECKING:
     from openfermion import FermionOperator
+
 
 class FermionMapBoson:
     """A class to map molecular Fermionic Hamiltonians to Bosonic Qumode representations.
@@ -185,7 +187,7 @@ class FermionMapBoson:
 
     @staticmethod
     def extract_integrals(fermion_op: 'FermionOperator'):
-        """Extract one-body integrals :math:`h[p,q]` and two-body integrals :math:`v[p,q,r,s]` from a FermionOperator.
+        r"""Extract one-body integrals :math:`h[p,q]` and two-body integrals :math:`v[p,q,r,s]` from a FermionOperator.
 
         This helper assumes that ``fermion_op`` is already in normal order, with all creation operators placed before
         annihilation operators. The parsed terms therefore follow :math:`a_p^\dagger a_q` for one-body contributions
