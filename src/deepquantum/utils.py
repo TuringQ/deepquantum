@@ -44,6 +44,8 @@ class Time:
 
 def apply_complex_fix(fn: Any, tensors_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
     """Apply the function to the tensors in the dictionary and convert the result to complex dtype."""
+    if len(tensors_dict) == 0:
+        return tensors_dict
     first_tensor = next(iter(tensors_dict.values()))
     probe = fn(torch.empty(0, dtype=first_tensor.real.dtype, device=first_tensor.device))
     target_dtype = dq.dtype_map.get(probe.dtype, probe.dtype)
