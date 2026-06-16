@@ -3,6 +3,17 @@ import torch
 import deepquantum as dq
 
 
+def test_qubit_circuit_to_with_barrier():
+    cir = dq.QubitCircuit(2)
+    cir.h(0)
+    cir.barrier()
+    cir.rx(1, 0.1)
+
+    cir.to(torch.double)
+    state = cir()
+    assert state.dtype == torch.cdouble
+
+
 def test_qubit_mps():
     nqubit = 3
     cir = dq.QubitCircuit(nqubit, mps=True, chi=64)
