@@ -25,6 +25,8 @@ class PhotonLoss(Channel):
         nmode: The number of modes that the quantum operation acts on. Default: 1
         wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
+        convention: The convention of the input parameter, including ``'theta'``, ``'t'`` and ``'db'``.
+            Default: ``'theta'``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
@@ -35,12 +37,15 @@ class PhotonLoss(Channel):
         nmode: int = 1,
         wires: int | list[int] | None = None,
         cutoff: int | None = None,
+        convention: str = 'theta',
         requires_grad: bool = False,
     ) -> None:
         super().__init__(name='PhotonLoss', nmode=nmode, wires=wires, cutoff=cutoff)
+        assert convention in ('theta', 't', 'db'), 'Invalid convention'
+        self.convention = convention
         self.requires_grad = requires_grad
         self.gate = BeamSplitterSingle(
-            inputs=inputs,
+            inputs=self._inputs_to_theta(inputs),
             nmode=self.nmode + 1,
             wires=self.wires + [self.nmode],
             cutoff=cutoff,
@@ -60,6 +65,11 @@ class PhotonLoss(Channel):
         """Transmittance."""
         return torch.cos(self.theta / 2) ** 2
 
+    @property
+    def db(self):
+        """Photon loss in dB."""
+        return -10 * torch.log10(self.t)
+
     def update_matrix_state(self) -> torch.Tensor:
         """Update the local Kraus matrices acting on Fock state density matrices."""
         return self.get_matrix_state(self.theta)
@@ -74,7 +84,23 @@ class PhotonLoss(Channel):
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        self.gate.init_para(inputs)
+        self.gate.init_para(self._inputs_to_theta(inputs))
+
+    def _inputs_to_theta(self, inputs: Any = None) -> torch.Tensor | None:
+        """Convert inputs under the chosen convention to the internal loss theta."""
+        while isinstance(inputs, list):
+            inputs = inputs[0]
+        if inputs is None:
+            return None
+        if not isinstance(inputs, torch.Tensor):
+            inputs = torch.tensor(inputs, dtype=torch.float)
+        if self.convention == 'theta':
+            return inputs
+        elif self.convention == 't':
+            return torch.arccos(inputs**0.5) * 2
+        else:
+            t = 10 ** (-inputs / 10)
+            return torch.arccos(t**0.5) * 2
 
     def update_transform_xy(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Update the local transformation matrices X and Y acting on Gaussian states.
