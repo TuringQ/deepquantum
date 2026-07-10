@@ -1,8 +1,15 @@
 """Functions for Kensingtonian"""
 
+from functools import cache
 from itertools import product
 
 import torch
+
+
+@cache
+def _d_tuples(clicks: tuple[int, ...]) -> tuple[tuple[int, ...], ...]:
+    ranges = [range(click + 1) for click in clicks]
+    return tuple(product(*ranges))
 
 
 def _multinomial_click_coeff(num_detectors: int, click: torch.Tensor, d: torch.Tensor) -> torch.Tensor:
@@ -41,31 +48,33 @@ def _dz_diag(d: torch.Tensor, keep_modes: torch.Tensor, num_detectors: int) -> t
 
 def _kensingtonian_term(
     matrix: torch.Tensor,
+    base_full: torch.Tensor,
     clicks: torch.Tensor,
     d: torch.Tensor,
     num_detectors: int,
-    alpha: torch.Tensor | None,
+    beta: torch.Tensor | None,
 ) -> torch.Tensor:
     sign_power = torch.sum(clicks - d).to(torch.long)
     sign = -1 if int(sign_power.item()) % 2 else 1
+
     coeff = _multinomial_click_coeff(num_detectors, clicks, d).prod()
     keep_modes = torch.nonzero(d > 0, as_tuple=False).flatten()
     if keep_modes.numel() == 0:
         det_term = matrix.new_tensor(1)
         exp_term = matrix.new_tensor(1)
     else:
-        size = matrix.shape[-1]
-        identity = torch.eye(size, dtype=matrix.dtype, device=matrix.device)
-        base = _mode_submat(identity - matrix, keep_modes)
+        base = _mode_submat(base_full, keep_modes)
         dz = _dz_diag(d, keep_modes, num_detectors).to(matrix.dtype)
         det_mat = base + dz
         det_term = torch.linalg.det(det_mat)
-        if alpha is None:
+
+        if beta is None:
             exp_term = matrix.new_tensor(1)
         else:
-            rhs = _mode_subvec((identity - matrix) @ alpha, keep_modes)
+            rhs = _mode_subvec(beta, keep_modes)
             quad = rhs @ torch.linalg.solve(det_mat, rhs)
             exp_term = torch.exp(quad)
+
     prefactor = (num_detectors / d[keep_modes]).prod() if keep_modes.numel() > 0 else matrix.new_tensor(1)
     return sign * coeff.to(matrix.dtype) * prefactor.to(matrix.dtype) * exp_term / torch.sqrt(det_term)
 
@@ -76,25 +85,31 @@ def kensingtonian(
     num_detectors: int,
     alpha: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    """Calculate the Kensingtonian or loop Kensingtonian"""
+    """Calculate the Kensingtonian or loop Kensingtonian."""
     assert matrix.dim() == 2
     assert matrix.shape[-2] == matrix.shape[-1]
     assert matrix.shape[-1] % 2 == 0
     assert num_detectors >= 1
+
     m = matrix.shape[-1] // 2
     clicks = torch.as_tensor(clicks, dtype=torch.long, device=matrix.device)
     assert clicks.shape == (m,)
     assert torch.all(clicks >= 0)
     assert torch.all(clicks <= num_detectors)
+
     clicks_float = clicks.to(matrix.real.dtype)
     if alpha is not None:
         assert alpha.shape == (2 * m,)
         alpha = alpha.to(dtype=matrix.dtype, device=matrix.device)
+
+    identity = torch.eye(matrix.shape[-1], dtype=matrix.dtype, device=matrix.device)
+    base_full = identity - matrix
+    beta = None if alpha is None else base_full @ alpha
     ken = matrix.new_tensor(0)
-    ranges = [range(int(click.item()) + 1) for click in clicks]
-    for d_tuple in product(*ranges):
+    clicks_tuple = tuple(int(click.item()) for click in clicks)
+    for d_tuple in _d_tuples(clicks_tuple):
         d = torch.tensor(d_tuple, dtype=clicks_float.dtype, device=matrix.device)
-        ken = ken + _kensingtonian_term(matrix, clicks_float, d, num_detectors, alpha)
+        ken = ken + _kensingtonian_term(matrix, base_full, clicks_float, d, num_detectors, beta)
     return ken
 
 
@@ -108,6 +123,7 @@ def kensingtonian_batch(
     assert matrix.dim() == 3
     assert matrix.shape[-2] == matrix.shape[-1]
     assert matrix.shape[-1] % 2 == 0
+
     clicks = torch.as_tensor(clicks, dtype=torch.long, device=matrix.device)
     if clicks.dim() == 1:
         clicks = clicks.expand(matrix.shape[0], -1)
@@ -115,6 +131,7 @@ def kensingtonian_batch(
         alpha = torch.as_tensor(alpha, dtype=matrix.dtype, device=matrix.device)
         if alpha.dim() == 1:
             alpha = alpha.expand(matrix.shape[0], -1)
+
     values = []
     for i in range(matrix.shape[0]):
         alpha_i = None if alpha is None else alpha[i]
