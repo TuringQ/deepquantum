@@ -1166,10 +1166,9 @@ class QumodeCircuit(Operation):
         sigma_inv = sigma_solve[:, :-1]
         sigma_inv_alpha = sigma_solve[:, -1:]
         o_mat = identity - sigma_inv
-        gamma = (2**0.5 * sigma_inv_alpha.mT).squeeze()
         p_vac = torch.exp(-alpha.mT @ sigma_inv_alpha) / sigma_q.det().sqrt()
-        loop_gamma = gamma if loop else None
-        kens = self._get_kensingtonian_click_patterns(final_states, o_mat, loop_gamma)
+        gamma = sigma_inv_alpha.mT.squeeze() if loop else None
+        kens = self._get_kensingtonian_click_patterns(final_states, o_mat, gamma)
         return (p_vac.squeeze() * kens).real.abs()
 
     def _get_kensingtonian_click_patterns(
@@ -1178,7 +1177,7 @@ class QumodeCircuit(Operation):
         matrix: torch.Tensor,
         gamma: torch.Tensor | None,
     ) -> torch.Tensor:
-        """Batch permutation-equivalent click patterns."""
+        """Calculate Kensingtonians by batching permutation-equivalent click patterns."""
         num_detectors = self.cutoff - 1
         if len(final_states) == 1:
             return kensingtonian(matrix, final_states[0], num_detectors, gamma=gamma).reshape(1)

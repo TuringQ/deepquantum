@@ -89,7 +89,7 @@ def _kensingtonian_terms(
     else:
         gamma_masked = gamma.unsqueeze(0) * mask2
         transformed = torch.linalg.solve_triangular(chol, gamma_masked.unsqueeze(-1), upper=False).squeeze(-1)
-        quad = transformed.square().sum(dim=-1) / 2
+        quad = transformed.square().sum(dim=-1)
         loop_factor = torch.exp(quad)
     return (coeffs * loop_factor / det_factor).sum()
 
@@ -109,9 +109,8 @@ def kensingtonian(
         matrix: The real input matrix :math:`O=I-\Sigma^{-1}` in DeepQuantum's ``xxpp`` ordering.
         clicks: The click-counting pattern :math:`k`.
         num_detectors: The number of threshold detectors in each click-counting detector.
-        gamma: The loop vector in the same convention as :func:`torontonian`, namely
-            :math:`\gamma=\sqrt{2}\alpha^T\Sigma^{-1}`, where :math:`\alpha` is the real displacement vector
-            in the dimensionless quadrature representation.
+        gamma: The precontracted loop vector :math:`\gamma=\alpha^T\Sigma^{-1}`, where :math:`\alpha` is the real
+            displacement vector in the dimensionless quadrature representation.
             Default: ``None``
         chunk_size: The number of ``d`` vectors evaluated per chunk. Default: ``None``
     """
