@@ -43,6 +43,7 @@ from .gate import (
     UAnyGate,
 )
 from .hafnian_ import hafnian
+from .kensingtonian_ import kensingtonian
 from .measurement import Generaldyne, Homodyne
 from .operation import Channel, Delay, Gate, Operation
 from .qmath import (
@@ -1077,10 +1078,14 @@ class QumodeCircuit(Operation):
         prob = torch.abs(amplitude) ** 2
         return prob
 
-    def _get_prob_gaussian(self, final_state: Any, state: Any = None) -> torch.Tensor:
+    def _get_prob_gaussian(
+        self, final_state: Any, state: Any = None, detector: str | None = None, num_detectors: int = 1
+    ) -> torch.Tensor:
         """Get the batched probabilities of the final state for Gaussian backend."""
         if not isinstance(final_state, torch.Tensor):
             final_state = torch.tensor(final_state, dtype=torch.long)
+            detector = self.detector if detector is None else detector
+            num_detectors = getattr(self, '_num_detectors', num_detectors)
         if state is None:
             cov = self._cov
             mean = self._mean
@@ -1097,7 +1102,9 @@ class QumodeCircuit(Operation):
         batch = cov.shape[0]
         probs = []
         for i in range(batch):
-            prob = self._get_probs_gaussian_helper(final_state, cov=cov[i], mean=mean[i], detector=self.detector)[0]
+            prob = self._get_probs_gaussian_helper(
+                final_state, cov=cov[i], mean=mean[i], detector=detector, num_detectors=num_detectors
+            )[0]
             probs.append(prob)
         return torch.stack(probs).squeeze()
 
@@ -1109,6 +1116,7 @@ class QumodeCircuit(Operation):
         detector: str = 'pnrd',
         purity: bool | None = None,
         loop: bool | None = None,
+        num_detectors: int = 1,
     ) -> torch.Tensor:
         """Get the probabilities of the final states for Gaussian backend."""
         if loop is None:
@@ -1129,13 +1137,32 @@ class QumodeCircuit(Operation):
         gamma = mean_ladder.mH @ q.inverse()
         if detector == 'pnrd':
             matrix = a_mat
-        elif detector == 'threshold':
+        elif detector in ('threshold', 'click_counting'):
             matrix = o_mat
+        else:
+            raise ValueError(f'Unsupported detector: {detector}')
         if purity is None:
             purity = GaussianState([cov, mean]).is_pure
         p_vac = torch.exp(-0.5 * mean_ladder.mH @ q.inverse() @ mean_ladder) / det_q.sqrt()
-        batch_get_prob = vmap(self._get_prob_gaussian_base, in_dims=(0, None, None, None, None, None, None))
-        probs = batch_get_prob(final_states, matrix, gamma, p_vac, detector, purity, loop)
+        if detector == 'click_counting':
+            probs = torch.stack(
+                [
+                    self._get_prob_gaussian_base(
+                        final_state,
+                        matrix,
+                        gamma,
+                        p_vac,
+                        detector,
+                        purity,
+                        loop,
+                        num_detectors,
+                    )
+                    for final_state in final_states
+                ]
+            )
+        else:
+            batch_get_prob = vmap(self._get_prob_gaussian_base, in_dims=(0, None, None, None, None, None, None, None))
+            probs = batch_get_prob(final_states, matrix, gamma, p_vac, detector, purity, loop, num_detectors)
         return probs
 
     def _get_prob_gaussian_base(
@@ -1147,6 +1174,7 @@ class QumodeCircuit(Operation):
         detector: str = 'pnrd',
         purity: bool = True,
         loop: bool = False,
+        num_detectors: int = 1,
     ) -> torch.Tensor:
         """Get the probability of the final state for Gaussian backend."""
         gamma = gamma.squeeze()
@@ -1175,6 +1203,9 @@ class QumodeCircuit(Operation):
             final_state_double = torch.cat([final_state, final_state])
             sub_mat = sub_matrix(matrix, final_state_double, final_state_double)
             prob = p_vac * torontonian(sub_mat, sub_gamma)
+        elif detector == 'click_counting':
+            alpha = gamma if loop else None
+            prob = p_vac * kensingtonian(matrix, final_state, num_detectors, alpha)
         return abs(prob.real).squeeze()
 
     def _get_prob_mps(self, final_state: Any, wires: int | list[int] | None = None) -> torch.Tensor:
@@ -1203,6 +1234,7 @@ class QumodeCircuit(Operation):
         wires: int | list[int] | None = None,
         detector: str | None = None,
         mcmc: bool = False,
+        num_detectors: int = 1,
     ) -> dict | list[dict] | None:
         """Measure the final state.
 
@@ -1215,6 +1247,7 @@ class QumodeCircuit(Operation):
             detector: For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector or
                 ``'threshold'`` for the threshold detector. Default: ``None``
             mcmc: Whether to use MCMC sampling method. Default: ``False``
+            num_detectors: The number of threshold detectors in each click-counting detector. Default: 1
 
         See https://arxiv.org/pdf/2108.01622 for MCMC.
         """
@@ -1228,7 +1261,7 @@ class QumodeCircuit(Operation):
             results = self._measure_fock(shots, with_prob, wires, mcmc)
         elif self.backend == 'gaussian':
             detector = self.detector if detector is None else detector.lower()
-            results = self._measure_gaussian(shots, with_prob, wires, detector, mcmc)
+            results = self._measure_gaussian(shots, with_prob, wires, detector, mcmc, num_detectors)
         if len(results) == 1:
             results = results[0]
         return results
@@ -1428,10 +1461,18 @@ class QumodeCircuit(Operation):
         )
         return merged_samples
 
-    def _measure_gaussian(self, shots: int, with_prob: bool, wires: list[int], detector: str, mcmc: bool) -> list[dict]:
+    def _measure_gaussian(
+        self,
+        shots: int,
+        with_prob: bool,
+        wires: list[int],
+        detector: str,
+        mcmc: bool,
+        num_detectors: int = 1,
+    ) -> list[dict]:
         """Measure the final state for Gaussian backend."""
         if isinstance(self.state, list):
-            return self._measure_gaussian_state(shots, with_prob, wires, detector, mcmc)
+            return self._measure_gaussian_state(shots, with_prob, wires, detector, mcmc, num_detectors)
         elif isinstance(self.state, dict):
             assert not mcmc, "Final states have been calculated, we don't need mcmc!"
             print('Automatically using the default detector!')
@@ -1440,7 +1481,13 @@ class QumodeCircuit(Operation):
             raise ValueError('Check your forward function or input!')
 
     def _measure_gaussian_state(
-        self, shots: int, with_prob: bool, wires: list[int], detector: str, mcmc: bool
+        self,
+        shots: int,
+        with_prob: bool,
+        wires: list[int],
+        detector: str,
+        mcmc: bool,
+        num_detectors: int = 1,
     ) -> list[dict]:
         """Measure the final state according to Gaussian state for Gaussian backend.
 
@@ -1455,14 +1502,19 @@ class QumodeCircuit(Operation):
             print('Using MCMC method to sample the final states!')
             for i in range(batch):
                 samples_i = self._sample_mcmc_gaussian(
-                    shots=shots, cov=cov[i], mean=mean[i], detector=detector, num_chain=5
+                    shots=shots,
+                    cov=cov[i],
+                    mean=mean[i],
+                    detector=detector,
+                    num_chain=5,
+                    num_detectors=num_detectors,
                 )
                 all_samples.append(samples_i)
         else:  # chain-rule method with small number of shots
             print('Using chain-rule method to sample the final states!')
             samples = []
             for _ in range(shots):
-                sample = self._generate_chain_sample(wires, detector)
+                sample = self._generate_chain_sample(wires, detector, num_detectors)
                 samples.append(sample)
             samples = torch.stack(samples).permute(1, 0, 2)  # (batch, shots, wires)
             for i in range(batch):
@@ -1475,11 +1527,16 @@ class QumodeCircuit(Operation):
             if with_prob:
                 for k in samples_i:
                     if mcmc:
-                        prob = self._get_prob_gaussian(k, [cov[i], mean[i]])
+                        prob = self._get_prob_gaussian(k, [cov[i], mean[i]], num_detectors=num_detectors)
                     else:
                         wires_ = torch.tensor(wires, device=cov.device)
                         idx = torch.cat([wires_, wires_ + self.nmode])
-                        prob = self._get_prob_gaussian(k, [cov[i][idx[:, None], idx], mean[i][idx, :]])
+                        prob = self._get_prob_gaussian(
+                            k,
+                            [cov[i][idx[:, None], idx], mean[i][idx, :]],
+                            detector=detector,
+                            num_detectors=num_detectors,
+                        )
                     samples_i[k] = samples_i[k], prob
             for key in samples_i:
                 state_b = [key[wire] for wire in wires] if mcmc else list(key)
@@ -1495,11 +1552,20 @@ class QumodeCircuit(Operation):
             all_results.append(results)
         return all_results
 
-    def _sample_mcmc_gaussian(self, shots: int, cov: torch.Tensor, mean: torch.Tensor, detector: str, num_chain: int):
+    def _sample_mcmc_gaussian(
+        self,
+        shots: int,
+        cov: torch.Tensor,
+        mean: torch.Tensor,
+        detector: str,
+        num_chain: int,
+        num_detectors: int = 1,
+    ):
         """Sample the output states for Gaussian backend via SC-MCMC method."""
         self._cov = cov
         self._mean = mean
         self.detector = detector
+        self._num_detectors = num_detectors
         if detector == 'threshold' and not torch.allclose(mean, torch.zeros_like(mean)):
             # For the displaced state, aggregate PNRD detector samples to derive threshold detector results
             self.detector = 'pnrd'
@@ -1530,25 +1596,31 @@ class QumodeCircuit(Operation):
             assert self.basis, 'Currently NOT supported.'
             sample = self._out_fock_basis[torch.randint(0, len(self._out_fock_basis), (1,))[0]]
         elif self.backend == 'gaussian':
-            sample = self._generate_rand_sample(self.detector)
+            num_detectors = getattr(self, '_num_detectors', 1)
+            sample = self._generate_rand_sample(self.detector, num_detectors)
         return tuple(sample.tolist())
 
-    def _generate_rand_sample(self, detector: str = 'pnrd'):
+    def _generate_rand_sample(self, detector: str = 'pnrd', num_detectors: int = 1):
         """Generate a random sample according to uniform proposal distribution."""
         nmode = self._nmode_tdm if self._with_delay else self.nmode
         if detector == 'threshold':
             sample = torch.randint(0, 2, [nmode])
+        elif detector == 'click_counting':
+            sample = torch.randint(0, num_detectors + 1, [nmode])
         elif detector == 'pnrd':
             sample = torch.randint(0, self.cutoff, [nmode])
+        else:
+            raise ValueError(f'Unsupported detector: {detector}')
         return sample
 
-    def _generate_chain_sample(self, wires: list[int], detector: str) -> torch.Tensor:
+    def _generate_chain_sample(self, wires: list[int], detector: str, num_detectors: int = 1) -> torch.Tensor:
         """Generate batched random samples via chain rule.
 
         Args:
             wires: The wires to measure. It can be a list of integers specifying the indices of the wires.
-            detector: For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector or
-                ``'threshold'`` for the threshold detector.
+            detector: For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector,
+                ``'threshold'`` for the threshold detector, or ``'click_counting'`` for the click-counting detector.
+            num_detectors: The number of threshold detectors in each click-counting detector. Default: 1
 
         Returns:
             Tensor of shape (batch, nwire).
@@ -1567,10 +1639,10 @@ class QumodeCircuit(Operation):
                 mps[i] = torch.gather(mps[i], dim=2, index=index)
             sample = torch.stack(sample, dim=-1).squeeze(1)
         elif self.backend == 'gaussian':  # chain rule for GBS
-            sample = self._generate_chain_sample_gaussian(wires, detector)
+            sample = self._generate_chain_sample_gaussian(wires, detector, num_detectors)
         return sample
 
-    def _generate_chain_sample_gaussian(self, wires: list[int], detector: str) -> torch.Tensor:
+    def _generate_chain_sample_gaussian(self, wires: list[int], detector: str, num_detectors: int = 1) -> torch.Tensor:
         """Generate batched random samples via chain rule for Gaussian backend.
 
         See
@@ -1581,7 +1653,16 @@ class QumodeCircuit(Operation):
         def _sample_wire(sample, cov_sub, mean_sub, cutoff, detector):
             """Sample for a wire."""
             states = [torch.tensor(sample + [i], device=cov_sub.device) for i in range(cutoff)]
-            probs = [self._get_probs_gaussian_helper(s, cov_sub, mean_sub, detector) for s in states]
+            probs = [
+                self._get_probs_gaussian_helper(
+                    s,
+                    cov_sub,
+                    mean_sub,
+                    detector,
+                    num_detectors=num_detectors,
+                )
+                for s in states
+            ]
             sample_wire = torch.multinomial(torch.cat(probs), num_samples=1)
             return sample_wire
 
@@ -1633,7 +1714,14 @@ class QumodeCircuit(Operation):
         purity = GaussianState(self.state).is_pure
         cov, mean = self.state
         batch = cov.shape[0]
-        cutoff = 2 if detector == 'threshold' else self.cutoff
+        if detector == 'threshold':
+            cutoff = 2
+        elif detector == 'click_counting':
+            cutoff = num_detectors + 1
+        elif detector == 'pnrd':
+            cutoff = self.cutoff
+        else:
+            raise ValueError(f'Unsupported detector: {detector}')
         if purity:
             for i in range(batch):
                 sample.append(_sample_pure(cov[i], mean[i], wires, self.nmode, cutoff, detector))
