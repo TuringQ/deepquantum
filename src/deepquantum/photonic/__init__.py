@@ -9,6 +9,7 @@ from . import (
     draw,
     gate,
     hafnian_,
+    kensingtonian_,
     mapper,
     measurement,
     operation,
@@ -47,6 +48,7 @@ from .gate import (
     UAnyGate,
 )
 from .hafnian_ import hafnian
+from .kensingtonian_ import kensingtonian
 from .mapper import UnitaryMapper
 from .measurement import GeneralBosonic, Generaldyne, Homodyne, PhotonNumberResolvingBosonic
 from .qmath import (

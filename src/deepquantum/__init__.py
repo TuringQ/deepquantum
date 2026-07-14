@@ -103,6 +103,7 @@ from .photonic import (
     UnitaryDecomposer,
     UnitaryMapper,
     hafnian,
+    kensingtonian,
     permanent,
     takagi,
     torontonian,
