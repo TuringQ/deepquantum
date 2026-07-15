@@ -43,7 +43,7 @@ from .gate import (
     UAnyGate,
 )
 from .hafnian_ import hafnian
-from .kensingtonian_ import kensingtonian, kensingtonian_batch
+from .kensingtonian_ import kensingtonian
 from .measurement import Generaldyne, Homodyne
 from .operation import Channel, Delay, Gate, Operation
 from .qmath import (
@@ -1159,7 +1159,7 @@ class QumodeCircuit(Operation):
         assert self.cutoff >= 2, 'For click-counting detector, cutoff should be at least 2'
         nmode = final_states.shape[-1]
         identity = cov.new_ones(2 * nmode).diag_embed()
-        # Normalize DeepQuantum quadratures to the dimensionless convention used by the Kensingtonian.
+        # Normalize quadratures to the dimensionless convention used by the Kensingtonian.
         sigma_q = cov * (2 * dqp.kappa**2 / dqp.hbar) + identity / 2
         alpha = mean * (dqp.kappa / dqp.hbar**0.5)
         sigma_solve = torch.linalg.solve(sigma_q, torch.cat([identity, alpha], dim=-1))
@@ -1180,11 +1180,12 @@ class QumodeCircuit(Operation):
         """Calculate Kensingtonians by batching permutation-equivalent click patterns."""
         num_detectors = self.cutoff - 1
         if len(final_states) == 1:
-            return kensingtonian(matrix, final_states[0], num_detectors, gamma=gamma).reshape(1)
+            return kensingtonian(matrix, final_states[0], num_detectors, gamma).reshape(1)
 
         click_patterns = final_states.detach().cpu().tolist()
         groups = defaultdict(list)
         for position, clicks in enumerate(click_patterns):
+            # Group mode permutations by their sorted canonical click pattern.
             groups[tuple(sorted(clicks))].append(position)
 
         values = []
@@ -1194,18 +1195,17 @@ class QumodeCircuit(Operation):
         for clicks, group_positions in groups.items():
             position = torch.tensor(group_positions, dtype=torch.long, device=final_states.device)
             if len(group_positions) == 1:
-                value = kensingtonian(matrix, final_states[position[0]], num_detectors, gamma=gamma).reshape(1)
+                value = kensingtonian(matrix, final_states[position[0]], num_detectors, gamma).reshape(1)
             else:
-                orders = final_states.new_tensor(
-                    [sorted(range(nmode), key=click_patterns[item].__getitem__) for item in group_positions]
-                )
+                # Reorder the group to share one canonical term-data batch.
+                orders = final_states.index_select(0, position).argsort(dim=-1)
                 indices = torch.cat([orders, orders + nmode], dim=-1)
                 matrices = matrix.expand(len(group_positions), -1, -1)
                 matrices = matrices.gather(1, indices.unsqueeze(-1).expand(-1, -1, size))
                 matrices = matrices.gather(2, indices.unsqueeze(1).expand(-1, size, -1))
                 gammas = None if gamma is None else gamma.expand(len(group_positions), -1).gather(1, indices)
                 canonical_clicks = final_states.new_tensor(clicks)
-                value = kensingtonian_batch(matrices, canonical_clicks, num_detectors, gamma=gammas)
+                value = kensingtonian(matrices, canonical_clicks, num_detectors, gammas)
             values.append(value)
             positions.append(position)
 
