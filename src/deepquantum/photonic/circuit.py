@@ -1204,8 +1204,8 @@ class QumodeCircuit(Operation):
             sub_mat = sub_matrix(matrix, final_state_double, final_state_double)
             prob = p_vac * torontonian(sub_mat, sub_gamma)
         elif detector == 'click_counting':
-            alpha = gamma if loop else None
-            prob = p_vac * kensingtonian(matrix, final_state, num_detectors, alpha)
+            loop_gamma = gamma if loop else None
+            prob = p_vac * kensingtonian(matrix, final_state, num_detectors, gamma=loop_gamma)
         return abs(prob.real).squeeze()
 
     def _get_prob_mps(self, final_state: Any, wires: int | list[int] | None = None) -> torch.Tensor:
