@@ -56,7 +56,8 @@ Photonic circuits:
   - For Fock MPS, use `backend='fock', basis=False, mps=True, chi=..., cutoff=...`.
 - Gaussian backend:
   - Use `backend='gaussian'` with `'vac'` or `[cov, mean]`; output is `[cov, mean]` unless `is_prob=True`.
-  - Supported workflows include Gaussian gates (`s`, `s2`, `d`, `r`, `bs`, etc.), `get_symplectic`, `photon_number_mean_var`, Fock probabilities with `detector='pnrd'` or `'threshold'`, and `measure_homodyne`.
+  - Supported workflows include Gaussian gates (`s`, `s2`, `d`, `r`, `bs`, etc.), `get_symplectic`, `photon_number_mean_var`, Fock probabilities with `detector='pnrd'`, `'threshold'`, or `'click'`, and `measure_homodyne`.
+  - For click-counting, `cutoff=C` gives outcomes `0, ..., C - 1` per mode using `C - 1` threshold detectors.
 - Bosonic backend:
   - Use `backend='bosonic'` with `'vac'`, `[cov, mean, weight]`, a list of local `BosonicState`s, or prepared `cat`/`gkp` states.
   - Output is `[cov, mean, weight]`; `CatState`, `GKPState`, `FockStateBosonic`, Wigner functions, marginals, and homodyne workflows are tested.
