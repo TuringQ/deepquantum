@@ -45,7 +45,7 @@ class Clements(QumodeCircuit):
             for wire in self.wires:
                 self.ps(wire, encode=True)
         for i in range(nmode):
-            if i % 2 == 0:
+            if i % 2 == 1 - self.phi_first:
                 for j in range(len(wires1)):
                     self.mzi([wires1[j] - 1, wires1[j]], phi_first=phi_first, encode=True)
             else:
@@ -72,7 +72,7 @@ class Clements(QumodeCircuit):
                 data.append(angle_dict[(i, columns[i])])
                 columns[i] += 1
         for i in range(self.nmode):
-            if i % 2 == 0:
+            if i % 2 == 1 - self.phi_first:
                 for j in range(len(wires1)):
                     wire = wires1[j] - 1
                     if self.phi_first:
