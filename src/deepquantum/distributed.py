@@ -144,7 +144,10 @@ def dist_swap_gate(state: DistributedQubitState, qb1: int, qb2: int):
         if get_bit(state.rank, qb1_rank) != get_bit(state.rank, qb2_rank):
             pair_rank = flip_bits(state.rank, [qb1_rank, qb2_rank])
             comm_exchange_arrays(state.amps, state.buffer, pair_rank)
-            state.amps = state.buffer
+            state.amps = state.buffer.clone()
+        else:
+            # Unchanged ranks must still participate in the collective exchange.
+            comm_exchange_arrays(state.amps, state.buffer, None)
     else:
         qb2_rank = qb2 - nqubit_local
         bit = 1 - get_bit(state.rank, qb2_rank)
@@ -215,28 +218,32 @@ def measure_dist(
     else:
         nqubit_local = state.log_num_amps_per_node
         nqubit_global = state.log_num_nodes
-        probs = torch.abs(state.amps) ** 2
         if isinstance(wires, int):
             wires = [wires]
         num_bits = len(wires) if wires else state.nqubit
         if wires is not None:
-            probs = probs.reshape([2] * nqubit_local)
+            wires = sorted(wires)
             targets = [state.nqubit - wire - 1 for wire in wires]
             pm_shape = list(range(nqubit_local))
-            # Assume nqubit_global < nqubit_local
+            swaps = []
             if num_bits <= nqubit_local:  # All targets move to local qubits
                 if max(targets) >= nqubit_local:
                     targets_new = get_local_targets(targets, nqubit_local)
                     for i in range(num_bits):
                         if targets_new[i] != targets[i]:
                             dist_swap_gate(state, targets[i], targets_new[i])
-                    wires_local = sorted([nqubit_local - target - 1 for target in targets_new])
+                            swaps.append((targets[i], targets_new[i]))
+                    wires_local = [nqubit_local - target - 1 for target in targets_new]
                 else:
-                    wires_local = sorted([nqubit_local - target - 1 for target in targets])
+                    wires_local = [nqubit_local - target - 1 for target in targets]
                 for w in wires_local:
                     pm_shape.remove(w)
                 pm_shape = wires_local + pm_shape
+                probs = (torch.abs(state.amps) ** 2).reshape([2] * nqubit_local)
                 probs = probs.permute(pm_shape).reshape([2] * num_bits + [-1]).sum(-1).reshape(-1)
+                # Sampling must leave the state's original wire ordering intact.
+                for target1, target2 in reversed(swaps):
+                    dist_swap_gate(state, target1, target2)
                 dist.all_reduce(probs, dist.ReduceOp.SUM)
                 if state.rank == 0:
                     samples = Counter(block_sample(probs, shots, block_size))
@@ -255,14 +262,31 @@ def measure_dist(
                         target_new = state.nqubit - i - 1
                         if target_new != target:
                             dist_swap_gate(state, target, target_new)
+                            swaps.append((target, target_new))
                     else:
                         wires_local.append(nqubit_local - target - 1)
                 for w in wires_local:
                     pm_shape.remove(w)
                 pm_shape = wires_local + pm_shape
+                probs = (torch.abs(state.amps) ** 2).reshape([2] * nqubit_local)
                 probs = probs.permute(pm_shape).reshape([2] * len(wires_local) + [-1]).sum(-1).reshape(-1)
+                for target1, target2 in reversed(swaps):
+                    dist_swap_gate(state, target1, target2)
+        else:
+            probs = torch.abs(state.amps) ** 2
         probs_rank = probs.new_empty(state.world_size)
         dist.all_gather_into_tensor(probs_rank, probs.sum().unsqueeze(0))
+        if num_bits < nqubit_global:
+            # Unmeasured rank bits must be marginalized before sampling.
+            probs_rank = probs_rank.reshape(2**num_bits, -1).sum(-1)
+            if state.rank == 0:
+                samples = Counter(block_sample(probs_rank, shots, block_size))
+                results = {bin(key)[2:].zfill(num_bits): value for key, value in samples.items()}
+                if with_prob:
+                    for k in results:
+                        results[k] = results[k], probs_rank[int(k, 2)].item()
+                return results
+            return {}
         blocks = torch.multinomial(probs_rank, shots, replacement=True)
         dist.broadcast(blocks, src=0)
         block_dict = Counter(blocks.cpu().numpy())

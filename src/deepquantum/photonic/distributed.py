@@ -43,7 +43,7 @@ def local_swap_gate(state: torch.Tensor, target1: int, target2: int) -> torch.Te
     nmode = len(state.shape)
     wire1 = nmode - target1 - 1
     wire2 = nmode - target2 - 1
-    return state.transpose(wire1, wire2)
+    return state.transpose(wire1, wire2).contiguous()
 
 
 def dist_swap_gate(state: DistributedFockState, target1: int, target2: int):
@@ -61,7 +61,10 @@ def dist_swap_gate(state: DistributedFockState, target1: int, target2: int):
             new_rank = get_pair_rank(state.rank, target1_rank, digit2, state.cutoff, state.nmode_global)
             pair_rank = get_pair_rank(new_rank, target2_rank, digit1, state.cutoff, state.nmode_global)
             comm_exchange_arrays(state.amps, state.buffer, pair_rank)
-            state.amps = state.buffer
+            state.amps = state.buffer.clone()
+        else:
+            # Unchanged ranks must still participate in the collective exchange.
+            comm_exchange_arrays(state.amps, state.buffer, None)
     else:
         target2_rank = target2 - state.nmode_local
         wire1 = state.nmode_local - target1 - 1
@@ -75,7 +78,8 @@ def dist_swap_gate(state: DistributedFockState, target1: int, target2: int):
             pair_rank = get_pair_rank(state.rank, target2_rank, i, state.cutoff, state.nmode_global)
             io_sizes[pair_rank] = 1
         dist.all_to_all_single(state.buffer, state.amps, io_sizes, io_sizes)
-        state.amps = state.buffer.permute(inverse_permutation(pm_shape)).contiguous()
+        # contiguous() may return a view of buffer; the next receive must not overwrite its own input.
+        state.amps = state.buffer.permute(inverse_permutation(pm_shape)).clone(memory_format=torch.contiguous_format)
     return state
 
 
@@ -109,23 +113,28 @@ def measure_dist(
         wires = [wires]
     nwires = len(wires) if wires else state.nmode
     if wires is not None:
+        wires = sorted(wires)
         targets = [state.nmode - wire - 1 for wire in wires]
         pm_shape = list(range(state.nmode_local))
-        # Assume nmode_global < nmode_local
+        swaps = []
         if nwires <= state.nmode_local:  # All targets move to local modes
             if max(targets) >= state.nmode_local:
                 targets_new = get_local_targets(targets, state.nmode_local)
                 for i in range(nwires):
                     if targets_new[i] != targets[i]:
                         dist_swap_gate(state, targets_new[i], targets[i])
-                wires_local = sorted([state.nmode_local - target - 1 for target in targets_new])
+                        swaps.append((targets_new[i], targets[i]))
+                wires_local = [state.nmode_local - target - 1 for target in targets_new]
             else:
-                wires_local = sorted([state.nmode_local - target - 1 for target in targets])
+                wires_local = [state.nmode_local - target - 1 for target in targets]
             for w in wires_local:
                 pm_shape.remove(w)
             pm_shape = wires_local + pm_shape
             probs = torch.abs(state.amps) ** 2
             probs = probs.permute(pm_shape).reshape([state.cutoff] * nwires + [-1]).sum(-1).reshape(-1)
+            # Sampling must leave the state's original mode ordering intact.
+            for target1, target2 in reversed(swaps):
+                dist_swap_gate(state, target1, target2)
             dist.all_reduce(probs, dist.ReduceOp.SUM)
             if state.rank == 0:
                 samples = Counter(block_sample(probs, shots, block_size))
@@ -144,6 +153,7 @@ def measure_dist(
                     target_new = state.nmode - i - 1
                     if target_new != target:
                         dist_swap_gate(state, target, target_new)
+                        swaps.append((target, target_new))
                 else:
                     wires_local.append(state.nmode_local - target - 1)
             for w in wires_local:
@@ -151,10 +161,24 @@ def measure_dist(
             pm_shape = wires_local + pm_shape
             probs = torch.abs(state.amps) ** 2
             probs = probs.permute(pm_shape).reshape([state.cutoff] * len(wires_local) + [-1]).sum(-1).reshape(-1)
+            for target1, target2 in reversed(swaps):
+                dist_swap_gate(state, target1, target2)
     else:
         probs = (torch.abs(state.amps) ** 2).reshape(-1)
     probs_rank = probs.new_empty(state.world_size)
     dist.all_gather_into_tensor(probs_rank, probs.sum().unsqueeze(0))
+    if nwires < state.nmode_global:
+        # Unmeasured rank digits must be marginalized before sampling.
+        probs_rank = probs_rank.reshape(state.cutoff**nwires, -1).sum(-1)
+        if state.rank == 0:
+            samples = Counter(block_sample(probs_rank, shots, block_size))
+            results = {FockState(decimal_to_list(k, state.cutoff, nwires)): v for k, v in samples.items()}
+            if with_prob:
+                for k in results:
+                    index = list_to_decimal(k.state, state.cutoff)
+                    results[k] = results[k], probs_rank[index]
+            return results
+        return {}
     blocks = torch.multinomial(probs_rank, shots, replacement=True)
     dist.broadcast(blocks, src=0)
     block_dict = Counter(blocks.cpu().numpy())
