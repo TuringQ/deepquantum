@@ -66,6 +66,10 @@ docs = [
     'sphinx',
     'turingq-sphinx-theme',
 ]
+qchem = [
+    'openfermion',
+    'openfermionpyscf',
+]
 
 [project.urls]
 Homepage = 'https://deepquantum.turingq.com/'
