@@ -223,16 +223,19 @@ def test_gradcheck_mixed_loss_parameter():
 
 @pytest.mark.parametrize('backend', ['fock', 'gaussian'])
 @pytest.mark.parametrize('den_mat', [False, True])
-def test_empty_and_all_measured_modes(backend, den_mat):
-    cir = dq.QumodeCircuit(2, 'vac', cutoff=3, backend=backend, basis=False, den_mat=den_mat)
+@pytest.mark.parametrize('nmode', [1, 2])
+def test_requires_measured_and_remaining_modes(backend, den_mat, nmode):
+    cir = dq.QumodeCircuit(nmode, 'vac', cutoff=3, backend=backend, basis=False, den_mat=den_mat)
     cir()
-    state, prob = cir.heralded_state([], [])
-    assert state.shape == ((1, 3, 3) if not den_mat else (1, 3, 3, 3, 3))
-    torch.testing.assert_close(prob, torch.ones_like(prob))
-    scalar, prob, info = cir.heralded_state([1, 0], [0, 0], return_info=True)
-    assert scalar.shape == (1,)
-    assert info['remaining_wires'] == ()
-    torch.testing.assert_close(scalar.real, torch.ones_like(prob))
+    for method in (cir.heralded_state, getattr(cir, f'heralded_state_{backend}')):
+        with pytest.raises(ValueError, match='at least one measured mode'):
+            method([], [])
+        with pytest.raises(ValueError, match='at least one remaining mode'):
+            method(list(reversed(range(nmode))), [0] * nmode)
+        if nmode > 1:
+            state, prob = method(0, 0)
+            assert state.shape == ((1, 3) if not den_mat else (1, 3, 3))
+            torch.testing.assert_close(prob, torch.ones_like(prob))
 
 
 @pytest.mark.parametrize('backend', ['fock', 'gaussian'])
@@ -392,10 +395,8 @@ def test_batched_mixed_polynomial_and_density_forward():
     fock = dq.QumodeCircuit(1, state, cutoff=4, basis=False, den_mat=True)
     fock.ps(0, encode=True)
     fock.to(torch.float64)
-    fock(data[:, :1], is_prob=True)
-    selected, selected_prob = fock.heralded_state(0, 1)
-    torch.testing.assert_close(selected.real, state[:, 1, 1].real)
-    torch.testing.assert_close(selected_prob, state[:, 1, 1].real)
+    probabilities = fock(data[:, :1], is_prob=True)
+    torch.testing.assert_close(probabilities, state.diagonal(dim1=-2, dim2=-1).real)
 
 
 def test_correlated_multimode_density_against_walrus():
