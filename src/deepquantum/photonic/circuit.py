@@ -556,6 +556,7 @@ class QumodeCircuit(Operation):
 
         Args:
             wires: Measured mode indices, in the same order as ``herald_state``.
+                At least one mode must be measured and at least one must remain.
             herald_state: Nonnegative integer photon counts, one per measured mode.
             cutoff: Output dimension per remaining mode (photons 0 through cutoff-1).
                 Defaults to the circuit cutoff. Dense Fock outputs cannot exceed it.
@@ -571,8 +572,6 @@ class QumodeCircuit(Operation):
             ``(B, ket axes..., bra axes...)``, probability ``(B,)``. Gaussian
             probabilities come from the measured marginal independently of output
             cutoff. Fock probabilities use the entire available input tensor.
-            Empty wires convert/return the full state. Measuring every mode gives
-            a scalar per batch (no remaining Fock axes).
 
         Raises:
             NotImplementedError: For unsupported backends, Fock basis states,
@@ -615,6 +614,10 @@ class QumodeCircuit(Operation):
             raise ValueError('One herald photon number is required for each measured wire')
         if len(set(wires)) != len(wires) or any(w < 0 or w >= self.nmode for w in wires):
             raise ValueError('Measured wires must be unique valid mode indices')
+        if not wires:
+            raise ValueError('Heralding requires at least one measured mode')
+        if len(wires) == self.nmode:
+            raise ValueError('Heralding requires at least one remaining mode')
         if any(h < 0 for h in herald):
             raise ValueError('Herald photon numbers must be nonnegative')
         cutoff = self.cutoff if cutoff is None else cutoff
