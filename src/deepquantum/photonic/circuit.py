@@ -43,6 +43,7 @@ from .gate import (
     UAnyGate,
 )
 from .hafnian_ import hafnian
+from .hardware import HardwareModel
 from .kensingtonian_ import kensingtonian
 from .measurement import Generaldyne, Homodyne
 from .operation import Channel, Delay, Gate, Operation
@@ -163,6 +164,31 @@ class QumodeCircuit(Operation):
         self._unroll_dict = None  # {wire_space: [wires_delay_n, ..., wires_delay_1, wire_space_concurrent]}
         self._operators_tdm = None
         self._measurements_tdm = None
+        self.hardware_model = None
+
+    def set_hardware_model(self, model: HardwareModel | None) -> None:
+        """Attach a hardware model before creating the optimizer; None removes it."""
+        if model is not None:
+            self._validate_hardware_model(model)
+        self.hardware_model = model
+        self.state = None
+        self.state_measured = None
+
+    def _validate_hardware_model(self, model: HardwareModel) -> None:
+        if not isinstance(model, HardwareModel):
+            raise TypeError('model must be a HardwareModel or None.')
+        if self.backend != 'gaussian':
+            raise NotImplementedError('HardwareModel MVP supports the Gaussian backend only.')
+        if any(m.noise for m in self.modules() if isinstance(m, Operation)):
+            raise ValueError('Disable legacy noise=True before attaching HardwareModel.')
+        for op in self.operators:
+            if isinstance(op, Delay):
+                continue
+            if not isinstance(op, (Gate, Channel)):
+                raise NotImplementedError('HardwareModel requires Gaussian gates and channels.')
+            if isinstance(op, Gate) and not isinstance(op, Barrier) and not hasattr(op, 'matrix_xp'):
+                raise NotImplementedError(f'{op.name} has no Gaussian transformation.')
+        model._validate(self.operators, self.nmode)
 
     def set_init_state(self, init_state: Any) -> None:
         """Set the initial state of the circuit."""
@@ -220,6 +246,8 @@ class QumodeCircuit(Operation):
 
         The initial state is the same as the first ``QumodeCircuit``.
         """
+        if self.hardware_model is not None or rhs.hardware_model is not None:
+            raise ValueError('Compose ideal circuits before attaching HardwareModel.')
         assert self.nmode == rhs.nmode
         cir = QumodeCircuit(
             nmode=self.nmode,
@@ -284,6 +312,12 @@ class QumodeCircuit(Operation):
         Returns:
             The result of the photonic quantum circuit after applying the ``operators``.
         """
+        if self.hardware_model is not None:
+            self.state = None
+            self.state_measured = None
+            self._validate_hardware_model(self.hardware_model)
+            if self._with_delay or type(self).forward is not QumodeCircuit.forward:
+                raise NotImplementedError('Use global_circuit() to execute HardwareModel on an unrolled circuit.')
         if self.backend == 'fock':
             return self._forward_fock(data, state, is_prob, sort)
         elif self.backend in ('gaussian', 'bosonic'):
@@ -485,10 +519,15 @@ class QumodeCircuit(Operation):
                 mean = mean.unsqueeze(0)
         else:
             assert data.ndim == 2
+            randomness = 'same' if self.hardware_model is not None else 'error'
             if cov.shape[0] == 1:
-                cov, mean = vmap(self._forward_helper_gaussian, in_dims=(0, None, None))(data, [cov, mean], stepwise)
+                cov, mean = vmap(self._forward_helper_gaussian, in_dims=(0, None, None), randomness=randomness)(
+                    data, [cov, mean], stepwise
+                )
             else:
-                cov, mean = vmap(self._forward_helper_gaussian, in_dims=(0, 0, None))(data, [cov, mean], stepwise)
+                cov, mean = vmap(self._forward_helper_gaussian, in_dims=(0, 0, None), randomness=randomness)(
+                    data, [cov, mean], stepwise
+                )
             self.encode(data[-1])
         if is_prob:
             self.state = [cov, mean]  # for checking purity
@@ -513,7 +552,9 @@ class QumodeCircuit(Operation):
         cov, mean = (self.init_state.cov, self.init_state.mean) if state is None else state
         if self.backend == 'bosonic' and cov.ndim == 3:
             cov = cov.unsqueeze(0)
-        if stepwise:
+        if self.hardware_model is not None:
+            cov, mean = self.hardware_model([cov, mean], operators, self.backend, self.wires)
+        elif stepwise:
             cov, mean = operators([cov, mean])
         else:
             sp_mat = self.get_symplectic()
@@ -811,6 +852,8 @@ class QumodeCircuit(Operation):
             The covariance matrix and mean vector in time-major order, with shapes
             ``(batch, 2 * nselected, 2 * nselected)`` and ``(batch, 2 * nselected, 1)``.
         """
+        if self.hardware_model is not None:
+            raise NotImplementedError('Use global_circuit() to execute HardwareModel on an unrolled circuit.')
         assert self.backend == 'gaussian', 'tdm_substate() requires Gaussian backend'
         assert self._with_delay, 'tdm_substate() requires at least one delay loop'
         assert isinstance(nstep, int) and not isinstance(nstep, bool) and nstep > 0, 'nstep must be a positive integer'
@@ -918,6 +961,8 @@ class QumodeCircuit(Operation):
         Note:
             The initial state of the global circuit is always the vacuum state.
         """
+        if self.hardware_model is not None:
+            self._validate_hardware_model(self.hardware_model)
         self._prepare_unroll_dict()
         nmode = self._nmode_tdm + (nstep - 1) * self.nmode
         cir = QumodeCircuit(
@@ -935,9 +980,17 @@ class QumodeCircuit(Operation):
             mu=self.mu,
             sigma=self.sigma,
         )
+        gate_indices = [[] for _ in self.operators]
+        wire_map = []
         for i in range(nstep):
+            spatial_wires = [
+                self._unroll_dict[wire][-1] if i == 0 else self._nmode_tdm + self.nmode * (i - 1) + wire
+                for wire in self.wires
+            ]
+            wire_map.append(spatial_wires)
             ndelay = np.array([0] * self.nmode)  # counter of delay loops for each mode
-            for op in self.operators:
+            for index, op in enumerate(self.operators):
+                start = len(cir.operators)
                 encode = op in self.encoders
                 is_deep = use_deepcopy or encode
                 if isinstance(op, Delay):
@@ -945,7 +998,7 @@ class QumodeCircuit(Operation):
                     ndelay[wire] += 1
                     idx_delay = -ndelay[wire] - 1
                     wire1 = self._unroll_dict[wire][idx_delay][i % op.ntau]
-                    wire2 = self._unroll_dict[wire][-1] if i == 0 else self._nmode_tdm + self.nmode * (i - 1) + wire
+                    wire2 = spatial_wires[wire]
                     op_tdm = deepcopy(op.gates[0]) if is_deep else copy(op.gates[0])
                     op_tdm.nmode = nmode
                     op_tdm.wires = [wire1, wire2]
@@ -962,23 +1015,20 @@ class QumodeCircuit(Operation):
                 else:
                     op_tdm = deepcopy(op) if is_deep else copy(op)
                     op_tdm.nmode = nmode
-                    if i == 0:
-                        op_tdm.wires = [self._unroll_dict[wire][-1] for wire in op.wires]
-                    else:
-                        op_tdm.wires = [self._nmode_tdm + self.nmode * (i - 1) + wire for wire in op.wires]
+                    op_tdm.wires = [spatial_wires[wire] for wire in op.wires]
                     if isinstance(op, PhotonLoss):
                         cir._lossy = True
                         cir._nloss += 1
                     cir.add(op_tdm, encode=encode)
+                gate_indices[index].extend(range(start, len(cir.operators)))
             for op_m in self.measurements:
                 op_m_tdm = copy(op_m)
                 op_m_tdm.nmode = nmode
-                if i == 0:
-                    op_m_tdm.wires = [self._unroll_dict[wire][-1] for wire in op_m.wires]
-                else:
-                    op_m_tdm.wires = [self._nmode_tdm + self.nmode * (i - 1) + wire for wire in op_m.wires]
+                op_m_tdm.wires = [spatial_wires[wire] for wire in op_m.wires]
                 cir.add(op_m_tdm)
             cir.barrier()
+        if self.hardware_model is not None:
+            cir.set_hardware_model(self.hardware_model._unroll(self.operators, gate_indices, wire_map))
         return cir
 
     def _shift_state(self, state: list[torch.Tensor], nstep: int = 1, reverse: bool = False) -> list[torch.Tensor]:
@@ -1019,7 +1069,7 @@ class QumodeCircuit(Operation):
             count = count_up
 
     def get_unitary(self) -> torch.Tensor:
-        """Get the unitary matrix of the photonic quantum circuit."""
+        """Get the unitary matrix of the ideal photonic quantum circuit."""
         u = None
         operators = self._operators_tdm if self._with_delay else self.operators
         nloss = 0
@@ -1058,7 +1108,7 @@ class QumodeCircuit(Operation):
             return u
 
     def get_symplectic(self) -> torch.Tensor:
-        """Get the symplectic matrix of the photonic quantum circuit."""
+        """Get the symplectic matrix of the ideal photonic quantum circuit."""
         s = None
         if self._with_delay:
             operators = self._operators_tdm
@@ -1075,7 +1125,7 @@ class QumodeCircuit(Operation):
         return s
 
     def get_displacement(self, init_mean: Any) -> torch.Tensor:
-        """Get the final mean value of the Gaussian state in ``xxpp`` order."""
+        """Get the final mean value of the Gaussian state in ``xxpp`` order for the ideal circuit."""
         if not isinstance(init_mean, torch.Tensor):
             init_mean = torch.tensor(init_mean)
         if self._with_delay:
@@ -2174,6 +2224,8 @@ class QumodeCircuit(Operation):
             op = copy(op)
             op.wires = wires
         if isinstance(op, QumodeCircuit):
+            if op.hardware_model is not None:
+                raise ValueError('Add ideal subcircuits before attaching their HardwareModel to the combined circuit.')
             assert self.nmode == op.nmode
             self.operators += op.operators
             self.encoders += op.encoders
