@@ -35,7 +35,7 @@ def _check_scalar(value: torch.Tensor, name: str, low: float | None = None, high
 
 @dataclass(frozen=True)
 class _HardwareRun:
-    """Per-forward state shared by hardware plugins, never stored on the model."""
+    """Execution context; cache stores samples, not states or perturbed parameters."""
 
     backend: str
     generator: torch.Generator | None
@@ -45,7 +45,7 @@ class _HardwareRun:
 
 
 class Loss(nn.Module):
-    """Vacuum loss specified by power transmittance or loss in dB."""
+    """Photon loss specified by transmittance t or loss in dB."""
 
     def __init__(self, t: float | torch.Tensor | None = None, *, db: float | torch.Tensor | None = None) -> None:
         super().__init__()
@@ -72,6 +72,7 @@ class Loss(nn.Module):
         mask[list(run.wires) + [w + nmode for w in run.wires]] = 1
         scale = 1 + mask * (t.to(cov).reshape(()).sqrt() - 1)
         vacuum = dqp.hbar / (4 * dqp.kappa**2)
+        # V -> A V A^T + (I - A A^T) V_vac, with diagonal A.
         cov = (scale[:, None] * scale) * cov + torch.diag((1 - scale.square()) * vacuum)
         return [cov, scale[:, None] * mean]
 
@@ -207,7 +208,7 @@ class _StateConfig:
     def loss(
         self, t: float | torch.Tensor | None = None, *, db: float | torch.Tensor | None = None, name: str | None = None
     ) -> 'HardwareModel':
-        """Set power transmittance t or loss in dB."""
+        """Add photon loss with transmittance t or loss in dB."""
         return self.use(Loss(t, db=db), name=name)
 
 

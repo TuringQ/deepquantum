@@ -52,7 +52,6 @@ class PhotonLoss(Channel):
             den_mat=True,
             convention='h',
             requires_grad=requires_grad,
-            noise=False,
         )
         self.npara = 1
 

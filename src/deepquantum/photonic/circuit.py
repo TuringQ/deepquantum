@@ -101,9 +101,6 @@ class QumodeCircuit(Operation):
         name: The name of the circuit. Default: ``None``
         mps: Whether to use matrix product state representation. Default: ``False``
         chi: The bond dimension for matrix product state representation. Default: ``None``
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -118,20 +115,8 @@ class QumodeCircuit(Operation):
         name: str | None = None,
         mps: bool = False,
         chi: int | None = None,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
-        super().__init__(
-            name=name,
-            nmode=nmode,
-            wires=list(range(nmode)),
-            cutoff=cutoff,
-            den_mat=den_mat,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
-        )
+        super().__init__(name=name, nmode=nmode, wires=list(range(nmode)), cutoff=cutoff, den_mat=den_mat)
         self.backend = backend.lower()
         self.basis = basis
         self.detector = detector.lower()
@@ -179,8 +164,6 @@ class QumodeCircuit(Operation):
             raise TypeError('model must be a HardwareModel or None.')
         if self.backend != 'gaussian':
             raise NotImplementedError('HardwareModel MVP supports the Gaussian backend only.')
-        if any(m.noise for m in self.modules() if isinstance(m, Operation)):
-            raise ValueError('Disable legacy noise=True before attaching HardwareModel.')
         for op in self.operators:
             if isinstance(op, Delay):
                 continue
@@ -260,9 +243,6 @@ class QumodeCircuit(Operation):
             name=self.name,
             mps=self.mps,
             chi=self.chi,
-            noise=self.noise,
-            mu=self.mu,
-            sigma=self.sigma,
         )
         cir.operators = self.operators + rhs.operators
         cir.encoders = self.encoders + rhs.encoders
@@ -977,9 +957,6 @@ class QumodeCircuit(Operation):
             name=self.name,
             mps=self.mps,
             chi=self.chi,
-            noise=self.noise,
-            mu=self.mu,
-            sigma=self.sigma,
         )
         gate_indices = defaultdict(list)
         wire_map = []
@@ -1159,7 +1136,7 @@ class QumodeCircuit(Operation):
         Args:
             final_state: The final Fock basis state.
             init_state: The initial Fock basis state. Default: ``None``
-            unitary: The unitary matrix. Default: ``None``
+            unitary: The unitary matrix. Default: ``None`` (the ideal circuit unitary)
         """
         assert self.backend == 'fock'
         if not isinstance(final_state, torch.Tensor):
@@ -1203,7 +1180,7 @@ class QumodeCircuit(Operation):
             final_state: The final Fock basis state with shape ``(nmode,)``. For Gaussian backend,
                 multiple final states with shape ``(npattern, nmode)`` are also supported.
             refer_state: The initial Fock basis state or the final Gaussian state. Default: ``None``
-            unitary: The unitary matrix. Default: ``None``
+            unitary: The unitary matrix. Default: ``None`` (the ideal circuit unitary)
         """
         if not isinstance(final_state, torch.Tensor):
             final_state = torch.tensor(final_state, dtype=torch.long)
@@ -2252,17 +2229,11 @@ class QumodeCircuit(Operation):
             self.measurements.append(op)
             self.wires_homodyne.append(op.wires[0])
 
-    def ps(
-        self, wires: int, inputs: Any = None, encode: bool = False, mu: float | None = None, sigma: float | None = None
-    ) -> None:
+    def ps(self, wires: int, inputs: Any = None, encode: bool = False) -> None:
         """Add a phase shifter."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         ps = PhaseShift(
             inputs=inputs,
             nmode=self.nmode,
@@ -2270,28 +2241,14 @@ class QumodeCircuit(Operation):
             cutoff=self.cutoff,
             den_mat=self.den_mat,
             requires_grad=requires_grad,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.add(ps, encode=encode)
 
-    def bs(
-        self,
-        wires: list[int],
-        inputs: Any = None,
-        encode: bool = False,
-        mu: float | None = None,
-        sigma: float | None = None,
-    ) -> None:
+    def bs(self, wires: list[int], inputs: Any = None, encode: bool = False) -> None:
         """Add a beam splitter."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         bs = BeamSplitter(
             inputs=inputs,
             nmode=self.nmode,
@@ -2299,29 +2256,14 @@ class QumodeCircuit(Operation):
             cutoff=self.cutoff,
             den_mat=self.den_mat,
             requires_grad=requires_grad,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.add(bs, encode=encode)
 
-    def mzi(
-        self,
-        wires: list[int],
-        inputs: Any = None,
-        phi_first: bool = True,
-        encode: bool = False,
-        mu: float | None = None,
-        sigma: float | None = None,
-    ) -> None:
+    def mzi(self, wires: list[int], inputs: Any = None, phi_first: bool = True, encode: bool = False) -> None:
         """Add a Mach-Zehnder interferometer."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         mzi = MZI(
             inputs=inputs,
             nmode=self.nmode,
@@ -2330,28 +2272,14 @@ class QumodeCircuit(Operation):
             den_mat=self.den_mat,
             phi_first=phi_first,
             requires_grad=requires_grad,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.add(mzi, encode=encode)
 
-    def bs_theta(
-        self,
-        wires: list[int],
-        inputs: Any = None,
-        encode: bool = False,
-        mu: float | None = None,
-        sigma: float | None = None,
-    ) -> None:
+    def bs_theta(self, wires: list[int], inputs: Any = None, encode: bool = False) -> None:
         r"""Add a beam splitter with fixed :math:`\phi` at :math:`\pi/2`."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         bs = BeamSplitterTheta(
             inputs=inputs,
             nmode=self.nmode,
@@ -2359,28 +2287,14 @@ class QumodeCircuit(Operation):
             cutoff=self.cutoff,
             den_mat=self.den_mat,
             requires_grad=requires_grad,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.add(bs, encode=encode)
 
-    def bs_phi(
-        self,
-        wires: list[int],
-        inputs: Any = None,
-        encode: bool = False,
-        mu: float | None = None,
-        sigma: float | None = None,
-    ) -> None:
+    def bs_phi(self, wires: list[int], inputs: Any = None, encode: bool = False) -> None:
         r"""Add a beam splitter with fixed :math:`\theta` at :math:`\pi/4`."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         bs = BeamSplitterPhi(
             inputs=inputs,
             nmode=self.nmode,
@@ -2388,28 +2302,14 @@ class QumodeCircuit(Operation):
             cutoff=self.cutoff,
             den_mat=self.den_mat,
             requires_grad=requires_grad,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.add(bs, encode=encode)
 
-    def bs_rx(
-        self,
-        wires: list[int],
-        inputs: Any = None,
-        encode: bool = False,
-        mu: float | None = None,
-        sigma: float | None = None,
-    ) -> None:
+    def bs_rx(self, wires: list[int], inputs: Any = None, encode: bool = False) -> None:
         """Add an Rx-type beam splitter."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         bs = BeamSplitterSingle(
             inputs=inputs,
             nmode=self.nmode,
@@ -2418,28 +2318,14 @@ class QumodeCircuit(Operation):
             den_mat=self.den_mat,
             convention='rx',
             requires_grad=requires_grad,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.add(bs, encode=encode)
 
-    def bs_ry(
-        self,
-        wires: list[int],
-        inputs: Any = None,
-        encode: bool = False,
-        mu: float | None = None,
-        sigma: float | None = None,
-    ) -> None:
+    def bs_ry(self, wires: list[int], inputs: Any = None, encode: bool = False) -> None:
         """Add an Ry-type beam splitter."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         bs = BeamSplitterSingle(
             inputs=inputs,
             nmode=self.nmode,
@@ -2448,28 +2334,14 @@ class QumodeCircuit(Operation):
             den_mat=self.den_mat,
             convention='ry',
             requires_grad=requires_grad,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.add(bs, encode=encode)
 
-    def bs_h(
-        self,
-        wires: list[int],
-        inputs: Any = None,
-        encode: bool = False,
-        mu: float | None = None,
-        sigma: float | None = None,
-    ) -> None:
+    def bs_h(self, wires: list[int], inputs: Any = None, encode: bool = False) -> None:
         """Add an H-type beam splitter."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         bs = BeamSplitterSingle(
             inputs=inputs,
             nmode=self.nmode,
@@ -2478,19 +2350,12 @@ class QumodeCircuit(Operation):
             den_mat=self.den_mat,
             convention='h',
             requires_grad=requires_grad,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.add(bs, encode=encode)
 
-    def dc(self, wires: list[int], mu: float | None = None, sigma: float | None = None) -> None:
+    def dc(self, wires: list[int]) -> None:
         """Add a directional coupler."""
         theta = torch.pi / 2
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         bs = BeamSplitterSingle(
             inputs=theta,
             nmode=self.nmode,
@@ -2499,19 +2364,12 @@ class QumodeCircuit(Operation):
             den_mat=self.den_mat,
             convention='rx',
             requires_grad=False,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.add(bs)
 
-    def h(self, wires: list[int], mu: float | None = None, sigma: float | None = None) -> None:
+    def h(self, wires: list[int]) -> None:
         """Add a photonic Hadamard gate."""
         theta = torch.pi / 2
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         bs = BeamSplitterSingle(
             inputs=theta,
             nmode=self.nmode,
@@ -2520,9 +2378,6 @@ class QumodeCircuit(Operation):
             den_mat=self.den_mat,
             convention='h',
             requires_grad=False,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.add(bs)
 
@@ -2541,14 +2396,7 @@ class QumodeCircuit(Operation):
         )
         self.add(uany)
 
-    def clements(
-        self,
-        unitary: Any,
-        wires: int | list[int] | None = None,
-        minmax: list[int] | None = None,
-        mu: float | None = None,
-        sigma: float | None = None,
-    ) -> None:
+    def clements(self, unitary: Any, wires: int | list[int] | None = None, minmax: list[int] | None = None) -> None:
         """Add the Clements architecture of the unitary matrix.
 
         This is equivalent to ``any``, using `'cssr'`-type Clements decomposition.
@@ -2561,10 +2409,6 @@ class QumodeCircuit(Operation):
             wires = list(range(minmax[0], minmax[1] + 1))
         else:
             wires = self._convert_indices(wires)
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         # clements decomposition
         ud = UnitaryDecomposer(unitary, 'cssr')
         mzi_info = ud.decomp()
@@ -2579,24 +2423,16 @@ class QumodeCircuit(Operation):
                 idx = i // 2
                 for j in range(len(wires1)):
                     phi, theta = dic_mzi[(wires1[j] - 1 - shift, wires1[j] - shift)][idx]
-                    self.mzi(wires=[wires1[j] - 1, wires1[j]], inputs=[theta, phi], mu=mu, sigma=sigma)
+                    self.mzi(wires=[wires1[j] - 1, wires1[j]], inputs=[theta, phi])
             else:
                 idx = (i - 1) // 2
                 for j in range(len(wires2)):
                     phi, theta = dic_mzi[(wires2[j] - 1 - shift, wires2[j] - shift)][idx]
-                    self.mzi(wires=[wires2[j] - 1, wires2[j]], inputs=[theta, phi], mu=mu, sigma=sigma)
+                    self.mzi(wires=[wires2[j] - 1, wires2[j]], inputs=[theta, phi])
         for wire in wires:
-            self.ps(wires=wire, inputs=phase_angle[wire - shift], mu=mu, sigma=sigma)
+            self.ps(wires=wire, inputs=phase_angle[wire - shift])
 
-    def s(
-        self,
-        wires: int,
-        r: Any = None,
-        theta: Any = None,
-        encode: bool = False,
-        mu: float | None = None,
-        sigma: float | None = None,
-    ) -> None:
+    def s(self, wires: int, r: Any = None, theta: Any = None, encode: bool = False) -> None:
         """Add a squeezing gate."""
         requires_grad = not encode
         if r is None and theta is None:
@@ -2609,10 +2445,6 @@ class QumodeCircuit(Operation):
                 inputs = [r, 0]
             else:
                 inputs = [r, theta]
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         s = Squeezing(
             inputs=inputs,
             nmode=self.nmode,
@@ -2620,21 +2452,10 @@ class QumodeCircuit(Operation):
             cutoff=self.cutoff,
             den_mat=self.den_mat,
             requires_grad=requires_grad,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.add(s, encode=encode)
 
-    def s2(
-        self,
-        wires: list[int],
-        r: Any = None,
-        theta: Any = None,
-        encode: bool = False,
-        mu: float | None = None,
-        sigma: float | None = None,
-    ) -> None:
+    def s2(self, wires: list[int], r: Any = None, theta: Any = None, encode: bool = False) -> None:
         """Add a two-mode squeezing gate."""
         requires_grad = not encode
         if r is None and theta is None:
@@ -2647,10 +2468,6 @@ class QumodeCircuit(Operation):
                 inputs = [r, 0]
             else:
                 inputs = [r, theta]
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         s2 = Squeezing2(
             inputs=inputs,
             nmode=self.nmode,
@@ -2658,21 +2475,10 @@ class QumodeCircuit(Operation):
             cutoff=self.cutoff,
             den_mat=self.den_mat,
             requires_grad=requires_grad,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.add(s2, encode=encode)
 
-    def d(
-        self,
-        wires: int,
-        r: Any = None,
-        theta: Any = None,
-        encode: bool = False,
-        mu: float | None = None,
-        sigma: float | None = None,
-    ) -> None:
+    def d(self, wires: int, r: Any = None, theta: Any = None, encode: bool = False) -> None:
         """Add a displacement gate."""
         requires_grad = not encode
         if r is None and theta is None:
@@ -2685,10 +2491,6 @@ class QumodeCircuit(Operation):
                 inputs = [r, 0]
             else:
                 inputs = [r, theta]
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         d = Displacement(
             inputs=inputs,
             nmode=self.nmode,
@@ -2696,23 +2498,14 @@ class QumodeCircuit(Operation):
             cutoff=self.cutoff,
             den_mat=self.den_mat,
             requires_grad=requires_grad,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.add(d, encode=encode)
 
-    def x(
-        self, wires: int, inputs: Any = None, encode: bool = False, mu: float | None = None, sigma: float | None = None
-    ) -> None:
+    def x(self, wires: int, inputs: Any = None, encode: bool = False) -> None:
         """Add a position displacement gate."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         dx = DisplacementPosition(
             inputs=inputs,
             nmode=self.nmode,
@@ -2720,23 +2513,14 @@ class QumodeCircuit(Operation):
             cutoff=self.cutoff,
             den_mat=self.den_mat,
             requires_grad=requires_grad,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.add(dx, encode=encode)
 
-    def z(
-        self, wires: int, inputs: Any = None, encode: bool = False, mu: float | None = None, sigma: float | None = None
-    ) -> None:
+    def z(self, wires: int, inputs: Any = None, encode: bool = False) -> None:
         """Add a momentum displacement gate."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         dp = DisplacementMomentum(
             inputs=inputs,
             nmode=self.nmode,
@@ -2744,29 +2528,14 @@ class QumodeCircuit(Operation):
             cutoff=self.cutoff,
             den_mat=self.den_mat,
             requires_grad=requires_grad,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.add(dp, encode=encode)
 
-    def r(
-        self,
-        wires: int,
-        inputs: Any = None,
-        encode: bool = False,
-        inv_mode: bool = False,
-        mu: float | None = None,
-        sigma: float | None = None,
-    ) -> None:
+    def r(self, wires: int, inputs: Any = None, encode: bool = False, inv_mode: bool = False) -> None:
         """Add a rotation gate."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         r = PhaseShift(
             inputs=inputs,
             nmode=self.nmode,
@@ -2774,44 +2543,23 @@ class QumodeCircuit(Operation):
             cutoff=self.cutoff,
             den_mat=self.den_mat,
             requires_grad=requires_grad,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
             inv_mode=inv_mode,
         )
         self.add(r, encode=encode)
 
-    def f(self, wires: int, mu: float | None = None, sigma: float | None = None) -> None:
+    def f(self, wires: int) -> None:
         """Add a Fourier gate."""
         theta = torch.pi / 2
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         f = PhaseShift(
-            inputs=theta,
-            nmode=self.nmode,
-            wires=wires,
-            cutoff=self.cutoff,
-            den_mat=self.den_mat,
-            requires_grad=False,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
+            inputs=theta, nmode=self.nmode, wires=wires, cutoff=self.cutoff, den_mat=self.den_mat, requires_grad=False
         )
         self.add(f)
 
-    def qp(
-        self, wires: int, inputs: Any = None, encode: bool = False, mu: float | None = None, sigma: float | None = None
-    ) -> None:
+    def qp(self, wires: int, inputs: Any = None, encode: bool = False) -> None:
         """Add a quadratic phase gate."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         qp = QuadraticPhase(
             inputs=inputs,
             nmode=self.nmode,
@@ -2819,28 +2567,14 @@ class QumodeCircuit(Operation):
             cutoff=self.cutoff,
             den_mat=self.den_mat,
             requires_grad=requires_grad,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.add(qp, encode=encode)
 
-    def cx(
-        self,
-        wires: list[int],
-        inputs: Any = None,
-        encode: bool = False,
-        mu: float | None = None,
-        sigma: float | None = None,
-    ) -> None:
+    def cx(self, wires: list[int], inputs: Any = None, encode: bool = False) -> None:
         """Add a controlled-X gate."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         cx = ControlledX(
             inputs=inputs,
             nmode=self.nmode,
@@ -2848,28 +2582,14 @@ class QumodeCircuit(Operation):
             cutoff=self.cutoff,
             den_mat=self.den_mat,
             requires_grad=requires_grad,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.add(cx, encode=encode)
 
-    def cz(
-        self,
-        wires: list[int],
-        inputs: Any = None,
-        encode: bool = False,
-        mu: float | None = None,
-        sigma: float | None = None,
-    ) -> None:
+    def cz(self, wires: list[int], inputs: Any = None, encode: bool = False) -> None:
         """Add a controlled-Z gate."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         cz = ControlledZ(
             inputs=inputs,
             nmode=self.nmode,
@@ -2877,23 +2597,14 @@ class QumodeCircuit(Operation):
             cutoff=self.cutoff,
             den_mat=self.den_mat,
             requires_grad=requires_grad,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.add(cz, encode=encode)
 
-    def cp(
-        self, wires: int, inputs: Any = None, encode: bool = False, mu: float | None = None, sigma: float | None = None
-    ) -> None:
+    def cp(self, wires: int, inputs: Any = None, encode: bool = False) -> None:
         """Add a cubic phase gate."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         cp = CubicPhase(
             inputs=inputs,
             nmode=self.nmode,
@@ -2901,23 +2612,14 @@ class QumodeCircuit(Operation):
             cutoff=self.cutoff,
             den_mat=self.den_mat,
             requires_grad=requires_grad,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.add(cp, encode=encode)
 
-    def k(
-        self, wires: int, inputs: Any = None, encode: bool = False, mu: float | None = None, sigma: float | None = None
-    ) -> None:
+    def k(self, wires: int, inputs: Any = None, encode: bool = False) -> None:
         """Add a Kerr gate."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         k = Kerr(
             inputs=inputs,
             nmode=self.nmode,
@@ -2925,28 +2627,14 @@ class QumodeCircuit(Operation):
             cutoff=self.cutoff,
             den_mat=self.den_mat,
             requires_grad=requires_grad,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.add(k, encode=encode)
 
-    def ck(
-        self,
-        wires: list[int],
-        inputs: Any = None,
-        encode: bool = False,
-        mu: float | None = None,
-        sigma: float | None = None,
-    ) -> None:
+    def ck(self, wires: list[int], inputs: Any = None, encode: bool = False) -> None:
         """Add a cross-Kerr gate."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         ck = CrossKerr(
             inputs=inputs,
             nmode=self.nmode,
@@ -2954,9 +2642,6 @@ class QumodeCircuit(Operation):
             cutoff=self.cutoff,
             den_mat=self.den_mat,
             requires_grad=requires_grad,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.add(ck, encode=encode)
 
@@ -2968,17 +2653,11 @@ class QumodeCircuit(Operation):
         convention: str = 'bs',
         encode: bool = False,
         loop_gates: list | None = None,
-        mu: float | None = None,
-        sigma: float | None = None,
     ) -> None:
         """Add a delay loop."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         if convention == 'bs':
             delay = DelayBS(
                 inputs=inputs,
@@ -2989,9 +2668,6 @@ class QumodeCircuit(Operation):
                 den_mat=self.den_mat,
                 requires_grad=requires_grad,
                 loop_gates=loop_gates,
-                noise=self.noise,
-                mu=mu,
-                sigma=sigma,
             )
         elif convention == 'mzi':
             delay = DelayMZI(
@@ -3003,20 +2679,11 @@ class QumodeCircuit(Operation):
                 den_mat=self.den_mat,
                 requires_grad=requires_grad,
                 loop_gates=loop_gates,
-                noise=self.noise,
-                mu=mu,
-                sigma=sigma,
             )
         self.add(delay, encode=encode)
 
-    def homodyne(
-        self, wires: int, phi: Any = None, eps: float = 2e-4, mu: float | None = None, sigma: float | None = None
-    ) -> None:
+    def homodyne(self, wires: int, phi: Any = None, eps: float = 2e-4) -> None:
         """Add a homodyne measurement."""
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         homodyne = Homodyne(
             phi=phi,
             nmode=self.nmode,
@@ -3025,19 +2692,12 @@ class QumodeCircuit(Operation):
             den_mat=self.den_mat,
             eps=eps,
             requires_grad=False,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.add(homodyne)
 
-    def homodyne_x(self, wires: int, eps: float = 2e-4, mu: float | None = None, sigma: float | None = None) -> None:
+    def homodyne_x(self, wires: int, eps: float = 2e-4) -> None:
         """Add a homodyne measurement for quadrature x."""
         phi = 0.0
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         homodyne = Homodyne(
             phi=phi,
             nmode=self.nmode,
@@ -3046,19 +2706,12 @@ class QumodeCircuit(Operation):
             den_mat=self.den_mat,
             eps=eps,
             requires_grad=False,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.add(homodyne)
 
-    def homodyne_p(self, wires: int, eps: float = 2e-4, mu: float | None = None, sigma: float | None = None) -> None:
+    def homodyne_p(self, wires: int, eps: float = 2e-4) -> None:
         """Add a homodyne measurement for quadrature p."""
         phi = np.pi / 2
-        if mu is None:
-            mu = self.mu
-        if sigma is None:
-            sigma = self.sigma
         homodyne = Homodyne(
             phi=phi,
             nmode=self.nmode,
@@ -3067,9 +2720,6 @@ class QumodeCircuit(Operation):
             den_mat=self.den_mat,
             eps=eps,
             requires_grad=False,
-            noise=self.noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.add(homodyne)
 
@@ -3174,9 +2824,6 @@ class DistributedQumodeCircuit(QumodeCircuit):
             name=name,
             mps=False,
             chi=None,
-            noise=False,
-            mu=0,
-            sigma=0.1,
         )
 
     def set_init_state(self, init_state: Any = None) -> None:

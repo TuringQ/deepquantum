@@ -22,21 +22,10 @@ class QumodeCircuitTDM(QumodeCircuit):
         cutoff: The Fock space truncation. Default: ``None``
         backend: Use ``'gaussian'`` for Gaussian backend or ``'bosonic'`` for Bosonic backend. Default: ``'gaussian'``
         name: The name of the circuit. Default: ``None``
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
-        self,
-        nmode: int,
-        init_state: Any,
-        cutoff: int | None = None,
-        backend: str = 'gaussian',
-        name: str | None = None,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
+        self, nmode: int, init_state: Any, cutoff: int | None = None, backend: str = 'gaussian', name: str | None = None
     ) -> None:
         assert backend in ('gaussian', 'bosonic')
         super().__init__(
@@ -49,9 +38,6 @@ class QumodeCircuitTDM(QumodeCircuit):
             name=name,
             mps=False,
             chi=None,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.samples = None
 

@@ -18,26 +18,9 @@ class Clements(QumodeCircuit):
     """Clements circuit."""
 
     def __init__(
-        self,
-        nmode: int,
-        init_state: Any,
-        cutoff: int | None = None,
-        basis: bool = True,
-        phi_first: bool = True,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
+        self, nmode: int, init_state: Any, cutoff: int | None = None, basis: bool = True, phi_first: bool = True
     ) -> None:
-        super().__init__(
-            nmode=nmode,
-            init_state=init_state,
-            cutoff=cutoff,
-            basis=basis,
-            name='Clements',
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
-        )
+        super().__init__(nmode=nmode, init_state=init_state, cutoff=cutoff, basis=basis, name='Clements')
         self.phi_first = phi_first
         wires1 = self.wires[1::2]
         wires2 = self.wires[2::2]
@@ -115,9 +98,6 @@ class GaussianBosonSampling(QumodeCircuit):
         backend: str = 'gaussian',
         basis: bool = True,
         detector: str = 'pnrd',
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
         if not isinstance(squeezing, torch.Tensor):
             squeezing = torch.tensor(squeezing).reshape(-1)
@@ -129,16 +109,7 @@ class GaussianBosonSampling(QumodeCircuit):
         if cutoff is None:
             cutoff = 3
         super().__init__(
-            nmode=nmode,
-            init_state='vac',
-            cutoff=cutoff,
-            backend=backend,
-            basis=basis,
-            detector=detector,
-            name='GBS',
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
+            nmode=nmode, init_state='vac', cutoff=cutoff, backend=backend, basis=basis, detector=detector, name='GBS'
         )
         for i in range(self.nmode):
             self.s(i, squeezing[i])
@@ -149,14 +120,7 @@ class GraphGBS(GaussianBosonSampling):
     """Simulate Gaussian Boson Sampling for graph problems."""
 
     def __init__(
-        self,
-        adj_mat: Any,
-        cutoff: int | None = None,
-        mean_photon_num: int | None = None,
-        detector: str = 'pnrd',
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
+        self, adj_mat: Any, cutoff: int | None = None, mean_photon_num: int | None = None, detector: str = 'pnrd'
     ) -> None:
         if not isinstance(adj_mat, torch.Tensor):
             adj_mat = torch.tensor(adj_mat)
@@ -178,9 +142,6 @@ class GraphGBS(GaussianBosonSampling):
             backend='gaussian',
             basis=False,
             detector=detector,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.name = 'GraphGBS'
         self.to(adj_mat.dtype)

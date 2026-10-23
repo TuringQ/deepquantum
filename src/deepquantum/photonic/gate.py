@@ -27,9 +27,6 @@ class SingleGate(Gate):
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -41,13 +38,8 @@ class SingleGate(Gate):
         cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
-        super().__init__(
-            name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat, noise=noise, mu=mu, sigma=sigma
-        )
+        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat)
         assert len(self.wires) == 1, f'{self.name} must act on one mode'
         self.requires_grad = requires_grad
         self.init_para(inputs)
@@ -65,9 +57,6 @@ class DoubleGate(Gate):
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -79,15 +68,10 @@ class DoubleGate(Gate):
         cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
         if wires is None:
             wires = [0, 1]
-        super().__init__(
-            name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat, noise=noise, mu=mu, sigma=sigma
-        )
+        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat)
         assert len(self.wires) == 2, f'{self.name} must act on two modes'
         self.requires_grad = requires_grad
         self.init_para(inputs)
@@ -129,9 +113,6 @@ class PhaseShift(SingleGate):
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
         inv_mode: Whether the rotation in the phase space is clockwise. Default: ``False``
     """
 
@@ -143,9 +124,6 @@ class PhaseShift(SingleGate):
         cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
         inv_mode: bool = False,
     ) -> None:
         self.inv_mode = inv_mode
@@ -157,9 +135,6 @@ class PhaseShift(SingleGate):
             cutoff=cutoff,
             den_mat=den_mat,
             requires_grad=requires_grad,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.npara = 1
 
@@ -171,8 +146,6 @@ class PhaseShift(SingleGate):
             inputs = torch.rand(1)[0] * 2 * torch.pi
         elif not isinstance(inputs, (torch.Tensor, nn.Parameter)):
             inputs = torch.tensor(inputs, dtype=torch.float)
-        if self.noise:
-            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return inputs
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
@@ -213,10 +186,7 @@ class PhaseShift(SingleGate):
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        noise = self.noise
-        self.noise = False
         theta = self.inputs_to_tensor(inputs)
-        self.noise = noise
         if self.requires_grad:
             self.theta = nn.Parameter(theta)
         else:
@@ -275,9 +245,6 @@ class BeamSplitter(DoubleGate):
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -288,9 +255,6 @@ class BeamSplitter(DoubleGate):
         cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
         super().__init__(
             name='BeamSplitter',
@@ -300,9 +264,6 @@ class BeamSplitter(DoubleGate):
             cutoff=cutoff,
             den_mat=den_mat,
             requires_grad=requires_grad,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.npara = 2
 
@@ -318,14 +279,6 @@ class BeamSplitter(DoubleGate):
             theta = torch.tensor(theta, dtype=torch.float)
         if not isinstance(phi, (torch.Tensor, nn.Parameter)):
             phi = torch.tensor(phi, dtype=torch.float)
-        if self.noise:
-            theta, phi = self._add_noise(theta, phi)
-        return theta, phi
-
-    def _add_noise(self, theta: torch.Tensor, phi: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """Add Gaussian noise to the parameters."""
-        theta = theta + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
-        phi = phi + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return theta, phi
 
     def get_matrix(self, theta: Any, phi: Any) -> torch.Tensor:
@@ -394,10 +347,7 @@ class BeamSplitter(DoubleGate):
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        noise = self.noise
-        self.noise = False
         theta, phi = self.inputs_to_tensor(inputs)
-        self.noise = noise
         if self.requires_grad:
             self.theta = nn.Parameter(theta)
             self.phi = nn.Parameter(phi)
@@ -470,9 +420,6 @@ class MZI(BeamSplitter):
         phi_first: Whether :math:`\phi` is the first phase shifter. Default: ``True``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -484,21 +431,10 @@ class MZI(BeamSplitter):
         den_mat: bool = False,
         phi_first: bool = True,
         requires_grad: bool = False,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
         self.phi_first = phi_first
         super().__init__(
-            inputs=inputs,
-            nmode=nmode,
-            wires=wires,
-            cutoff=cutoff,
-            den_mat=den_mat,
-            requires_grad=requires_grad,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
+            inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat, requires_grad=requires_grad
         )
         self.name = 'MZI'
 
@@ -560,9 +496,6 @@ class BeamSplitterTheta(BeamSplitter):
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -573,37 +506,18 @@ class BeamSplitterTheta(BeamSplitter):
         cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
         super().__init__(
-            inputs=inputs,
-            nmode=nmode,
-            wires=wires,
-            cutoff=cutoff,
-            den_mat=den_mat,
-            requires_grad=requires_grad,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
+            inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat, requires_grad=requires_grad
         )
         self.npara = 1
-
-    def _add_noise(self, theta: torch.Tensor, phi: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """Add Gaussian noise to the parameters."""
-        theta = theta + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
-        return theta, phi
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
         if inputs is None:
             inputs = torch.rand(1)[0] * 2 * torch.pi
-        noise = self.noise
-        self.noise = False
         theta, phi = self.inputs_to_tensor([inputs, torch.pi / 2])
         phi = phi.to(theta.device, theta.dtype)
-        self.noise = noise
         if self.requires_grad:
             self.theta = nn.Parameter(theta)
         else:
@@ -657,9 +571,6 @@ class BeamSplitterPhi(BeamSplitter):
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -670,37 +581,18 @@ class BeamSplitterPhi(BeamSplitter):
         cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
         super().__init__(
-            inputs=inputs,
-            nmode=nmode,
-            wires=wires,
-            cutoff=cutoff,
-            den_mat=den_mat,
-            requires_grad=requires_grad,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
+            inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat, requires_grad=requires_grad
         )
         self.npara = 1
-
-    def _add_noise(self, theta: torch.Tensor, phi: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """Add Gaussian noise to the parameters."""
-        phi = phi + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
-        return theta, phi
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
         if inputs is None:
             inputs = torch.rand(1)[0] * 2 * torch.pi
-        noise = self.noise
-        self.noise = False
         theta, phi = self.inputs_to_tensor([torch.pi / 4, inputs])
         theta = theta.to(phi.device, phi.dtype)
-        self.noise = noise
         if self.requires_grad:
             self.phi = nn.Parameter(phi)
         else:
@@ -778,9 +670,6 @@ class BeamSplitterSingle(BeamSplitter):
             Default: ``'rx'``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -792,21 +681,10 @@ class BeamSplitterSingle(BeamSplitter):
         den_mat: bool = False,
         convention: str = 'rx',
         requires_grad: bool = False,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
         self.convention = convention
         super().__init__(
-            inputs=inputs,
-            nmode=nmode,
-            wires=wires,
-            cutoff=cutoff,
-            den_mat=den_mat,
-            requires_grad=requires_grad,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
+            inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat, requires_grad=requires_grad
         )
         self.npara = 1
 
@@ -818,8 +696,6 @@ class BeamSplitterSingle(BeamSplitter):
             inputs = torch.rand(1)[0] * 4 * torch.pi
         elif not isinstance(inputs, (torch.Tensor, nn.Parameter)):
             inputs = torch.tensor(inputs, dtype=torch.float)
-        if self.noise:
-            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return inputs
 
     def get_matrix(self, theta: Any) -> torch.Tensor:
@@ -862,10 +738,7 @@ class BeamSplitterSingle(BeamSplitter):
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        noise = self.noise
-        self.noise = False
         theta = self.inputs_to_tensor(inputs)
-        self.noise = noise
         if self.requires_grad:
             self.theta = nn.Parameter(theta)
         else:
@@ -907,7 +780,7 @@ class UAnyGate(Gate):
                 minmax = [0, nmode - 1]
             self._check_minmax(minmax)
             wires = list(range(minmax[0], minmax[1] + 1))
-        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat, noise=False)
+        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat)
         self.minmax = [min(self.wires), max(self.wires)]
         if not isinstance(unitary, torch.Tensor):
             unitary = torch.tensor(unitary, dtype=torch.cfloat).reshape(-1, len(self.wires))
@@ -1024,9 +897,6 @@ class Squeezing(SingleGate):
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -1037,9 +907,6 @@ class Squeezing(SingleGate):
         cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
         super().__init__(
             name='Squeezing',
@@ -1049,9 +916,6 @@ class Squeezing(SingleGate):
             cutoff=cutoff,
             den_mat=den_mat,
             requires_grad=requires_grad,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.npara = 2
 
@@ -1067,9 +931,6 @@ class Squeezing(SingleGate):
             r = torch.tensor(r, dtype=torch.float)
         if not isinstance(theta, (torch.Tensor, nn.Parameter)):
             theta = torch.tensor(theta, dtype=torch.float)
-        if self.noise:
-            r = r + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
-            theta = theta + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return r, theta
 
     def get_matrix(self, r: Any, theta: Any) -> torch.Tensor:
@@ -1137,10 +998,7 @@ class Squeezing(SingleGate):
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        noise = self.noise
-        self.noise = False
         r, theta = self.inputs_to_tensor(inputs)
-        self.noise = noise
         if self.requires_grad:
             self.r = nn.Parameter(r)
             self.theta = nn.Parameter(theta)
@@ -1190,9 +1048,6 @@ class Squeezing2(DoubleGate):
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -1203,9 +1058,6 @@ class Squeezing2(DoubleGate):
         cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
         super().__init__(
             name='Squeezing2',
@@ -1215,9 +1067,6 @@ class Squeezing2(DoubleGate):
             cutoff=cutoff,
             den_mat=den_mat,
             requires_grad=requires_grad,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.npara = 2
 
@@ -1233,9 +1082,6 @@ class Squeezing2(DoubleGate):
             r = torch.tensor(r, dtype=torch.float)
         if not isinstance(theta, (torch.Tensor, nn.Parameter)):
             theta = torch.tensor(theta, dtype=torch.float)
-        if self.noise:
-            r = r + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
-            theta = theta + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return r, theta
 
     def get_matrix(self, r: Any, theta: Any) -> torch.Tensor:
@@ -1316,10 +1162,7 @@ class Squeezing2(DoubleGate):
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        noise = self.noise
-        self.noise = False
         r, theta = self.inputs_to_tensor(inputs)
-        self.noise = noise
         if self.requires_grad:
             self.r = nn.Parameter(r)
             self.theta = nn.Parameter(theta)
@@ -1363,9 +1206,6 @@ class Displacement(SingleGate):
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -1376,9 +1216,6 @@ class Displacement(SingleGate):
         cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
         super().__init__(
             name='Displacement',
@@ -1388,9 +1225,6 @@ class Displacement(SingleGate):
             cutoff=cutoff,
             den_mat=den_mat,
             requires_grad=requires_grad,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.npara = 2
 
@@ -1406,14 +1240,6 @@ class Displacement(SingleGate):
             r = torch.tensor(r, dtype=torch.float)
         if not isinstance(theta, (torch.Tensor, nn.Parameter)):
             theta = torch.tensor(theta, dtype=torch.float)
-        if self.noise:
-            r, theta = self._add_noise(r, theta)
-        return r, theta
-
-    def _add_noise(self, r: torch.Tensor, theta: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """Add Gaussian noise to the parameters."""
-        r = r + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
-        theta = theta + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return r, theta
 
     def get_matrix(self, r: Any, theta: Any) -> torch.Tensor:
@@ -1472,10 +1298,7 @@ class Displacement(SingleGate):
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        noise = self.noise
-        self.noise = False
         r, theta = self.inputs_to_tensor(inputs)
-        self.noise = noise
         if self.requires_grad:
             self.r = nn.Parameter(r)
             self.theta = nn.Parameter(theta)
@@ -1518,9 +1341,6 @@ class DisplacementPosition(Displacement):
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -1531,39 +1351,20 @@ class DisplacementPosition(Displacement):
         cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
         super().__init__(
-            inputs=inputs,
-            nmode=nmode,
-            wires=wires,
-            cutoff=cutoff,
-            den_mat=den_mat,
-            requires_grad=requires_grad,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
+            inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat, requires_grad=requires_grad
         )
         self.name = 'DisplacementPosition'
         self.npara = 1
-
-    def _add_noise(self, r: torch.Tensor, theta: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """Add Gaussian noise to the parameters."""
-        r = r + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
-        return r, theta
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
         if inputs is None:
             inputs = torch.rand(1)[0] * 2 - 1
         inputs = inputs * dqp.kappa / dqp.hbar**0.5
-        noise = self.noise
-        self.noise = False
         r, theta = self.inputs_to_tensor([inputs, 0])
         theta = theta.to(r.device, r.dtype)
-        self.noise = noise
         if self.requires_grad:
             self.r = nn.Parameter(r)
         else:
@@ -1602,9 +1403,6 @@ class DisplacementMomentum(Displacement):
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -1615,39 +1413,20 @@ class DisplacementMomentum(Displacement):
         cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
         super().__init__(
-            inputs=inputs,
-            nmode=nmode,
-            wires=wires,
-            cutoff=cutoff,
-            den_mat=den_mat,
-            requires_grad=requires_grad,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
+            inputs=inputs, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat, requires_grad=requires_grad
         )
         self.name = 'DisplacementMomentum'
         self.npara = 1
-
-    def _add_noise(self, r: torch.Tensor, theta: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """Add Gaussian noise to the parameters."""
-        r = r + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
-        return r, theta
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
         if inputs is None:
             inputs = torch.rand(1)[0] * 2 - 1
         inputs = inputs * dqp.kappa / dqp.hbar**0.5
-        noise = self.noise
-        self.noise = False
         r, theta = self.inputs_to_tensor([inputs, torch.pi / 2])
         theta = theta.to(r.device, r.dtype)
-        self.noise = noise
         if self.requires_grad:
             self.r = nn.Parameter(r)
         else:
@@ -1720,9 +1499,6 @@ class QuadraticPhase(SingleGate):
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -1733,9 +1509,6 @@ class QuadraticPhase(SingleGate):
         cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
         super().__init__(
             name='QuadraticPhase',
@@ -1745,9 +1518,6 @@ class QuadraticPhase(SingleGate):
             cutoff=cutoff,
             den_mat=den_mat,
             requires_grad=requires_grad,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.npara = 1
 
@@ -1759,8 +1529,6 @@ class QuadraticPhase(SingleGate):
             inputs = torch.rand(1)[0]
         if not isinstance(inputs, torch.Tensor):
             inputs = torch.tensor(inputs, dtype=torch.float)
-        if self.noise:
-            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return inputs
 
     def get_matrix(self, s: Any) -> torch.Tensor:
@@ -1782,7 +1550,6 @@ class QuadraticPhase(SingleGate):
         r = torch.arccosh((1 + s**2 / 4) ** 0.5)
         theta = torch.arctan(s / 2)
         phi = -torch.sign(s) * torch.pi / 2 - theta
-        # noise already in s
         mat_s = Squeezing([r, phi], cutoff=self.cutoff).update_matrix_state()
         mat_ps = PhaseShift(theta, cutoff=self.cutoff).update_matrix_state()
         return mat_ps @ mat_s
@@ -1809,10 +1576,7 @@ class QuadraticPhase(SingleGate):
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        noise = self.noise
-        self.noise = False
         s = self.inputs_to_tensor(inputs)
-        self.noise = noise
         if self.requires_grad:
             self.s = nn.Parameter(s)
         else:
@@ -1899,9 +1663,6 @@ class ControlledX(DoubleGate):
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -1912,9 +1673,6 @@ class ControlledX(DoubleGate):
         cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
         super().__init__(
             name='ControlledX',
@@ -1924,9 +1682,6 @@ class ControlledX(DoubleGate):
             cutoff=cutoff,
             den_mat=den_mat,
             requires_grad=requires_grad,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.npara = 1
 
@@ -1938,8 +1693,6 @@ class ControlledX(DoubleGate):
             inputs = torch.rand(1)[0]
         if not isinstance(inputs, torch.Tensor):
             inputs = torch.tensor(inputs, dtype=torch.float)
-        if self.noise:
-            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return inputs
 
     def get_matrix(self, s: Any) -> torch.Tensor:
@@ -1964,7 +1717,6 @@ class ControlledX(DoubleGate):
         zero = s.new_zeros(1)
         r = torch.arcsinh(-s / 2)
         theta = torch.atan2(-1 / torch.cosh(r), -torch.tanh(r)) / 2
-        # noise already in s
         mat_bs1 = BeamSplitter([theta, zero], cutoff=self.cutoff).update_matrix_state()
         mat_s1 = Squeezing([r, zero], cutoff=self.cutoff).update_matrix_state()
         mat_s2 = Squeezing([-r, zero], cutoff=self.cutoff).update_matrix_state()
@@ -1996,10 +1748,7 @@ class ControlledX(DoubleGate):
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        noise = self.noise
-        self.noise = False
         s = self.inputs_to_tensor(inputs)
-        self.noise = noise
         if self.requires_grad:
             self.s = nn.Parameter(s)
         else:
@@ -2082,9 +1831,6 @@ class ControlledZ(DoubleGate):
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -2095,9 +1841,6 @@ class ControlledZ(DoubleGate):
         cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
         super().__init__(
             name='ControlledZ',
@@ -2107,9 +1850,6 @@ class ControlledZ(DoubleGate):
             cutoff=cutoff,
             den_mat=den_mat,
             requires_grad=requires_grad,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.npara = 1
 
@@ -2121,8 +1861,6 @@ class ControlledZ(DoubleGate):
             inputs = torch.rand(1)[0]
         if not isinstance(inputs, torch.Tensor):
             inputs = torch.tensor(inputs, dtype=torch.float)
-        if self.noise:
-            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return inputs
 
     def get_matrix(self, s: Any) -> torch.Tensor:
@@ -2145,7 +1883,6 @@ class ControlledZ(DoubleGate):
         """Get the local transformation matrix acting on Fock state tensors."""
         s = self.inputs_to_tensor(s)
         theta = torch.tensor(torch.pi / 2, dtype=s.dtype, device=s.device)
-        # noise already in s
         mat_ps1 = PhaseShift(-theta, cutoff=self.cutoff).update_matrix_state()
         mat_cx = ControlledX(s, cutoff=self.cutoff).update_matrix_state()
         mat_ps2 = PhaseShift(theta, cutoff=self.cutoff).update_matrix_state()
@@ -2175,10 +1912,7 @@ class ControlledZ(DoubleGate):
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        noise = self.noise
-        self.noise = False
         s = self.inputs_to_tensor(inputs)
-        self.noise = noise
         if self.requires_grad:
             self.s = nn.Parameter(s)
         else:
@@ -2218,9 +1952,6 @@ class CubicPhase(SingleGate):
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -2231,9 +1962,6 @@ class CubicPhase(SingleGate):
         cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
         super().__init__(
             name='CubicPhase',
@@ -2243,9 +1971,6 @@ class CubicPhase(SingleGate):
             cutoff=cutoff,
             den_mat=den_mat,
             requires_grad=requires_grad,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.npara = 1
 
@@ -2257,8 +1982,6 @@ class CubicPhase(SingleGate):
             inputs = torch.rand(1)[0]
         if not isinstance(inputs, torch.Tensor):
             inputs = torch.tensor(inputs, dtype=torch.float)
-        if self.noise:
-            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return inputs
 
     def get_matrix_state(self, gamma: Any) -> torch.Tensor:
@@ -2275,10 +1998,7 @@ class CubicPhase(SingleGate):
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        noise = self.noise
-        self.noise = False
         gamma = self.inputs_to_tensor(inputs)
-        self.noise = noise
         if self.requires_grad:
             self.gamma = nn.Parameter(gamma)
         else:
@@ -2314,9 +2034,6 @@ class Kerr(SingleGate):
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -2327,9 +2044,6 @@ class Kerr(SingleGate):
         cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
         super().__init__(
             name='Kerr',
@@ -2339,9 +2053,6 @@ class Kerr(SingleGate):
             cutoff=cutoff,
             den_mat=den_mat,
             requires_grad=requires_grad,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.npara = 1
 
@@ -2353,8 +2064,6 @@ class Kerr(SingleGate):
             inputs = torch.rand(1)[0]
         if not isinstance(inputs, torch.Tensor):
             inputs = torch.tensor(inputs, dtype=torch.float)
-        if self.noise:
-            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return inputs
 
     def get_matrix_state(self, kappa: Any) -> torch.Tensor:
@@ -2370,10 +2079,7 @@ class Kerr(SingleGate):
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        noise = self.noise
-        self.noise = False
         kappa = self.inputs_to_tensor(inputs)
-        self.noise = noise
         if self.requires_grad:
             self.kappa = nn.Parameter(kappa)
         else:
@@ -2413,9 +2119,6 @@ class CrossKerr(DoubleGate):
         den_mat: Whether to use density matrix representation. Default: ``False``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -2426,9 +2129,6 @@ class CrossKerr(DoubleGate):
         cutoff: int | None = None,
         den_mat: bool = False,
         requires_grad: bool = False,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
         super().__init__(
             name='CrossKerr',
@@ -2438,9 +2138,6 @@ class CrossKerr(DoubleGate):
             cutoff=cutoff,
             den_mat=den_mat,
             requires_grad=requires_grad,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.npara = 1
 
@@ -2452,8 +2149,6 @@ class CrossKerr(DoubleGate):
             inputs = torch.rand(1)[0]
         if not isinstance(inputs, torch.Tensor):
             inputs = torch.tensor(inputs, dtype=torch.float)
-        if self.noise:
-            inputs = inputs + torch.normal(self.mu, self.sigma, size=(1,)).squeeze()
         return inputs
 
     def get_matrix_state(self, kappa: Any) -> torch.Tensor:
@@ -2470,10 +2165,7 @@ class CrossKerr(DoubleGate):
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        noise = self.noise
-        self.noise = False
         kappa = self.inputs_to_tensor(inputs)
-        self.noise = noise
         if self.requires_grad:
             self.kappa = nn.Parameter(kappa)
         else:
@@ -2496,9 +2188,6 @@ class DelayBS(Delay):
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
         loop_gates: The list of gates added to the delay loop. Default: ``None``
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -2511,44 +2200,13 @@ class DelayBS(Delay):
         den_mat: bool = False,
         requires_grad: bool = False,
         loop_gates: list | None = None,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
-        super().__init__(
-            name='DelayBS',
-            ntau=ntau,
-            nmode=nmode,
-            wires=wires,
-            cutoff=cutoff,
-            den_mat=den_mat,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
-        )
+        super().__init__(name='DelayBS', ntau=ntau, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat)
         self.requires_grad = requires_grad
         bs = BeamSplitterTheta(
-            inputs=None,
-            nmode=2,
-            wires=None,
-            cutoff=cutoff,
-            den_mat=den_mat,
-            requires_grad=requires_grad,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
+            inputs=None, nmode=2, wires=None, cutoff=cutoff, den_mat=den_mat, requires_grad=requires_grad
         )
-        ps = PhaseShift(
-            inputs=None,
-            nmode=1,
-            wires=None,
-            cutoff=cutoff,
-            den_mat=den_mat,
-            requires_grad=requires_grad,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
-        )
+        ps = PhaseShift(inputs=None, nmode=1, wires=None, cutoff=cutoff, den_mat=den_mat, requires_grad=requires_grad)
         self.gates.append(bs)
         self.gates.append(ps)
         self.npara = 2
@@ -2583,9 +2241,6 @@ class DelayMZI(Delay):
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
         loop_gates: The list of gates added to the delay loop. Default: ``None``
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -2598,21 +2253,8 @@ class DelayMZI(Delay):
         den_mat: bool = False,
         requires_grad: bool = False,
         loop_gates: list | None = None,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
-        super().__init__(
-            name='DelayMZI',
-            ntau=ntau,
-            nmode=nmode,
-            wires=wires,
-            cutoff=cutoff,
-            den_mat=den_mat,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
-        )
+        super().__init__(name='DelayMZI', ntau=ntau, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat)
         self.requires_grad = requires_grad
         mzi = MZI(
             inputs=inputs,
@@ -2622,9 +2264,6 @@ class DelayMZI(Delay):
             den_mat=den_mat,
             phi_first=False,
             requires_grad=requires_grad,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
         )
         self.gates.append(mzi)
         self.npara = 2
