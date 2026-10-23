@@ -960,6 +960,7 @@ class QumodeCircuit(Operation):
 
         Note:
             The initial state of the global circuit is always the vacuum state.
+            Hardware plugins are copied once with ``use_deepcopy`` and remain shared across time steps.
         """
         if self.hardware_model is not None:
             self._validate_hardware_model(self.hardware_model)
@@ -980,7 +981,7 @@ class QumodeCircuit(Operation):
             mu=self.mu,
             sigma=self.sigma,
         )
-        gate_indices = [[] for _ in self.operators]
+        gate_indices = defaultdict(list)
         wire_map = []
         for i in range(nstep):
             spatial_wires = [
@@ -990,7 +991,6 @@ class QumodeCircuit(Operation):
             wire_map.append(spatial_wires)
             ndelay = np.array([0] * self.nmode)  # counter of delay loops for each mode
             for index, op in enumerate(self.operators):
-                start = len(cir.operators)
                 encode = op in self.encoders
                 is_deep = use_deepcopy or encode
                 if isinstance(op, Delay):
@@ -999,28 +999,19 @@ class QumodeCircuit(Operation):
                     idx_delay = -ndelay[wire] - 1
                     wire1 = self._unroll_dict[wire][idx_delay][i % op.ntau]
                     wire2 = spatial_wires[wire]
-                    op_tdm = deepcopy(op.gates[0]) if is_deep else copy(op.gates[0])
-                    op_tdm.nmode = nmode
-                    op_tdm.wires = [wire1, wire2]
-                    cir.add(op_tdm, encode=encode)
-                    if len(op.gates) > 1:
-                        for gate in op.gates[1:]:
-                            op_gate = deepcopy(gate) if is_deep else copy(gate)
-                            op_gate.nmode = nmode
-                            op_gate.wires = [wire1]
-                            if isinstance(gate, PhotonLoss):
-                                cir._lossy = True
-                                cir._nloss += 1
-                            cir.add(op_gate, encode=encode)
+                    gates = [((index, 0), op.gates[0], [wire1, wire2])]
+                    gates.extend(((index, j), gate, [wire1]) for j, gate in enumerate(op.gates[1:], start=1))
                 else:
-                    op_tdm = deepcopy(op) if is_deep else copy(op)
+                    gates = [((index,), op, [spatial_wires[wire] for wire in op.wires])]
+                for path, gate, gate_wires in gates:
+                    op_tdm = deepcopy(gate) if is_deep else copy(gate)
                     op_tdm.nmode = nmode
-                    op_tdm.wires = [spatial_wires[wire] for wire in op.wires]
-                    if isinstance(op, PhotonLoss):
+                    op_tdm.wires = gate_wires
+                    if isinstance(gate, PhotonLoss):
                         cir._lossy = True
                         cir._nloss += 1
                     cir.add(op_tdm, encode=encode)
-                gate_indices[index].extend(range(start, len(cir.operators)))
+                    gate_indices[path].append(len(cir.operators) - 1)
             for op_m in self.measurements:
                 op_m_tdm = copy(op_m)
                 op_m_tdm.nmode = nmode
@@ -1028,7 +1019,7 @@ class QumodeCircuit(Operation):
                 cir.add(op_m_tdm)
             cir.barrier()
         if self.hardware_model is not None:
-            cir.set_hardware_model(self.hardware_model._unroll(self.operators, gate_indices, wire_map))
+            cir.set_hardware_model(self.hardware_model._unroll(self.operators, gate_indices, wire_map, use_deepcopy))
         return cir
 
     def _shift_state(self, state: list[torch.Tensor], nstep: int = 1, reverse: bool = False) -> list[torch.Tensor]:

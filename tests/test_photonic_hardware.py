@@ -142,7 +142,7 @@ def test_measurements_use_the_noisy_state_once():
 
 
 @pytest.mark.parametrize('use_deepcopy', [False, True])
-def test_global_circuit_maps_bindings_and_shares_parameters(use_deepcopy):
+def test_global_circuit_maps_bindings_and_copies_parameters(use_deepcopy):
     def template(manual=False):
         cir = dqp.QumodeCircuit(2, 'vac', backend='gaussian')
         if manual:
@@ -168,15 +168,21 @@ def test_global_circuit_maps_bindings_and_shares_parameters(use_deepcopy):
     actual = cir.global_circuit(3, use_deepcopy=use_deepcopy).to(torch.double)
     expected = template(manual=True).global_circuit(3).to(torch.double)
     parameters = dict(actual.named_parameters())
-    assert parameters['hardware_model.bindings.phase.plugin.mu'] is mu
-    assert parameters['hardware_model.bindings.source.plugin.t'] is t
+    mapped_mu = parameters['hardware_model.bindings.phase.plugin.mu']
+    mapped_t = parameters['hardware_model.bindings.source.plugin.t']
+    assert (mapped_mu is mu) == (not use_deepcopy)
+    assert (mapped_t is t) == (not use_deepcopy)
+    assert (actual.operators[0].r is cir.operators[0].r) == (not use_deepcopy)
+    assert (actual.operators[0].r is actual.operators[6].r) == (not use_deepcopy)
     n = 2 * actual.nmode
     state = [2 * torch.eye(n), torch.linspace(0.1, 0.3, n).reshape(n, 1)]
     result = actual(state=state)
     assert_state_close(result, expected(state=state))
     (result[0][0, 0, 1] + result[1].sum()).backward()
-    assert mu.grad is not None and torch.isfinite(mu.grad)
-    assert t.grad is not None and torch.isfinite(t.grad)
+    assert mapped_mu.grad is not None and torch.isfinite(mapped_mu.grad)
+    assert mapped_t.grad is not None and torch.isfinite(mapped_t.grad)
+    if use_deepcopy:
+        assert mu.grad is None and t.grad is None
     with pytest.raises(NotImplementedError, match='global_circuit'):
         cir()
 
@@ -196,6 +202,79 @@ def test_global_circuit_samples_each_occurrence():
     assert_state_close(actual(), ref.to(torch.double)())
 
 
+@pytest.mark.parametrize('convention', ['bs', 'mzi'])
+def test_delay_bindings_match_internal_gates(convention):
+    def template(manual=False):
+        selected = int(convention == 'mzi')  # DelayBS already contains a phase shifter.
+        loop_gates = [
+            dqp.PhaseShift(torch.tensor(value + (0.03 if manual and i == selected else 0)))
+            for i, value in enumerate([0.12, -0.2])
+        ]
+        if manual:
+            loop_gates.insert(selected + 1, dqp.PhotonLoss(torch.tensor(0.98), convention='t'))
+        phase = 0.02 if manual else 0
+        cir = dqp.QumodeCircuit(2, 'vac', backend='gaussian')
+        cir.s(0, r=0.4)
+        cir.d(1, r=0.15)
+        cir.delay(0, ntau=1, inputs=torch.tensor([0.35, 0.06 + phase]))
+        cir.delay(
+            0,
+            ntau=2,
+            inputs=torch.tensor([0.41 if manual else 0.4, 0.07 + phase]),
+            convention=convention,
+            loop_gates=loop_gates,
+        )
+        cir.delay(1, ntau=1, inputs=torch.tensor([0.3, 0.08 + phase]), convention='mzi')
+        cir.ps(0, torch.tensor(0.24 if manual else 0.2))
+        return cir.to(torch.double)
+
+    cir = template()
+    model = dqp.HardwareModel()
+    model.delay(0, index=1).theta.gaussian(mu=0.01, sigma=0)
+    model.delay().phi.gaussian(mu=0.02, sigma=0)
+    model.delay(0, index=1).ps(index=1).theta.gaussian(mu=0.03, sigma=0, name='inner')
+    assert model.delay(0, index=1).ps(index=1).after.loss(t=0.98) is model
+    model.ps(0).theta.gaussian(mu=0.04, sigma=0)
+    cir.set_hardware_model(model)
+    expected = template(manual=True)
+    # Inserting a non-delay gate must not change which delay the selector addresses.
+    for target, phase in [(cir, 0.1), (expected, 0.14)]:
+        target.operators.insert(3, dqp.PhaseShift(torch.tensor(phase), nmode=2, wires=0))
+    assert model.bindings.inner.resolve(cir.operators) == [(4, 2)]
+    unrolled = cir.global_circuit(3)
+    assert len(unrolled.hardware_model.bindings.inner.op_indices) == 3
+    assert_state_close(unrolled(), expected.global_circuit(3)())
+
+
+@pytest.mark.parametrize('use_deepcopy', [False, True])
+def test_encoded_delay_noise_shares_plugins_not_samples(use_deepcopy):
+    cir = dqp.QumodeCircuit(1, 'vac', backend='gaussian')
+    cir.s(0, r=0.4)
+    cir.delay(0, ntau=1, convention='mzi', encode=True)
+    cir.to(torch.double)
+    ref = cir.global_circuit(3)
+    mu, sigma = [torch.nn.Parameter(torch.tensor(value)) for value in [0.01, 0.02]]
+    plugin = dqp.GaussianNoise(mu=mu, sigma=sigma)
+    model = dqp.HardwareModel(seed=7)
+    model.delay(0).theta.use(plugin, name='theta')
+    model.delay(0).phi.use(plugin, name='phi')
+    cir.set_hardware_model(model)
+    unrolled = cir.global_circuit(3, use_deepcopy=use_deepcopy)
+    mapped = unrolled.hardware_model.bindings.theta.plugin
+    assert mapped is unrolled.hardware_model.bindings.phi.plugin
+    assert (mapped is plugin) == (not use_deepcopy)
+    data = torch.linspace(0.1, 0.6, 12).reshape(2, 6).requires_grad_()
+    actual = unrolled(data)
+    generator = torch.Generator().manual_seed(7)
+    epsilon = torch.stack([torch.randn((), generator=generator) for _ in range(6)])
+    expected = ref(data + mapped.mu + mapped.sigma * epsilon)
+    assert_state_close(actual, expected)
+    inputs = (data, mapped.mu, mapped.sigma)
+    actual_grad = torch.autograd.grad(sum(value.square().sum() for value in actual), inputs)
+    expected_grad = torch.autograd.grad(sum(value.square().sum() for value in expected), inputs)
+    assert_state_close(actual_grad, expected_grad)
+
+
 def test_invalid_parameters_bindings_and_backend():
     with pytest.raises(ValueError):
         dqp.HardwareModel().output().loss(t=1.1)
@@ -206,3 +285,10 @@ def test_invalid_parameters_bindings_and_backend():
     for backend in ['fock', 'bosonic']:
         with pytest.raises(NotImplementedError, match='Gaussian backend'):
             dqp.QumodeCircuit(1, 'vac', backend=backend).set_hardware_model(dqp.HardwareModel())
+    with pytest.raises(ValueError, match='index'):
+        dqp.HardwareModel().delay(0, index=-1)
+    cir = dqp.QumodeCircuit(1, 'vac', backend='gaussian')
+    cir.delay(0, inputs=[0.3, 0.1])
+    for config in [dqp.HardwareModel().delay(0, index=1).theta, dqp.HardwareModel().delay(0).ps(index=1).theta]:
+        with pytest.raises(ValueError, match='matches no operations'):
+            cir.set_hardware_model(config.gaussian())

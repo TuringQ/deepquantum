@@ -1,6 +1,7 @@
 """Hardware plugins for photonic circuits."""
 
 from collections.abc import Sequence
+from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -10,8 +11,8 @@ from torch.func import functional_call
 
 import deepquantum.photonic as dqp
 
-from .gate import BeamSplitter, Displacement, MZI, PhaseShift, Squeezing, Squeezing2
-from .operation import Gate, Operation
+from .gate import BeamSplitter, BeamSplitterTheta, Displacement, MZI, PhaseShift, Squeezing, Squeezing2
+from .operation import Delay, Gate, Operation
 
 
 def _register_scalar(module: nn.Module, name: str, value: float | torch.Tensor) -> None:
@@ -107,15 +108,19 @@ class _Binding(nn.Module):
     def __init__(
         self,
         plugin: nn.Module,
-        op_type: type[Gate] | None,
+        op_type: type[Gate] | tuple[type[Gate], ...] | None,
         wires: int | list[int] | None,
         where: str | None = None,
-        parameter: str | None = None,
+        parameter: str | dict[type[Gate], str] | None = None,
         op_indices: frozenset[int] | None = None,
+        delay: tuple[int | None, int | None] | None = None,
+        index: int | None = None,
     ) -> None:
         super().__init__()
         if not isinstance(plugin, nn.Module):
             raise TypeError('A hardware plugin must be an nn.Module.')
+        if index is not None and (type(index) is not int or index < 0):
+            raise ValueError('index must be a nonnegative integer or None.')
         if isinstance(wires, int):
             wires = [wires]
         if wires is not None:
@@ -123,17 +128,38 @@ class _Binding(nn.Module):
                 raise ValueError('wires must contain distinct nonnegative integers.')
             wires = tuple(wires)
         self.plugin = plugin
-        self.op_type, self.wires = op_type, wires
+        self.op_types = () if op_type is None else op_type if isinstance(op_type, tuple) else (op_type,)
+        self.wires = wires
         self.where, self.parameter = where, parameter
         self.op_indices = op_indices
+        self.delay = delay  # (spatial wire, delay occurrence)
+        self.index = index  # gate occurrence within each selected delay
 
     def matches(self, op: Operation, index: int) -> bool:
-        """Match the exact gate type, unordered wires, and optional unrolled operator indices."""
+        """Match exact gate types, unordered wires, and optional unrolled operator indices."""
         return (
             (self.op_indices is None or index in self.op_indices)
-            and type(op) is self.op_type
+            and type(op) in self.op_types
             and (self.wires is None or set(self.wires) == set(op.wires))
         )
+
+    def resolve(self, operators: nn.Sequential) -> list[tuple[int, ...]]:
+        """Find template paths (operator,) or (delay, inner gate)."""
+        if self.delay is None:
+            return [(i,) for i, op in enumerate(operators) if self.matches(op, i)]
+        wire, index = self.delay
+        delays = [
+            (i, op) for i, op in enumerate(operators) if isinstance(op, Delay) and (wire is None or wire in op.wires)
+        ]
+        if index is not None:
+            delays = delays[index : index + 1]
+        paths = []
+        for i, op in delays:
+            gates = [j for j, gate in enumerate(op.gates) if self.matches(gate, j)]
+            if self.index is not None:
+                gates = gates[self.index : self.index + 1]
+            paths.extend((i, j) for j in gates)
+        return paths
 
     def forward(self, value: Any, run: _HardwareRun, op: Operation | None = None) -> Any:
         wires = (self.wires or run.wires) if op is None else tuple(op.wires)
@@ -143,13 +169,18 @@ class _Binding(nn.Module):
 @dataclass
 class _ParameterConfig:
     model: 'HardwareModel'
-    op_type: type[Gate]
+    op_type: type[Gate] | tuple[type[Gate], ...]
     wires: int | list[int] | None
-    parameter: str
+    parameter: str | dict[type[Gate], str]
+    delay: tuple[int | None, int | None] | None = None
+    index: int | None = None
 
     def use(self, plugin: nn.Module, *, name: str | None = None) -> 'HardwareModel':
         """Bind a plugin implementing forward(parameter, run)."""
-        return self.model._register(_Binding(plugin, self.op_type, self.wires, parameter=self.parameter), name)
+        return self.model._register(
+            _Binding(plugin, self.op_type, self.wires, parameter=self.parameter, delay=self.delay, index=self.index),
+            name,
+        )
 
     def gaussian(
         self, mu: float | torch.Tensor = 0, sigma: float | torch.Tensor = 0.1, *, name: str | None = None
@@ -164,10 +195,14 @@ class _StateConfig:
     where: str
     op_type: type[Gate] | None
     wires: int | list[int] | None
+    delay: tuple[int | None, int | None] | None = None
+    index: int | None = None
 
     def use(self, plugin: nn.Module, *, name: str | None = None) -> 'HardwareModel':
         """Bind a plugin implementing forward(state, run)."""
-        return self.model._register(_Binding(plugin, self.op_type, self.wires, where=self.where), name)
+        return self.model._register(
+            _Binding(plugin, self.op_type, self.wires, where=self.where, delay=self.delay, index=self.index), name
+        )
 
     def loss(
         self, t: float | torch.Tensor | None = None, *, db: float | torch.Tensor | None = None, name: str | None = None
@@ -181,35 +216,83 @@ class _GateConfig:
     model: 'HardwareModel'
     op_type: type[Gate]
     wires: int | list[int] | None
+    delay: tuple[int | None, int | None] | None = None
+    index: int | None = None
 
     @property
     def before(self) -> _StateConfig:
         """Before each selected gate."""
-        return _StateConfig(self.model, 'before', self.op_type, self.wires)
+        return _StateConfig(self.model, 'before', self.op_type, self.wires, self.delay, self.index)
 
     @property
     def after(self) -> _StateConfig:
         """After each selected gate."""
-        return _StateConfig(self.model, 'after', self.op_type, self.wires)
+        return _StateConfig(self.model, 'after', self.op_type, self.wires, self.delay, self.index)
 
     @property
     def theta(self) -> _ParameterConfig:
         """Select theta."""
-        return _ParameterConfig(self.model, self.op_type, self.wires, 'theta')
+        return _ParameterConfig(self.model, self.op_type, self.wires, 'theta', self.delay, self.index)
 
 
 class _BeamSplitterConfig(_GateConfig):
     @property
     def phi(self) -> _ParameterConfig:
         """Select phi."""
-        return _ParameterConfig(self.model, self.op_type, self.wires, 'phi')
+        return _ParameterConfig(self.model, self.op_type, self.wires, 'phi', self.delay, self.index)
 
 
 class _AmplitudePhaseConfig(_GateConfig):
     @property
     def r(self) -> _ParameterConfig:
         """Select squeezing or displacement magnitude."""
-        return _ParameterConfig(self.model, self.op_type, self.wires, 'r')
+        return _ParameterConfig(self.model, self.op_type, self.wires, 'r', self.delay, self.index)
+
+
+@dataclass
+class _DelayConfig:
+    """Configure internal gates; gate indices count occurrences of the selected type."""
+
+    model: 'HardwareModel'
+    wires: int | None
+    index: int | None
+
+    def __post_init__(self) -> None:
+        for name, value in [('wires', self.wires), ('index', self.index)]:
+            if value is not None and (type(value) is not int or value < 0):
+                raise ValueError(f'{name} must be a nonnegative integer or None.')
+
+    @property
+    def theta(self) -> _ParameterConfig:
+        """Select the delay coupler's theta."""
+        return _ParameterConfig(self.model, (BeamSplitterTheta, MZI), None, 'theta', (self.wires, self.index), 0)
+
+    @property
+    def phi(self) -> _ParameterConfig:
+        """Select the internal phase: PS.theta for DelayBS, MZI.phi for DelayMZI."""
+        return _ParameterConfig(
+            self.model, (PhaseShift, MZI), None, {PhaseShift: 'theta', MZI: 'phi'}, (self.wires, self.index), 0
+        )
+
+    def ps(self, index: int | None = None) -> _GateConfig:
+        """Select internal phase shifters, including the built-in one."""
+        return _GateConfig(self.model, PhaseShift, None, (self.wires, self.index), index)
+
+    def bs_theta(self, index: int | None = None) -> _GateConfig:
+        """Select internal theta-only beam splitters."""
+        return _GateConfig(self.model, BeamSplitterTheta, None, (self.wires, self.index), index)
+
+    def mzi(self, index: int | None = None) -> _BeamSplitterConfig:
+        """Select internal MZIs."""
+        return _BeamSplitterConfig(self.model, MZI, None, (self.wires, self.index), index)
+
+    def s(self, index: int | None = None) -> _AmplitudePhaseConfig:
+        """Select internal single-mode squeezers."""
+        return _AmplitudePhaseConfig(self.model, Squeezing, None, (self.wires, self.index), index)
+
+    def d(self, index: int | None = None) -> _AmplitudePhaseConfig:
+        """Select internal displacements."""
+        return _AmplitudePhaseConfig(self.model, Displacement, None, (self.wires, self.index), index)
 
 
 class HardwareModel(nn.Module):
@@ -249,6 +332,10 @@ class HardwareModel(nn.Module):
         """Select displacements."""
         return _AmplitudePhaseConfig(self, Displacement, wires)
 
+    def delay(self, wires: int | None = None, index: int | None = None) -> _DelayConfig:
+        """Select delay loops; index is zero-based among delays on the selected wire."""
+        return _DelayConfig(self, wires, index)
+
     def input(self, wires: int | list[int] | None = None) -> _StateConfig:
         """Select input modes; None selects all."""
         return _StateConfig(self, 'input', None, wires)
@@ -265,30 +352,35 @@ class HardwareModel(nn.Module):
         return self
 
     def _validate(self, operators: nn.Sequential, nmode: int) -> None:
-        for binding in self.bindings.values():
+        for name, binding in self.bindings.items():
             if binding.wires is not None and max(binding.wires) >= nmode:
                 raise ValueError('Hardware binding wire index is outside the circuit.')
-            if binding.op_type is not None and not any(binding.matches(op, i) for i, op in enumerate(operators)):
-                raise ValueError(f'{binding.op_type.__name__}: binding matches no operations in this circuit.')
+            if binding.delay is not None and binding.delay[0] is not None and binding.delay[0] >= nmode:
+                raise ValueError('Hardware binding wire index is outside the circuit.')
+            if binding.op_types and not binding.resolve(operators):
+                raise ValueError(f'{name}: binding matches no operations in this circuit.')
 
     def _unroll(
-        self, operators: nn.Sequential, gate_indices: list[list[int]], wire_map: list[list[int]]
+        self,
+        operators: nn.Sequential,
+        gate_indices: dict[tuple[int, ...], list[int]],
+        wire_map: list[list[int]],
+        use_deepcopy: bool = False,
     ) -> 'HardwareModel':
-        """Map bindings to an unrolled circuit while sharing plugin parameters."""
+        """Remap bindings, optionally copying plugins once while sharing them across time steps."""
         model = HardwareModel()
         if self._generator is not None:
             model._generator = torch.Generator().set_state(self._generator.get_state())
-        for name, binding in self.bindings.items():
-            if binding.op_type is None:
+        bindings = deepcopy(self.bindings) if use_deepcopy else self.bindings
+        for name, binding in bindings.items():
+            if not binding.op_types:
                 wires = range(len(wire_map[0])) if binding.wires is None else binding.wires
                 wires = [step[wire] for step in wire_map for wire in wires]
                 mapped = _Binding(binding.plugin, None, wires, where=binding.where)
             else:
-                indices = frozenset(
-                    target for i, op in enumerate(operators) if binding.matches(op, i) for target in gate_indices[i]
-                )
+                indices = frozenset(target for path in binding.resolve(operators) for target in gate_indices[path])
                 mapped = _Binding(
-                    binding.plugin, binding.op_type, None, binding.where, binding.parameter, op_indices=indices
+                    binding.plugin, binding.op_types, None, binding.where, binding.parameter, op_indices=indices
                 )
             model._register(mapped, name)
         return model
@@ -307,9 +399,12 @@ class HardwareModel(nn.Module):
                     state = binding(state, run, op)
             parameters = {}
             for binding in matches:
-                if binding.parameter is not None:
-                    value = parameters.get(binding.parameter, getattr(op, binding.parameter))
-                    parameters[binding.parameter] = binding(value, run, op)
+                parameter = binding.parameter
+                if isinstance(parameter, dict):
+                    parameter = parameter[type(op)]
+                if parameter is not None:
+                    value = parameters.get(parameter, getattr(op, parameter))
+                    parameters[parameter] = binding(value, run, op)
             state = functional_call(op, parameters, (state,)) if parameters else op(state)
             for binding in matches:
                 if binding.where == 'after':
