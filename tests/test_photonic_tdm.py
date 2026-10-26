@@ -118,7 +118,7 @@ def test_tdm_entries_prepare_once(hardware):
     circuit.to(torch.double)
     with (
         patch.object(circuit, '_prepare_unroll_dict', wraps=circuit._prepare_unroll_dict) as prepare,
-        patch.object(circuit, '_unroll_circuit', wraps=circuit._unroll_circuit) as unroll,
+        patch.object(circuit, '_unroll_operators', wraps=circuit._unroll_operators) as unroll,
     ):
         if hardware:
             circuit.set_hardware_model(dqp.HardwareModel().gaussian(sigma=0.01))

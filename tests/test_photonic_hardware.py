@@ -77,8 +77,9 @@ def test_parameter_noise_override_order_and_sampling():
     model.bs().theta.use(DoubleParameter())
     model.on(gate).gaussian(mu=mu, sigma=sigma)
     model.bs().phi.gaussian(mu=-0.04, sigma=0)
-    model.bs().after.loss(t=0.9)
-    model.bs().after.loss(t=0.8)
+    model.bs().before.loss(t=0.9)
+    model.bs().after.loss(t=0.7)
+    model.on(gate).after.loss(t=0.8)
     state = [torch.diag(torch.tensor([2.0, 1.0, 0.5, 1.0])), torch.arange(4.0).reshape(4, 1) / 10]
 
     actual = model(state, gate, 'gaussian')
@@ -97,13 +98,61 @@ def test_parameter_noise_override_order_and_sampling():
     torch.testing.assert_close(gate.theta, torch.tensor(0.3))
 
 
+def test_repeated_rules_replace_parameters_and_keep_order():
+    old, new = [torch.nn.Parameter(torch.tensor(value)) for value in [0.01, 0.02]]
+    model = dqp.HardwareModel()
+    model.bs([0, 1]).theta.gaussian(mu=old, name='theta')
+    model.bs([0, 1]).phi.gaussian(name='phi')
+    model.bs([1, 0]).theta.gaussian(mu=new, name='theta')
+    assert list(model.bindings) == ['phi', 'theta']
+    assert set(model.parameters()) == {new}
+    model.output(0).loss(t=old, name='loss')
+    model.output(0).loss(t=new)
+    assert list(model.bindings) == ['phi', 'theta', 'loss']
+    assert set(model.parameters()) == {new}
+    with pytest.raises(ValueError, match='Duplicate binding name'):
+        model.ps(0).theta.gaussian(name='theta')
+    assert model.bindings.theta.plugin.mu is new
+    model.input(0).loss(t=1, name='binding_4')
+    model.input(1).loss(t=1)
+    assert len(model.bindings) == 5
+
+
+@pytest.mark.parametrize('where', ['input', 'output'])
+def test_io_loss_overrides_per_mode(where):
+    cir = circuit()
+    ref = deepcopy(cir)
+    model = dqp.HardwareModel()
+    getattr(model, where)([0, 1]).loss(t=0.9)
+    getattr(model, where)(0).loss(t=0.8)
+    cir.set_hardware_model(model)
+    for wire, t in [(0, 0.8), (1, 0.9)]:
+        loss = dqp.PhotonLoss(torch.tensor(t), nmode=2, wires=wire, convention='t')
+        if where == 'input':
+            ref.operators.insert(0, loss)
+        else:
+            ref.add(loss)
+    state = [2 * torch.eye(4), torch.arange(4.0).reshape(4, 1) / 10]
+    assert_state_close(cir(state=state), ref(state=state))
+
+
 def test_noise_overrides_in_streaming_unrolling_and_measurement():
     def template(manual=False):
         cir = dqp.QumodeCircuit(2, 'vac', backend='gaussian')
         cir.s(0, r=0.3)
         cir.ps(0, torch.tensor(0.14 if manual else 0.1))
         cir.ps(1, torch.tensor(0.22 if manual else 0.2))
-        cir.delay(0, ntau=2, inputs=torch.tensor([0.36, 0.16] if manual else [0.35, 0.12]), convention='mzi')
+        cir.delay(
+            0,
+            ntau=2,
+            inputs=torch.tensor([0.36, 0.16] if manual else [0.35, 0.12]),
+            convention='mzi',
+            loop_gates=[dqp.PhotonLoss(torch.tensor(0.8), convention='t')] if manual else None,
+        )
+        if manual:
+            cir.loss_t(0, torch.tensor(0.8))
+            cir.loss_t(0, torch.tensor(0.85))
+            cir.loss_t(1, torch.tensor(0.9))
         cir.homodyne(0, phi=torch.tensor(0.25 if manual else 0.2), eps=0.1)
         return cir.to(torch.double)
 
@@ -112,6 +161,10 @@ def test_noise_overrides_in_streaming_unrolling_and_measurement():
     model.ps(0).theta.gaussian(mu=0.04, sigma=0)
     model.delay().mzi().gaussian(mu=0.01, sigma=0)
     model.delay(0).phi.gaussian(mu=0.04, sigma=0)
+    model.delay().mzi().after.loss(t=0.9)
+    model.delay(0).mzi().after.loss(t=0.8)
+    model.output().loss(t=0.9)
+    model.output(0).loss(t=0.85)
     model.homodyne().phi.gaussian(mu=0.01, sigma=0)
     model.on(cir.measurements[0]).gaussian(mu=0.05, sigma=0)
     cir.set_hardware_model(model)

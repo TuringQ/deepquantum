@@ -173,7 +173,7 @@ class _PluginBinding(nn.Module):
         if wires is not None:
             if not wires or any(type(w) is not int or w < 0 for w in wires) or len(set(wires)) != len(wires):
                 raise ValueError('wires must contain distinct nonnegative integers.')
-            wires = tuple(wires)
+            wires = tuple(wires) if op_type is None else tuple(sorted(wires))
         self.plugin = plugin
         self.op_types = () if op_type is None else op_type if isinstance(op_type, tuple) else (op_type,)
         self.wires = wires
@@ -189,6 +189,20 @@ class _PluginBinding(nn.Module):
             (self.bound_ops is None or op in self.bound_ops)
             and type(op) in self.op_types
             and (self.wires is None or set(self.wires) == set(op.wires))
+        )
+
+    def same_rule(self, other: '_PluginBinding') -> bool:
+        """Compare selection, application point and plugin type."""
+        return (
+            type(self.plugin) is type(other.plugin)
+            and set(self.op_types) == set(other.op_types)
+            and self.wires == other.wires
+            and self.where == other.where
+            and self.parameter == other.parameter
+            and self.bound_ops == other.bound_ops
+            and self.delay == other.delay
+            and self.index == other.index
+            and self.required == other.required
         )
 
     def resolve(self, operators: Sequence[Operation]) -> list[tuple[int, ...]]:
@@ -221,16 +235,12 @@ class _PluginBinding(nn.Module):
         self,
         value: Any,
         run: _HardwareRun,
-        op: Operation | None = None,
+        op: Operation,
         parameter: str | None = None,
         source: Operation | None = None,
     ) -> Any:
-        if op is None:
-            wires = tuple(run.wires[w] for w in self.wires) if self.wires is not None else run.wires
-        else:
-            wires = tuple(op.wires)
         cache_key = (self, op if source is None else source, parameter)
-        return self.plugin(value, replace(run, wires=wires, cache_key=cache_key))
+        return self.plugin(value, replace(run, wires=tuple(op.wires), cache_key=cache_key))
 
 
 @dataclass
@@ -404,7 +414,8 @@ class HardwareModel(nn.Module):
 
     Template selectors are re-evaluated against the current circuit. Unrolled bindings
     follow specific gate objects through insertion/reordering. Removing a bound gate is an error.
-    Later parameter plugins replace earlier ones of the same type on the same operation and parameter.
+    Later plugins of the same type replace earlier ones on the same operation parameter or before/after hook.
+    Input/output plugins of the same type override earlier ones per mode.
     """
 
     def __init__(self, *, seed: int | None = None) -> None:
@@ -481,9 +492,18 @@ class HardwareModel(nn.Module):
         return _StateConfig(self, 'output', None, wires)
 
     def _register(self, binding: _PluginBinding, name: str | None) -> 'HardwareModel':
-        name = f'binding_{len(self.bindings)}' if name is None else name
-        if name in self.bindings:
+        previous_name = next((key for key, current in self.bindings.items() if current.same_rule(binding)), None)
+        if name is None:
+            name = previous_name
+            if name is None:
+                index = len(self.bindings)
+                while f'binding_{index}' in self.bindings:
+                    index += 1
+                name = f'binding_{index}'
+        if name in self.bindings and name != previous_name:
             raise ValueError(f'Duplicate binding name: {name}.')
+        if previous_name is not None:
+            del self.bindings[previous_name]
         self.bindings[name] = binding
         return self
 
@@ -538,7 +558,7 @@ class HardwareModel(nn.Module):
         return model
 
     def _bind(self, operators: Sequence[Operation]) -> dict[Operation, list[tuple[_PluginBinding, str | None]]]:
-        """Resolve parameter overrides in the registration order of the surviving plugins."""
+        """Resolve overrides in the registration order of the surviving plugins."""
         matches = defaultdict(dict)
         for binding in self.bindings.values():
             for op_location in binding.resolve(operators):
@@ -548,26 +568,32 @@ class HardwareModel(nn.Module):
                 parameters = binding.parameter
                 if isinstance(parameters, dict):
                     parameters = parameters[type(gate)]
-                if isinstance(parameters, str):
+                if parameters is None or isinstance(parameters, str):
                     parameters = (parameters,)
-                if parameters is None:
-                    matches[gate][binding] = (binding, None)
-                else:
-                    for parameter in parameters:
-                        key = (parameter, type(binding.plugin))
-                        # Keep the replacement at its own position relative to other plugin types.
-                        matches[gate].pop(key, None)
-                        matches[gate][key] = (binding, parameter)
+                for parameter in parameters:
+                    key = (binding.where, parameter, type(binding.plugin))
+                    # Keep the replacement at its own position relative to other plugin types.
+                    matches[gate].pop(key, None)
+                    matches[gate][key] = (binding, parameter)
         return {gate: list(bindings.values()) for gate, bindings in matches.items()}
 
     def _new_run(self, backend: str, wires: Sequence[int]) -> _HardwareRun:
         return _HardwareRun(backend, self._generator, tuple(wires))
 
     def _apply_io_plugins(self, state: Any, run: _HardwareRun, where: str) -> Any:
-        """Apply input or output plugins to the current spatial ports."""
-        for binding in self.bindings.values():
+        """Apply the last plugin of each type to each input or output mode."""
+        covered = defaultdict(set)
+        selected = []
+        for binding in reversed(list(self.bindings.values())):
             if binding.where == where and not binding.op_types:
-                state = binding(state, run)
+                wires = run.wires if binding.wires is None else tuple(run.wires[w] for w in binding.wires)
+                covered_wires = covered[type(binding.plugin)]
+                active_wires = tuple(wire for wire in wires if wire not in covered_wires)
+                covered_wires.update(wires)
+                if active_wires:
+                    selected.append((binding, active_wires))
+        for binding, wires in reversed(selected):
+            state = binding.plugin(state, replace(run, wires=wires, cache_key=(binding, None, None)))
         return state
 
     def _apply_operation(

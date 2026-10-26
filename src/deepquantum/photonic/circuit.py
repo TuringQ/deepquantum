@@ -561,7 +561,7 @@ class QumodeCircuit(Operation):
         if self._lossy:
             stepwise = True
         self.encode(data)
-        operators = self._unroll_circuit()
+        operators = self._unroll_operators()
         cov, mean = (self.init_state.cov, self.init_state.mean) if state is None else state
         if self.backend == 'bosonic' and cov.ndim == 3:
             cov = cov.unsqueeze(0)
@@ -827,7 +827,7 @@ class QumodeCircuit(Operation):
             mean_tdm[..., idx, :] = mean
             return [cov_tdm, mean_tdm]
 
-    def _unroll_circuit(self) -> nn.Sequential:
+    def _unroll_operators(self) -> nn.Sequential:
         """Map current gates using the prepared mode map without caching the copies."""
         if not self._with_delay:
             return self.operators
@@ -955,7 +955,8 @@ class QumodeCircuit(Operation):
             for value in values:
                 if isinstance(value, list):
                     loop_wires.extend(value)
-        loop_wire_map = {wire: index for index, wire in enumerate(loop_wires)}
+        # Unrolled layout groups modes by spatial wire. Streaming layout puts all loops first.
+        loop_wire_map = {unrolled_wire: streaming_wire for streaming_wire, unrolled_wire in enumerate(loop_wires)}
         nloop = len(loop_wires)
         vac = self.init_state.cov.new_tensor(dqp.hbar / (4 * dqp.kappa**2))
         cov = torch.eye(2 * nloop, dtype=vac.dtype, device=vac.device) * vac
@@ -969,6 +970,7 @@ class QumodeCircuit(Operation):
         for step in range(nstep):
             if data is not None:
                 self.encode(data[step * self.ndata : (step + 1) * self.ndata])
+            # Streaming layout: loop slots, retained outputs, current-step spatial modes.
             old_nmode = nloop + nretained
             step_nmode = old_nmode + self.nmode
             old_idx = torch.cat(
@@ -1116,7 +1118,7 @@ class QumodeCircuit(Operation):
     def get_unitary(self) -> torch.Tensor:
         """Get the unitary matrix of the ideal photonic quantum circuit."""
         self._prepare_unroll_dict()
-        return self._get_unitary(self._unroll_circuit())
+        return self._get_unitary(self._unroll_operators())
 
     def _get_unitary(self, operators: nn.Sequential, model: HardwareModel | None = None) -> torch.Tensor:
         u = None
@@ -1163,7 +1165,7 @@ class QumodeCircuit(Operation):
     def get_symplectic(self) -> torch.Tensor:
         """Get the symplectic matrix of the ideal photonic quantum circuit."""
         self._prepare_unroll_dict()
-        return self._get_symplectic(self._unroll_circuit())
+        return self._get_symplectic(self._unroll_operators())
 
     def _get_symplectic(self, operators: nn.Sequential) -> torch.Tensor:
         s = None
@@ -1178,7 +1180,7 @@ class QumodeCircuit(Operation):
     def get_displacement(self, init_mean: Any) -> torch.Tensor:
         """Get the final mean value of the Gaussian state in ``xxpp`` order for the ideal circuit."""
         self._prepare_unroll_dict()
-        return self._get_displacement(init_mean, self._unroll_circuit())
+        return self._get_displacement(init_mean, self._unroll_operators())
 
     def _get_displacement(self, init_mean: Any, operators: nn.Sequential) -> torch.Tensor:
         if not isinstance(init_mean, torch.Tensor):
@@ -2219,7 +2221,7 @@ class QumodeCircuit(Operation):
         if unroll:
             self._prepare_unroll_dict()
             nmode = self._nmode_tdm
-            operators = self._unroll_circuit()
+            operators = self._unroll_operators()
             measurements = self._unroll_measurements()
         else:
             nmode = self.nmode
