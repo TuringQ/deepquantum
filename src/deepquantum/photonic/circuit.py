@@ -43,7 +43,7 @@ from .gate import (
     UAnyGate,
 )
 from .hafnian_ import hafnian
-from .hardware import HardwareModel
+from .hardware import HardwareModel, Loss
 from .kensingtonian_ import kensingtonian
 from .measurement import Generaldyne, Homodyne
 from .operation import Channel, Delay, Gate, Operation
@@ -147,12 +147,13 @@ class QumodeCircuit(Operation):
         self._nmode_tdm = self.nmode
         self._ntau_dict = defaultdict(list)  # {wire: [tau1, tau2, ...]}
         self._unroll_dict = None  # {wire_space: [wires_delay_n, ..., wires_delay_1, wire_space_concurrent]}
-        self._operators_tdm = None
-        self._measurements_tdm = None
+        self._tdm_structure = None
+        self._tdm_gate_map = []  # (operation location, source gate, spatial wires, optional loop slots)
+        self._tdm_measurement_map = []
         self.hardware_model = None
 
     def set_hardware_model(self, model: HardwareModel | None) -> None:
-        """Attach a hardware model before creating the optimizer; None removes it."""
+        """Attach a hardware model before creating the optimizer, or pass None to remove it."""
         if model is not None:
             self._validate_hardware_model(model)
         self.hardware_model = model
@@ -162,16 +163,22 @@ class QumodeCircuit(Operation):
     def _validate_hardware_model(self, model: HardwareModel) -> None:
         if not isinstance(model, HardwareModel):
             raise TypeError('model must be a HardwareModel or None.')
-        if self.backend != 'gaussian':
-            raise NotImplementedError('HardwareModel MVP supports the Gaussian backend only.')
-        for op in self.operators:
-            if isinstance(op, Delay):
-                continue
+        if self.backend != 'gaussian' and any(isinstance(m, Loss) for m in model.modules()):
+            raise NotImplementedError('HardwareModel Loss currently supports the Gaussian backend only.')
+        if self.backend == 'fock' and self.basis and any(b.where is not None for b in model.bindings.values()):
+            raise NotImplementedError('Fock basis simulation supports parameter plugins only.')
+        gates = [gate for op in self.operators for gate in (op.gates if isinstance(op, Delay) else [op])]
+        for op in gates:
             if not isinstance(op, (Gate, Channel)):
-                raise NotImplementedError('HardwareModel requires Gaussian gates and channels.')
-            if isinstance(op, Gate) and not isinstance(op, Barrier) and not hasattr(op, 'matrix_xp'):
+                raise NotImplementedError('HardwareModel requires gates and channels.')
+            if (
+                self.backend in ('gaussian', 'bosonic')
+                and isinstance(op, Gate)
+                and not isinstance(op, Barrier)
+                and not hasattr(op, 'matrix_xp')
+            ):
                 raise NotImplementedError(f'{op.name} has no Gaussian transformation.')
-        model._validate(self.operators, self.nmode)
+        model._validate(list(self.operators) + list(self.measurements), self.nmode)
 
     def set_init_state(self, init_state: Any) -> None:
         """Set the initial state of the circuit."""
@@ -292,12 +299,11 @@ class QumodeCircuit(Operation):
         Returns:
             The result of the photonic quantum circuit after applying the ``operators``.
         """
+        self._prepare_unroll_dict()
         if self.hardware_model is not None:
             self.state = None
             self.state_measured = None
             self._validate_hardware_model(self.hardware_model)
-            if self._with_delay or type(self).forward is not QumodeCircuit.forward:
-                raise NotImplementedError('Use global_circuit() to execute HardwareModel on an unrolled circuit.')
         if self.backend == 'fock':
             return self._forward_fock(data, state, is_prob, sort)
         elif self.backend in ('gaussian', 'bosonic'):
@@ -320,6 +326,9 @@ class QumodeCircuit(Operation):
             Unitary matrix, Fock state tensor, a dictionary of probabilities or amplitudes, or
             a list of tensors for MPS.
         """
+        randomness = 'same' if self.hardware_model is not None else 'error'
+        if self._with_delay:
+            raise NotImplementedError('Use global_circuit() for Fock simulation of delay loops.')
         if self.mps:
             assert not is_prob
         if state is None:
@@ -357,7 +366,9 @@ class QumodeCircuit(Operation):
                 if state.ndim == 1:
                     self.state = self._forward_helper_basis(data, state, is_prob)
                 elif state.ndim == 2:
-                    self.state = vmap(self._forward_helper_basis, in_dims=(None, 0, None))(data, state, is_prob)
+                    self.state = vmap(self._forward_helper_basis, in_dims=(None, 0, None), randomness=randomness)(
+                        data, state, is_prob
+                    )
             else:
                 self.state = self._forward_helper_tensor(data, state, is_prob)
                 if not self.mps and self.state.ndim == self.nmode:
@@ -367,24 +378,38 @@ class QumodeCircuit(Operation):
             if self.basis:
                 assert state.ndim in (1, 2)
                 if state.ndim == 1:
-                    self.state = vmap(self._forward_helper_basis, in_dims=(0, None, None))(data, state, is_prob)
+                    self.state = vmap(self._forward_helper_basis, in_dims=(0, None, None), randomness=randomness)(
+                        data, state, is_prob
+                    )
                 elif state.ndim == 2:
                     if data.shape[0] == 1:
-                        self.state = vmap(self._forward_helper_basis, in_dims=(None, 0, None))(data[0], state, is_prob)
+                        self.state = vmap(self._forward_helper_basis, in_dims=(None, 0, None), randomness=randomness)(
+                            data[0], state, is_prob
+                        )
                     else:
-                        self.state = vmap(self._forward_helper_basis, in_dims=(0, 0, None))(data, state, is_prob)
+                        self.state = vmap(self._forward_helper_basis, in_dims=(0, 0, None), randomness=randomness)(
+                            data, state, is_prob
+                        )
             else:
                 if self.mps:
                     assert state[0].ndim in (3, 4)
                     if state[0].ndim == 3:
-                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, None, None))(data, state, is_prob)
+                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, None, None), randomness=randomness)(
+                            data, state, is_prob
+                        )
                     elif state[0].ndim == 4:
-                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, 0, None))(data, state, is_prob)
+                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, 0, None), randomness=randomness)(
+                            data, state, is_prob
+                        )
                 else:
                     if state.shape[0] == 1:
-                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, None, None))(data, state, is_prob)
+                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, None, None), randomness=randomness)(
+                            data, state, is_prob
+                        )
                     else:
-                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, 0, None))(data, state, is_prob)
+                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, 0, None), randomness=randomness)(
+                            data, state, is_prob
+                        )
             # for plotting the last data
             self.encode(data[-1])
         if sort and self.basis and is_prob is not None:
@@ -396,7 +421,7 @@ class QumodeCircuit(Operation):
     ) -> torch.Tensor | dict:
         """Perform a forward pass for one sample if the input is a Fock basis state."""
         self.encode(data)
-        unitary = self.get_unitary()
+        unitary = self._get_unitary(self.operators, self.hardware_model)
         if is_prob is None:
             return unitary
         else:
@@ -436,11 +461,21 @@ class QumodeCircuit(Operation):
                 state = MatrixProductState(
                     nsite=self.nmode, state=state, chi=self.chi, qudit=self.cutoff, normalize=self.init_state.normalize
                 )
-            return self.operators(state).tensors
+            state = (
+                self.hardware_model(state, self.operators, self.backend, self.wires)
+                if self.hardware_model is not None
+                else self.operators(state)
+            )
+            return state.tensors
         else:
             if isinstance(state, FockState):
                 state = state.state
-            x = self.operators(self.tensor_rep(state)).squeeze(0)
+            state = self.tensor_rep(state)
+            x = (
+                self.hardware_model(state, self.operators, self.backend, self.wires)
+                if self.hardware_model is not None
+                else self.operators(state)
+            ).squeeze(0)
             if is_prob:
                 if self.den_mat:
                     x = x.reshape(-1, self.cutoff**self.nmode, self.cutoff**self.nmode).diagonal(dim1=-2, dim2=-1)
@@ -488,9 +523,7 @@ class QumodeCircuit(Operation):
         cov, mean = state.cov, state.mean
         weight = state.weight if self.backend == 'bosonic' else None
         if self._with_delay:
-            self._prepare_unroll_dict()
             cov, mean = self._unroll_init_state([cov, mean])
-            self._unroll_circuit()
         if data is None or data.ndim == 1:
             cov, mean = self._forward_helper_gaussian(data, [cov, mean], stepwise)
             if cov.ndim < state.cov.ndim:
@@ -528,18 +561,21 @@ class QumodeCircuit(Operation):
         if self._lossy:
             stepwise = True
         self.encode(data)
-        operators = self._operators_tdm if self._with_delay else self.operators
+        operators = self._unroll_circuit()
         cov, mean = (self.init_state.cov, self.init_state.mean) if state is None else state
         if self.backend == 'bosonic' and cov.ndim == 3:
             cov = cov.unsqueeze(0)
         if self.hardware_model is not None:
-            cov, mean = self.hardware_model([cov, mean], operators, self.backend, self.wires)
+            wires = self.wires
+            if self._with_delay:
+                wires = [self._unroll_dict[wire][-1] for wire in self.wires]
+            cov, mean = self.hardware_model([cov, mean], operators, self.backend, wires, self.operators)
         elif stepwise:
             cov, mean = operators([cov, mean])
         else:
-            sp_mat = self.get_symplectic()
+            sp_mat = self._get_symplectic(operators)
             cov = sp_mat @ cov @ sp_mat.mT
-            mean = self.get_displacement(mean)
+            mean = self._get_displacement(mean, operators)
         return [cov.squeeze(0), mean.squeeze(0)]
 
     def _forward_cv_prob(
@@ -720,17 +756,59 @@ class QumodeCircuit(Operation):
         return state
 
     def _prepare_unroll_dict(self) -> dict[int, list]:
-        """Create a dictionary that maps spatial modes to concurrent modes."""
-        if self._unroll_dict is None:
-            self._unroll_dict = defaultdict(list)
-            wires = list(range(self._nmode_tdm))
-            start = 0
-            for i in range(self.nmode):
-                for ntau in reversed(self._ntau_dict[i]):
-                    self._unroll_dict[i].append(wires[start : start + ntau])  # modes in delay line
-                    start += ntau
-                self._unroll_dict[i].append(wires[start])  # spatial mode
-                start += 1
+        """Reuse TDM mappings while operation identities and wiring remain unchanged."""
+        structure = (
+            self.nmode,
+            tuple(self.wires),
+            tuple(
+                (
+                    op,
+                    tuple(op.wires),
+                    (op.ntau, tuple((gate, tuple(gate.wires)) for gate in op.gates)) if isinstance(op, Delay) else None,
+                )
+                for op in self.operators
+            ),
+            tuple((op, tuple(op.wires)) for op in self.measurements),
+        )
+        if structure == self._tdm_structure:
+            return self._unroll_dict
+        self._tdm_structure = None  # An interrupted rebuild must not leave a valid cache key.
+        delays = defaultdict(list)
+        for op in self.operators:
+            if isinstance(op, Delay):
+                delays[op.wires[0]].append(op.ntau)
+        self._ntau_dict = delays
+        self._with_delay = bool(delays)
+        self._nmode_tdm = self.nmode + sum(sum(values) for values in delays.values())
+        self._nloss = sum(
+            isinstance(gate, PhotonLoss)
+            for op in self.operators
+            for gate in (op.gates if isinstance(op, Delay) else [op])
+        )
+        self._lossy = self._nloss > 0
+        self._unroll_dict = defaultdict(list)
+        start = 0
+        for wire in self.wires:
+            for ntau in reversed(delays[wire]):
+                self._unroll_dict[wire].append(list(range(start, start + ntau)))
+                start += ntau
+            self._unroll_dict[wire].append(start)
+            start += 1
+        self._tdm_gate_map = []
+        delays_seen = [0] * self.nmode
+        for index, op in enumerate(self.operators):
+            if isinstance(op, Delay):
+                wire = op.wires[0]
+                delays_seen[wire] += 1
+                loop_wires = self._unroll_dict[wire][-delays_seen[wire] - 1]
+                for j, gate in enumerate(op.gates):
+                    self._tdm_gate_map.append(((index, j), gate, (wire,) if j == 0 else (), loop_wires))
+            else:
+                self._tdm_gate_map.append(((index,), op, tuple(op.wires), None))
+        self._tdm_measurement_map = [
+            (op, tuple(self._unroll_dict[wire][-1] for wire in op.wires)) for op in self.measurements
+        ]
+        self._tdm_structure = structure
         return self._unroll_dict
 
     def _unroll_init_state(self, state: list[torch.Tensor]) -> list[torch.Tensor]:
@@ -749,41 +827,29 @@ class QumodeCircuit(Operation):
             mean_tdm[..., idx, :] = mean
             return [cov_tdm, mean_tdm]
 
-    def _unroll_circuit(self) -> None:
-        """Unroll the circuit from spatial modes to concurrent modes."""
-        nmode = self._nmode_tdm
-        if self._operators_tdm is None:
-            self._operators_tdm = nn.Sequential()
-            ndelay = np.array([0] * self.nmode)  # counter of delay loops for each mode
-            for op in self.operators:
-                if isinstance(op, Delay):
-                    wire = op.wires[0]
-                    ndelay[wire] += 1
-                    idx_delay = -ndelay[wire] - 1
-                    wires = [self._unroll_dict[wire][idx_delay][0], self._unroll_dict[wire][-1]]
-                    op.gates[0].nmode = nmode
-                    op.gates[0].wires = wires
-                    self._operators_tdm.append(op.gates[0])
-                    if len(op.gates) > 1:
-                        for gate in op.gates[1:]:
-                            gate.nmode = nmode
-                            gate.wires = wires[0:1]
-                            if isinstance(gate, PhotonLoss):
-                                self._lossy = True
-                                self._nloss += 1
-                            self._operators_tdm.append(gate)
-                else:
-                    op_tdm = copy(op)
-                    op_tdm.nmode = nmode
-                    op_tdm.wires = [self._unroll_dict[wire][-1] for wire in op.wires]
-                    self._operators_tdm.append(op_tdm)
-        if self._measurements_tdm is None:
-            self._measurements_tdm = nn.ModuleList()
-            for op_m in self.measurements:
-                op_m_tdm = copy(op_m)
-                op_m_tdm.nmode = nmode
-                op_m_tdm.wires = [self._unroll_dict[wire][-1] for wire in op_m.wires]
-                self._measurements_tdm.append(op_m_tdm)
+    def _unroll_circuit(self) -> nn.Sequential:
+        """Map current gates using the prepared mode map without caching the copies."""
+        if not self._with_delay:
+            return self.operators
+        spatial_wires = [self._unroll_dict[wire][-1] for wire in self.wires]
+        operators = nn.Sequential()
+        for _, gate, wires in self._mapped_gates(spatial_wires):
+            mapped = copy(gate)
+            mapped.nmode, mapped.wires = self._nmode_tdm, wires
+            operators.append(mapped)
+        return operators
+
+    def _unroll_measurements(self) -> nn.ModuleList:
+        """Map current measurements using the prepared mode map."""
+        if not self._with_delay:
+            return self.measurements
+        measurements = nn.ModuleList()
+        for op, wires in self._tdm_measurement_map:
+            mapped = copy(op)
+            mapped.nmode = self._nmode_tdm
+            mapped.wires = list(wires)
+            measurements.append(mapped)
+        return measurements
 
     def tdm_output_wires(self, nstep: int) -> torch.Tensor:
         """Get output wires for each time step without building the global circuit.
@@ -794,11 +860,11 @@ class QumodeCircuit(Operation):
         Returns:
             The output wires with shape ``(nstep, nmode)``.
         """
+        self._prepare_unroll_dict()
         if not self._with_delay:
             raise ValueError('tdm_output_wires() requires at least one delay loop')
         if not isinstance(nstep, int) or isinstance(nstep, bool) or nstep < 1:
             raise ValueError('nstep must be a positive integer')
-        self._prepare_unroll_dict()
         first = torch.tensor(
             [self._unroll_dict[wire][-1] for wire in range(self.nmode)],
             dtype=torch.long,
@@ -832,8 +898,9 @@ class QumodeCircuit(Operation):
             The covariance matrix and mean vector in time-major order, with shapes
             ``(batch, 2 * nselected, 2 * nselected)`` and ``(batch, 2 * nselected, 1)``.
         """
+        self._prepare_unroll_dict()
         if self.hardware_model is not None:
-            raise NotImplementedError('Use global_circuit() to execute HardwareModel on an unrolled circuit.')
+            self._validate_hardware_model(self.hardware_model)
         assert self.backend == 'gaussian', 'tdm_substate() requires Gaussian backend'
         assert self._with_delay, 'tdm_substate() requires at least one delay loop'
         assert isinstance(nstep, int) and not isinstance(nstep, bool) and nstep > 0, 'nstep must be a positive integer'
@@ -853,7 +920,7 @@ class QumodeCircuit(Operation):
 
         if self.ndata == 0:
             assert data is None, 'data must be None when the circuit has no encoders'
-            states = [self._tdm_substate_gaussian(nstep, time_steps, wires)]
+            return [value.unsqueeze(0) for value in self._tdm_substate_gaussian(nstep, time_steps, wires)]
         else:
             assert isinstance(data, torch.Tensor), 'data is required when the circuit has encoders'
             if data.ndim == 1:
@@ -861,10 +928,19 @@ class QumodeCircuit(Operation):
             assert data.ndim == 2 and data.shape[1] == nstep * self.ndata, (
                 f'data must have shape ({nstep * self.ndata},) or (batch, {nstep * self.ndata})'
             )
-            circuit = deepcopy(self)
-            states = [circuit._tdm_substate_gaussian(nstep, time_steps, wires, sample) for sample in data]
-        cov, mean = zip(*states, strict=True)
-        return [torch.stack(cov), torch.stack(mean)]
+            # Encoding updates buffers and cached matrices; keep the template free of batched tensors.
+            saved = [
+                (op, {**op.__dict__, '_buffers': op._buffers.copy()})
+                for encoder in self.encoders
+                for op in encoder.modules()
+            ]
+            try:
+                return vmap(self._tdm_substate_gaussian, in_dims=(None, None, None, 0), randomness='same')(
+                    nstep, time_steps, wires, data
+                )
+            finally:
+                for op, original in saved:
+                    op.__dict__ = original
 
     def _tdm_substate_gaussian(
         self,
@@ -874,13 +950,12 @@ class QumodeCircuit(Operation):
         data: torch.Tensor | None = None,
     ) -> list[torch.Tensor]:
         """Get one encoded Gaussian TDM substate."""
-        self._prepare_unroll_dict()
         loop_wires = []
         for values in self._unroll_dict.values():
             for value in values:
                 if isinstance(value, list):
                     loop_wires.extend(value)
-        loop_index = {wire: index for index, wire in enumerate(loop_wires)}
+        loop_wire_map = {wire: index for index, wire in enumerate(loop_wires)}
         nloop = len(loop_wires)
         vac = self.init_state.cov.new_tensor(dqp.hbar / (4 * dqp.kappa**2))
         cov = torch.eye(2 * nloop, dtype=vac.dtype, device=vac.device) * vac
@@ -888,6 +963,8 @@ class QumodeCircuit(Operation):
         selected_steps = set(time_steps.tolist())
         selected_wires = wires.tolist()
         nretained = 0
+        model = self.hardware_model
+        bindings = model._bind(self.operators) if model is not None else None
 
         for step in range(nstep):
             if data is not None:
@@ -902,25 +979,25 @@ class QumodeCircuit(Operation):
             mean_step = torch.zeros(2 * step_nmode, 1, dtype=mean.dtype, device=mean.device)
             mean_step = mean_step.index_copy(0, old_idx, mean)
 
-            ndelay = np.array([0] * self.nmode)
-            for op in self.operators:
-                if isinstance(op, Barrier):
-                    continue
-                if isinstance(op, Delay):
-                    wire = op.wires[0]
-                    ndelay[wire] += 1
-                    delay_wires = self._unroll_dict[wire][-ndelay[wire] - 1]
-                    wire1 = loop_index[delay_wires[step % op.ntau]]
-                    wire2 = old_nmode + wire
-                    gates = [(op.gates[0], [wire1, wire2])]
-                    gates.extend((gate, [wire1]) for gate in op.gates[1:])
-                else:
-                    gates = [(op, [old_nmode + wire for wire in op.wires])]
-                for gate, gate_wires in gates:
-                    gate_step = copy(gate)
-                    gate_step.nmode = step_nmode
-                    gate_step.wires = gate_wires
+            spatial_wires = [old_nmode + wire for wire in self.wires]
+            if model is not None:
+                run = model._new_run(self.backend, spatial_wires)
+                cov_step, mean_step = model._apply_io_plugins([cov_step, mean_step], run, 'input')
+            for _, gate, gate_wires in self._mapped_gates(spatial_wires, step, loop_wire_map):
+                gate_step = copy(gate)
+                gate_step.nmode, gate_step.wires = step_nmode, gate_wires
+                if model is None:
                     cov_step, mean_step = gate_step([cov_step, mean_step])
+                else:
+                    cov_step, mean_step = model._apply_operation(
+                        [cov_step, mean_step],
+                        gate_step,
+                        run,
+                        bindings.get(gate, ()),
+                        gate,
+                    )
+            if model is not None:
+                cov_step, mean_step = model._apply_io_plugins([cov_step, mean_step], run, 'output')
 
             keep = list(range(old_nmode))
             if step in selected_steps:
@@ -934,6 +1011,17 @@ class QumodeCircuit(Operation):
         retained = torch.arange(nloop, nloop + nretained, device=cov.device)
         retained_xp = torch.cat([retained, retained + nloop + nretained])
         return [cov[retained_xp[:, None], retained_xp], mean[retained_xp]]
+
+    def _mapped_gates(self, spatial_wires: list[int], step: int = 0, loop_wire_map: dict[int, int] | None = None):
+        """Yield operation locations, source gates and execution wires from the cached wiring."""
+        for op_location, gate, wires, loop_wires in self._tdm_gate_map:
+            gate_wires = [spatial_wires[wire] for wire in wires]
+            if loop_wires is not None:
+                loop_wire = loop_wires[step % len(loop_wires)]
+                if loop_wire_map is not None:
+                    loop_wire = loop_wire_map[loop_wire]
+                gate_wires.insert(0, loop_wire)
+            yield op_location, gate, gate_wires
 
     def global_circuit(self, nstep: int, use_deepcopy: bool = False) -> 'QumodeCircuit':
         """Get the global circuit given the number of time steps.
@@ -958,7 +1046,7 @@ class QumodeCircuit(Operation):
             mps=self.mps,
             chi=self.chi,
         )
-        gate_indices = defaultdict(list)
+        operation_map = defaultdict(list)
         wire_map = []
         for i in range(nstep):
             spatial_wires = [
@@ -966,37 +1054,26 @@ class QumodeCircuit(Operation):
                 for wire in self.wires
             ]
             wire_map.append(spatial_wires)
-            ndelay = np.array([0] * self.nmode)  # counter of delay loops for each mode
-            for index, op in enumerate(self.operators):
-                encode = op in self.encoders
+            for op_location, gate, gate_wires in self._mapped_gates(spatial_wires, i):
+                encode = self.operators[op_location[0]] in self.encoders
                 is_deep = use_deepcopy or encode
-                if isinstance(op, Delay):
-                    wire = op.wires[0]
-                    ndelay[wire] += 1
-                    idx_delay = -ndelay[wire] - 1
-                    wire1 = self._unroll_dict[wire][idx_delay][i % op.ntau]
-                    wire2 = spatial_wires[wire]
-                    gates = [((index, 0), op.gates[0], [wire1, wire2])]
-                    gates.extend(((index, j), gate, [wire1]) for j, gate in enumerate(op.gates[1:], start=1))
-                else:
-                    gates = [((index,), op, [spatial_wires[wire] for wire in op.wires])]
-                for path, gate, gate_wires in gates:
-                    op_tdm = deepcopy(gate) if is_deep else copy(gate)
-                    op_tdm.nmode = nmode
-                    op_tdm.wires = gate_wires
-                    if isinstance(gate, PhotonLoss):
-                        cir._lossy = True
-                        cir._nloss += 1
-                    cir.add(op_tdm, encode=encode)
-                    gate_indices[path].append(len(cir.operators) - 1)
-            for op_m in self.measurements:
-                op_m_tdm = copy(op_m)
+                op_tdm = deepcopy(gate) if is_deep else copy(gate)
+                op_tdm.nmode, op_tdm.wires = nmode, gate_wires
+                if isinstance(gate, PhotonLoss):
+                    cir._lossy = True
+                    cir._nloss += 1
+                cir.add(op_tdm, encode=encode)
+                operation_map[op_location].append(op_tdm)
+            for j, op_m in enumerate(self.measurements):
+                op_m_tdm = deepcopy(op_m) if use_deepcopy else copy(op_m)
                 op_m_tdm.nmode = nmode
                 op_m_tdm.wires = [spatial_wires[wire] for wire in op_m.wires]
                 cir.add(op_m_tdm)
+                operation_map[(len(self.operators) + j,)].append(op_m_tdm)
             cir.barrier()
         if self.hardware_model is not None:
-            cir.set_hardware_model(self.hardware_model._unroll(self.operators, gate_indices, wire_map, use_deepcopy))
+            sources = list(self.operators) + list(self.measurements)
+            cir.set_hardware_model(self.hardware_model._unroll(sources, operation_map, wire_map, use_deepcopy))
         return cir
 
     def _shift_state(self, state: list[torch.Tensor], nstep: int = 1, reverse: bool = False) -> list[torch.Tensor]:
@@ -1038,8 +1115,13 @@ class QumodeCircuit(Operation):
 
     def get_unitary(self) -> torch.Tensor:
         """Get the unitary matrix of the ideal photonic quantum circuit."""
+        self._prepare_unroll_dict()
+        return self._get_unitary(self._unroll_circuit())
+
+    def _get_unitary(self, operators: nn.Sequential, model: HardwareModel | None = None) -> torch.Tensor:
         u = None
-        operators = self._operators_tdm if self._with_delay else self.operators
+        run = model._new_run('fock', self.wires) if model is not None else None
+        bindings = model._bind(operators) if model is not None else None
         nloss = 0
         for op in operators:
             if isinstance(op, Barrier):
@@ -1057,16 +1139,19 @@ class QumodeCircuit(Operation):
                     idx_c = torch.arange(op.gate.nmode, device=u.device)
                     u_local = op.gate.update_matrix()
             else:
-                if u is None:
+                if u is None and model is None:
                     u = op.get_unitary()
                     continue
-                else:
-                    idx_r = torch.tensor(op.wires, device=u.device)
-                    idx_c = torch.arange(op.nmode + nloss, device=u.device)
-                    u_local = op.update_matrix()
-                    assert u_local.shape[-2] == u_local.shape[-1] == len(op.wires), (
-                        'The matrix may not act on creation operators.'
-                    )
+                u_local = (
+                    op.update_matrix() if model is None else model._apply_operation(None, op, run, bindings.get(op, ()))
+                )
+                assert u_local.shape[-2] == u_local.shape[-1] == len(op.wires), (
+                    'The matrix may not act on creation operators.'
+                )
+                if u is None:
+                    u = torch.eye(op.nmode, dtype=u_local.dtype, device=u_local.device)
+                idx_r = torch.tensor(op.wires, device=u.device)
+                idx_c = torch.arange(op.nmode + nloss, device=u.device)
             u_update = u[idx_r[:, None], idx_c]
             new_val = u_local @ u_update
             u = u.index_put([idx_r[:, None], idx_c], new_val)
@@ -1077,31 +1162,28 @@ class QumodeCircuit(Operation):
 
     def get_symplectic(self) -> torch.Tensor:
         """Get the symplectic matrix of the ideal photonic quantum circuit."""
+        self._prepare_unroll_dict()
+        return self._get_symplectic(self._unroll_circuit())
+
+    def _get_symplectic(self, operators: nn.Sequential) -> torch.Tensor:
         s = None
-        if self._with_delay:
-            operators = self._operators_tdm
-            nmode = self._nmode_tdm
-        else:
-            operators = self.operators
-            nmode = self.nmode
         for op in operators:
             if isinstance(op, Barrier):
                 continue
             s = op.get_symplectic() if s is None else op.get_symplectic() @ s
         if s is None:
-            return torch.eye(2 * nmode, dtype=torch.float)
+            return torch.eye(2 * self._nmode_tdm, dtype=torch.float)
         return s
 
     def get_displacement(self, init_mean: Any) -> torch.Tensor:
         """Get the final mean value of the Gaussian state in ``xxpp`` order for the ideal circuit."""
+        self._prepare_unroll_dict()
+        return self._get_displacement(init_mean, self._unroll_circuit())
+
+    def _get_displacement(self, init_mean: Any, operators: nn.Sequential) -> torch.Tensor:
         if not isinstance(init_mean, torch.Tensor):
             init_mean = torch.tensor(init_mean)
-        if self._with_delay:
-            operators = self._operators_tdm
-            nmode = self._nmode_tdm
-        else:
-            operators = self.operators
-            nmode = self.nmode
+        nmode = self._nmode_tdm
         mean = init_mean
         if self.backend == 'gaussian':
             mean = mean.reshape(-1, 2 * nmode, 1)
@@ -2059,7 +2141,13 @@ class QumodeCircuit(Operation):
             return
         assert isinstance(self.state, (list, torch.Tensor)), 'NOT valid when "is_prob" is True'
         if len(self.measurements) > 0:
-            measurements = self._measurements_tdm if self._with_delay else self.measurements
+            self._prepare_unroll_dict()
+            measurements = self._unroll_measurements()
+            model = self.hardware_model
+            if model is not None:
+                self._validate_hardware_model(model)
+                bindings = model._bind(self.measurements)
+                run = model._new_run(self.backend, self.wires)
             samples = []
             if self.backend == 'fock':
                 assert not self.basis
@@ -2074,8 +2162,13 @@ class QumodeCircuit(Operation):
                 for s in state:  # [cov, mean, weight]
                     shape = s.shape
                     self.state_measured.append(torch.stack([s] * shots).reshape(-1, *shape[1:]))
-            for op_m in measurements:
-                self.state_measured = op_m(self.state_measured)
+            for op_m, source in zip(measurements, self.measurements, strict=True):
+                if model is None:
+                    self.state_measured = op_m(self.state_measured)
+                else:
+                    self.state_measured = model._apply_operation(
+                        self.state_measured, op_m, run, bindings.get(source, ()), source
+                    )
                 nwire = len(op_m.wires)
                 samples.append(op_m.samples[:, :nwire].reshape(shots, batch, nwire).permute(1, 0, 2))
             return torch.cat(samples, dim=-1).squeeze()  # (batch, shots, nwire)
@@ -2123,12 +2216,11 @@ class QumodeCircuit(Operation):
             filename: The path for saving the figure.
             unroll: Whether to draw the unrolled circuit.
         """
-        if self._with_delay and unroll:
+        if unroll:
             self._prepare_unroll_dict()
-            self._unroll_circuit()
             nmode = self._nmode_tdm
-            operators = self._operators_tdm
-            measurements = self._measurements_tdm
+            operators = self._unroll_circuit()
+            measurements = self._unroll_measurements()
         else:
             nmode = self.nmode
             operators = self.operators
@@ -2208,9 +2300,6 @@ class QumodeCircuit(Operation):
             self._nmode_tdm += op._nmode_tdm - self.nmode
             for key, value in op._ntau_dict.items():
                 self._ntau_dict[key].extend(value)
-            self._unroll_dict = None
-            self._operators_tdm = None
-            self._measurements_tdm = None
         elif isinstance(op, (Gate, Channel, Delay)):
             self.operators.append(op)
             for i in op.wires:
@@ -2853,7 +2942,13 @@ class DistributedQumodeCircuit(QumodeCircuit):
         else:
             self.init_state = state
         self.encode(data)
-        self.state = self.operators(self.init_state)
+        if self.hardware_model is None:
+            self.state = self.operators(self.init_state)
+        else:
+            self._validate_hardware_model(self.hardware_model)
+            if self.init_state.world_size > 1 and self.hardware_model._generator is None:
+                raise ValueError('Distributed hardware simulation requires the same HardwareModel seed on every rank.')
+            self.state = self.hardware_model(self.init_state, self.operators, self.backend, self.wires)
         return self.state
 
     def measure(

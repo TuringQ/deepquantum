@@ -5,6 +5,7 @@ import torch
 from torch.func import functional_call
 
 import deepquantum.photonic as dqp
+from deepquantum.photonic.hardware import _PARAMETERS
 
 
 @pytest.fixture(autouse=True)
@@ -63,6 +64,73 @@ def test_bindings_and_use_match_manual_circuit():
     ref.ps(1, torch.tensor(0.23))
     ref.loss_db(1, torch.tensor(0.1))
     assert_state_close(cir(), ref.to(torch.double)())
+
+
+def test_parameter_noise_override_order_and_sampling():
+    class DoubleParameter(torch.nn.Module):
+        def forward(self, value, run):
+            return 2 * value
+
+    gate = dqp.BeamSplitter(torch.tensor([0.3, 0.2]), nmode=2, wires=[0, 1])
+    old_mu, mu, sigma = [torch.nn.Parameter(torch.tensor(x)) for x in [0.01, 0.07, 0.02]]
+    model = dqp.HardwareModel(seed=7).gaussian(mu=old_mu, sigma=0.5)
+    model.bs().theta.use(DoubleParameter())
+    model.on(gate).gaussian(mu=mu, sigma=sigma)
+    model.bs().phi.gaussian(mu=-0.04, sigma=0)
+    model.bs().after.loss(t=0.9)
+    model.bs().after.loss(t=0.8)
+    state = [torch.diag(torch.tensor([2.0, 1.0, 0.5, 1.0])), torch.arange(4.0).reshape(4, 1) / 10]
+
+    actual = model(state, gate, 'gaussian')
+    generator = torch.Generator().manual_seed(7)
+    theta = 2 * gate.theta + mu + sigma * torch.randn((), generator=generator)
+    ref = dqp.BeamSplitter([theta, gate.phi - 0.04], nmode=2, wires=[0, 1])
+    cov, mean = ref(state)
+    vacuum = dqp.hbar / (4 * dqp.kappa**2)
+    expected = [0.72 * cov + 0.28 * vacuum * torch.eye(4), 0.72**0.5 * mean]
+    assert_state_close(actual, expected)
+    assert torch.equal(model._generator.get_state(), generator.get_state())
+    actual_grad = torch.autograd.grad(sum(x.square().sum() for x in actual), (mu, sigma, old_mu), allow_unused=True)
+    expected_grad = torch.autograd.grad(sum(x.square().sum() for x in expected), (mu, sigma))
+    assert_state_close(actual_grad[:2], expected_grad)
+    assert actual_grad[2] is None
+    torch.testing.assert_close(gate.theta, torch.tensor(0.3))
+
+
+def test_noise_overrides_in_streaming_unrolling_and_measurement():
+    def template(manual=False):
+        cir = dqp.QumodeCircuit(2, 'vac', backend='gaussian')
+        cir.s(0, r=0.3)
+        cir.ps(0, torch.tensor(0.14 if manual else 0.1))
+        cir.ps(1, torch.tensor(0.22 if manual else 0.2))
+        cir.delay(0, ntau=2, inputs=torch.tensor([0.36, 0.16] if manual else [0.35, 0.12]), convention='mzi')
+        cir.homodyne(0, phi=torch.tensor(0.25 if manual else 0.2), eps=0.1)
+        return cir.to(torch.double)
+
+    cir, ref = template(), template(manual=True)
+    model = dqp.HardwareModel().ps().theta.gaussian(mu=0.02, sigma=0)
+    model.ps(0).theta.gaussian(mu=0.04, sigma=0)
+    model.delay().mzi().gaussian(mu=0.01, sigma=0)
+    model.delay(0).phi.gaussian(mu=0.04, sigma=0)
+    model.homodyne().phi.gaussian(mu=0.01, sigma=0)
+    model.on(cir.measurements[0]).gaussian(mu=0.05, sigma=0)
+    cir.set_hardware_model(model)
+    assert_state_close(cir(), ref())
+    actual = cir.tdm_substate(4, [1, 3])
+    expanded = ref.global_circuit(4)
+    expected = expanded()
+    outputs = cir.tdm_output_wires(4)[[1, 3]].flatten()
+    indices = torch.cat([outputs, outputs + expanded.nmode])
+    assert_state_close(actual, [expected[0][:, indices[:, None], indices], expected[1][:, indices]])
+    assert_state_close(cir.global_circuit(4)(), expected)
+    torch.manual_seed(7)
+    samples = cir.measure_homodyne(3)
+    torch.manual_seed(7)
+    torch.testing.assert_close(samples, ref.measure_homodyne(3))
+    model.ps().theta.gaussian(mu=0.08, sigma=0)
+    ref.operators[1].init_para(torch.tensor(0.18))
+    ref.operators[2].init_para(torch.tensor(0.28))
+    assert_state_close(cir(), ref())
 
 
 def test_seed_ideal_queries_and_detach():
@@ -183,8 +251,7 @@ def test_global_circuit_maps_bindings_and_copies_parameters(use_deepcopy):
     assert mapped_t.grad is not None and torch.isfinite(mapped_t.grad)
     if use_deepcopy:
         assert mu.grad is None and t.grad is None
-    with pytest.raises(NotImplementedError, match='global_circuit'):
-        cir()
+    assert_state_close(cir(), template(manual=True)())
 
 
 def test_global_circuit_samples_each_occurrence():
@@ -242,8 +309,9 @@ def test_delay_bindings_match_internal_gates(convention):
         target.operators.insert(3, dqp.PhaseShift(torch.tensor(phase), nmode=2, wires=0))
     assert model.bindings.inner.resolve(cir.operators) == [(4, 2)]
     unrolled = cir.global_circuit(3)
-    assert len(unrolled.hardware_model.bindings.inner.op_indices) == 3
+    assert len(unrolled.hardware_model.bindings.inner.bound_ops) == 3
     assert_state_close(unrolled(), expected.global_circuit(3)())
+    assert_state_close(cir(), expected(stepwise=True))
 
 
 @pytest.mark.parametrize('use_deepcopy', [False, True])
@@ -284,7 +352,7 @@ def test_invalid_parameters_bindings_and_backend():
         circuit().set_hardware_model(dqp.HardwareModel().ps(0).theta.gaussian())
     for backend in ['fock', 'bosonic']:
         with pytest.raises(NotImplementedError, match='Gaussian backend'):
-            dqp.QumodeCircuit(1, 'vac', backend=backend).set_hardware_model(dqp.HardwareModel())
+            dqp.QumodeCircuit(1, 'vac', backend=backend).set_hardware_model(dqp.HardwareModel().output().loss(t=0.8))
     with pytest.raises(ValueError, match='index'):
         dqp.HardwareModel().delay(0, index=-1)
     cir = dqp.QumodeCircuit(1, 'vac', backend='gaussian')
@@ -292,3 +360,144 @@ def test_invalid_parameters_bindings_and_backend():
     for config in [dqp.HardwareModel().delay(0, index=1).theta, dqp.HardwareModel().delay(0).ps(index=1).theta]:
         with pytest.raises(ValueError, match='matches no operations'):
             cir.set_hardware_model(config.gaussian())
+
+
+def test_unrolled_bindings_follow_objects_and_reject_removal():
+    cir = circuit()
+    cir.set_hardware_model(dqp.HardwareModel().ps(1).theta.gaussian(mu=0.07, sigma=0, name='phase'))
+    expanded = cir.global_circuit(2)
+    cloned = deepcopy(expanded)
+    assert cloned.hardware_model.bindings.phase.bound_ops <= set(cloned.operators)
+    assert_state_close(cloned.global_circuit(1)(), cloned())
+    ref = cir.global_circuit(2, use_deepcopy=True)
+    for target in [expanded, ref]:
+        target.operators.insert(0, dqp.PhaseShift(torch.tensor(0.1), nmode=4, wires=1))
+        target.operators[0], target.operators[1] = target.operators[1], target.operators[0]
+    for gate in ref.hardware_model.bindings.phase.bound_ops:
+        gate.init_para(gate.theta + 0.07)
+    ref.set_hardware_model(None)
+    assert_state_close(expanded(), ref())
+    selected = next(iter(expanded.hardware_model.bindings.phase.bound_ops))
+    index = next(i for i, gate in enumerate(expanded.operators) if gate is selected)
+    expanded.operators[index] = dqp.PhaseShift(torch.tensor(0.2), nmode=4, wires=selected.wires)
+    with pytest.raises(ValueError, match='removed or replaced'):
+        expanded()
+
+
+@pytest.mark.parametrize('gate_type', [op for op in _PARAMETERS if op is not dqp.Homodyne])
+def test_standalone_gate_noise_and_gradients(gate_type):
+    names = _PARAMETERS[gate_type]
+    inputs = torch.linspace(0.1, 0.2, len(names)).requires_grad_()
+    gate = gate_type(inputs=inputs.squeeze() if len(names) == 1 else inputs, nmode=2, cutoff=3).to(torch.double)
+    mu, sigma = [torch.nn.Parameter(torch.tensor(value)) for value in [0.02, 0.03]]
+    model = dqp.HardwareModel(seed=9).on(gate).gaussian(mu, sigma)
+    state = torch.arange(1, 10, dtype=torch.double).reshape(1, 3, 3).to(torch.cdouble)
+    state = state / state.norm()
+    actual = model(state, gate, backend='fock')
+    generator = torch.Generator().manual_seed(9)
+    overrides = {name: getattr(gate, name) + mu + sigma * torch.randn((), generator=generator) for name in names}
+    expected = functional_call(gate, overrides, (state,))
+    torch.testing.assert_close(actual, expected)
+    variables = (inputs, mu, sigma)
+    actual_grad = torch.autograd.grad(actual.real.sum(), variables, retain_graph=True)
+    expected_grad = torch.autograd.grad(expected.real.sum(), variables)
+    assert_state_close(actual_grad, expected_grad)
+
+
+@pytest.mark.parametrize('kind', ['basis', 'tensor', 'density', 'mps', 'gaussian', 'bosonic'])
+def test_noise_backend_batch_and_encoding(kind):
+    backend = kind if kind in ('gaussian', 'bosonic') else 'fock'
+    initial = [1, 0] if backend == 'fock' else [2 * torch.eye(4), torch.arange(4.0).reshape(4, 1) / 10]
+    if backend == 'bosonic':
+        initial.append(torch.ones(1))
+    cir = dqp.QumodeCircuit(
+        2, initial, cutoff=3, backend=backend, basis=kind == 'basis', den_mat=kind == 'density', mps=kind == 'mps'
+    )
+    cir.bs([0, 1], encode=True)
+    cir.ps(0, encode=True)
+    cir.to(torch.double)
+    ref = deepcopy(cir)
+    mu, sigma = [torch.nn.Parameter(torch.tensor(value)) for value in [0.01, 0.02]]
+    cir.set_hardware_model(dqp.HardwareModel(seed=3).gaussian(mu, sigma))
+    data = torch.tensor([[0.2, 0.3, 0.4], [0.3, 0.4, 0.5]], requires_grad=True)
+    generator = torch.Generator().manual_seed(3)
+    epsilon = torch.stack([torch.randn((), generator=generator) for _ in range(3)])
+    actual = cir(data)
+    expected = ref(data + mu + sigma * epsilon)
+    actual = actual if isinstance(actual, list) else [actual]
+    expected = expected if isinstance(expected, list) else [expected]
+    assert_state_close(actual, expected)
+    variables = (data, mu, sigma)
+    actual_grad = torch.autograd.grad(sum(x.real.sum() for x in actual), variables)
+    expected_grad = torch.autograd.grad(sum(x.real.sum() for x in expected), variables)
+    assert_state_close(actual_grad, expected_grad)
+
+
+def test_streaming_noise_matches_global_state_and_gradients():
+    cir = dqp.QumodeCircuit(1, 'vac', backend='gaussian')
+    cir.s(0, r=0.3)
+    cir.delay(0, ntau=2, encode=True, convention='mzi', loop_gates=[dqp.PhaseShift(torch.tensor(0.2))])
+    mu, sigma, t = [torch.nn.Parameter(torch.tensor(value)) for value in [0.01, 0.03, 0.9]]
+    model = dqp.HardwareModel(seed=4)
+    model.delay().theta.gaussian(mu, sigma)
+    model.delay().ps().after.loss(t=t)
+    model.input().loss(t=0.95)
+    model.output().loss(t=0.85)
+    cir.set_hardware_model(model)
+    cir.to(torch.double)
+    global_cir = cir.global_circuit(4)
+    encoded_buffers = dict(cir.encoders[0].named_buffers())
+    data = torch.linspace(0.1, 0.5, 24).reshape(2, 12).requires_grad_()
+    actual = cir.tdm_substate(4, [1, 3], data=data)
+    assert all(value is encoded_buffers[name] for name, value in cir.encoders[0].named_buffers())
+    full = global_cir(data)
+    outputs = cir.tdm_output_wires(4)[[1, 3]].flatten()
+    xp = torch.cat([outputs, outputs + global_cir.nmode])
+    expected = [full[0][:, xp[:, None], xp], full[1][:, xp]]
+    assert_state_close(actual, expected)
+    variables = (data, mu, sigma, t)
+    actual_grad = torch.autograd.grad(sum(x.square().sum() for x in actual), variables)
+    expected_grad = torch.autograd.grad(sum(x.square().sum() for x in expected), variables)
+    assert_state_close(actual_grad, expected_grad)
+
+
+@pytest.mark.parametrize('backend', ['fock', 'gaussian', 'bosonic'])
+def test_homodyne_phase_noise(backend):
+    cir = dqp.QumodeCircuit(1, 'vac', cutoff=5, backend=backend, basis=False)
+    cir.s(0, r=0.2)
+    cir.d(0, r=0.1)
+    ref = deepcopy(cir)
+    cir.homodyne(0, phi=0.2, eps=0.1)
+    ref.homodyne(0, phi=0.23, eps=0.1)
+    cir.set_hardware_model(dqp.HardwareModel().homodyne(0).phi.gaussian(mu=0.03, sigma=0))
+    cir.to(torch.double)()
+    ref.to(torch.double)()
+    torch.manual_seed(5)
+    actual = cir.measure_homodyne(2)
+    torch.manual_seed(5)
+    expected = ref.measure_homodyne(2)
+    torch.testing.assert_close(actual, expected)
+    assert_state_close(cir.state_measured, ref.state_measured)
+    torch.testing.assert_close(cir.measurements[0].phi, torch.tensor([0.2]))
+
+
+@pytest.mark.parametrize('backend', ['gaussian', 'bosonic'])
+def test_tdm_homodyne_and_global_mapping(backend):
+    def template(offset):
+        cir = dqp.QumodeCircuitTDM(1, 'vac', backend=backend)
+        cir.s(0, r=torch.tensor(0.2 + offset), theta=torch.tensor(offset))
+        cir.delay(0, ntau=2, inputs=torch.tensor([0.3 + offset, 0.1 + offset]))
+        cir.homodyne(0, phi=torch.tensor(0.2 + offset), eps=0.1)
+        return cir.to(torch.double)
+
+    cir, ref = template(0), template(0.03)
+    cir.set_hardware_model(dqp.HardwareModel().gaussian(mu=0.03, sigma=0))
+    expanded = cir.global_circuit(3)
+    binding = next(iter(expanded.hardware_model.bindings.values()))
+    assert set(expanded.measurements) <= binding.bound_ops
+    torch.manual_seed(6)
+    actual = cir(nstep=3)
+    torch.manual_seed(6)
+    expected = ref(nstep=3)
+    assert_state_close(actual, expected)
+    torch.testing.assert_close(cir.samples, ref.samples)

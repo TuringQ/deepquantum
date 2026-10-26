@@ -238,10 +238,12 @@ class Gate(Operation):
         return dist_gate(x, targets, matrix)
 
     def forward(
-        self, x: torch.Tensor | list[torch.Tensor] | MatrixProductState | DistributedFockState
+        self, x: torch.Tensor | list[torch.Tensor] | MatrixProductState | DistributedFockState | None = None
     ) -> torch.Tensor | list[torch.Tensor] | MatrixProductState | DistributedFockState:
-        """Perform a forward pass."""
-        if isinstance(x, DistributedFockState):
+        """Apply the gate to a state or return its local mode matrix when the state is None."""
+        if x is None:
+            return self.update_matrix()
+        elif isinstance(x, DistributedFockState):
             return self.op_dist_state(x)
         elif isinstance(x, MatrixProductState):
             return self.op_mps(x)
