@@ -87,28 +87,45 @@ class _HardwareRun:
 
 
 class Loss(nn.Module):
-    """Photon loss specified by transmittance t or loss in dB."""
+    """Photon loss initialized by transmittance t or loss in dB.
 
-    def __init__(self, t: float | torch.Tensor | None = None, *, db: float | torch.Tensor | None = None) -> None:
+    Set requires_grad=True to train the internal angle theta, with t = cos(theta / 2)**2.
+    """
+
+    def __init__(
+        self,
+        t: float | torch.Tensor | None = None,
+        *,
+        db: float | torch.Tensor | None = None,
+        requires_grad: bool = False,
+    ) -> None:
         super().__init__()
         if (t is None) == (db is None):
             raise ValueError('Specify exactly one of t and db.')
-        _register_scalar(self, 't' if db is None else 'db', t if db is None else db)
-        self._validate()
+        value = t if db is None else db
+        if not isinstance(value, torch.Tensor):
+            value = torch.tensor(value, dtype=torch.get_default_dtype())
+        convention = 't' if db is None else 'db'
+        _check_scalar(value, convention, 0, 1 if db is None else None)
+        channel = PhotonLoss(value, cutoff=2, convention=convention, requires_grad=requires_grad)
+        _register_scalar(self, 'theta', channel.theta)
 
-    def _validate(self) -> None:
-        if hasattr(self, 't'):
-            _check_scalar(self.t, 't', 0, 1)
-        else:
-            _check_scalar(self.db, 'db', 0)
+    @property
+    def t(self) -> torch.Tensor:
+        """Transmittance."""
+        return torch.cos(self.theta / 2) ** 2
+
+    @property
+    def db(self) -> torch.Tensor:
+        """Photon loss in dB."""
+        return -10 * torch.log10(self.t)
 
     def forward(self, state: Any, run: _HardwareRun) -> Any:
         """Apply loss to the bound modes."""
-        self._validate()
-        t = self.t if hasattr(self, 't') else 10 ** (-self.db / 10)
+        theta = self.theta
         if run.backend in ('gaussian', 'bosonic'):
             nmode, cutoff = state[0].shape[-1] // 2, 2
-            t = t.to(state[0])
+            theta = theta.to(state[0])
         elif run.backend == 'fock':
             nmode, cutoff = run.nmode, 2
             if not run.basis:
@@ -116,10 +133,10 @@ class Loss(nn.Module):
                     raise NotImplementedError('Fock tensor loss requires density matrix representation (den_mat=True).')
                 cutoff = state.shape[-1]
             if state is not None:
-                t = t.to(state.real)
+                theta = theta.to(state.real)
         else:
             raise NotImplementedError(f'Loss does not support backend {run.backend}.')
-        channel = PhotonLoss(t, nmode=nmode, cutoff=cutoff, convention='t')
+        channel = PhotonLoss(theta, nmode=nmode, cutoff=cutoff)
         if run.basis:
             return PhotonLoss._apply_unitary(state, channel.gate.update_matrix(), run.wires, nmode)
         for wire in run.wires:
@@ -129,33 +146,36 @@ class Loss(nn.Module):
 
 
 class GaussianNoise(nn.Module):
-    """Add mu + sigma * epsilon with one sample per binding, operation and parameter per execution."""
+    """Add mu + sigma * epsilon with one sample per binding, operation and parameter per execution.
+
+    Parameters are validated at construction. A numeric sigma=0 disables sampling.
+    Tensor sigma remains dynamic and is sampled even at zero.
+    """
 
     def __init__(self, mu: float | torch.Tensor = 0, sigma: float | torch.Tensor = 0.1) -> None:
         super().__init__()
         _register_scalar(self, 'mu', mu)
-        _register_scalar(self, 'sigma', sigma)
-        self._validate()
-
-    def _validate(self) -> None:
         _check_scalar(self.mu, 'mu')
-        _check_scalar(self.sigma, 'sigma', 0)
+        if not isinstance(sigma, torch.Tensor) and sigma == 0:
+            self.register_buffer('sigma', None)
+        else:
+            _register_scalar(self, 'sigma', sigma)
+            _check_scalar(self.sigma, 'sigma', 0)
 
     def forward(self, value: torch.Tensor, run: _HardwareRun) -> torch.Tensor:
         """Perturb a parameter without modifying its nominal value."""
-        self._validate()
         if value.is_complex():
             raise TypeError('Gaussian parameter noise requires a real control.')
         if not value.is_floating_point():
             value = value.to(torch.get_default_dtype())
+        value = value + self.mu.to(value).reshape(())
+        if self.sigma is None:
+            return value
         key = (run.cache_key, self)
         if key not in run.cache:
-            sample = value.new_zeros(())
-            if self.sigma.requires_grad or self.sigma.detach().ne(0).any():
-                device = value.device if run.generator is None else run.generator.device
-                sample = torch.randn((), dtype=value.dtype, device=device, generator=run.generator).to(value.device)
-            run.cache[key] = sample
-        return value + self.mu.to(value).reshape(()) + self.sigma.to(value).reshape(()) * run.cache[key]
+            device = value.device if run.generator is None else run.generator.device
+            run.cache[key] = torch.randn((), dtype=value.dtype, device=device, generator=run.generator).to(value.device)
+        return value + self.sigma.to(value).reshape(()) * run.cache[key]
 
 
 class _PluginBinding(nn.Module):
@@ -311,10 +331,15 @@ class _StateConfig:
         )
 
     def loss(
-        self, t: float | torch.Tensor | None = None, *, db: float | torch.Tensor | None = None, name: str | None = None
+        self,
+        t: float | torch.Tensor | None = None,
+        *,
+        db: float | torch.Tensor | None = None,
+        requires_grad: bool = False,
+        name: str | None = None,
     ) -> 'HardwareModel':
-        """Add photon loss with transmittance t or loss in dB."""
-        return self.use(Loss(t, db=db), name=name)
+        """Add photon loss initialized by t or db, optionally training its internal theta."""
+        return self.use(Loss(t, db=db, requires_grad=requires_grad), name=name)
 
 
 @dataclass

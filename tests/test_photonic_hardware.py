@@ -2,7 +2,7 @@ from copy import deepcopy
 
 import pytest
 import torch
-from torch.func import functional_call
+from torch.func import functional_call, stack_module_state, vmap
 
 import deepquantum.photonic as dqp
 from deepquantum.photonic.hardware import _PARAMETERS
@@ -51,7 +51,8 @@ def test_loss_formula(t):
 @pytest.mark.parametrize('device', ['cpu'] + (['cuda'] if torch.cuda.is_available() else []))
 def test_loss_backends_match_channels_and_gradients(kind, dtype, device):
     torch.set_default_dtype(dtype)
-    t, db = [torch.nn.Parameter(torch.tensor(value, device=device)) for value in [0.8, 0.4]]
+    source = dqp.Loss(t=torch.tensor(0.8, device=device), requires_grad=True)
+    output = dqp.Loss(db=torch.tensor(0.4, device=device), requires_grad=True)
     backend = kind if kind in ('gaussian', 'bosonic') else 'fock'
     initial = [2 * torch.eye(4), torch.arange(4.0).reshape(4, 1) / 10]
     if kind == 'bosonic':
@@ -64,7 +65,7 @@ def test_loss_backends_match_channels_and_gradients(kind, dtype, device):
     def make_circuit(hardware):
         cir = dqp.QumodeCircuit(2, initial, cutoff=3, backend=backend, basis=kind == 'basis', den_mat=kind == 'density')
         if not hardware:
-            cir.add(dqp.PhotonLoss(t, nmode=2, wires=0, cutoff=3, convention='t'))
+            cir.add(dqp.PhotonLoss(source.theta, nmode=2, wires=0, cutoff=3))
         cir.bs([0, 1], encode=True)
         if not hardware:
             for wire in [0, 1]:
@@ -72,13 +73,13 @@ def test_loss_backends_match_channels_and_gradients(kind, dtype, device):
         cir.ps(1, 0.2)
         cir.loss_t(0, torch.tensor(0.95))
         if hardware:
-            model = dqp.HardwareModel().input(0).loss(t=t)
+            model = dqp.HardwareModel().input(0).use(source)
             model.bs().theta.gaussian(mu=0.03, sigma=0)
             model.bs().after.loss(t=0.85)
-            model.output(1).loss(db=db)
+            model.output(1).use(output)
             cir.set_hardware_model(model)
         else:
-            cir.add(dqp.PhotonLoss(db, nmode=2, wires=1, cutoff=3, convention='db'))
+            cir.add(dqp.PhotonLoss(output.theta, nmode=2, wires=1, cutoff=3))
         return cir.to(device=device, dtype=dtype)
 
     cir, ref = make_circuit(True), make_circuit(False)
@@ -94,10 +95,26 @@ def test_loss_backends_match_channels_and_gradients(kind, dtype, device):
     tolerance = 1e-5 if dtype == torch.float32 else 1e-10
     torch.testing.assert_close(actual, expected, atol=tolerance, rtol=tolerance)
     assert all(x.real.dtype == dtype and x.device.type == device for x in actual)
-    variables = (data, t, db)
+    variables = (data, source.theta, output.theta)
     actual_grad = torch.autograd.grad(sum(x.real.square().sum() for x in actual), variables)
     expected_grad = torch.autograd.grad(sum(x.real.square().sum() for x in expected), variables)
     torch.testing.assert_close(actual_grad, expected_grad, atol=tolerance, rtol=tolerance)
+
+
+@pytest.mark.parametrize('convention, value', [('t', 0.8), ('db', 0.4)])
+def test_loss_theta_parameterization(convention, value):
+    plugin = dqp.Loss(**{convention: value}, requires_grad=True)
+    reference = dqp.PhotonLoss(torch.tensor(value), convention=convention, requires_grad=True)
+    assert dict(plugin.named_parameters()) == {'theta': plugin.theta}
+    torch.testing.assert_close(plugin.theta, reference.theta)
+    torch.testing.assert_close(getattr(plugin, convention), torch.tensor(value))
+    optimizer = torch.optim.SGD(plugin.parameters(), lr=10)
+    for _ in range(3):
+        optimizer.zero_grad()
+        plugin.t.backward()
+        torch.testing.assert_close(plugin.theta.grad, -torch.sin(plugin.theta) / 2)
+        optimizer.step()
+        assert 0 <= plugin.t <= 1
 
 
 def test_fock_loss_updates_environment_modes():
@@ -183,10 +200,12 @@ def test_repeated_rules_replace_parameters_and_keep_order():
     model.bs([1, 0]).theta.gaussian(mu=new, name='theta')
     assert list(model.bindings) == ['phi', 'theta']
     assert set(model.parameters()) == {new}
-    model.output(0).loss(t=old, name='loss')
-    model.output(0).loss(t=new)
+    model.output(0).loss(t=0.9, requires_grad=True, name='loss')
+    old_theta = model.bindings.loss.plugin.theta
+    model.output(0).loss(t=0.8, requires_grad=True)
     assert list(model.bindings) == ['phi', 'theta', 'loss']
-    assert set(model.parameters()) == {new}
+    assert set(model.parameters()) == {new, model.bindings.loss.plugin.theta}
+    assert old_theta not in set(model.parameters())
     with pytest.raises(ValueError, match='Duplicate binding name'):
         model.ps(0).theta.gaussian(name='theta')
     assert model.bindings.theta.plugin.mu is new
@@ -290,14 +309,15 @@ def test_seed_ideal_queries_and_detach():
 def test_batch_parameter_registration_and_gradients():
     cir = circuit()
     cir.ps(0, encode=True)
-    mu, sigma, t = [torch.nn.Parameter(torch.tensor(x)) for x in [0.01, 0.02, 0.8]]
+    mu, sigma = [torch.nn.Parameter(torch.tensor(x)) for x in [0.01, 0.02]]
     model = dqp.HardwareModel(seed=5)
     model.ps(0).theta.gaussian(mu=mu, sigma=sigma, name='phase')
-    model.output().loss(t=t, name='loss')
+    model.output().loss(t=0.8, requires_grad=True, name='loss')
     cir.set_hardware_model(model)
     cir.to(torch.double)
-    names = ['phase.plugin.mu', 'phase.plugin.sigma', 'loss.plugin.t']
-    for name, parameter in zip(names, [mu, sigma, t], strict=True):
+    theta = model.bindings.loss.plugin.theta
+    names = ['phase.plugin.mu', 'phase.plugin.sigma', 'loss.plugin.theta']
+    for name, parameter in zip(names, [mu, sigma, theta], strict=True):
         assert dict(cir.named_parameters())[f'hardware_model.bindings.{name}'] is parameter
     data = torch.tensor([[0.1], [0.2]], requires_grad=True)
     actual = cir(data)
@@ -307,13 +327,118 @@ def test_batch_parameter_registration_and_gradients():
         rows.append(cir(row))
     assert_state_close(actual, [torch.cat([row[i] for row in rows]) for i in range(2)])
 
-    def evaluate(data, mu, sigma, t):
+    def evaluate(data, mu, sigma, theta):
         model.manual_seed(5)
-        parameters = dict(zip([f'hardware_model.bindings.{name}' for name in names], [mu, sigma, t], strict=True))
+        parameters = dict(zip([f'hardware_model.bindings.{name}' for name in names], [mu, sigma, theta], strict=True))
         state = functional_call(cir, parameters, (data,))
         return torch.cat([value.flatten() for value in state])
 
-    assert torch.autograd.gradcheck(evaluate, (data, mu, sigma, t))
+    assert torch.autograd.gradcheck(evaluate, (data, mu, sigma, theta))
+
+
+@pytest.mark.parametrize('kind', ['gaussian', 'bosonic', 'density', 'basis'])
+def test_vmap_hardware_matches_loop(kind):
+    models = []
+    for shift in [0.0, 0.03]:
+        backend = kind if kind in ('gaussian', 'bosonic') else 'fock'
+        cir = dqp.QumodeCircuit(
+            2,
+            [1, 0] if backend == 'fock' else 'vac',
+            cutoff=2,
+            backend=backend,
+            basis=kind == 'basis',
+            den_mat=kind == 'density',
+        )
+        if backend != 'fock':
+            cir.s(0, r=0.3)
+        cir.bs([0, 1], encode=True)
+        model = dqp.HardwareModel().input(0).loss(t=0.9)
+        model.bs().theta.gaussian(
+            mu=torch.nn.Parameter(torch.tensor(0.02 + shift)), sigma=torch.nn.Parameter(torch.tensor(shift))
+        )
+        model.output().loss(t=0.8 + shift, requires_grad=True)
+        cir.set_hardware_model(model)
+        cir.to(torch.double)
+        if kind == 'basis':
+            cir.set_fock_basis()
+        models.append(cir)
+    parameters, buffers = stack_module_state(models)
+    data = torch.tensor([[0.2, 0.3], [0.4, 0.1]], requires_grad=True)
+
+    def evaluate(p, b):
+        models[0].hardware_model.manual_seed(7)
+        result = functional_call(models[0], (p, b), (data,), {'is_prob': kind == 'basis', 'sort': False})
+        if isinstance(result, dict):
+            result = list(result.values())
+        elif isinstance(result, torch.Tensor):
+            result = [result]
+        return torch.cat([value.flatten() for value in result])
+
+    actual = vmap(evaluate, randomness='same')(parameters, buffers)
+    expected = torch.stack(
+        [
+            evaluate(
+                {key: value[i] for key, value in parameters.items()}, {key: value[i] for key, value in buffers.items()}
+            )
+            for i in range(len(models))
+        ]
+    )
+    torch.testing.assert_close(actual, expected)
+    variables = (data, *parameters.values())
+    weights = torch.arange(1, actual.numel() + 1).reshape_as(actual)
+    torch.testing.assert_close(
+        torch.autograd.grad((weights * actual.abs().square()).sum(), variables),
+        torch.autograd.grad((weights * expected.abs().square()).sum(), variables),
+    )
+
+
+@pytest.mark.parametrize('randomness', ['same', 'different'])
+@pytest.mark.parametrize('values', [[0.0, 0.0], [0.0, 0.1]])
+def test_vmap_noise_sampling_and_gradients(randomness, values):
+    cir = dqp.QumodeCircuit(1, [1], cutoff=2)
+    cir.ps(0, torch.tensor(0.2))
+    model = dqp.HardwareModel(seed=7).ps().theta.gaussian(sigma=torch.tensor(0.0), name='noise')
+    cir.set_hardware_model(model)
+    sigma = torch.tensor(values, requires_grad=True)
+
+    def evaluate(sigma):
+        return functional_call(cir, {'hardware_model.bindings.noise.plugin.sigma': sigma}, ())
+
+    actual = vmap(evaluate, randomness=randomness)(sigma)
+    generator = torch.Generator().manual_seed(7)
+    epsilon = torch.randn((2,) if randomness == 'different' else (), generator=generator)
+    expected = torch.exp(1j * (0.2 + sigma * epsilon)).reshape_as(actual)
+    torch.testing.assert_close(actual, expected)
+    torch.testing.assert_close(
+        torch.autograd.grad(actual.real.sum(), sigma), torch.autograd.grad(expected.real.sum(), sigma)
+    )
+    assert torch.equal(model._generator.get_state(), generator.get_state())
+    vmap(evaluate, randomness=randomness)(torch.zeros(2))
+    assert not torch.equal(model._generator.get_state(), generator.get_state())
+
+
+@pytest.mark.parametrize('seed', [None, 7])
+def test_fixed_zero_noise_skips_sampling(seed):
+    cir = dqp.QumodeCircuit(1, [1], cutoff=2)
+    cir.ps(0, encode=True)
+    model = dqp.HardwareModel(seed=seed).ps().theta.gaussian(mu=0.01, sigma=0, name='noise')
+    cir.set_hardware_model(model)
+    assert model.bindings.noise.plugin.sigma is None
+    get_rng_state = torch.get_rng_state if seed is None else model._generator.get_state
+    rng_state = get_rng_state()
+    data = torch.tensor([[0.2], [0.3]], requires_grad=True)
+    mu = torch.tensor([0.01, 0.03], requires_grad=True)
+
+    def evaluate(mu):
+        return functional_call(cir, {'hardware_model.bindings.noise.plugin.mu': mu}, (data,))
+
+    actual = vmap(evaluate)(mu)
+    expected = torch.exp(1j * (data[:, 0] + mu[:, None])).reshape_as(actual)
+    torch.testing.assert_close(actual, expected)
+    torch.testing.assert_close(
+        torch.autograd.grad(actual.real.sum(), (data, mu)), torch.autograd.grad(expected.real.sum(), (data, mu))
+    )
+    assert torch.equal(get_rng_state(), rng_state)
 
 
 def test_measurements_use_the_noisy_state_once():
@@ -356,10 +481,11 @@ def test_global_circuit_maps_bindings_and_copies_parameters(use_deepcopy):
         return cir.to(torch.double)
 
     cir = template()
-    mu, t = [torch.nn.Parameter(torch.tensor(x)) for x in [0.02, 0.8]]
+    mu = torch.nn.Parameter(torch.tensor(0.02))
     model = dqp.HardwareModel(seed=7)
     model.input(1).loss(t=0.85)
-    model.s(0).after.loss(t=t, name='source')
+    model.s(0).after.loss(t=0.8, requires_grad=True, name='source')
+    theta = model.bindings.source.plugin.theta
     model.ps(0).theta.gaussian(mu=mu, sigma=0, name='phase')
     model.output(1).loss(t=0.9)
     cir.set_hardware_model(model)
@@ -367,9 +493,9 @@ def test_global_circuit_maps_bindings_and_copies_parameters(use_deepcopy):
     expected = template(manual=True).global_circuit(3).to(torch.double)
     parameters = dict(actual.named_parameters())
     mapped_mu = parameters['hardware_model.bindings.phase.plugin.mu']
-    mapped_t = parameters['hardware_model.bindings.source.plugin.t']
+    mapped_theta = parameters['hardware_model.bindings.source.plugin.theta']
     assert (mapped_mu is mu) == (not use_deepcopy)
-    assert (mapped_t is t) == (not use_deepcopy)
+    assert (mapped_theta is theta) == (not use_deepcopy)
     assert (actual.operators[0].r is cir.operators[0].r) == (not use_deepcopy)
     assert (actual.operators[0].r is actual.operators[6].r) == (not use_deepcopy)
     n = 2 * actual.nmode
@@ -378,9 +504,9 @@ def test_global_circuit_maps_bindings_and_copies_parameters(use_deepcopy):
     assert_state_close(result, expected(state=state))
     (result[0][0, 0, 1] + result[1].sum()).backward()
     assert mapped_mu.grad is not None and torch.isfinite(mapped_mu.grad)
-    assert mapped_t.grad is not None and torch.isfinite(mapped_t.grad)
+    assert mapped_theta.grad is not None and torch.isfinite(mapped_theta.grad)
     if use_deepcopy:
-        assert mu.grad is None and t.grad is None
+        assert mu.grad is None and theta.grad is None
     assert_state_close(cir(), template(manual=True)())
 
 
@@ -478,6 +604,8 @@ def test_invalid_parameters_bindings_and_backend():
         dqp.HardwareModel().output().loss(t=1.1)
     with pytest.raises(ValueError):
         dqp.HardwareModel().ps().theta.gaussian(sigma=-0.1)
+    with pytest.raises(ValueError):
+        dqp.GaussianNoise(mu=float('nan'))
     with pytest.raises(ValueError, match='matches no operations'):
         circuit().set_hardware_model(dqp.HardwareModel().ps(0).theta.gaussian())
     for mps in [False, True]:
@@ -569,10 +697,11 @@ def test_streaming_noise_matches_global_state_and_gradients():
     cir = dqp.QumodeCircuit(1, 'vac', backend='gaussian')
     cir.s(0, r=0.3)
     cir.delay(0, ntau=2, encode=True, convention='mzi', loop_gates=[dqp.PhaseShift(torch.tensor(0.2))])
-    mu, sigma, t = [torch.nn.Parameter(torch.tensor(value)) for value in [0.01, 0.03, 0.9]]
+    mu, sigma = [torch.nn.Parameter(torch.tensor(value)) for value in [0.01, 0.03]]
     model = dqp.HardwareModel(seed=4)
     model.delay().theta.gaussian(mu, sigma)
-    model.delay().ps().after.loss(t=t)
+    model.delay().ps().after.loss(t=0.9, requires_grad=True, name='loss')
+    theta = model.bindings.loss.plugin.theta
     model.input().loss(t=0.95)
     model.output().loss(t=0.85)
     cir.set_hardware_model(model)
@@ -587,7 +716,7 @@ def test_streaming_noise_matches_global_state_and_gradients():
     xp = torch.cat([outputs, outputs + global_cir.nmode])
     expected = [full[0][:, xp[:, None], xp], full[1][:, xp]]
     assert_state_close(actual, expected)
-    variables = (data, mu, sigma, t)
+    variables = (data, mu, sigma, theta)
     actual_grad = torch.autograd.grad(sum(x.square().sum() for x in actual), variables)
     expected_grad = torch.autograd.grad(sum(x.square().sum() for x in expected), variables)
     assert_state_close(actual_grad, expected_grad)

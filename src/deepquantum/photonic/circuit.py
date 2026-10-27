@@ -1164,7 +1164,7 @@ class QumodeCircuit(Operation):
                 u, u_local = u.to(device=u_local.device, dtype=dtype), u_local.to(dtype)
                 idx_r = torch.tensor(op.wires, device=u.device)
                 idx_c = torch.arange(u.shape[-1], device=u.device)
-                u = u.index_put([idx_r[:, None], idx_c], u_local @ u[idx_r[:, None], idx_c])
+                u = u.index_put([idx_r[:, None], idx_c], u_local @ u[idx_r])
             if model is not None:
                 u = model._apply_state_plugins(u, op, run, selected, 'after')
         if model is not None:

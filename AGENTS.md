@@ -48,7 +48,7 @@ MPS and large qubit simulation:
 
 Photonic circuits:
 
-- Use `dq.QumodeCircuit(nmode, init_state, cutoff=None, backend='fock', basis=True, den_mat=False, detector='pnrd', mps=False, chi=None, noise=False, mu=0, sigma=0.1)`.
+- Use `dq.QumodeCircuit(nmode, init_state, cutoff=None, backend='fock', basis=True, den_mat=False, detector='pnrd', name=None, mps=False, chi=None)`.
 - Fock backend:
   - `basis=True` represents Fock basis states such as `[1, 0, 1]`; `cir(is_prob=None)` returns a unitary, `cir(is_prob=True)` returns probabilities, and `cir(is_prob=False)` returns amplitudes.
   - `basis=False` represents Fock state tensors or superpositions such as `[(amp, [n0, n1])]`.
@@ -65,6 +65,18 @@ Photonic circuits:
 - Clements and GBS:
   - `dq.Clements`, `dq.UnitaryDecomposer`, `dq.GaussianBosonSampling`, and `dqp.GraphGBS` are documented through tutorials/examples.
   - `QumodeCircuit.any(...)` supports arbitrary unitary gates; tutorials note `clements(...)` performs a physical Clements decomposition and is not used as the differentiable arbitrary-unitary path.
+
+Photonic hardware models:
+
+- Configure `dqp.HardwareModel()`, attach it with `cir.set_hardware_model(model)`, and call `cir(...)` normally. This replaces the old photonic gate/circuit `noise`, `mu` and `sigma` arguments.
+- Use `model.gaussian(mu=..., sigma=...)` for all supported controls or `model.ps(0).theta.gaussian(...)` for selected controls. Configure loss with `model.bs().after.loss(t=...)` or `model.output().loss(db=...)`.
+- Hardware loss reuses `PhotonLoss` and supports Gaussian, Bosonic, Fock basis and Fock density-matrix simulation. Parameter-noise support follows the underlying gates.
+- Supply `nn.Parameter` for trainable `mu/sigma` and use `loss(..., requires_grad=True)` to train the internal loss angle `theta`. Attach the model before creating the optimizer. Use `model.manual_seed(seed)` to reset hardware sampling independently of measurement sampling.
+
+Photonic TDM:
+
+- `global_circuit(nstep)` unfolds delay loops and remaps the attached hardware model. `tdm_substate(nstep, time_steps, wires=..., data=...)` computes selected Gaussian outputs without building the full global circuit.
+- `QumodeCircuitTDM` supports stepwise Gaussian/Bosonic evolution with homodyne measurements.
 
 Photonic measurement and probabilities:
 
@@ -112,6 +124,7 @@ pytest
 pytest tests/test_circuit.py
 pytest tests/test_photonic_fock.py
 pytest tests/test_photonic_bosonic.py
+pytest tests/test_photonic_hardware.py tests/test_photonic_tdm.py
 pytest tests/test_mbqc_transpile.py
 ruff check .
 ruff format .
@@ -141,6 +154,7 @@ pre-commit run --all-files
 
 - Tutorials, examples, and docs demos use Jupytext.
 - `.ipynb` files are the source of truth for tutorial/example notebook content.
+- Write notebook prose with one sentence per source line and a blank line between paragraphs.
 - Paired `.py:percent` files are generated or synchronized by Jupytext/pre-commit.
 - Avoid editing generated notebook companion files directly unless the workflow requires it.
 - Sphinx docs live under `docs/source/`; notebook execution is disabled in `docs/source/conf.py`.
@@ -162,7 +176,7 @@ Do not modify `src/deepquantum/photonic/cache/` unless the task specifically con
 - For GitHub PR reviews, judge changes against the PR's actual `base...head` diff or GitHub "Files changed", not the local current `main..head`.
 - Separate branch drift from actual review findings.
 - Do not revert user changes or unrelated local changes.
-- When a conversation reveals a reusable workflow mistake or correction, distill it into a short global `AGENTS.md` rule so the same process error is less likely to recur.
+- Keep project lessons in this file. Add a global rule only for high-impact behavior that clearly recurs across projects.
 
 ## Agent Workflow Expectations
 
