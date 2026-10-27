@@ -121,27 +121,11 @@ class Loss(nn.Module):
             raise NotImplementedError(f'Loss does not support backend {run.backend}.')
         channel = PhotonLoss(t, nmode=nmode, cutoff=cutoff, convention='t')
         if run.basis:
-            return self._apply_unitary(state, channel.gate.update_matrix(), run.wires, nmode)
+            return PhotonLoss._apply_unitary(state, channel.gate.update_matrix(), run.wires, nmode)
         for wire in run.wires:
             channel.wires = [wire]
             state = channel(state)
         return state
-
-    @staticmethod
-    def _apply_unitary(
-        unitary: torch.Tensor | None, matrix: torch.Tensor, wires: Sequence[int], nmode: int
-    ) -> torch.Tensor:
-        """Extend a Fock basis unitary with one vacuum environment mode per loss."""
-        if unitary is None:
-            unitary = torch.eye(nmode, dtype=matrix.dtype, device=matrix.device)
-        dtype = torch.promote_types(unitary.dtype, matrix.dtype)
-        unitary, matrix = unitary.to(device=matrix.device, dtype=dtype), matrix.to(dtype)
-        for wire in wires:
-            unitary = torch.block_diag(unitary, unitary.new_ones(1, 1))
-            rows = torch.tensor([wire, unitary.shape[-1] - 1], device=unitary.device)
-            columns = torch.arange(unitary.shape[-1], device=unitary.device)
-            unitary = unitary.index_put((rows[:, None], columns), matrix @ unitary[rows])
-        return unitary
 
 
 class GaussianNoise(nn.Module):

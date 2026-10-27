@@ -1145,7 +1145,7 @@ class QumodeCircuit(Operation):
             if model is not None:
                 u = model._apply_state_plugins(u, op, run, selected, 'before')
             if isinstance(op, PhotonLoss):
-                u = Loss._apply_unitary(u, op.gate.update_matrix(), op.wires, op.nmode)
+                u = PhotonLoss._apply_unitary(u, op.gate.update_matrix(), op.wires, op.nmode)
             else:
                 if u is None and model is None:
                     u = op.get_unitary()
