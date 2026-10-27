@@ -9,6 +9,7 @@ from . import (
     draw,
     gate,
     hafnian_,
+    hardware,
     kensingtonian_,
     mapper,
     measurement,
@@ -48,6 +49,7 @@ from .gate import (
     UAnyGate,
 )
 from .hafnian_ import hafnian
+from .hardware import GaussianNoise, HardwareModel, Loss
 from .kensingtonian_ import kensingtonian
 from .mapper import UnitaryMapper
 from .measurement import GeneralBosonic, Generaldyne, Homodyne, PhotonNumberResolvingBosonic

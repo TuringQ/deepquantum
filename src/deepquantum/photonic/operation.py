@@ -21,9 +21,6 @@ class Operation(nn.Module):
         wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: 2
         den_mat: Whether to use density matrix representation. Default: ``False``
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -33,9 +30,6 @@ class Operation(nn.Module):
         wires: int | list | None = None,
         cutoff: int = 2,
         den_mat: bool = False,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
         super().__init__()
         self.name = name
@@ -43,9 +37,6 @@ class Operation(nn.Module):
         self.wires = wires
         self.cutoff = cutoff
         self.den_mat = den_mat
-        self.noise = noise
-        self.mu = mu
-        self.sigma = sigma
         self.npara = 0
 
     def tensor_rep(self, x: torch.Tensor) -> torch.Tensor:
@@ -91,9 +82,6 @@ class Gate(Operation):
         wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -103,9 +91,6 @@ class Gate(Operation):
         wires: int | list[int] | None = None,
         cutoff: int | None = None,
         den_mat: bool = False,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
         self.nmode = nmode
         if wires is None:
@@ -113,9 +98,7 @@ class Gate(Operation):
         wires = self._convert_indices(wires)
         if cutoff is None:
             cutoff = 2
-        super().__init__(
-            name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat, noise=noise, mu=mu, sigma=sigma
-        )
+        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat)
 
     def update_matrix(self) -> torch.Tensor:
         """Update the local unitary matrix acting on creation operators."""
@@ -255,10 +238,12 @@ class Gate(Operation):
         return dist_gate(x, targets, matrix)
 
     def forward(
-        self, x: torch.Tensor | list[torch.Tensor] | MatrixProductState | DistributedFockState
+        self, x: torch.Tensor | list[torch.Tensor] | MatrixProductState | DistributedFockState | None = None
     ) -> torch.Tensor | list[torch.Tensor] | MatrixProductState | DistributedFockState:
-        """Perform a forward pass."""
-        if isinstance(x, DistributedFockState):
+        """Apply the gate to a state or return its local mode matrix when the state is None."""
+        if x is None:
+            return self.update_matrix()
+        elif isinstance(x, DistributedFockState):
             return self.op_dist_state(x)
         elif isinstance(x, MatrixProductState):
             return self.op_mps(x)
@@ -297,7 +282,7 @@ class Channel(Operation):
         wires = self._convert_indices(wires)
         if cutoff is None:
             cutoff = 2
-        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=True, noise=False)
+        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=True)
 
     def update_matrix_state(self) -> torch.Tensor:
         """Update the local Kraus matrices acting on Fock state density matrices."""
@@ -352,9 +337,6 @@ class Delay(Operation):
         wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -365,9 +347,6 @@ class Delay(Operation):
         wires: int | list[int] | None = None,
         cutoff: int | None = None,
         den_mat: bool = False,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
         self.nmode = nmode
         if wires is None:
@@ -375,9 +354,7 @@ class Delay(Operation):
         wires = self._convert_indices(wires)
         if cutoff is None:
             cutoff = 2
-        super().__init__(
-            name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat, noise=noise, mu=mu, sigma=sigma
-        )
+        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat)
         assert len(self.wires) == 1, f'{self.name} must act on one mode'
         self.ntau = ntau
         self.gates = nn.Sequential()

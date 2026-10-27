@@ -7,6 +7,7 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 
 import deepquantum as dq
+import deepquantum.photonic as dqp
 from deepquantum.photonic.distributed import dist_swap_gate as photonic_swap
 
 pytestmark = pytest.mark.skipif(
@@ -65,6 +66,9 @@ def _check_photonic_gates():
     for cir in (circuit, reference):
         for wires in ([0, 1], [1, 2], [2, 3], [0, 3]):
             cir.bs(wires, [0.27, -0.19])
+    _assert_state_matches(circuit(), reference())
+    for cir in (circuit, reference):
+        cir.set_hardware_model(dqp.HardwareModel(seed=17).gaussian(sigma=0.02))
     _assert_state_matches(circuit(), reference())
 
 

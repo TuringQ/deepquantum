@@ -1,5 +1,6 @@
 """Photonic quantum channels"""
 
+from collections.abc import Sequence
 from typing import Any
 
 import torch
@@ -52,7 +53,6 @@ class PhotonLoss(Channel):
             den_mat=True,
             convention='h',
             requires_grad=requires_grad,
-            noise=False,
         )
         self.npara = 1
 
@@ -69,6 +69,22 @@ class PhotonLoss(Channel):
     def db(self):
         """Photon loss in dB."""
         return -10 * torch.log10(self.t)
+
+    @staticmethod
+    def _apply_unitary(
+        unitary: torch.Tensor | None, matrix: torch.Tensor, wires: Sequence[int], nmode: int
+    ) -> torch.Tensor:
+        """Extend a Fock basis unitary with one vacuum environment mode per loss."""
+        if unitary is None:
+            unitary = torch.eye(nmode, dtype=matrix.dtype, device=matrix.device)
+        dtype = torch.promote_types(unitary.dtype, matrix.dtype)
+        unitary, matrix = unitary.to(device=matrix.device, dtype=dtype), matrix.to(dtype)
+        for wire in wires:
+            unitary = torch.block_diag(unitary, unitary.new_ones(1, 1))
+            rows = torch.tensor([wire, unitary.shape[-1] - 1], device=unitary.device)
+            columns = torch.arange(unitary.shape[-1], device=unitary.device)
+            unitary = unitary.index_put((rows[:, None], columns), matrix @ unitary[rows])
+        return unitary
 
     def update_matrix_state(self) -> torch.Tensor:
         """Update the local Kraus matrices acting on Fock state density matrices."""

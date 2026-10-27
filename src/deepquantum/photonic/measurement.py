@@ -26,9 +26,6 @@ class Generaldyne(Operation):
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
         name: The name of the measurement. Default: ``'Generaldyne'``
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
     """
 
     def __init__(
@@ -39,9 +36,6 @@ class Generaldyne(Operation):
         cutoff: int | None = None,
         den_mat: bool = False,
         name: str = 'Generaldyne',
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
     ) -> None:
         self.nmode = nmode
         if wires is None:
@@ -50,9 +44,7 @@ class Generaldyne(Operation):
         nwire = len(wires)
         if cutoff is None:
             cutoff = 2
-        super().__init__(
-            name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat, noise=noise, mu=mu, sigma=sigma
-        )
+        super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat)
         if not isinstance(cov_m, torch.Tensor):
             cov_m = torch.tensor(cov_m, dtype=torch.float).reshape(2 * nwire, 2 * nwire)
         assert cov_m.shape[-2] == cov_m.shape[-1] == 2 * nwire, 'The size of cov_m does not match the wires'
@@ -135,9 +127,6 @@ class Homodyne(Generaldyne):
         eps: The measurement accuracy. Default: 2e-4
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
-        noise: Whether to introduce Gaussian noise. Default: ``False``
-        mu: The mean of Gaussian noise. Default: 0
-        sigma: The standard deviation of Gaussian noise. Default: 0.1
         name: The name of the measurement. Default: ``'Homodyne'``
     """
 
@@ -150,9 +139,6 @@ class Homodyne(Generaldyne):
         den_mat: bool = False,
         eps: float = 2e-4,
         requires_grad: bool = False,
-        noise: bool = False,
-        mu: float = 0,
-        sigma: float = 0.1,
         name: str = 'Homodyne',
     ) -> None:
         self.nmode = nmode
@@ -160,17 +146,7 @@ class Homodyne(Generaldyne):
             wires = [0]
         wires = self._convert_indices(wires)
         cov_m = torch.diag(torch.tensor([eps**2] * len(wires) + [1 / eps**2] * len(wires)))  # xxpp
-        super().__init__(
-            cov_m=cov_m,
-            nmode=nmode,
-            wires=wires,
-            cutoff=cutoff,
-            den_mat=den_mat,
-            name=name,
-            noise=noise,
-            mu=mu,
-            sigma=sigma,
-        )
+        super().__init__(cov_m=cov_m, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat, name=name)
         assert len(self.wires) == 1, f'{self.name} must act on one mode'
         self.requires_grad = requires_grad
         self.init_para(inputs=phi)
@@ -184,8 +160,6 @@ class Homodyne(Generaldyne):
             inputs = torch.tensor(inputs, dtype=torch.float)
         inputs = inputs.reshape(-1)
         assert len(inputs) == len(self.wires)
-        if self.noise:
-            inputs = inputs + torch.normal(self.mu, self.sigma, size=(len(self.wires),)).squeeze()
         return inputs
 
     def init_para(self, inputs: Any = None) -> None:
