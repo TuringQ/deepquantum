@@ -46,6 +46,83 @@ def test_loss_formula(t):
         assert_state_close(cir(), expected)
 
 
+@pytest.mark.parametrize('kind', ['gaussian', 'bosonic', 'density', 'basis'])
+@pytest.mark.parametrize('dtype', [torch.float32, torch.float64])
+@pytest.mark.parametrize('device', ['cpu'] + (['cuda'] if torch.cuda.is_available() else []))
+def test_loss_backends_match_channels_and_gradients(kind, dtype, device):
+    torch.set_default_dtype(dtype)
+    t, db = [torch.nn.Parameter(torch.tensor(value, device=device)) for value in [0.8, 0.4]]
+    backend = kind if kind in ('gaussian', 'bosonic') else 'fock'
+    initial = [2 * torch.eye(4), torch.arange(4.0).reshape(4, 1) / 10]
+    if kind == 'bosonic':
+        initial = [torch.stack([initial[0], 1.5 * initial[0]]), torch.stack([initial[1], -initial[1]]), [0.4, 0.6]]
+    elif kind == 'density':
+        initial = [1, 0]
+    elif kind == 'basis':
+        initial = torch.tensor([[1, 0], [0, 2]])
+
+    def make_circuit(hardware):
+        cir = dqp.QumodeCircuit(2, initial, cutoff=3, backend=backend, basis=kind == 'basis', den_mat=kind == 'density')
+        if not hardware:
+            cir.add(dqp.PhotonLoss(t, nmode=2, wires=0, cutoff=3, convention='t'))
+        cir.bs([0, 1], encode=True)
+        if not hardware:
+            for wire in [0, 1]:
+                cir.loss_t(wire, torch.tensor(0.85))
+        cir.ps(1, 0.2)
+        cir.loss_t(0, torch.tensor(0.95))
+        if hardware:
+            model = dqp.HardwareModel().input(0).loss(t=t)
+            model.bs().theta.gaussian(mu=0.03, sigma=0)
+            model.bs().after.loss(t=0.85)
+            model.output(1).loss(db=db)
+            cir.set_hardware_model(model)
+        else:
+            cir.add(dqp.PhotonLoss(db, nmode=2, wires=1, cutoff=3, convention='db'))
+        return cir.to(device=device, dtype=dtype)
+
+    cir, ref = make_circuit(True), make_circuit(False)
+    data = torch.tensor([[0.2, 0.3], [0.4, 0.1]], device=device, requires_grad=True)
+    actual = cir(data, is_prob=True if kind == 'basis' else None)
+    expected = ref(data + data.new_tensor([0.03, 0]), is_prob=True if kind == 'basis' else None)
+    if kind == 'basis':
+        assert actual.keys() == expected.keys()
+        keys = list(expected)
+        actual, expected = [actual[key] for key in keys], [expected[key] for key in keys]
+    elif kind == 'density':
+        actual, expected = [actual], [expected]
+    tolerance = 1e-5 if dtype == torch.float32 else 1e-10
+    torch.testing.assert_close(actual, expected, atol=tolerance, rtol=tolerance)
+    assert all(x.real.dtype == dtype and x.device.type == device for x in actual)
+    variables = (data, t, db)
+    actual_grad = torch.autograd.grad(sum(x.real.square().sum() for x in actual), variables)
+    expected_grad = torch.autograd.grad(sum(x.real.square().sum() for x in expected), variables)
+    torch.testing.assert_close(actual_grad, expected_grad, atol=tolerance, rtol=tolerance)
+
+
+def test_fock_loss_updates_environment_modes():
+    cir = dqp.QumodeCircuit(1, [1], cutoff=2)
+    model = dqp.HardwareModel().output().loss(t=1)
+    cir.set_hardware_model(model)
+    cir.set_fock_basis()
+    for t in [1, 0.4, 0]:
+        model.output().loss(t=t)
+        result = cir(is_prob=True)
+        torch.testing.assert_close(result[dqp.FockState([1])], torch.tensor([t], dtype=torch.double))
+        assert cir._nloss == 1
+        unitary = cir()
+        torch.testing.assert_close(cir.get_prob([1]), torch.ones(1), check_dtype=False)
+        torch.testing.assert_close(cir.get_prob([1], unitary=unitary), torch.tensor([t], dtype=torch.double))
+    model.input().loss(t=0.5)
+    with pytest.raises(AssertionError, match='set_fock_basis'):
+        cir(is_prob=True)
+    cir.set_fock_basis(reset_in_forward=True)
+    assert cir().shape[-2:] == (3, 3)
+    cir.set_hardware_model(None)
+    assert cir().shape[-2:] == (1, 1)
+    assert cir._nloss == 0
+
+
 def test_bindings_and_use_match_manual_circuit():
     cir = circuit()
     model = dqp.HardwareModel()
@@ -403,9 +480,11 @@ def test_invalid_parameters_bindings_and_backend():
         dqp.HardwareModel().ps().theta.gaussian(sigma=-0.1)
     with pytest.raises(ValueError, match='matches no operations'):
         circuit().set_hardware_model(dqp.HardwareModel().ps(0).theta.gaussian())
-    for backend in ['fock', 'bosonic']:
-        with pytest.raises(NotImplementedError, match='Gaussian backend'):
-            dqp.QumodeCircuit(1, 'vac', backend=backend).set_hardware_model(dqp.HardwareModel().output().loss(t=0.8))
+    for mps in [False, True]:
+        with pytest.raises(NotImplementedError, match='density matrix'):
+            dqp.QumodeCircuit(1, 'vac', cutoff=2, backend='fock', basis=False, mps=mps).set_hardware_model(
+                dqp.HardwareModel().output().loss(t=0.8)
+            )
     with pytest.raises(ValueError, match='index'):
         dqp.HardwareModel().delay(0, index=-1)
     cir = dqp.QumodeCircuit(1, 'vac', backend='gaussian')
@@ -539,12 +618,17 @@ def test_tdm_homodyne_and_global_mapping(backend):
     def template(offset):
         cir = dqp.QumodeCircuitTDM(1, 'vac', backend=backend)
         cir.s(0, r=torch.tensor(0.2 + offset), theta=torch.tensor(offset))
-        cir.delay(0, ntau=2, inputs=torch.tensor([0.3 + offset, 0.1 + offset]))
+        cir.delay(
+            0,
+            ntau=2,
+            inputs=torch.tensor([0.3 + offset, 0.1 + offset]),
+            loop_gates=[dqp.PhotonLoss(torch.tensor(0.9), convention='t')] if offset else None,
+        )
         cir.homodyne(0, phi=torch.tensor(0.2 + offset), eps=0.1)
         return cir.to(torch.double)
 
     cir, ref = template(0), template(0.03)
-    cir.set_hardware_model(dqp.HardwareModel().gaussian(mu=0.03, sigma=0))
+    cir.set_hardware_model(dqp.HardwareModel().gaussian(mu=0.03, sigma=0).delay().ps().after.loss(t=0.9))
     expanded = cir.global_circuit(3)
     binding = next(iter(expanded.hardware_model.bindings.values()))
     assert set(expanded.measurements) <= binding.bound_ops

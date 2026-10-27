@@ -163,10 +163,13 @@ class QumodeCircuit(Operation):
     def _validate_hardware_model(self, model: HardwareModel) -> None:
         if not isinstance(model, HardwareModel):
             raise TypeError('model must be a HardwareModel or None.')
-        if self.backend != 'gaussian' and any(isinstance(m, Loss) for m in model.modules()):
-            raise NotImplementedError('HardwareModel Loss currently supports the Gaussian backend only.')
-        if self.backend == 'fock' and self.basis and any(b.where is not None for b in model.bindings.values()):
-            raise NotImplementedError('Fock basis simulation supports parameter plugins only.')
+        if self.backend == 'fock':
+            if not self.basis and (not self.den_mat or self.mps) and any(isinstance(m, Loss) for m in model.modules()):
+                raise NotImplementedError('Fock tensor loss requires density matrix representation (den_mat=True).')
+            if self.basis and any(
+                b.where is not None and not isinstance(b.plugin, Loss) for b in model.bindings.values()
+            ):
+                raise NotImplementedError('Fock basis state plugins currently support Loss only.')
         gates = [gate for op in self.operators for gate in (op.gates if isinstance(op, Delay) else [op])]
         for op in gates:
             if not isinstance(op, (Gate, Channel)):
@@ -429,6 +432,9 @@ class QumodeCircuit(Operation):
                 state = self.init_state.state
             out_dict = defaultdict(float)
             final_states = self._out_fock_basis
+            assert final_states.shape[-1] == state.shape[-1], (
+                'Output Fock basis no longer matches the circuit. Call set_fock_basis() again.'
+            )
             if self._is_batch_expanded:
                 unitary = torch.block_diag(unitary, torch.eye(1, dtype=unitary.dtype, device=unitary.device))
             sub_mats = vmap(sub_matrix, in_dims=(None, None, 0))(unitary, state, final_states)
@@ -678,10 +684,8 @@ class QumodeCircuit(Operation):
         """
         assert self.basis
         assert self.init_state.state.ndim == 1, 'Manual setting for batched initial states is not allowed.'
-        if state is None:
-            if not reset_in_forward:  # avoid double calculation of the output Fock basis states
-                self._prepare_init_state(self.init_state.state, reset_fock_basis=True)
-        else:
+        self._prepare_init_state(self.init_state.state, reset_fock_basis=state is None and not reset_in_forward)
+        if state is not None:
             state = FockState(state).state
             if state.ndim == 1:
                 state = state.unsqueeze(0)
@@ -735,16 +739,24 @@ class QumodeCircuit(Operation):
             keys = torch.sum(final_states, dim=1)
             return [final_states[keys == key] for key in keys.unique()]
 
-    def _prepare_init_state(self, state: torch.Tensor, reset_fock_basis: bool = False) -> torch.Tensor:
+    def _prepare_init_state(
+        self, state: torch.Tensor, reset_fock_basis: bool = False, nloss: int | None = None
+    ) -> torch.Tensor:
         """Check and expand the Fock state if necessary."""
+        if nloss is None:
+            self._nloss = sum(isinstance(op, PhotonLoss) for op in self.operators)
+            if self.hardware_model is not None:
+                self._nloss += self.hardware_model._loss_count(self.operators, self.wires)
+            self._lossy = self._nloss > 0
+            nloss = self._nloss
         if state.ndim == 1:
-            if self._lossy:
-                state = torch.cat([state, state.new_zeros(self._nloss)], dim=-1)
+            if nloss:
+                state = torch.cat([state, state.new_zeros(nloss)], dim=-1)
             if reset_fock_basis:
                 self._out_fock_basis = self._get_all_fock_basis(state)
         elif state.ndim == 2:
-            if self._lossy:
-                state = torch.cat([state, state.new_zeros(state.shape[0], self._nloss)], dim=-1)
+            if nloss:
+                state = torch.cat([state, state.new_zeros(state.shape[0], nloss)], dim=-1)
             nphotons = torch.sum(state, dim=-1, keepdim=True)
             max_photon = torch.max(nphotons).item()
             # expand the Fock state if the photon number is not conserved
@@ -1122,41 +1134,41 @@ class QumodeCircuit(Operation):
 
     def _get_unitary(self, operators: nn.Sequential, model: HardwareModel | None = None) -> torch.Tensor:
         u = None
-        run = model._new_run('fock', self.wires) if model is not None else None
+        run = model._new_run('fock', self.wires, basis=True) if model is not None else None
         bindings = model._bind(operators) if model is not None else None
-        nloss = 0
+        if model is not None:
+            u = model._apply_io_plugins(u, run, 'input')
         for op in operators:
             if isinstance(op, Barrier):
                 continue
+            selected = bindings.get(op, ()) if model is not None else ()
+            if model is not None:
+                u = model._apply_state_plugins(u, op, run, selected, 'before')
             if isinstance(op, PhotonLoss):
-                nloss += 1
-                op.gate.wires = [op.wires[0], op.nmode + nloss - 1]
-                op.gate.nmode = op.nmode + nloss
-                if u is None:
-                    u = op.gate.get_unitary()
-                    continue
-                else:
-                    u = torch.block_diag(u, torch.eye(1, dtype=u.dtype, device=u.device))
-                    idx_r = torch.tensor(op.gate.wires, device=u.device)
-                    idx_c = torch.arange(op.gate.nmode, device=u.device)
-                    u_local = op.gate.update_matrix()
+                u = Loss._apply_unitary(u, op.gate.update_matrix(), op.wires, op.nmode)
             else:
                 if u is None and model is None:
                     u = op.get_unitary()
                     continue
                 u_local = (
-                    op.update_matrix() if model is None else model._apply_operation(None, op, run, bindings.get(op, ()))
+                    op.update_matrix()
+                    if model is None
+                    else model._apply_operation(None, op, run, [(b, p) for b, p in selected if p is not None])
                 )
                 assert u_local.shape[-2] == u_local.shape[-1] == len(op.wires), (
                     'The matrix may not act on creation operators.'
                 )
                 if u is None:
                     u = torch.eye(op.nmode, dtype=u_local.dtype, device=u_local.device)
+                dtype = torch.promote_types(u.dtype, u_local.dtype)
+                u, u_local = u.to(device=u_local.device, dtype=dtype), u_local.to(dtype)
                 idx_r = torch.tensor(op.wires, device=u.device)
-                idx_c = torch.arange(op.nmode + nloss, device=u.device)
-            u_update = u[idx_r[:, None], idx_c]
-            new_val = u_local @ u_update
-            u = u.index_put([idx_r[:, None], idx_c], new_val)
+                idx_c = torch.arange(u.shape[-1], device=u.device)
+                u = u.index_put([idx_r[:, None], idx_c], u_local @ u[idx_r[:, None], idx_c])
+            if model is not None:
+                u = model._apply_state_plugins(u, op, run, selected, 'after')
+        if model is not None:
+            u = model._apply_io_plugins(u, run, 'output')
         if u is None:
             return torch.eye(self.nmode, dtype=torch.cfloat)
         else:
@@ -1277,12 +1289,12 @@ class QumodeCircuit(Operation):
         assert torch.all(final_state >= 0), f'The number of {result_name} must be non-negative'
         assert final_state.max() < self.cutoff, f'The number of {result_name} must be less than cutoff'
         if self.backend == 'fock':
-            if refer_state is None:
-                refer_state = self._prepare_init_state(self.init_state.state)
             if unitary is None:
                 unitary = self.get_unitary()
             else:
                 assert unitary.ndim == 2, 'The unitary matrix must be 2D'
+            if refer_state is None:
+                refer_state = self._prepare_init_state(self.init_state.state, nloss=unitary.shape[-1] - self.nmode)
             if self._is_batch_expanded:
                 identity = torch.eye(1, dtype=unitary.dtype, device=unitary.device)
                 unitary = torch.block_diag(unitary, identity)

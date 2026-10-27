@@ -623,15 +623,18 @@ print('线路对应酉矩阵为:', unitary)
 cir.measure()
 
 # %% [markdown]
-# ### 支持简单的噪声模拟（Gaussian noise）
+# ### 硬件模型与参数高斯噪声
 #
-# 噪声模拟使用 ``QumodeCircuit(noise=True)``，这里默认所有参数的噪声都是高斯分布，平均值 ``mu`` 为0，标准差 ``sigma`` 为0.1，支持自定义整条线路的全局噪声。
+# 先构建理想线路，再通过 ``set_hardware_model(model)`` 配置硬件模型，之后仍正常调用线路。``HardwareModel().gaussian(mu=0, sigma=0.1)`` 为支持的控制参数添加均值为 ``mu``、标准差为 ``sigma`` 的高斯噪声，不修改门的理想参数。原来在线路和门上设置的 ``noise``、``mu``、``sigma`` 已由此接口替代。
 
 # %%
-cir_n = dq.QumodeCircuit(nmode=3, init_state=[1, 0, 1], noise=True, mu=0.3, sigma=0.2)
+cir_n = dq.QumodeCircuit(nmode=3, init_state=[1, 0, 1])
 cir_n.ps(wires=0, encode=True)
 cir_n.ps(1, encode=True)
 cir_n.bs_theta([0, 1], encode=True)
+
+model = dqp.HardwareModel(seed=42).gaussian(mu=0.3, sigma=0.2)
+cir_n.set_hardware_model(model)
 
 # 定义线路参数，并前向演化保存末态
 para = torch.randn(3)
@@ -640,16 +643,18 @@ final_state_n = cir_n(para, is_prob=False)
 print('采样结果为：', cir_n.measure(with_prob=True))
 
 # %% [markdown]
-# 也可以通过量子门的 ``mu`` 和 ``sigma`` 单独指定某些光学器件的噪声，此时会覆盖全局定义的 ``mu`` 和 ``sigma``。
+# 也可以按门类型和模式选择参数，或用 ``on(gate)`` 选择具体的门实例。同一门、同一参数的同类噪声由后配置覆盖前配置。下面单独配置第一个移相器和分束器，第二个移相器仍使用全局配置。
 
 # %%
-cir_n = dq.QumodeCircuit(nmode=3, init_state=[1, 0, 1], noise=True, mu=0.3, sigma=0.2)
-cir_n.ps(wires=0, encode=True, mu=0.2, sigma=0)  # 支持自定义mu和sigma的值，默认为0、0.1
+cir_n = dq.QumodeCircuit(nmode=3, init_state=[1, 0, 1])
+cir_n.ps(wires=0, encode=True)
 cir_n.ps(1, encode=True)
-cir_n.bs_theta([0, 1], encode=True, mu=0, sigma=0.3)
+cir_n.bs_theta([0, 1], encode=True)
 
-print(f'第一个ps门mu = {cir_n.operators[0].mu}, sigma = {cir_n.operators[0].sigma}')  # 覆盖全局mu、sigma
-print(f'第二个ps门mu = {cir_n.operators[1].mu}, sigma = {cir_n.operators[1].sigma}')  # 全局mu、sigma
+model = dqp.HardwareModel(seed=42).gaussian(mu=0.3, sigma=0.2)
+model.ps(0).theta.gaussian(mu=0.2, sigma=0)
+model.on(cir_n.operators[2]).gaussian(mu=0, sigma=0.3)
+cir_n.set_hardware_model(model)
 
 # 定义线路参数，并前向演化保存末态
 para = torch.randn(3)
@@ -677,6 +682,35 @@ for key in final_state_n:
     f += final_state_n[key].conj() * final_state[key]
 fidelity = torch.abs(f) ** 2
 print('加入噪声后的保真度为：', fidelity)
+
+# %% [markdown]
+# ### 光损失
+#
+# 可以用 ``cir.loss_t(wires, inputs)`` 或 ``cir.loss_db(wires, inputs)`` 手动插入损耗通道，也可以通过 ``HardwareModel`` 在输入、输出或选中门的前后配置损耗。``t`` 是透过率，``db`` 是以 dB 表示的损耗，两者只需指定一个。
+#
+# 下面两种方式同时使用，实际损耗依次叠加。``draw()`` 只显示手动插入的通道，不显示硬件模型的插件。同一位置的同类插件由后配置覆盖前配置，输入/输出损耗按模式分别覆盖。
+
+# %%
+cir_loss = dq.QumodeCircuit(2, 'vac', backend='gaussian')
+cir_loss.s(0, r=0.4)
+cir_loss.bs([0, 1], [0.3, 0.2])
+cir_loss.loss_t(1, 0.95)  # 手动插入，可在线路图中显示
+
+model = dqp.HardwareModel()
+model.input(0).loss(t=0.9)
+model.bs().after.loss(t=0.98)
+model.output().loss(db=0.5)
+cir_loss.set_hardware_model(model)
+
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+cir_loss.to(device=device, dtype=torch.double)
+cov, mean = cir_loss()
+print(cov.shape, mean.shape)
+
+# %% [markdown]
+# 绑定后调用 ``cir.to(device=..., dtype=...)`` 会同时转换线路和硬件模型。需要训练的硬件参数可以传入 ``torch.nn.Parameter``，并通过 ``cir.parameters()`` 交给优化器。
+#
+# 损耗支持 Gaussian、Bosonic、Fock 基矢和 Fock 密度矩阵（``basis=False, den_mat=True``）表示，暂不支持 Fock 纯态张量、MPS 和分布式纯态。``cir.set_hardware_model(None)`` 可移除模型，但会保留手动插入的通道。
 
 # %% [markdown]
 # ### 支持GPU计算
@@ -723,7 +757,7 @@ cir.measure()
 
 # %% [markdown]
 # 内置了 ``Clements`` 类可以模拟任意的酉矩阵，通过 ``dq.Clements`` 直接调用。
-# ``nmode`` 表示总的波导数目，``init_state`` 设置初始输入，``cutoff`` 表示对输出的结果做截断，``phi_first`` 表示不同MZI的构造， ``phi_first=True`` 表示PS-BS-PS-BS 结构， ``noise`` 表示是否引入高斯噪声。
+# ``nmode`` 表示总的波导数目，``init_state`` 设置初始输入，``cutoff`` 表示对输出的结果做截断，``phi_first`` 表示不同MZI的构造， ``phi_first=True`` 表示PS-BS-PS-BS 结构。参数噪声通过 ``set_hardware_model`` 配置。
 # 下面是使用 ``Clements`` 类构建相同的CNOT光量子线路的例子。
 
 # %% [markdown]
@@ -1096,7 +1130,7 @@ print('使用chain-rule进行采样', samples)
 # ### 高斯玻色采样(GBS)
 
 # %% [markdown]
-# 基于压缩门和线性光学器件可以构建高斯玻色采样线路，通过`GaussianBosonSampling`可以使用高斯玻色采样模拟，`nmode`表示GBS线路的模数，`squeezing`表示第一列单模压缩门的压缩度，`cutoff`表示每条线路探测到的最大光子数+1，`'pnrd'`表示单光子分辨探测器，默认设为`'pnrd'`，`'threshold'`表示阈值探测器，`noise` 表示是否加入高斯噪声。然后正常运行高斯玻色采样线路采样即可。
+# 基于压缩门和线性光学器件可以构建高斯玻色采样线路，通过`GaussianBosonSampling`可以使用高斯玻色采样模拟，`nmode`表示GBS线路的模数，`squeezing`表示第一列单模压缩门的压缩度，`cutoff`表示每条线路探测到的最大光子数+1，`'pnrd'`表示单光子分辨探测器，默认设为`'pnrd'`，`'threshold'`表示阈值探测器。参数噪声通过 `set_hardware_model` 配置，然后正常运行高斯玻色采样线路采样即可。
 
 # %%
 gbs = dq.GaussianBosonSampling(nmode=6, squeezing=torch.tensor([1] * 6), unitary=torch.eye(6) + 0j)
@@ -1105,7 +1139,7 @@ samples = gbs.measure(shots=100, mcmc=True)
 
 # %% [markdown]
 # `dqp.GBS_Graph`可以构建图问题相关的高斯玻色采样线路，参数 `adj_mat` 表示输入对应的邻接矩阵，`cutoff`表示每条线路探测到的最大光子数+1，`mean_photon_num` 表示每条线路对应的平均光子数之和，默认设为mode数，即每条线路对应的平均光子数为1，`detector` 为
-# `'pnrd'`表示单光子分辨探测器，默认设为`'pnrd'`，`'threshold'`表示阈值探测器，`noise` 表示是否加入高斯分布噪声。
+# `'pnrd'`表示单光子分辨探测器，默认设为`'pnrd'`，`'threshold'`表示阈值探测器。参数噪声通过 `set_hardware_model` 配置。
 
 # %%
 # 采用6个节点的图演示简单的高斯玻色采样

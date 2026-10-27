@@ -10,8 +10,7 @@ import torch
 from torch import nn
 from torch.func import functional_call
 
-import deepquantum.photonic as dqp
-
+from .channel import PhotonLoss
 from .gate import (
     BeamSplitter,
     BeamSplitterPhi,
@@ -81,6 +80,8 @@ class _HardwareRun:
     backend: str
     generator: torch.Generator | None
     wires: tuple[int, ...]
+    nmode: int
+    basis: bool = False
     cache: dict = field(default_factory=dict)
     cache_key: tuple | None = None
 
@@ -101,21 +102,46 @@ class Loss(nn.Module):
         else:
             _check_scalar(self.db, 'db', 0)
 
-    def forward(self, state: list[torch.Tensor], run: _HardwareRun) -> list[torch.Tensor]:
+    def forward(self, state: Any, run: _HardwareRun) -> Any:
         """Apply loss to the bound modes."""
         self._validate()
-        if run.backend != 'gaussian':
-            raise NotImplementedError('Loss currently supports the Gaussian backend.')
-        cov, mean = state
         t = self.t if hasattr(self, 't') else 10 ** (-self.db / 10)
-        nmode = cov.shape[-1] // 2
-        mask = cov.new_zeros(2 * nmode)
-        mask[list(run.wires) + [w + nmode for w in run.wires]] = 1
-        scale = 1 + mask * (t.to(cov).reshape(()).sqrt() - 1)
-        vacuum_variance = dqp.hbar / (4 * dqp.kappa**2)
-        # V -> A V A^T + (I - A A^T) V_vac, with diagonal A.
-        cov = (scale[:, None] * scale) * cov + torch.diag((1 - scale.square()) * vacuum_variance)
-        return [cov, scale[:, None] * mean]
+        if run.backend in ('gaussian', 'bosonic'):
+            nmode, cutoff = state[0].shape[-1] // 2, 2
+            t = t.to(state[0])
+        elif run.backend == 'fock':
+            nmode, cutoff = run.nmode, 2
+            if not run.basis:
+                if not isinstance(state, torch.Tensor) or state.ndim != 2 * nmode + 1:
+                    raise NotImplementedError('Fock tensor loss requires density matrix representation (den_mat=True).')
+                cutoff = state.shape[-1]
+            if state is not None:
+                t = t.to(state.real)
+        else:
+            raise NotImplementedError(f'Loss does not support backend {run.backend}.')
+        channel = PhotonLoss(t, nmode=nmode, cutoff=cutoff, convention='t')
+        if run.basis:
+            return self._apply_unitary(state, channel.gate.update_matrix(), run.wires, nmode)
+        for wire in run.wires:
+            channel.wires = [wire]
+            state = channel(state)
+        return state
+
+    @staticmethod
+    def _apply_unitary(
+        unitary: torch.Tensor | None, matrix: torch.Tensor, wires: Sequence[int], nmode: int
+    ) -> torch.Tensor:
+        """Extend a Fock basis unitary with one vacuum environment mode per loss."""
+        if unitary is None:
+            unitary = torch.eye(nmode, dtype=matrix.dtype, device=matrix.device)
+        dtype = torch.promote_types(unitary.dtype, matrix.dtype)
+        unitary, matrix = unitary.to(device=matrix.device, dtype=dtype), matrix.to(dtype)
+        for wire in wires:
+            unitary = torch.block_diag(unitary, unitary.new_ones(1, 1))
+            rows = torch.tensor([wire, unitary.shape[-1] - 1], device=unitary.device)
+            columns = torch.arange(unitary.shape[-1], device=unitary.device)
+            unitary = unitary.index_put((rows[:, None], columns), matrix @ unitary[rows])
+        return unitary
 
 
 class GaussianNoise(nn.Module):
@@ -577,23 +603,48 @@ class HardwareModel(nn.Module):
                     matches[gate][key] = (binding, parameter)
         return {gate: list(bindings.values()) for gate, bindings in matches.items()}
 
-    def _new_run(self, backend: str, wires: Sequence[int]) -> _HardwareRun:
-        return _HardwareRun(backend, self._generator, tuple(wires))
+    def _new_run(self, backend: str, wires: Sequence[int], basis: bool = False) -> _HardwareRun:
+        return _HardwareRun(backend, self._generator, tuple(wires), len(wires), basis)
 
-    def _apply_io_plugins(self, state: Any, run: _HardwareRun, where: str) -> Any:
-        """Apply the last plugin of each type to each input or output mode."""
+    def _io_bindings(self, wires: Sequence[int], where: str) -> list[tuple[_PluginBinding, tuple[int, ...]]]:
+        """Resolve the last plugin of each type on each input or output mode."""
         covered = defaultdict(set)
         selected = []
         for binding in reversed(list(self.bindings.values())):
             if binding.where == where and not binding.op_types:
-                wires = run.wires if binding.wires is None else tuple(run.wires[w] for w in binding.wires)
+                selected_wires = tuple(wires) if binding.wires is None else tuple(wires[w] for w in binding.wires)
                 covered_wires = covered[type(binding.plugin)]
-                active_wires = tuple(wire for wire in wires if wire not in covered_wires)
-                covered_wires.update(wires)
+                active_wires = tuple(wire for wire in selected_wires if wire not in covered_wires)
+                covered_wires.update(selected_wires)
                 if active_wires:
                     selected.append((binding, active_wires))
-        for binding, wires in reversed(selected):
+        return list(reversed(selected))
+
+    def _loss_count(self, operators: Sequence[Operation], wires: Sequence[int]) -> int:
+        """Count vacuum environment modes needed by Fock basis loss."""
+        count = sum(
+            len(op.wires)
+            for op, bindings in self._bind(operators).items()
+            for binding, _ in bindings
+            if binding.where is not None and isinstance(binding.plugin, Loss)
+        )
+        return count + sum(
+            len(selected)
+            for where in ('input', 'output')
+            for binding, selected in self._io_bindings(wires, where)
+            if isinstance(binding.plugin, Loss)
+        )
+
+    def _apply_io_plugins(self, state: Any, run: _HardwareRun, where: str) -> Any:
+        for binding, wires in self._io_bindings(run.wires, where):
             state = binding.plugin(state, replace(run, wires=wires, cache_key=(binding, None, None)))
+        return state
+
+    def _apply_state_plugins(self, state, op, run, bindings, where, source=None):
+        """Apply state plugins at one gate boundary."""
+        for binding, _ in bindings:
+            if binding.where == where:
+                state = binding(state, run, op, source=source)
         return state
 
     def _apply_operation(
@@ -605,19 +656,14 @@ class HardwareModel(nn.Module):
         source: Operation | None = None,
     ) -> Any:
         """Execute one operation with one coherent realization of its controls."""
-        for binding, _ in bindings:
-            if binding.where == 'before':
-                state = binding(state, run, op, source=source)
+        state = self._apply_state_plugins(state, op, run, bindings, 'before', source)
         overrides = {}
         for binding, parameter in bindings:
             if parameter is not None:
                 value = overrides.get(parameter, getattr(op, parameter))
                 overrides[parameter] = binding(value, run, op, parameter, source)
         state = functional_call(op, overrides, (state,)) if overrides else op(state)
-        for binding, _ in bindings:
-            if binding.where == 'after':
-                state = binding(state, run, op, source=source)
-        return state
+        return self._apply_state_plugins(state, op, run, bindings, 'after', source)
 
     def forward(
         self,

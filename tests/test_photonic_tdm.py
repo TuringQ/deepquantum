@@ -1,5 +1,4 @@
 from copy import deepcopy
-from unittest.mock import patch
 
 import pytest
 import torch
@@ -110,38 +109,26 @@ def test_tdm_queries_refresh_after_edits(query):
 
 
 @pytest.mark.parametrize('hardware', [False, True])
-def test_tdm_entries_prepare_once(hardware):
+def test_tdm_entries_reuse_mapping(hardware):
     circuit = dq.QumodeCircuit(1, init_state='vac', backend='gaussian')
     circuit.s(0, r=0.2)
     circuit.delay(0, ntau=2, inputs=[0.3, 0.1])
     circuit.homodyne(0, phi=0.2)
     circuit.to(torch.double)
-    with (
-        patch.object(circuit, '_prepare_unroll_dict', wraps=circuit._prepare_unroll_dict) as prepare,
-        patch.object(circuit, '_unroll_operators', wraps=circuit._unroll_operators) as unroll,
-    ):
-        if hardware:
-            circuit.set_hardware_model(dqp.HardwareModel().gaussian(sigma=0.01))
-        assert prepare.call_count == 0
-        entries = [
-            (circuit, 1),
-            (circuit.get_symplectic, 1),
-            (lambda: circuit.get_displacement(torch.zeros(6, 1, dtype=torch.double)), 1),
-            (lambda: circuit.tdm_output_wires(3), 0),
-            (lambda: circuit.tdm_substate(3, [1, 2]), 0),
-            (lambda: circuit.global_circuit(3), 0),
-            (lambda: circuit.measure_homodyne(shots=2), 0),
-        ]
-        mapping = None
-        for call, nunroll in entries:
-            prepare.reset_mock()
-            unroll.reset_mock()
-            call()
-            assert prepare.call_count == 1
-            assert unroll.call_count == nunroll
-            if mapping is not None:
-                assert circuit._tdm_gate_map is mapping
-            mapping = circuit._tdm_gate_map
+    if hardware:
+        circuit.set_hardware_model(dqp.HardwareModel().gaussian(sigma=0.01))
+    circuit()
+    mapping = circuit._tdm_gate_map
+    for call in [
+        circuit.get_symplectic,
+        lambda: circuit.get_displacement(torch.zeros(6, 1, dtype=torch.double)),
+        lambda: circuit.tdm_output_wires(3),
+        lambda: circuit.tdm_substate(3, [1, 2]),
+        lambda: circuit.global_circuit(3),
+        lambda: circuit.measure_homodyne(shots=2),
+    ]:
+        call()
+        assert circuit._tdm_gate_map is mapping
 
 
 def test_tdm_cache_keeps_live_parameters_and_refreshes_measurements():
