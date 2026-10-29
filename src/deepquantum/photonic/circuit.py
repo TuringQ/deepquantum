@@ -18,7 +18,7 @@ import deepquantum.photonic as dqp
 
 from ..qmath import block_sample, get_prob_mps, inner_product_mps, is_positive_definite, sample_sc_mcmc
 from ..state import MatrixProductState
-from .bargmann import conditional_fock
+from .bargmann import BargmannState, conditional_fock, op_to_kernel
 from .channel import DisplacementChannel, OPA, PhotonLoss
 from .decompose import UnitaryDecomposer
 from .distributed import measure_dist
@@ -94,8 +94,8 @@ class QumodeCircuit(Operation):
             with ``[cov, mean, weight]``, or a list of local Bosonic states.
             Use ``xxpp`` convention and :math:`\hbar=2` by default.
         cutoff: The Fock space truncation. Default: ``None``
-        backend: Use ``'fock'`` for Fock backend, ``'gaussian'`` for Gaussian backend or
-            ``'bosonic'`` for Bosonic backend. Default: ``'fock'``
+        backend: Use ``'fock'`` for Fock backend, ``'gaussian'`` for Gaussian backend,
+            ``'bosonic'`` for Bosonic backend or ``'bargmann'`` for Bargmann backend. Default: ``'fock'``
         basis: Whether to use the representation of Fock basis state for the initial state. Default: ``True``
         den_mat: Whether to use density matrices for Fock tensors and heralded outputs.
             Gaussian evolution still uses covariance and mean. Default: ``False``
@@ -204,6 +204,17 @@ class QumodeCircuit(Operation):
     def set_init_state(self, init_state: Any) -> None:
         """Set the initial state of the circuit."""
         self._herald_state = None
+        if self.backend == 'bargmann' and not isinstance(init_state, BargmannState):
+            assert not self.mps, 'MPS is not supported by the Bargmann backend'
+            init_state = BargmannState(init_state, nmode=self.nmode, cutoff=self.cutoff, den_mat=self.den_mat)
+        if isinstance(init_state, BargmannState):
+            assert self.nmode == init_state.nmode
+            self.backend = 'bargmann'
+            self.mps = False
+            self.den_mat = init_state.den_mat
+            self.cutoff = init_state.cutoff
+            self.init_state = init_state
+            return
         if isinstance(init_state, (FockState, GaussianState, BosonicState, MatrixProductState)):
             if isinstance(init_state, MatrixProductState):
                 assert self.nmode == init_state.nsite
@@ -365,6 +376,8 @@ class QumodeCircuit(Operation):
             return self._forward_fock(data, state, is_prob, sort)
         elif self.backend in ('gaussian', 'bosonic'):
             return self._forward_cv(data, state, is_prob, detector, stepwise or bool(self.sources))
+        elif self.backend == 'bargmann':
+            return self._forward_bargmann(data, state, is_prob)
 
     def _apply(self, fn: Any, recurse: bool = True) -> 'QumodeCircuit':
         self._herald_state = None
@@ -531,6 +544,8 @@ class QumodeCircuit(Operation):
         cov, mean = self._herald_state
         state, probability = conditional_fock(cov, mean, wires, herald, cutoff, den_mat=self.den_mat)
         return self._finish_herald(state, probability, wires, normalize, return_info, 'bargmann')
+        elif self.backend == 'bargmann':
+            return self._forward_bargmann(data, state, is_prob)
 
     def _apply(self, fn: Any, recurse: bool = True) -> 'QumodeCircuit':
         self._herald_state = None
@@ -980,6 +995,67 @@ class QumodeCircuit(Operation):
             cov = sp_mat @ cov @ sp_mat.mT
             mean = self._get_displacement(mean, operators)
         return [cov.squeeze(0), mean.squeeze(0)]
+
+    def _forward_bargmann(
+        self, data: torch.Tensor | None = None, state: Any = None, is_prob: bool | None = None
+    ) -> BargmannState:
+        """Perform a forward pass based on the Bargmann backend.
+
+        Gates and channels act on the Bargmann kernel by Gaussian integration; no Fock
+        truncation is involved. Read out Fock amplitudes with ``state.to_fock(cutoff)``.
+
+        Args:
+            data: The input data for the ``encoders``. Default: ``None``
+            state: The initial state, a ``BargmannState`` or any input accepted by it. Default: ``None``
+            is_prob: Not supported yet. Default: ``None``
+
+        Returns:
+            The final ``BargmannState`` (not normalized).
+        """
+        if is_prob:
+            raise NotImplementedError('is_prob is not supported by the Bargmann backend yet; use state.to_fock()')
+        if self.mps or self._with_delay or isinstance(self, DistributedQumodeCircuit):
+            raise NotImplementedError('The Bargmann backend does not support MPS, delay or distributed circuits')
+        if len(self.measurements) > 0:
+            raise NotImplementedError('Homodyne measurements are not supported by the Bargmann backend')
+        if state is None:
+            state = self.init_state
+        elif not isinstance(state, BargmannState):
+            state = BargmannState(state, nmode=self.nmode, cutoff=self.cutoff, den_mat=self.den_mat)
+        if state.nmode != self.nmode:
+            raise ValueError('The number of modes of the state does not match the circuit')
+        if state.den_mat != self.den_mat:
+            if not self.den_mat:
+                raise ValueError('A density-matrix state requires den_mat=True')
+            state = state.to_dm()
+        if self.ndata == 0:
+            data = None
+        if data is None or data.ndim == 1:
+            self.state = self._forward_helper_bargmann(data, state)
+        else:
+            assert data.ndim == 2
+            if state.batch_size not in (1, data.shape[0]):
+                raise ValueError('The batch sizes of data and state do not match')
+            outputs = []
+            for i in range(data.shape[0]):
+                sample = state if state.batch_size == 1 else state.select(i)
+                outputs.append(self._forward_helper_bargmann(data[i], sample))
+            self.state = BargmannState.cat(outputs)
+        return self.state
+
+    def _forward_helper_bargmann(self, data: torch.Tensor | None, state: BargmannState) -> BargmannState:
+        """Perform a forward pass for one sample with the Bargmann backend."""
+        self.encode(data)
+        for op in self.operators:
+            item = op_to_kernel(op)
+            if item is None:
+                continue
+            kernel, kind = item
+            if kind == 'channel':
+                state = state.apply_channel(kernel, op.wires)
+            else:
+                state = state.apply_unitary(kernel, op.wires)
+        return state
 
     def _forward_cv_prob(
         self, cov: torch.Tensor, mean: torch.Tensor, weight: torch.Tensor | None = None, detector: str | None = None
@@ -3620,7 +3696,7 @@ class QumodeCircuit(Operation):
 
         The `inputs` corresponds to `theta` of the loss channel.
         """
-        if self.backend == 'fock' and not self.basis:
+        if (self.backend == 'fock' and not self.basis) or self.backend == 'bargmann':
             assert self.den_mat, 'Please use the density matrix representation'
         self._lossy = True
         self._nloss += 1
@@ -3635,7 +3711,7 @@ class QumodeCircuit(Operation):
 
         The `inputs` corresponds to the transmittance of the loss channel.
         """
-        if self.backend == 'fock' and not self.basis:
+        if (self.backend == 'fock' and not self.basis) or self.backend == 'bargmann':
             assert self.den_mat, 'Please use the density matrix representation'
         self._lossy = True
         self._nloss += 1
@@ -3663,7 +3739,7 @@ class QumodeCircuit(Operation):
 
         The `inputs` corresponds to the probability of loss with the unit of dB and is positive.
         """
-        if self.backend == 'fock' and not self.basis:
+        if (self.backend == 'fock' and not self.basis) or self.backend == 'bargmann':
             assert self.den_mat, 'Please use the density matrix representation'
         self._lossy = True
         self._nloss += 1
