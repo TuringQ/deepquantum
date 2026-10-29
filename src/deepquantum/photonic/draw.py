@@ -15,6 +15,7 @@ from torch import nn
 info_dic = {
     'PS': ['teal', 0],
     'S': ['royalblue', 3],
+    'OPA': ['royalblue', -4],
     'S2': ['royalblue', 0],
     'D': ['green', 3],
     'U': ['cadetblue', 0],
@@ -53,7 +54,7 @@ class DrawCircuit:
 
     def draw(self, depth=None, ops=None, measurements=None):
         """Draw circuit."""
-        from .channel import PhotonLoss
+        from .channel import OPA, PhotonLoss
         from .gate import (
             Barrier,
             BeamSplitter,
@@ -123,10 +124,13 @@ class DrawCircuit:
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = order + 1
-            elif isinstance(op, (Squeezing, Displacement)):
+            elif isinstance(op, (Squeezing, Displacement, OPA)):
                 para_dic = {'r': op.r.item(), 'θ': op.theta.item()}
                 order = depth[op.wires[0]]
                 name_ = 'S' if isinstance(op, Squeezing) else 'D'
+                if isinstance(op, OPA):
+                    name_ = 'OPA'
+                    para_dic['dB'] = op.db.item()
                 self.draw_sq(order, op.wires, para_dic, name=name_)
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:

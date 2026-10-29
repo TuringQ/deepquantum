@@ -15,7 +15,7 @@ import deepquantum.photonic as dqp
 
 from ..qmath import block_sample, get_prob_mps, inner_product_mps, is_positive_definite, sample_sc_mcmc
 from ..state import MatrixProductState
-from .channel import PhotonLoss
+from .channel import OPA, PhotonLoss
 from .decompose import UnitaryDecomposer
 from .distributed import measure_dist
 from .draw import DrawCircuit
@@ -564,10 +564,10 @@ class QumodeCircuit(Operation):
         self, data: torch.Tensor | None = None, state: list[torch.Tensor] | None = None, stepwise: bool = False
     ) -> list[torch.Tensor]:
         """Perform a forward pass for one sample if the input is a Gaussian state."""
-        if self._lossy:
-            stepwise = True
         self.encode(data)
         operators = self._unroll_operators()
+        if any(isinstance(op, Channel) for op in operators):
+            stepwise = True
         cov, mean = (self.init_state.cov, self.init_state.mean) if state is None else state
         if self.backend == 'bosonic' and cov.ndim == 3:
             cov = cov.unsqueeze(0)
@@ -833,8 +833,9 @@ class QumodeCircuit(Operation):
         if size[-1] == size_tdm:
             return state
         else:
-            cov_tdm = cov.new_ones(size[:-2].numel() * size_tdm).reshape(*size[:-2], size_tdm).diag_embed()
-            mean_tdm = mean.new_zeros(*size[:-2], size_tdm, 1)
+            cov_tdm = cov.new_full((*size[:-2], size_tdm), dqp.hbar / (4 * dqp.kappa**2)).diag_embed()
+            # Bosonic states can share one covariance across multiple complex means.
+            mean_tdm = mean.new_zeros(*mean.shape[:-2], size_tdm, 1)
             cov_tdm[..., idx[:, None], idx] = cov
             mean_tdm[..., idx, :] = mean
             return [cov_tdm, mean_tdm]
@@ -1146,6 +1147,8 @@ class QumodeCircuit(Operation):
                 u = model._apply_state_plugins(u, op, run, selected, 'before')
             if isinstance(op, PhotonLoss):
                 u = PhotonLoss._apply_unitary(u, op.gate.update_matrix(), op.wires, op.nmode)
+            elif isinstance(op, Channel):
+                raise NotImplementedError(f'{op.name} does not support Fock basis evolution.')
             else:
                 if u is None and model is None:
                     u = op.get_unitary()
@@ -1175,7 +1178,7 @@ class QumodeCircuit(Operation):
             return u
 
     def get_symplectic(self) -> torch.Tensor:
-        """Get the symplectic matrix of the ideal photonic quantum circuit."""
+        """Get the ideal circuit's symplectic matrix, requiring no explicit channels."""
         self._prepare_unroll_dict()
         return self._get_symplectic(self._unroll_operators())
 
@@ -1184,6 +1187,10 @@ class QumodeCircuit(Operation):
         for op in operators:
             if isinstance(op, Barrier):
                 continue
+            if isinstance(op, Channel):
+                raise ValueError(
+                    'A circuit containing channels has no symplectic-only representation; call the circuit.'
+                )
             s = op.get_symplectic() if s is None else op.get_symplectic() @ s
         if s is None:
             return torch.eye(2 * self._nmode_tdm, dtype=torch.float)
@@ -1213,7 +1220,12 @@ class QumodeCircuit(Operation):
         for op in operators:
             if isinstance(op, Barrier):
                 continue
-            mean = op.get_symplectic().to(mean.dtype) @ mean + op.get_displacement()
+            if isinstance(op, Channel):
+                matrix_x, _ = op.update_transform_xy()
+                indices = torch.tensor(op.wires + [wire + nmode for wire in op.wires], device=mean.device)
+                mean = mean.index_copy(-2, indices, matrix_x.to(mean.dtype) @ mean.index_select(-2, indices))
+            else:
+                mean = op.get_symplectic().to(mean.dtype) @ mean + op.get_displacement()
         return mean
 
     def _get_permanent_norms(self, init_state: torch.Tensor, final_state: torch.Tensor) -> torch.Tensor:
@@ -2291,6 +2303,12 @@ class QumodeCircuit(Operation):
             AssertionError: If the input arguments are invalid or incompatible with the quantum circuit.
         """
         assert isinstance(op, Operation)
+        if self.backend == 'fock':
+            operations = op.gates if isinstance(op, Delay) else [op]
+            if any(isinstance(operation, OPA) for operation in operations):
+                raise NotImplementedError(
+                    'OPA supports Gaussian and Bosonic states only; Fock support is not implemented.'
+                )
         if wires is not None:
             assert isinstance(op, Gate)
             wires = self._convert_indices(wires)
@@ -2557,6 +2575,45 @@ class QumodeCircuit(Operation):
             requires_grad=requires_grad,
         )
         self.add(s, encode=encode)
+
+    def opa(
+        self,
+        wires: int,
+        r: Any = None,
+        theta: Any = None,
+        loss: Any = None,
+        convention: str = 'theta',
+        encode: bool = False,
+    ) -> None:
+        """Add a single-mode OPA channel with distributed loss."""
+        requires_grad = not encode
+        if r is None and theta is None and loss is None:
+            inputs = None
+        else:
+            requires_grad = False
+            inputs = [torch.rand(1)[0] if r is None else r, 0 if theta is None else theta, loss]
+            if loss is None:
+                inputs[2] = 1 if convention == 't' else 0
+        opa = OPA(
+            inputs=inputs,
+            nmode=self.nmode,
+            wires=wires,
+            cutoff=self.cutoff,
+            convention=convention,
+            requires_grad=requires_grad,
+        )
+        self.add(opa, encode=encode)
+
+    def opa_db(
+        self,
+        wires: int,
+        gain_db: Any = None,
+        theta: Any = None,
+        loss_db: Any = None,
+        encode: bool = False,
+    ) -> None:
+        """Add an OPA channel with net coherent power gain and distributed loss in dB."""
+        self.opa(wires, r=gain_db, theta=theta, loss=loss_db, convention='gain_db', encode=encode)
 
     def s2(self, wires: list[int], r: Any = None, theta: Any = None, encode: bool = False) -> None:
         """Add a two-mode squeezing gate."""

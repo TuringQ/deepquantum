@@ -651,16 +651,23 @@ def test_standalone_gate_noise_and_gradients(gate_type):
     gate = gate_type(inputs=inputs.squeeze() if len(names) == 1 else inputs, nmode=2, cutoff=3).to(torch.double)
     mu, sigma = [torch.nn.Parameter(torch.tensor(value)) for value in [0.02, 0.03]]
     model = dqp.HardwareModel(seed=9).on(gate).gaussian(mu, sigma)
-    state = torch.arange(1, 10, dtype=torch.double).reshape(1, 3, 3).to(torch.cdouble)
-    state = state / state.norm()
-    actual = model(state, gate, backend='fock')
+    if isinstance(gate, dqp.OPA):
+        state = [torch.eye(4, dtype=torch.double), torch.arange(4, dtype=torch.double).reshape(4, 1) / 10]
+        backend = 'gaussian'
+    else:
+        state = torch.arange(1, 10, dtype=torch.double).reshape(1, 3, 3).to(torch.cdouble)
+        state = state / state.norm()
+        backend = 'fock'
+    actual = model(state, gate, backend=backend)
     generator = torch.Generator().manual_seed(9)
     overrides = {name: getattr(gate, name) + mu + sigma * torch.randn((), generator=generator) for name in names}
     expected = functional_call(gate, overrides, (state,))
     torch.testing.assert_close(actual, expected)
     variables = (inputs, mu, sigma)
-    actual_grad = torch.autograd.grad(actual.real.sum(), variables, retain_graph=True)
-    expected_grad = torch.autograd.grad(expected.real.sum(), variables)
+    actual_loss = sum(value.real.sum() for value in actual) if isinstance(actual, list) else actual.real.sum()
+    expected_loss = sum(value.real.sum() for value in expected) if isinstance(expected, list) else expected.real.sum()
+    actual_grad = torch.autograd.grad(actual_loss, variables, retain_graph=True)
+    expected_grad = torch.autograd.grad(expected_loss, variables)
     assert_state_close(actual_grad, expected_grad)
 
 

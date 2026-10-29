@@ -21,7 +21,7 @@ from . import (
     utils,
 )
 from .ansatz import Clements, GaussianBosonSampling, GraphGBS
-from .channel import PhotonLoss
+from .channel import OPA, PhotonLoss
 from .circuit import DistributedQumodeCircuit, QumodeCircuit
 from .decompose import UnitaryDecomposer
 from .draw import DrawClements

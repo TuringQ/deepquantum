@@ -737,6 +737,96 @@ print(cov.shape, mean.shape)
 # ``cir.set_hardware_model(None)`` 可移除模型，但会保留手动插入的通道。
 
 # %% [markdown]
+# ### 单模 OPA：分布式压缩与损耗信道
+#
+# OPA 可作为压缩光源，也可放在读出之前放大选定 quadrature。
+# 这里使用单模、未耗尽经典泵浦、均匀压缩与真空损耗模型。
+#
+# `cir.opa(wires, r=None, theta=None, loss=None, convention='theta', encode=False)` 的 `r`、`theta` 与压缩门 `cir.s` 一致。
+# 正 `r`、`theta=0` 压缩 x 并放大 p；`theta=torch.pi` 放大 x。
+# `loss` 是器件内部的分布式损耗，`convention` 指定它的单位：`'theta'` 为内部角度，`'t'` 为关泵功率透射率，`'db'` 为关泵功率损耗 dB。
+# 指定部分参数时，省略的 `theta` 为 0，省略的 `loss` 为零损耗，省略的 `r` 随机初始化。
+#
+# 下面制备压缩光，再通过 `HardwareModel` 加上器件出口之后的外部损耗：
+#
+
+# %%
+cir_opa = dq.QumodeCircuit(1, 'vac', backend='gaussian')
+cir_opa.opa(0, r=0.6, theta=0.0, loss=0.5, convention='db')
+model_opa = dqp.HardwareModel()
+model_opa.opa(0).after.loss(t=0.9)
+cir_opa.set_hardware_model(model_opa)
+cir_opa.double()
+cov_opa, mean_opa = cir_opa()
+print(cov_opa.shape, mean_opa.shape)  # (1, 2, 2), (1, 2, 1)
+print('Output variances =', cov_opa[0].diagonal())
+
+# %% [markdown]
+# 实验中也可以通过 `cir.opa_db(wires, gain_db=..., theta=..., loss_db=...)` 配置。
+# `gain_db` 是沿放大轴、从器件输入到输出的相干种子净功率增益，包含本器件内的分布式损耗；`loss_db` 是相同参考面之间的关泵功率损耗。
+# 增益应来自平均场或扣除自发背景的种子功率，且不包含另外建模的外部输入、输出损耗。
+# 如果测的是“开泵输出 / 关泵输出”的增益 dB，先减去 `loss_db` 再传给 `gain_db`。
+# 真空输出的压缩 dB 与这里的种子增益是不同实验量。
+#
+# 例如，接收前面的状态，并在 x 同相探测前放大 x：
+#
+
+# %%
+cir_opa_readout = dq.QumodeCircuit(1, [cov_opa, mean_opa], backend='gaussian')
+cir_opa_readout.opa_db(0, gain_db=6.0, theta=torch.pi, loss_db=0.5)
+cir_opa_readout.loss_t(0, 0.8)  # 后续探测链的功率透射率
+cir_opa_readout.double()
+cov_opa_readout, mean_opa_readout = cir_opa_readout()
+print('Readout x variance =', cov_opa_readout[0, 0, 0])
+
+# %% [markdown]
+# 三个内部参数始终是 `r`、`theta`、`loss_theta`，损耗用角度保持透射率在 `[0, 1]` 内。
+# `cir.opa(0)` 或 `cir.opa_db(0)` 随机初始化三个可训练参数；传入具体数值时，三者均为固定 buffer。
+# 需要指定初值并训练时，可用 `cir.add(dqp.OPA([r, theta, loss], convention='db', requires_grad=True))`；多模线路同时设置该操作的 `nmode`、`wires`。
+# 优化器使用 `cir.parameters()`。
+#
+# `encode=True` 每次消耗三项数据：`opa` 使用 `[r, theta, loss]`，`opa_db` 使用 `[gain_db, theta, loss_db]`。
+# 透射率/dB 到损耗角度的换算在边界有奇异导数，边界处的可微编码可用 `opa(..., convention='theta', encode=True)`。
+# 下面对实验格式的编码数据求梯度：
+#
+
+# %%
+cir_opa_encode = dq.QumodeCircuit(1, 'vac', backend='gaussian')
+cir_opa_encode.opa_db(0, encode=True)
+cir_opa_encode.double()
+data_opa = torch.tensor([6.0, 0.2, 0.5], dtype=torch.double, requires_grad=True)
+cov_opa_encode, _ = cir_opa_encode(data=data_opa)
+cov_opa_encode.sum().backward()
+print(data_opa.grad)  # 三个输入参数的梯度
+
+# %% [markdown]
+# TDM 中，普通 OPA 在时间步间共享三个参数，编码 OPA 每步读取三项数据。
+# 延时环内也可以直接添加 `dqp.OPA`。
+# 下面编码光源，并提取第 0、2 个时间步的输出子态：
+#
+
+# %%
+cir_opa_tdm = dq.QumodeCircuit(1, 'vac', backend='gaussian')
+cir_opa_tdm.opa(0, convention='db', encode=True)
+cir_opa_tdm.delay(0, ntau=2, inputs=[0.3, 0.1], loop_gates=[dqp.OPA([0.1, 0.2, 0.2], convention='db')])
+cir_opa_tdm.double()
+data_opa_tdm = torch.tensor([0.3, 0.0, 0.5, 0.4, 0.1, 0.6, 0.5, 0.2, 0.7], dtype=torch.double)
+cov_opa_tdm, mean_opa_tdm = cir_opa_tdm.tdm_substate(3, [0, 2], data=data_opa_tdm)
+print(cov_opa_tdm.shape, mean_opa_tdm.shape)  # (1, 4, 4), (1, 4, 1)
+
+# %% [markdown]
+# `model.opa().r`、`.theta`、`.loss_theta` 可分别配置三个内部参数的噪声。
+# `model.delay().opa(index=0)` 选择环内 OPA，`before/after.loss(...)` 设置完整器件前后的外部损耗。
+#
+# 支持 Gaussian、Bosonic、TDM 全局展开及带 Homodyne 测量的逐步演化；`tdm_substate()` 当前用于 Gaussian。
+# Fock 后端和 Bargmann 桥接尚未实现。
+# 含显式信道的线路不能仅用 `get_symplectic()` 表示；需要局部信道矩阵时，调用 `OPA.update_transform_xy()`。
+#
+# 如需改变正交分量归一化，应先调用 `dqp.set_hbar(...)`、`dqp.set_kappa(...)`，再建立状态和线路。
+# 这些设置不会自动转换已有的状态张量。
+#
+
+# %% [markdown]
 # ### 支持GPU计算
 #
 #
