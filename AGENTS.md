@@ -71,6 +71,7 @@ Photonic hardware models:
 - Configure `dqp.HardwareModel()`, attach it with `cir.set_hardware_model(model)`, and call `cir(...)` normally. This replaces the old photonic gate/circuit `noise`, `mu` and `sigma` arguments.
 - Use `model.gaussian(mu=..., sigma=...)` for all supported controls or `model.ps(0).theta.gaussian(...)` for selected controls. Configure loss with `model.bs().after.loss(t=...)` or `model.output().loss(db=...)`.
 - Hardware loss reuses `PhotonLoss` and supports Gaussian, Bosonic, Fock basis and Fock density-matrix simulation. Parameter-noise support follows the underlying gates.
+- Use `cir.opa(wires, r=..., theta=..., loss=..., convention='theta'/'t'/'db')` for a single-mode OPA channel with uniform distributed vacuum loss. Gaussian, Bosonic and TDM paths are supported; `model.opa()` selects its control noise and external before/after loss. `cir.opa_db(wires, gain_db=..., theta=..., loss_db=...)` accepts net coherent power gain and pump-off loss in dB. Fock support is not implemented.
 - Supply `nn.Parameter` for trainable `mu/sigma` and use `loss(..., requires_grad=True)` to train the internal loss angle `theta`. Attach the model before creating the optimizer. Use `model.manual_seed(seed)` to reset hardware sampling independently of measurement sampling.
 
 Photonic TDM:

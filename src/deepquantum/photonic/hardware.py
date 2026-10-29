@@ -10,7 +10,7 @@ import torch
 from torch import nn
 from torch.func import functional_call
 
-from .channel import PhotonLoss
+from .channel import OPA, PhotonLoss
 from .gate import (
     BeamSplitter,
     BeamSplitterPhi,
@@ -41,6 +41,7 @@ _PARAMETERS = {
     BeamSplitterPhi: ('phi',),
     BeamSplitterSingle: ('theta',),
     Squeezing: ('r', 'theta'),
+    OPA: ('r', 'theta', 'loss_theta'),
     Squeezing2: ('r', 'theta'),
     Displacement: ('r', 'theta'),
     DisplacementPosition: ('r',),
@@ -391,6 +392,15 @@ class _AmplitudePhaseConfig(_PhaseConfig):
         return _ParameterConfig(self.model, self.op_type, self.wires, 'r', self.delay, self.index, self.bound_ops)
 
 
+class _OPAConfig(_AmplitudePhaseConfig):
+    @property
+    def loss_theta(self) -> _ParameterConfig:
+        """Select the internal loss angle."""
+        return _ParameterConfig(
+            self.model, self.op_type, self.wires, 'loss_theta', self.delay, self.index, self.bound_ops
+        )
+
+
 class _HomodyneConfig(_OperationConfig):
     @property
     def phi(self) -> _ParameterConfig:
@@ -438,6 +448,10 @@ class _DelayConfig:
     def s(self, index: int | None = None) -> _AmplitudePhaseConfig:
         """Select internal single-mode squeezers."""
         return _AmplitudePhaseConfig(self.model, Squeezing, None, (self.wires, self.index), index)
+
+    def opa(self, index: int | None = None) -> _OPAConfig:
+        """Select internal OPA channels for control noise or before/after plugins."""
+        return _OPAConfig(self.model, OPA, None, (self.wires, self.index), index)
 
     def d(self, index: int | None = None) -> _AmplitudePhaseConfig:
         """Select internal displacements."""
@@ -505,6 +519,10 @@ class HardwareModel(nn.Module):
     def s(self, wires: int | None = None) -> _AmplitudePhaseConfig:
         """Select single-mode squeezers."""
         return _AmplitudePhaseConfig(self, Squeezing, wires)
+
+    def opa(self, wires: int | None = None) -> _OPAConfig:
+        """Select explicit OPA channels for control noise or before/after plugins."""
+        return _OPAConfig(self, OPA, wires)
 
     def s2(self, wires: list[int] | None = None) -> _AmplitudePhaseConfig:
         """Select two-mode squeezers."""
