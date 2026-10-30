@@ -73,7 +73,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torch.nn.functional as F
+import torch.nn.functional as functional
 from torch import nn
 
 DATA_DIR = None  # 可设为包含 LiH_data_0.1.pkl 等文件的绝对路径
@@ -81,7 +81,7 @@ cwd = Path.cwd().resolve()
 repo_root = next((p for p in (cwd, *cwd.parents) if (p / 'src/deepquantum').is_dir()), None)
 if repo_root is not None:
     sys.path.insert(0, str(repo_root / 'src'))
-import deepquantum as dq
+import deepquantum as dq  # noqa: E402
 
 if DATA_DIR is None:
     candidates = [cwd / 'data_lih']
@@ -220,19 +220,25 @@ def load_problem(r):
     if not np.isfinite([constant, reference]).all():
         raise ValueError('能量数据必须有限')
     weights = torch.tensor(weights, dtype=DTYPE, device=DEVICE)
-    hamiltonian = sum(w * reduce(torch.kron, [PAULI[p] for p in s]) for w, s in zip(weights, strings))
+    hamiltonian = sum(w * reduce(torch.kron, [PAULI[p] for p in s]) for w, s in zip(weights, strings, strict=True))
     exact = torch.linalg.eigvalsh(hamiltonian)[0].item() + constant
     if not np.isclose(exact, reference, atol=1e-9, rtol=0):
         raise ValueError('数据参考能量与六比特矩阵的最低能量不一致')
-    return {'r': r, 'strings': strings, 'weights': weights, 'constant': constant,
-            'reference': reference, 'hamiltonian': hamiltonian}
+    return {
+        'r': r,
+        'strings': strings,
+        'weights': weights,
+        'constant': constant,
+        'reference': reference,
+        'hamiltonian': hamiltonian,
+    }
 
 
 problems = {r: load_problem(r) for r in R_VALUES}
 print('九份数据的直接对角化校验通过')
 print('R 标签     Pauli 项数     参考能量 / Hartree')
 for r, problem in problems.items():
-    print(f"{r:4.1f}        {len(problem['strings']):3d}          {problem['reference']: .9f}")
+    print(f'{r:4.1f}        {len(problem["strings"]):3d}          {problem["reference"]: .9f}')
 
 # %% [markdown]
 # ## 2. 编码与变分表示：方法概述
@@ -568,7 +574,8 @@ BASIS = torch.eye(8, dtype=CDTYPE, device=DEVICE)[:, list(BASIS_INDICES)]
 PREPARATIONS = torch.stack(
     [BASIS[:, i] for i in range(3)]
     + [(BASIS[:, i] + BASIS[:, j]) / np.sqrt(2) for i, j in PAIRS]
-    + [(BASIS[:, i] + 1j * BASIS[:, j]) / np.sqrt(2) for i, j in PAIRS], dim=1,
+    + [(BASIS[:, i] + 1j * BASIS[:, j]) / np.sqrt(2) for i, j in PAIRS],
+    dim=1,
 )  # (8 个模式, 9 种制备)
 assert torch.allclose((PREPARATIONS.abs() ** 2).sum(0), torch.ones(9, dtype=DTYPE, device=DEVICE))
 
@@ -631,9 +638,16 @@ def measured_probabilities(probs, shots=None, sampling='multinomial', temperatur
         result = torch.zeros_like(flat)
         for start in range(0, shots, 128):
             size = min(128, shots - start)
-            result = result + F.gumbel_softmax(
-                logits[:, None, :].expand(-1, size, -1), tau=temperature, hard=True, dim=-1,
-            ).sum(1) / shots
+            result = (
+                result
+                + functional.gumbel_softmax(
+                    logits[:, None, :].expand(-1, size, -1),
+                    tau=temperature,
+                    hard=True,
+                    dim=-1,
+                ).sum(1)
+                / shots
+            )
     else:
         raise ValueError('sampling 必须为 multinomial 或 straight_through')
     return result.reshape(probs.shape)
@@ -667,7 +681,7 @@ class PhotonicProjectedEnergy(nn.Module):
             raise ValueError('theta 必须与模型的 device/dtype 一致')
         unitary = self.circuit(data=theta)
         n_total = unitary.shape[-1]
-        inputs = F.pad(self.preparations, (0, 0, 0, n_total - 8))
+        inputs = functional.pad(self.preparations, (0, 0, 0, n_total - 8))
         states = unitary @ inputs  # (系统+环境模式, 9 种制备)
         system = torch.einsum('taoi,ip->tapo', self.rotations, states[:8])
         probabilities = system.abs().square()  # (Pauli 项, 子系统, 制备, 系统模式)
@@ -685,19 +699,24 @@ class PhotonicProjectedEnergy(nn.Module):
         diagonal_local = expectations[..., :3]
         diagonal = (diagonal_local.prod(dim=1) * self.weights[:, None]).sum(0)
         average_diagonal = torch.stack(
-            [(diagonal_local[..., i] + diagonal_local[..., j]) / 2 for i, j in PAIRS], dim=-1,
+            [(diagonal_local[..., i] + diagonal_local[..., j]) / 2 for i, j in PAIRS],
+            dim=-1,
         )
-        off_local = (expectations[..., 3:6] - average_diagonal
-                     + 1j * (average_diagonal - expectations[..., 6:9]))
+        off_local = expectations[..., 3:6] - average_diagonal + 1j * (average_diagonal - expectations[..., 6:9])
         off_diagonal = (off_local.prod(dim=1) * self.weights[:, None]).sum(0)
         matrix = torch.diag(diagonal.to(off_diagonal.dtype))
         rows, columns = (0, 0, 1), (1, 2, 2)
         matrix[rows, columns] = off_diagonal
         matrix[columns, rows] = off_diagonal.conj()
         values, vectors = torch.linalg.eigh(matrix)
-        return {'energy': values[0] + self.constant, 'matrix': matrix,
-                'coefficients': vectors[:, 0], 'eigenvalues': values + self.constant,
-                'survival': survival, 'expectations': expectations}
+        return {
+            'energy': values[0] + self.constant,
+            'matrix': matrix,
+            'coefficients': vectors[:, 0],
+            'eigenvalues': values + self.constant,
+            'survival': survival,
+            'expectations': expectations,
+        }
 
 
 # %% [markdown]
@@ -719,7 +738,9 @@ for letters in product('IXYZ', repeat=3):
 
 model = PhotonicProjectedEnergy(problems[0.1])
 generator = torch.Generator(device=DEVICE).manual_seed(SEED)
-theta_test = (2 * torch.pi * torch.rand(model.n_parameters, generator=generator, dtype=DTYPE, device=DEVICE)).requires_grad_()
+theta_test = (
+    2 * torch.pi * torch.rand(model.n_parameters, generator=generator, dtype=DTYPE, device=DEVICE)
+).requires_grad_()
 result = model(theta_test)
 unitary = model.circuit(data=theta_test)
 projected_basis = torch.stack([torch.kron(unitary[:, j], unitary[:, j]) for j in BASIS_INDICES], dim=1)
@@ -786,16 +807,25 @@ def optimize_problem(problem, seed, epochs=EPOCHS, learning_rate=LEARNING_RATE):
         final = model(best_theta)
     if min(history) < problem['reference'] - 1e-9:
         raise AssertionError('精确无损耗能量低于参考下界，请检查重构')
-    return {'r': problem['r'], 'seed': seed, 'history': history, 'theta': best_theta.cpu(),
-            'coefficients': final['coefficients'].cpu(), 'energy': final['energy'].item(),
-            'reference': problem['reference'], 'last_energy': history[-1],
-            'error': final['energy'].item() - problem['reference']}
+    return {
+        'r': problem['r'],
+        'seed': seed,
+        'history': history,
+        'theta': best_theta.cpu(),
+        'coefficients': final['coefficients'].cpu(),
+        'energy': final['energy'].item(),
+        'reference': problem['reference'],
+        'last_energy': history[-1],
+        'error': final['energy'].item() - problem['reference'],
+    }
 
 
 example_r = R_VALUES[-1]
 example_run = optimize_problem(problems[example_r], SEED + len(R_VALUES) - 1)
-print(f"R={example_r}: 最佳复算能量={example_run['energy']:.9f} Hartree，"
-      f"参考={example_run['reference']:.9f}，误差={example_run['error'] * 1000:.4f} mHartree")
+print(
+    f'R={example_r}: 最佳复算能量={example_run["energy"]:.9f} Hartree，'
+    f'参考={example_run["reference"]:.9f}，误差={example_run["error"] * 1000:.4f} mHartree'
+)
 fig, ax = plt.subplots(figsize=(7, 4), dpi=130)
 ax.plot(example_run['history'], label='Current energy')
 ax.plot(np.minimum.accumulate(example_run['history']), label='Best observed energy')
@@ -809,7 +839,7 @@ plt.show()
 # ## 6. 九个数据标签的扫描与结果保存
 #
 # 复用上节已完成的 R=0.9 结果，其余距离各训练一次。报告的是每次训练历史最佳参数的精确复算能量。
-# 图中误差同时包含表示限制和优化未充分收敛的影响，不能仅靠这一次训练把两者分开。
+# 图中误差可能包含表示限制和优化未充分收敛的影响。
 #
 # 输出写入独立时间戳目录，不覆盖输入数据或教程文件：`summary.json` 保存配置和误差，
 # `parameters.pt` 保存参数、复系数和完整能量轨迹，PNG 保存本次曲线。
@@ -820,18 +850,32 @@ runs = []
 for index, r in enumerate(R_VALUES):
     run = example_run if r == example_r else optimize_problem(problems[r], SEED + index)
     runs.append(run)
-    print(f"R={r:.1f}  E={run['energy']:.9f}  E_ref={run['reference']:.9f}  "
-          f"error={run['error'] * 1000:.4f} mHartree")
+    print(f'R={r:.1f}  E={run["energy"]:.9f}  E_ref={run["reference"]:.9f}  error={run["error"] * 1000:.4f} mHartree')
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=False)
-config = {'epochs': EPOCHS, 'learning_rate': LEARNING_RATE, 'base_seed': SEED,
-          'dtype': str(DTYPE), 'device': str(DEVICE), 'shots': None, 'loss_db': None,
-          'shared_unitary': True, 'coefficient_domain': 'complex', 'basis_indices': list(BASIS_INDICES),
-          'distance_unit': 'not provided', 'basis_set': 'not provided', 'active_space': 'not provided',
-          'mapping': 'not provided', 'constant_physical_components': 'not provided',
-          'torch_version': str(torch.__version__), 'deepquantum_version': str(getattr(dq, '__version__', 'unknown'))}
-summary = {'config': config, 'results': [{k: r[k] for k in ('r', 'seed', 'energy', 'reference', 'error', 'last_energy')}
-                                       for r in runs]}
+config = {
+    'epochs': EPOCHS,
+    'learning_rate': LEARNING_RATE,
+    'base_seed': SEED,
+    'dtype': str(DTYPE),
+    'device': str(DEVICE),
+    'shots': None,
+    'loss_db': None,
+    'shared_unitary': True,
+    'coefficient_domain': 'complex',
+    'basis_indices': list(BASIS_INDICES),
+    'distance_unit': 'not provided',
+    'basis_set': 'not provided',
+    'active_space': 'not provided',
+    'mapping': 'not provided',
+    'constant_physical_components': 'not provided',
+    'torch_version': str(torch.__version__),
+    'deepquantum_version': str(getattr(dq, '__version__', 'unknown')),
+}
+summary = {
+    'config': config,
+    'results': [{k: r[k] for k in ('r', 'seed', 'energy', 'reference', 'error', 'last_energy')} for r in runs],
+}
 (OUTPUT_DIR / 'summary.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding='utf-8')
 torch.save({'config': config, 'runs': runs}, OUTPUT_DIR / 'parameters.pt')
 
@@ -853,7 +897,7 @@ plt.show()
 fig, ax = plt.subplots(figsize=(8, 5), dpi=130)
 for run in runs:
     error = (np.asarray(run['history']) - run['reference']) * 1000
-    ax.semilogy(np.maximum(error, 1e-9), label=f"R={run['r']}")
+    ax.semilogy(np.maximum(error, 1e-9), label=f'R={run["r"]}')
 ax.set(xlabel='Completed Adam updates', ylabel='Energy error (mHartree)')
 ax.legend(ncol=3)
 fig.tight_layout()
@@ -883,16 +927,20 @@ for loss_db in (None, 3.0):
         exact = loss_model(fixed_theta)
     exact_energies.append(exact['energy'])
     expected_survival = 1.0 if loss_db is None else 10 ** (-loss_db / 10)
-    torch.testing.assert_close(exact['survival'], torch.full_like(exact['survival'], expected_survival),
-                               atol=1e-10, rtol=1e-10)
-    print(f"loss={loss_db}: 精确条件能量={exact['energy'].item():.9f}, "
-          f"平均存活率={exact['survival'].mean().item():.4f}")
+    torch.testing.assert_close(
+        exact['survival'], torch.full_like(exact['survival'], expected_survival), atol=1e-10, rtol=1e-10
+    )
+    print(
+        f'loss={loss_db}: 精确条件能量={exact["energy"].item():.9f}, 平均存活率={exact["survival"].mean().item():.4f}'
+    )
     for shots in (100, 1000):
         values = []
         with torch.random.fork_rng(devices=[]), torch.no_grad():
             torch.manual_seed(SEED + shots)
             for _ in range(5):
                 values.append(loss_model(fixed_theta, shots=shots)['energy'].item())
-        print(f'  shots/setting={shots}: 5 次独立采样均值={np.mean(values):.9f}, '
-              f'标准差={np.std(values, ddof=1):.6f} Hartree')
+        print(
+            f'  shots/setting={shots}: 5 次独立采样均值={np.mean(values):.9f}, '
+            f'标准差={np.std(values, ddof=1):.6f} Hartree'
+        )
 torch.testing.assert_close(exact_energies[0], exact_energies[1], atol=1e-10, rtol=1e-10)
