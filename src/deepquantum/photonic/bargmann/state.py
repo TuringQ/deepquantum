@@ -8,6 +8,7 @@ from torch import nn
 from ...utils import apply_complex_fix
 from .ansatz import PolyExpAnsatz, fock_to_ansatz, vacuum_ansatz
 from .moments import gaussian_to_bargmann
+from .recurrence import _check_work
 
 
 class BargmannState(nn.Module):
@@ -22,7 +23,7 @@ class BargmannState(nn.Module):
         K_\psi(z)=\sum_n\psi_n\frac{z^n}{\sqrt{n!}},\qquad
         K_\rho(z,w)=\sum_{n,m}\rho_{n,m}\frac{z^nw^m}{\sqrt{n!m!}}.
 
-    Gaussian states have no derived variables; Fock states and (later) heralded states carry
+    Gaussian states have no derived variables; Fock states and heralded states carry
     derived variables. The state is not normalized automatically.
 
     Args:
@@ -243,6 +244,38 @@ class BargmannState(nn.Module):
             return self
         ansatz = self.ansatz
         return self._new(ansatz.tensor_product(ansatz.conj()), den_mat=True)
+
+    def _project_pnr(self, positions: tuple[int, ...], photons: tuple[int, ...]) -> 'BargmannState':
+        r"""Project validated CV positions onto Fock outcomes without expanding retained modes.
+
+        The circuit validates positions and photon counts before calling this helper.
+        Measured CV variables become derived variables. With old derived index :math:`k`,
+        new index :math:`q` and measured outcome :math:`h`,
+
+        .. math::
+
+            c'_{k,q}=c_k\delta_{q,h},\qquad
+            \widetilde F_h(z)=\left.\partial_u^h F(z,u)\right|_{u=0}/\sqrt{h!}.
+
+        For a density matrix, apply the projection to both ket and bra variables.
+        Output wires are local consecutive labels; the circuit reports source labels separately.
+        """
+        measured = list(positions)
+        counts = photons
+        if self.den_mat:
+            measured += [p + self.nmode for p in positions]
+            counts = photons * 2
+        remaining = [p for p in range(self.n_cv) if p not in measured]
+        old = self.ansatz
+        perm = remaining + list(range(old.n_cv, old.nvar)) + measured
+        idx = torch.tensor(perm, device=self.a.device)
+        bounds = tuple(h + 1 for h in counts)
+        _check_work(old.derived_shape + bounds, old.batch_size * old.nlin, self.c.element_size())
+        selector = self.c.new_zeros(bounds)
+        selector[counts] = 1
+        c = self.c.reshape(*self.c.shape, *([1] * len(counts))) * selector
+        ansatz = PolyExpAnsatz(self.a[..., idx, :][..., idx], self.b[..., idx], c, len(remaining))
+        return BargmannState.from_ansatz(ansatz, den_mat=self.den_mat, cutoff=self.cutoff)
 
     # ------------------------------------------------------------------ readout
     def norm(self) -> torch.Tensor:

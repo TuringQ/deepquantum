@@ -441,10 +441,11 @@ def test_training_loop(backend):
 
 
 def test_no_rerun_of_noisy_gates():
-    cir = dq.QumodeCircuit(2, 'vac', cutoff=4, basis=False, noise=True, sigma=0.05)
+    cir = dq.QumodeCircuit(2, 'vac', cutoff=4, basis=False)
+    cir.set_hardware_model(dqp.HardwareModel(seed=7).gaussian(sigma=0.05))
     cir.s2([0, 1], 0.2)
     calls = []
-    handle = cir.operators[0].register_forward_hook(lambda *args: calls.append(1))
+    handle = cir.hardware_model.register_forward_hook(lambda *args: calls.append(1))
     try:
         cir(is_prob=True)
         first = cir.heralded_state(0, 1)

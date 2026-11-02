@@ -6,7 +6,7 @@ import warnings
 from collections import Counter, defaultdict
 from copy import copy, deepcopy
 from dataclasses import replace
-from operator import index
+from operator import index as operator_index
 from typing import Any
 
 import numpy as np
@@ -18,7 +18,7 @@ import deepquantum.photonic as dqp
 
 from ..qmath import block_sample, get_prob_mps, inner_product_mps, is_positive_definite, sample_sc_mcmc
 from ..state import MatrixProductState
-from .bargmann import BargmannState, conditional_fock, op_to_kernel
+from .bargmann import BargmannState, PolyExpAnsatz, conditional_fock, op_to_kernel
 from .channel import DisplacementChannel, OPA, PhotonLoss
 from .decompose import UnitaryDecomposer
 from .distributed import measure_dist
@@ -394,178 +394,11 @@ class QumodeCircuit(Operation):
     ) -> tuple:
         """Compute a deterministic PNR conditional state from the latest forward pass.
 
-        Supports dense Fock tensors (``basis=False``, no MPS) and Gaussian
-        states. Call ``cir()`` after changing parameters. This method neither
-        reruns gates nor changes ``self.state``; it also works after
-        ``cir(is_prob=True)``. Remaining modes retain their original order.
-        ``self.den_mat`` selects density matrices when True and kets otherwise.
-        Mixed Gaussian inputs require ``den_mat=True``; no automatic switch is made.
-
-        Args:
-            wires: Measured mode indices, in the same order as ``herald_state``.
-            herald_state: Nonnegative integer photon counts, one per measured mode.
-            cutoff: Output dimension per remaining mode (photons 0 through cutoff-1).
-                Defaults to the circuit cutoff. Dense Fock outputs cannot exceed it.
-            normalize: Divide by the event probability (its square root for kets).
-                The finite output may still have norm squared/trace below one.
-                A zero-probability event cannot be normalized. Default: ``False``.
-            return_info: Also return an ``info`` dictionary with the retained
-                probability mass and remaining mode labels. Default: ``False``.
-
-        Returns:
-            ``(state, probability)`` or ``(state, probability, info)``. A batch
-            axis is always present: ket ``(B, C, ..., C)``, density matrix
-            ``(B, ket axes..., bra axes...)``, probability ``(B,)``. Gaussian
-            probabilities come from the measured marginal independently of output
-            cutoff. Fock probabilities use the entire available input tensor.
-            Empty wires convert/return the full state. Measuring every mode gives
-            a scalar per batch (no remaining Fock axes).
-
-        Raises:
-            NotImplementedError: For unsupported backends, Fock basis states,
-                MPS, distributed or delay circuits.
-            RuntimeError: If no valid forward result is available.
-            ValueError: For invalid arguments or an incompatible representation.
-        """
-        if self.backend == 'fock':
-            method = self.heralded_state_fock
-        elif self.backend == 'gaussian':
-            method = self.heralded_state_gaussian
-        else:
-            raise NotImplementedError('Heralding supports only dense Fock and Gaussian backends')
-        return method(wires, herald_state, cutoff, normalize=normalize, return_info=return_info)
-
-    def _prepare_herald(
-        self, wires: Any, herald_state: Any, cutoff: int | None
-    ) -> tuple[tuple[int, ...], tuple[int, ...], int]:
-        if self.mps or self._with_delay or isinstance(self, DistributedQumodeCircuit):
-            raise NotImplementedError('Heralding does not support MPS, delay or distributed circuits')
-        if self._herald_state is None:
-            raise RuntimeError('Run the circuit forward before computing a heralded state')
-
-        def integers(values):
-            if isinstance(values, torch.Tensor):
-                if values.ndim > 1 or values.dtype == torch.bool or values.is_floating_point() or values.is_complex():
-                    raise ValueError('wires and herald_state must contain integers')
-                values = values.tolist()
-            if not isinstance(values, (list, tuple)):
-                values = [values]
-            try:
-                if any(isinstance(v, bool) for v in values):
-                    raise TypeError
-                return tuple(index(v) for v in values)
-            except TypeError as exc:
-                raise ValueError('wires and herald_state must contain integers') from exc
-
-        wires, herald = integers(wires), integers(herald_state)
-        if len(wires) != len(herald):
-            raise ValueError('One herald photon number is required for each measured wire')
-        if len(set(wires)) != len(wires) or any(w < 0 or w >= self.nmode for w in wires):
-            raise ValueError('Measured wires must be unique valid mode indices')
-        if any(h < 0 for h in herald):
-            raise ValueError('Herald photon numbers must be nonnegative')
-        cutoff = self.cutoff if cutoff is None else cutoff
-        try:
-            if isinstance(cutoff, bool):
-                raise TypeError
-            cutoff = index(cutoff)
-        except TypeError as exc:
-            raise ValueError('cutoff must be a positive integer') from exc
-        if cutoff < 1:
-            raise ValueError('cutoff must be a positive integer')
-        return wires, herald, cutoff
-
-    def _finish_herald(self, state, probability, wires, normalize, return_info, method) -> tuple:
-        remaining = tuple(i for i in range(self.nmode) if i not in wires)
-        if not self.den_mat:
-            mass = state.abs().square().reshape(state.shape[0], -1).sum(-1)
-        else:
-            dimension = math.prod(state.shape[1 : 1 + len(remaining)])
-            matrix = state.reshape(state.shape[0], dimension, dimension)
-            mass = matrix.diagonal(dim1=-2, dim2=-1).sum(-1).real
-        tolerance = 100 * torch.finfo(probability.dtype).eps
-        if bool((probability < -tolerance).any()) or not bool(torch.isfinite(probability).all()):
-            raise ValueError('Invalid herald probability; check the input state or use higher precision')
-        probability = probability.clamp_min(0)
-        if normalize:
-            if bool((probability <= 0).any()):
-                raise ValueError('Cannot normalize a zero-probability herald event')
-            denominator = probability.sqrt() if not self.den_mat else probability
-            state = state / denominator.reshape(-1, *([1] * (state.ndim - 1)))
-        if not return_info:
-            return state, probability
-        safe_probability = torch.where(probability > 0, probability, torch.ones_like(probability))
-        fraction = torch.where(probability > 0, mass / safe_probability, torch.full_like(probability, float('nan')))
-        info = {
-            'remaining_wires': remaining,
-            'representation': 'dm' if self.den_mat else 'ket',
-            'probability_in_cutoff': mass,
-            'retained_fraction': fraction,
-            'source_cutoff': self.cutoff if self.backend == 'fock' else None,
-            'method': method,
-        }
-        return state, probability, info
-
-    def heralded_state_fock(self, wires, herald_state, cutoff=None, *, normalize=False, return_info=False) -> tuple:
-        """Slice a dense Fock ket or density matrix; arguments follow ``heralded_state``.
-
-        The event probability uses the source cutoff before cropping the output.
-        No Gaussian approximation or conversion is used.
-        """
-        if self.backend != 'fock' or self.basis:
-            raise NotImplementedError('heralded_state_fock requires backend="fock", basis=False')
-        wires, herald, cutoff = self._prepare_herald(wires, herald_state, cutoff)
-        if cutoff > self.cutoff or any(h >= self.cutoff for h in herald):
-            raise ValueError('Output cutoff and herald counts must lie within the simulated Fock space')
-        selected = dict(zip(wires, herald, strict=True))
-        axes = tuple(selected.get(i, slice(None)) for i in range(self.nmode))
-        state = self._herald_state[(slice(None), *(axes * (2 if self.den_mat else 1)))]
-        batch = state.shape[0]
-        nremaining = self.nmode - len(wires)
-        if self.den_mat:
-            matrix = state.reshape(batch, self.cutoff**nremaining, self.cutoff**nremaining)
-            probability = matrix.diagonal(dim1=-2, dim2=-1).sum(-1).real
-        else:
-            probability = state.abs().square().reshape(batch, -1).sum(-1)
-        state = state[(slice(None), *([slice(cutoff)] * (state.ndim - 1)))]
-        return self._finish_herald(state, probability, wires, normalize, return_info, 'fock_slice')
-
-    def heralded_state_gaussian(self, wires, herald_state, cutoff=None, *, normalize=False, return_info=False) -> tuple:
-        """Use Bargmann recurrences for Gaussian inputs; arguments follow ``heralded_state``.
-
-        Returns a Fock tensor, since PNR conditioning generally produces a
-        non-Gaussian state. The measured marginal determines the event probability.
-        """
-        if self.backend != 'gaussian':
-            raise NotImplementedError('heralded_state_gaussian requires backend="gaussian"')
-        wires, herald, cutoff = self._prepare_herald(wires, herald_state, cutoff)
-        if self._herald_units != (dqp.hbar, dqp.kappa):
-            raise RuntimeError('Quadrature units changed after forward; recreate the circuit with consistent units')
-        cov, mean = self._herald_state
-        state, probability = conditional_fock(cov, mean, wires, herald, cutoff, den_mat=self.den_mat)
-        return self._finish_herald(state, probability, wires, normalize, return_info, 'bargmann')
-        elif self.backend == 'bargmann':
-            return self._forward_bargmann(data, state, is_prob)
-
-    def _apply(self, fn: Any, recurse: bool = True) -> 'QumodeCircuit':
-        self._herald_state = None
-        return super()._apply(fn, recurse=recurse)
-
-    def heralded_state(
-        self,
-        wires: int | list[int] | tuple[int, ...],
-        herald_state: int | list[int] | tuple[int, ...],
-        cutoff: int | None = None,
-        *,
-        normalize: bool = False,
-        return_info: bool = False,
-    ) -> tuple:
-        """Compute a deterministic PNR conditional state from the latest forward pass.
-
-        Supports dense Fock tensors (``basis=False``, no MPS) and Gaussian
-        states. Call ``cir()`` after changing parameters. This method neither
-        reruns gates nor changes ``self.state``; it also works after
-        ``cir(is_prob=True)``. Remaining modes retain their original order.
+        Supports dense Fock tensors (``basis=False``, no MPS), Gaussian states
+        and Bargmann states. Call ``cir()`` after changing parameters. This method neither
+        reruns gates nor changes ``self.state``. For Fock and Gaussian backends it
+        also works after ``cir(is_prob=True)``; Bargmann still rejects that forward
+        option. Remaining modes retain their original order.
         ``self.den_mat`` selects density matrices when True and kets otherwise.
         Mixed Gaussian inputs require ``den_mat=True``; no automatic switch is made.
 
@@ -575,6 +408,7 @@ class QumodeCircuit(Operation):
             herald_state: Nonnegative integer photon counts, one per measured mode.
             cutoff: Output dimension per remaining mode (photons 0 through cutoff-1).
                 Defaults to the circuit cutoff. Dense Fock outputs cannot exceed it.
+                For Bargmann output, only sets the default subsequent Fock readout dimension.
             normalize: Divide by the event probability (its square root for kets).
                 The finite output may still have norm squared/trace below one.
                 A zero-probability event cannot be normalized. Default: ``False``.
@@ -587,6 +421,10 @@ class QumodeCircuit(Operation):
             ``(B, ket axes..., bra axes...)``, probability ``(B,)``. Gaussian
             probabilities come from the measured marginal independently of output
             cutoff. Fock probabilities use the entire available input tensor.
+            The Bargmann backend returns a ``BargmannState`` instead of a tensor,
+            with local consecutive wire labels and no additional Fock truncation.
+            Its probability is the unnormalized output weight (joint event weight
+            for an unnormalized input); cutoff diagnostics in info are None.
 
         Raises:
             NotImplementedError: For unsupported backends, Fock basis states,
@@ -598,8 +436,10 @@ class QumodeCircuit(Operation):
             method = self.heralded_state_fock
         elif self.backend == 'gaussian':
             method = self.heralded_state_gaussian
+        elif self.backend == 'bargmann':
+            method = self.heralded_state_bargmann
         else:
-            raise NotImplementedError('Heralding supports only dense Fock and Gaussian backends')
+            raise NotImplementedError('Heralding supports only dense Fock, Gaussian and Bargmann backends')
         return method(wires, herald_state, cutoff, normalize=normalize, return_info=return_info)
 
     def _prepare_herald(
@@ -620,7 +460,7 @@ class QumodeCircuit(Operation):
             try:
                 if any(isinstance(v, bool) for v in values):
                     raise TypeError
-                return tuple(index(v) for v in values)
+                return tuple(operator_index(v) for v in values)
             except TypeError as exc:
                 raise ValueError('wires and herald_state must contain integers') from exc
 
@@ -639,7 +479,7 @@ class QumodeCircuit(Operation):
         try:
             if isinstance(cutoff, bool):
                 raise TypeError
-            cutoff = index(cutoff)
+            cutoff = operator_index(cutoff)
         except TypeError as exc:
             raise ValueError('cutoff must be a positive integer') from exc
         if cutoff < 1:
@@ -715,6 +555,57 @@ class QumodeCircuit(Operation):
         cov, mean = self._herald_state
         state, probability = conditional_fock(cov, mean, wires, herald, cutoff, den_mat=self.den_mat)
         return self._finish_herald(state, probability, wires, normalize, return_info, 'bargmann')
+
+    def heralded_state_bargmann(self, wires, herald_state, cutoff=None, *, normalize=False, return_info=False) -> tuple:
+        """Return a PNR conditional BargmannState without truncating retained modes.
+
+        Arguments follow ``heralded_state``. ``cutoff`` only sets the returned state's
+        default Fock readout dimension. The source state is unchanged. Output wires
+        are numbered locally from zero; ``info['remaining_wires']`` records source labels.
+        ``probability`` is the output squared norm or trace before normalization.
+        For unnormalized inputs this is an event weight, not a conditional probability.
+        With ``return_info``, input_weight and conditional_probability make this explicit;
+        probability_in_cutoff and retained_fraction are None because no Fock readout occurs.
+        """
+        if self.backend != 'bargmann':
+            raise NotImplementedError('heralded_state_bargmann requires backend="bargmann"')
+        wires, herald, cutoff = self._prepare_herald(wires, herald_state, cutoff)
+        source = self._herald_state
+        positions = tuple(source._positions(list(wires)))
+        state = source._project_pnr(positions, herald)
+        state.cutoff = cutoff
+        probability = state.norm()
+        tolerance = 100 * torch.finfo(probability.dtype).eps
+        if bool((probability < -tolerance).any()) or not bool(torch.isfinite(probability).all()):
+            raise ValueError('Invalid herald probability; check the input state or use higher precision')
+        probability = probability.clamp_min(0)
+        if normalize:
+            if bool((probability <= 0).any()):
+                raise ValueError('Cannot normalize a zero-probability herald event')
+            denominator = probability if self.den_mat else probability.sqrt()
+            state = state._new(
+                PolyExpAnsatz(
+                    state.a, state.b, state.c / denominator.reshape(-1, *([1] * (state.c.ndim - 1))), state.n_cv
+                )
+            )
+        if not return_info:
+            return state, probability
+        input_weight = source.norm()
+        safe_weight = torch.where(input_weight > 0, input_weight, torch.ones_like(input_weight))
+        conditional = torch.where(
+            input_weight > 0, probability / safe_weight, torch.full_like(input_weight, float('nan'))
+        )
+        info = {
+            'remaining_wires': tuple(w for w in source.wires if w not in wires),
+            'representation': state.representation,
+            'probability_in_cutoff': None,
+            'retained_fraction': None,
+            'source_cutoff': None,
+            'method': 'bargmann_projection',
+            'input_weight': input_weight,
+            'conditional_probability': conditional,
+        }
+        return state, probability, info
 
     def _forward_fock(
         self, data: torch.Tensor | None = None, state: Any = None, is_prob: bool | None = None, sort: bool = True
@@ -801,14 +692,22 @@ class QumodeCircuit(Operation):
                 if self.mps:
                     assert state[0].ndim in (3, 4)
                     if state[0].ndim == 3:
-                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, None, None))(data, state, is_prob)
+                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, None, None), randomness=randomness)(
+                            data, state, False
+                        )
                     elif state[0].ndim == 4:
-                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, 0, None))(data, state, is_prob)
+                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, 0, None), randomness=randomness)(
+                            data, state, False
+                        )
                 else:
                     if state.shape[0] == 1:
-                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, None, None))(data, state, is_prob)
+                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, None, None), randomness=randomness)(
+                            data, state, False
+                        )
                     else:
-                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, 0, None))(data, state, is_prob)
+                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, 0, None), randomness=randomness)(
+                            data, state, False
+                        )
             # for plotting the last data
             self.encode(data[-1])
         if not self.basis and not self.mps:
@@ -1041,6 +940,7 @@ class QumodeCircuit(Operation):
                 sample = state if state.batch_size == 1 else state.select(i)
                 outputs.append(self._forward_helper_bargmann(data[i], sample))
             self.state = BargmannState.cat(outputs)
+        self._herald_state = self.state
         return self.state
 
     def _forward_helper_bargmann(self, data: torch.Tensor | None, state: BargmannState) -> BargmannState:
