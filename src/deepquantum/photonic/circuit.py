@@ -906,13 +906,17 @@ class QumodeCircuit(Operation):
         Args:
             data: The input data for the ``encoders``. Default: ``None``
             state: The initial state, a ``BargmannState`` or any input accepted by it. Default: ``None``
-            is_prob: Not supported yet. Default: ``None``
+            is_prob: True raises NotImplementedError; convert the state to Fock to compute probabilities.
+                Default: ``None``
 
         Returns:
             The final ``BargmannState`` (not normalized).
         """
         if is_prob:
-            raise NotImplementedError('is_prob is not supported by the Bargmann backend yet; use state.to_fock()')
+            raise NotImplementedError(
+                'is_prob=True is not supported by the Bargmann backend; '
+                'run state = cir(), then convert with state.to_fock(cutoff) to calculate probabilities in Fock space'
+            )
         if self.mps or self._with_delay or isinstance(self, DistributedQumodeCircuit):
             raise NotImplementedError('The Bargmann backend does not support MPS, delay or distributed circuits')
         if len(self.measurements) > 0:
