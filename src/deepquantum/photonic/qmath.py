@@ -1,6 +1,7 @@
 """Common functions"""
 
 import itertools
+import math
 import warnings
 from collections import Counter
 from collections.abc import Generator
@@ -53,6 +54,154 @@ def sort_dict_fock_basis(state_dict: dict, idx: int = 0) -> dict:
     for key, value in sort_list:
         sorted_dict[key] = value
     return sorted_dict
+
+
+def group_probabilities(probabilities: dict | torch.Tensor, groups: list[list[int]]) -> dict:
+    """Sum photon-count probabilities over unresolved internal modes of each spatial port.
+
+    ``groups`` must partition all modes, in the desired order of spatial outputs.
+    Input is the probability dictionary or dense probability tensor returned by
+    ``cir(is_prob=True)``. Tensor input has shape ``(batch, cutoff, ..., cutoff)``
+    or omits the batch dimension. Output keys are spatial Fock states and values
+    retain the input batch dimensions and gradients. Probabilities are summed,
+    never amplitudes. Truncation mass is preserved without renormalization.
+    """
+    wires = [wire for group in groups for wire in group]
+    nmode = len(wires)
+    if not groups or any(not group for group in groups) or sorted(wires) != list(range(nmode)):
+        raise ValueError('groups must partition consecutive mode indices without duplicates.')
+    if isinstance(probabilities, torch.Tensor):
+        if probabilities.is_complex() or probabilities.ndim not in (nmode, nmode + 1):
+            raise ValueError('Expected real probability tensors with one optional batch dimension.')
+        if probabilities.ndim == nmode:
+            probabilities = probabilities.unsqueeze(0)
+        items = (
+            (pattern, probabilities[(slice(None),) + pattern])
+            for pattern in itertools.product(*(range(size) for size in probabilities.shape[1:]))
+        )
+    else:
+        items = ((tuple(key.state.tolist()), value) for key, value in probabilities.items())
+    result = {}
+    for pattern, value in items:
+        if isinstance(value, complex) or isinstance(value, torch.Tensor) and value.is_complex():
+            raise ValueError('Group probabilities, not complex amplitudes.')
+        if len(pattern) != nmode:
+            raise ValueError('groups must cover every input mode.')
+        counts = [sum(pattern[wire] for wire in group) for group in groups]
+        key = dqp.FockState(counts)
+        result[key] = result.get(key, 0) + value
+    return result
+
+
+def _pnr_condition(state, nmode, cutoff, den_mat, measured, counts, keep):
+    """Project unresolved PNR counts and trace all unretained modes without a dense POVM."""
+    rest = [wire for wire in range(nmode) if wire not in keep]
+    order = keep + rest
+    positions = [[rest.index(wire) for wire in group] for group in measured]
+    mask = torch.tensor(
+        [
+            all(sum(pattern[i] for i in group) == count for group, count in zip(positions, counts, strict=True))
+            for pattern in itertools.product(range(cutoff), repeat=len(rest))
+        ],
+        device=state.device,
+    )
+    nkeep, nrest = cutoff ** len(keep), cutoff ** len(rest)
+    state = state.reshape([-1] + [cutoff] * nmode * (2 if den_mat else 1))
+    axes = [0] + [w + 1 for w in order]
+    if den_mat:
+        axes += [w + nmode + 1 for w in order]
+        state = state.permute(axes).reshape(-1, nkeep, nrest, nkeep, nrest)
+        density = (state.diagonal(dim1=2, dim2=4) * mask).sum(-1)
+    else:
+        state = state.permute(axes).reshape(-1, nkeep, nrest)
+        selected = state * mask
+        density = selected @ selected.mH
+    probability = density.diagonal(dim1=-2, dim2=-1).sum(-1).real
+    if (probability <= 0).any():
+        raise ValueError('Cannot normalize a zero-probability PNR event.')
+    density = density / probability[:, None, None]
+    return density.reshape([-1] + [cutoff] * (2 * len(keep))), probability
+
+
+def _fock_conditional_blocks(state, nmode, cutoff, den_mat, measured, keep):
+    """Return unnormalized retained density blocks for every resolved PNR outcome.
+
+    Output axes are (batch, measured photon counts..., retained ket, retained bra).
+    Empty keep gives event probabilities in 1 x 1 blocks. No division by the
+    event probability is performed, so impossible allocations remain valid zeros.
+    """
+    rest = [w for w in range(nmode) if w not in keep and w not in measured]
+    order = keep + measured + rest
+    k, p, r = cutoff ** len(keep), cutoff ** len(measured), cutoff ** len(rest)
+    state = state.reshape([-1] + [cutoff] * nmode * (2 if den_mat else 1))
+    axes = [0] + [w + 1 for w in order]
+    if den_mat:
+        axes += [w + nmode + 1 for w in order]
+        state = state.permute(axes).reshape(-1, k, p, r, k, p, r)
+        state = state.diagonal(dim1=3, dim2=6).sum(-1)
+        density = state.diagonal(dim1=2, dim2=4).movedim(-1, 1)
+    else:
+        state = state.permute(axes).reshape(-1, k, p, r).transpose(1, 2)
+        density = state @ state.mH
+    return density.reshape([-1] + [cutoff] * len(measured) + [k, k])
+
+
+def _group_count_axes(values, groups, limits=None, operators=False):
+    """Sum resolved count axes per spatial port, preserving optional retained operators."""
+    end = -2 if operators else None
+    sizes = values.shape[1:end]
+    shape = [1 + sum(sizes[k] - 1 for k in group) for group in groups]
+    if limits is not None:
+        shape = [min(size, count + 1) for size, count in zip(shape, limits, strict=True)]
+    coordinates = torch.stack(
+        torch.meshgrid(*(torch.arange(n, device=values.device) for n in sizes), indexing='ij'), -1
+    ).reshape(-1, len(sizes))
+    counts = torch.stack([coordinates[:, group].sum(-1) for group in groups], -1)
+    valid = (counts < torch.tensor(shape, device=values.device)).all(-1)
+    strides = torch.tensor([math.prod(shape[i + 1 :]) for i in range(len(shape))], device=values.device)
+    index = torch.where(valid, (counts * strides).sum(-1), 0)
+    flattened = values.reshape(values.shape[0], math.prod(sizes), -1) * valid[None, :, None]
+    result = values.new_zeros(values.shape[0], math.prod(shape), flattened.shape[-1])
+    result = result.scatter_add(1, index[None, :, None].expand_as(flattened), flattened)
+    return result.reshape([values.shape[0]] + shape + (list(values.shape[-2:]) if operators else []))
+
+
+def _convolve_counts(left, right, limits=None, operators=False):
+    """Convolve count distributions, optionally tensoring their retained operators.
+
+    A leading batch axis is followed by one count axis per detector. With
+    operators=True, the last two axes are retained ket/bra axes. Optional limits
+    discard counts above a target event. Direct products and scatter-add avoid
+    FFT cancellation in very small herald probabilities.
+    """
+    end = -2 if operators else None
+    a, b = left.shape[1:end], right.shape[1:end]
+    shape = [x + y - 1 for x, y in zip(a, b, strict=True)]
+    if limits is not None:
+        shape = [min(size, n + 1) for size, n in zip(shape, limits, strict=True)]
+    device = left.device
+    ca = torch.stack(torch.meshgrid(*(torch.arange(n, device=device) for n in a), indexing='ij'), -1).reshape(
+        -1, len(a)
+    )
+    cb = torch.stack(torch.meshgrid(*(torch.arange(n, device=device) for n in b), indexing='ij'), -1).reshape(
+        -1, len(b)
+    )
+    counts = ca[:, None] + cb[None, :]
+    valid = (counts < torch.tensor(shape, device=device)).all(-1).flatten()
+    strides = torch.tensor([math.prod(shape[i + 1 :]) for i in range(len(shape))], device=device)
+    indices = (counts * strides).sum(-1).flatten()
+    indices = torch.where(valid, indices, torch.zeros_like(indices))
+    batch = torch.broadcast_shapes(left.shape[:1], right.shape[:1])[0]
+    if operators:
+        k, nright = left.shape[-1], right.shape[-1]
+        left, right = left.reshape(-1, math.prod(a), k, k), right.reshape(-1, math.prod(b), nright, nright)
+        values = torch.einsum('baij,bckl->bacikjl', left, right).reshape(batch, -1, (k * nright) ** 2)
+    else:
+        values = (left.reshape(-1, math.prod(a), 1) * right.reshape(-1, 1, math.prod(b))).reshape(batch, -1, 1)
+    values = values * valid[None, :, None]
+    result = values.new_zeros(batch, math.prod(shape), values.shape[-1])
+    result = result.scatter_add(1, indices[None, :, None].expand_as(values), values)
+    return result.reshape([batch] + shape + ([k * nright, k * nright] if operators else []))
 
 
 def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.Tensor) -> torch.Tensor:
