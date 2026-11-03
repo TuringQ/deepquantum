@@ -269,6 +269,6 @@ def test_complex_phase_of_displacement():
     cir.to(DT)
     ket = cir().to_fock()[0]
     expected = torch.tensor(
-        [math.exp(-abs(alpha) ** 2 / 2) * alpha**n / math.sqrt(math.factorial(n)) for n in range(5)], dtype=CT
+        [math.exp(-(abs(alpha) ** 2) / 2) * alpha**n / math.sqrt(math.factorial(n)) for n in range(5)], dtype=CT
     )
     torch.testing.assert_close(ket, expected, atol=1e-7, rtol=1e-6)

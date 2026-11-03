@@ -125,7 +125,7 @@ def conditional_fock(
     the measured xxpp rows/columns, then converting that marginal afresh.
     Selecting a subblock of the full Bargmann A would instead project the other
     modes onto vacuum, and would not compute a partial trace.
-    
+
     See https://arxiv.org/pdf/2504.10455v3 Sections 2.1 and 3.1, Eqs. (8), (22), (25) and (28).
     See https://the-walrus.readthedocs.io/en/latest/gbs.html for Gaussian marginals.
 
