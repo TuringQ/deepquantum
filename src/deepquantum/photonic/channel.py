@@ -92,8 +92,16 @@ class PhotonLoss(Channel):
             inputs = inputs[0]
         if inputs is None:
             return None
+        if isinstance(inputs, complex):
+            raise ValueError('Photon loss parameters must be real and finite')
         if not isinstance(inputs, torch.Tensor):
             inputs = torch.tensor(inputs, dtype=torch.float)
+        if inputs.is_complex() or not bool(torch.isfinite(inputs).all()):
+            raise ValueError('Photon loss parameters must be real and finite')
+        if self.convention == 't' and bool(((inputs < 0) | (inputs > 1)).any()):
+            raise ValueError('Loss transmittance must lie in [0, 1]')
+        if self.convention == 'db' and bool((inputs < 0).any()):
+            raise ValueError('Loss in dB must be nonnegative')
         if self.convention == 'theta':
             return inputs
         elif self.convention == 't':
