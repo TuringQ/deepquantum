@@ -83,9 +83,9 @@ def two_mode_squeezing_kernel(r: torch.Tensor, theta: torch.Tensor) -> PolyExpAn
     zero = torch.zeros_like(sech)
     zz = phase * tanh
     ww = -tanh / phase
-    a = torch.stack(
-        [zero, zz, sech, zero, zz, zero, zero, sech, sech, zero, zero, ww, zero, sech, ww, zero]
-    ).reshape(4, 4)
+    a = torch.stack([zero, zz, sech, zero, zz, zero, zero, sech, sech, zero, zero, ww, zero, sech, ww, zero]).reshape(
+        4, 4
+    )
     return _kernel(a, a.new_zeros(4), sech)
 
 
@@ -96,6 +96,10 @@ def loss_kernel(transmittance: torch.Tensor) -> PolyExpAnsatz:
 
         K=\exp\left[\sqrt T\,zu+\sqrt T\,wv+(1-T)\,uv\right].
     """
+    if transmittance.is_complex() or not bool(torch.isfinite(transmittance).all()):
+        raise ValueError('Loss transmittance must be real and finite')
+    if bool(((transmittance < 0) | (transmittance > 1)).any()):
+        raise ValueError('Loss transmittance must lie in [0, 1]')
     t = _complex(transmittance)
     sqrt_t = _complex(torch.sqrt(transmittance))
     zero = torch.zeros_like(t)

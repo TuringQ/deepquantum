@@ -282,11 +282,18 @@ class BargmannState(nn.Module):
         r"""Squared norm :math:`\langle\psi|\psi\rangle` of a ket or trace of a density matrix, shape ``(B,)``.
 
         Computed by Gaussian integration, independently of any Fock cutoff.
+        Nonfinite results or imaginary parts exceeding 100 dtype eps times
+        ``1 + abs(real part)`` raise ``ValueError``; roundoff imaginary parts are discarded.
         """
         ansatz = self.ansatz
         if not self.den_mat:
             ansatz = ansatz.tensor_product(ansatz.conj())
         value = ansatz.contract([(j, j + self.nmode) for j in range(self.nmode)]).evaluate()
+        if not bool(torch.isfinite(value).all()):
+            raise ValueError('State norm or trace must be finite')
+        tolerance = 100 * torch.finfo(value.real.dtype).eps * (1 + value.real.abs())
+        if bool((value.imag.abs() > tolerance).any()):
+            raise ValueError('State norm or trace has a significant imaginary component')
         return value.real
 
     def to_fock(self, cutoff: int | None = None) -> torch.Tensor:

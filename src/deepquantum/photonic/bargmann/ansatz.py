@@ -33,6 +33,9 @@ from .recurrence import _fock_coefficients
 class PolyExpAnsatz:
     r"""Batched poly-exponential Bargmann ansatz :math:`(A, b, c)`.
 
+    Parameters must be finite. Symmetry is checked against the transpose (not the
+    conjugate transpose), with absolute and relative tolerances of 100 dtype eps.
+
     Args:
         a: Complex symmetric tensor of shape ``(B, L, N, N)``.
         b: Complex tensor of shape ``(B, L, N)``.
@@ -54,6 +57,12 @@ class PolyExpAnsatz:
             raise ValueError('a, b and c must share one complex dtype')
         if not a.device == b.device == c.device:
             raise ValueError('a, b and c must be on the same device')
+        for name, value in (('a', a), ('b', b), ('c', c)):
+            if not bool(torch.isfinite(value).all()):
+                raise ValueError(f'{name} must contain only finite values')
+        tolerance = 100 * torch.finfo(a.real.dtype).eps
+        if not torch.allclose(a, a.mT, atol=tolerance, rtol=tolerance):
+            raise ValueError('a must be complex symmetric (a == a.T), not necessarily Hermitian')
         self.a = a
         self.b = b
         self.c = c
@@ -251,4 +260,3 @@ def vacuum_ansatz(nvar: int, dtype: torch.dtype = torch.cfloat, device: torch.de
     b = torch.zeros(1, 1, nvar, dtype=dtype, device=device)
     c = torch.ones(1, 1, dtype=dtype, device=device)
     return PolyExpAnsatz(a, b, c, nvar)
-
