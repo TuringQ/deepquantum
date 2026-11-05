@@ -5,8 +5,10 @@ import math
 import warnings
 from collections import Counter
 from collections.abc import Generator
+from typing import Any
 
 import torch
+from numpy.polynomial.legendre import leggauss
 from torch import vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
 
@@ -22,6 +24,153 @@ def _normalize_coefficients(value: torch.Tensor) -> torch.Tensor:
     magnitude = torch.maximum(value.real.abs(), value.imag.abs()) if value.is_complex() else value.abs()
     scaled = value / magnitude.amax(dim=-1, keepdim=True)
     return scaled / torch.linalg.vector_norm(scaled, dim=-1, keepdim=True)
+
+
+def _spectrum_rows(value: Any, count: int, name: str) -> list[torch.Tensor]:
+    """Read shared or per-input samples in double precision on CPU."""
+    if isinstance(value, (list, tuple)) and value and torch.as_tensor(value[0], device='cpu').ndim:
+        rows = value
+    else:
+        values = torch.as_tensor(value, device='cpu')
+        rows = value if values.ndim == 2 else [value]
+    result = []
+    for row in rows:
+        dtype = torch.complex128 if torch.as_tensor(row, device='cpu').is_complex() else torch.float64
+        row = torch.as_tensor(row, dtype=dtype, device='cpu')
+        if row.ndim > 1 or row.numel() == 0 or not torch.isfinite(row).all():
+            raise ValueError(f'{name} must contain finite scalars or one-dimensional sample arrays.')
+        result.append(row)
+    if len(result) == 1:
+        result *= count
+    if len(result) != count:
+        raise ValueError(f'{name} must be shared or have one row per delay.')
+    return result
+
+
+def _spectral_quadrature(knots: torch.Tensor, delay_span: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Integrate linear spectral amplitudes with at most one radian of relative delay per interval."""
+    widths = knots.diff()
+    counts = (2 * torch.pi * delay_span * widths).ceil().clamp_min(1)
+    if not torch.isfinite(counts).all() or counts.sum() > 1_000_000:
+        raise ValueError('The frequency range and delay span require more than one million integration intervals.')
+    counts = counts.long()
+    intervals = torch.arange(len(widths), device=knots.device).repeat_interleave(counts)
+    offsets = torch.arange(len(intervals), device=knots.device) - (counts.cumsum(0) - counts).repeat_interleave(counts)
+    steps = widths[intervals] / counts[intervals]
+    left = knots[intervals] + offsets * steps
+    nodes, weights = (torch.as_tensor(value, device=knots.device) for value in leggauss(8))
+    samples = left[:, None] + steps[:, None] * (nodes + 1) / 2
+    weights = steps[:, None] * weights / 2
+    return samples.flatten(), weights.flatten()
+
+
+def delay_coefficients(
+    delays: Any,
+    *,
+    frequency_hz: Any,
+    intensity: Any = None,
+    amplitude: Any = None,
+    phase: Any = None,
+) -> torch.Tensor:
+    r"""Expand delayed spectral modes in a common orthogonal basis.
+
+    Each input describes one spectral mode with amplitude
+    ``sqrt(intensity) * exp(1j * phase)`` or the supplied ``amplitude``.
+    Delay multiplies it by ``exp(-2j * pi * frequency_hz * delay)``.
+    Complex amplitudes are linearly interpolated and zero outside each supplied frequency range.
+    Each mode is normalized by its frequency integral, independently of its original scale.
+    Frequency samples must resolve the supplied spectrum, including its phase.
+
+    The result uses complex128 on CPU for calibration, with shape ``(ninput, nsubmode)``.
+    ``C.conj() @ C.T`` gives the numerical spectral overlaps.
+    The first input defines the first basis mode, with coefficient row ``[1, 0, ...]``.
+    Later basis modes span orthogonal residuals in input order.
+    Residual norms below ten times float64 epsilon are discarded, so the number of columns can change.
+    Include all sources and local oscillators in the same call to share their basis.
+
+    Args:
+        delays: A scalar or one-dimensional array of input delays in seconds.
+        frequency_hz: A shared one-dimensional frequency grid, or one grid per input.
+            Grids may have different lengths and are sorted internally. Frequencies must be distinct
+            within each grid and use the same reference across inputs. Use float64 samples for optical frequencies.
+        intensity: Nonnegative linear spectral density per Hz, with shape ``(nsample,)`` or
+            ``(ninput, nsample)``, or a list of per-input arrays. Specify exactly one of
+            ``intensity`` and ``amplitude``. Default: ``None``
+        amplitude: Real or complex spectral amplitudes with the same layout as ``intensity``.
+            Default: ``None``
+        phase: Spectral phase in radians before the additional delays, used with ``intensity``.
+            A scalar, shared array or per-input arrays. Use shape ``(ninput, 1)`` for per-input
+            constant phases. Default: ``None`` (zero spectral phase)
+
+    Returns:
+        Normalized coefficient rows in a common orthogonal basis.
+    """
+    if (intensity is None) == (amplitude is None):
+        raise ValueError('Specify exactly one of intensity and amplitude.')
+    if amplitude is not None and phase is not None:
+        raise ValueError('phase is only used with intensity. Complex amplitude already includes its phase.')
+    delays = _spectrum_rows(delays, 1, 'delays')[0].reshape(-1)
+    if delays.is_complex():
+        raise ValueError('delays must be real.')
+    delays = delays - delays[0]
+    count = len(delays)
+    frequencies = _spectrum_rows(frequency_hz, count, 'frequency_hz')
+    spectra = _spectrum_rows(intensity if amplitude is None else amplitude, count, 'spectrum')
+    phases = _spectrum_rows(0.0 if phase is None else phase, count, 'phase')
+    for j, (frequency, spectrum, phi) in enumerate(zip(frequencies, spectra, phases, strict=True)):
+        if frequency.is_complex() or frequency.ndim != 1 or len(frequency) < 2:
+            raise ValueError('Each frequency grid must contain at least two distinct real frequencies.')
+        if spectrum.ndim != 1 or spectrum.shape != frequency.shape:
+            raise ValueError('Each spectrum must match its frequency grid.')
+        if amplitude is None:
+            if spectrum.is_complex() or (spectrum < 0).any():
+                raise ValueError('intensity must be real and nonnegative.')
+            if phi.is_complex() or phi.numel() not in (1, len(frequency)):
+                raise ValueError('Each phase must be real and scalar or match its frequency grid.')
+            spectrum = torch.polar(spectrum.sqrt(), phi.expand_as(spectrum))
+        if spectrum.abs().amax() == 0:
+            raise ValueError('Each spectrum must be nonzero.')
+        frequency, order = frequency.sort()
+        if (frequency.diff() == 0).any():
+            raise ValueError('Frequencies within each grid must be distinct.')
+        frequencies[j] = frequency
+        spectra[j] = _normalize_coefficients(spectrum[order])
+
+    # Center frequencies before interpolation and retain their carrier phases separately.
+    reference = frequencies[0][0]
+    frequencies = [frequency - reference for frequency in frequencies]
+    knots = torch.cat(frequencies).unique(sorted=True)
+    grid, weights = _spectral_quadrature(knots, delays.max() - delays.min())
+    samples = []
+    for frequency, spectrum, delay in zip(frequencies, spectra, delays, strict=True):
+        index = torch.searchsorted(frequency, grid).clamp(1, len(frequency) - 1)
+        fraction = ((grid - frequency[index - 1]) / (frequency[index] - frequency[index - 1])).clamp(0, 1)
+        value = spectrum[index - 1] * (1 - fraction) + spectrum[index] * fraction
+        value = torch.where((grid >= frequency[0]) & (grid <= frequency[-1]), value, 0)
+        value = value * torch.exp(-2j * torch.pi * grid * delay)
+        samples.append(_normalize_coefficients(value * weights.sqrt()))
+
+    # Two orthogonalization passes retain tiny residuals without subtracting 1 - |overlap|**2.
+    basis, rows, origins = [], [], []
+    for j, value in enumerate(samples):
+        coefficients = value.new_zeros(len(basis))
+        residual = value
+        if basis:
+            vectors = torch.stack(basis)
+            for _ in range(2):
+                correction = vectors.conj() @ residual
+                coefficients = coefficients + correction
+                residual = residual - correction @ vectors
+        norm = torch.linalg.vector_norm(residual)
+        if norm > 10 * torch.finfo(torch.float64).eps:
+            basis.append(residual / norm)
+            origins.append(j)
+            coefficients = torch.cat([coefficients, norm.reshape(1)])
+        rows.append(coefficients)
+    coefficients = torch.stack([torch.nn.functional.pad(row, (0, len(basis) - len(row))) for row in rows])
+    carrier = torch.exp(-2j * torch.pi * torch.fmod(reference * delays, 1))
+    coefficients = coefficients * carrier[:, None] * carrier[origins].conj()[None, :]
+    return _normalize_coefficients(coefficients)
 
 
 def _fock_isometry(coefficients: torch.Tensor, cutoff: int) -> torch.Tensor:

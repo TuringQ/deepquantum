@@ -14,6 +14,28 @@ def double_precision():
     torch.set_default_dtype(previous)
 
 
+@pytest.mark.parametrize('delay', [0.0, 1e-23, 1e-12])
+def test_delayed_gaussian_spectrum_hom(delay):
+    center, sigma = 2e14, 1e11
+    frequency = center + sigma * torch.linspace(-8, 8, 2049)
+    intensity = torch.exp(-((frequency - center) / sigma).square() / 2)
+    coefficients = dqp.delay_coefficients([0, delay], frequency_hz=frequency, intensity=intensity)
+    assert coefficients.shape == (2, 1 if delay == 0 else 2)
+    variance = (2 * math.pi * sigma * delay) ** 2
+    overlap = torch.exp(torch.tensor(-2j * math.pi * center * delay - variance / 2))
+    torch.testing.assert_close(coefficients[1, 0], overlap, atol=1e-14, rtol=1e-5)
+    if delay:
+        residual = math.sqrt(-math.expm1(-variance))
+        torch.testing.assert_close(coefficients[1, 1].abs(), torch.tensor(residual), atol=0, rtol=2e-5)
+    cir = dqp.QumodeCircuit(2, 'vac', cutoff=3)
+    cir.single_photon(0, coefficients[0])
+    cir.single_photon(1, coefficients[1])
+    cir.bs([0, 1], torch.tensor([math.pi / 4, 0]))
+    cir.to(torch.double)()
+    expected = torch.tensor([-math.expm1(-variance) / 2])
+    torch.testing.assert_close(cir.get_prob([1, 1]), expected, atol=1e-30, rtol=4e-5)
+
+
 def _run_joint(circuit, data=None):
     from deepquantum.photonic.submode import _SubmodeCircuit
 

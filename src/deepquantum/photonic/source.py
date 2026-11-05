@@ -158,7 +158,7 @@ class ThermalSource(nn.Module):
     Subsequent squeezing preserves the single-mode purity.
     Existing correlations with these modes are removed.
     Fock preparation retains the unnormalized projection below the circuit cutoff.
-    its trace is ``1 - (nbar/(1+nbar))**cutoff`` per prepared mode.
+    Its trace is ``1 - (nbar/(1+nbar))**cutoff`` per prepared mode.
 
     Args:
         nbar: Mean thermal photon number. Specify exactly one of ``nbar`` and ``purity``. Default: ``None``

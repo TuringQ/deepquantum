@@ -55,6 +55,7 @@ from .mapper import UnitaryMapper
 from .measurement import GeneralBosonic, Generaldyne, Homodyne, PhotonNumberResolvingBosonic
 from .qmath import (
     cv_to_wigner,
+    delay_coefficients,
     fock_to_wigner,
     group_probabilities,
     ladder_to_quadrature,
