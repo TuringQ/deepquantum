@@ -1,4 +1,4 @@
-"""Photonic input preparations and calibrated submode profiles."""
+"""Photonic input preparations and coefficients in an orthogonal basis."""
 
 from typing import Any, TYPE_CHECKING
 
@@ -8,6 +8,7 @@ from torch import nn
 import deepquantum.photonic as dqp
 
 from ..qmath import partial_trace
+from .qmath import _normalize_coefficients
 
 if TYPE_CHECKING:
     from .hardware import _HardwareRun
@@ -40,21 +41,21 @@ def _replace_fock_modes(state: torch.Tensor, density: torch.Tensor, wires: tuple
 
 
 class Submodes(nn.Module):
-    r"""Orthogonal modes within each spatial port, expressed in a common basis.
+    r"""Mode coefficients and squeezing ratios in a common orthogonal basis.
 
-    Modes may describe temporal/spectral wave packets, polarization, transverse
-    profiles, or their combinations. A wavepacket is one mode function, which may
-    itself be a superposition of the common orthogonal basis functions.
-    Ratios describe fixed couplings under a common pump-amplitude sweep; photon
+    Orthogonal basis modes can describe temporal, spectral, polarization or transverse
+    degrees of freedom within each spatial mode, or combinations of these degrees of freedom.
+    Ratios describe fixed couplings under a common pump-amplitude sweep. Photon
     fractions generally change with gain. All calibration data are fixed buffers.
 
     Args:
-        coefficients: One wavepacket vector, normalized internally, or a matrix whose rows are orthonormal
-            wavepackets in the common basis. Omit to use the common basis functions themselves.
+        coefficients: A vector or matrix of coefficients in the common orthogonal basis.
+            Each row defines one addressed mode and is normalized internally. Multiple rows must be orthogonal.
+            Default: ``None`` (the common orthogonal basis modes)
         relative_r: Nonnegative squeezing ratios with a positive first entry. Entries correspond to rows of
-            ``coefficients``, or to common-basis modes when coefficients are omitted.
+            ``coefficients``, or to orthogonal basis modes when coefficients are omitted.
             Ratios are divided by the first entry, so ``[3, 2]`` means ``[1, 2/3]`` and the circuit's ``r``
-            remains the squeezing of the first wavepacket. Required for multiple wavepackets.
+            remains the squeezing of the first addressed mode. Required for multiple rows. Default: ``None``
     """
 
     def __init__(self, coefficients: Any = None, *, relative_r: Any = None) -> None:
@@ -85,21 +86,22 @@ class Submodes(nn.Module):
             if not values.is_floating_point() and not values.is_complex():
                 values = values.to(torch.get_default_dtype())
             if values.ndim == 1:
-                if not values.norm() > 0:
-                    raise ValueError('coefficients must be nonzero.')
-                values = (values / values.norm()).unsqueeze(0)
+                values = values.unsqueeze(0)
             if values.ndim != 2 or min(values.shape) == 0 or not torch.isfinite(values).all():
-                raise ValueError('coefficients must be a finite vector or matrix of orthonormal rows.')
+                raise ValueError('coefficients must be a finite vector or matrix of orthogonal rows.')
+            if (values.abs().amax(dim=-1) == 0).any():
+                raise ValueError('Coefficient rows must be nonzero.')
+            values = _normalize_coefficients(values)
             tol = 100 * torch.finfo(values.real.dtype).eps
             identity = torch.eye(len(values), dtype=values.dtype, device=values.device)
             if not torch.allclose(values @ values.mH, identity, atol=tol, rtol=tol):
-                raise ValueError('Submode profiles must be orthonormal.')
+                raise ValueError('Coefficient rows must be orthogonal before normalization.')
             if relative_r is None:
                 if len(values) != 1:
-                    raise ValueError('Specify relative_r for multiple profiles.')
+                    raise ValueError('Specify relative_r for multiple coefficient rows.')
                 relative_r = values.real.new_ones(1)
             if len(relative_r) != len(values):
-                raise ValueError('relative_r must match the number of profiles.')
+                raise ValueError('relative_r must match the number of coefficient rows.')
             _register_real_components(self, values.detach(), False)
         self.register_buffer('relative_r', relative_r.detach().clone())
         # Fixed calibration topology is Python metadata, also usable inside vmap.
@@ -113,7 +115,7 @@ class Submodes(nn.Module):
     def from_nbar(cls, nbar: Any, coefficients: Any = None) -> 'Submodes':
         """Calibrate relative squeezing from per-mode vacuum-seeded mean photon numbers.
 
-        This sets ratios only; set the circuit's reference squeezing separately.
+        This sets ratios only. Set the circuit's reference squeezing separately.
         Input photon numbers must be corrected for propagation and detection loss.
         """
         nbar = torch.as_tensor(nbar)
@@ -126,7 +128,7 @@ class Submodes(nn.Module):
 
     @property
     def coefficients(self) -> torch.Tensor:
-        """Profiles as rows of a complex matrix."""
+        """Normalized coefficient rows in the common orthogonal basis."""
         if self.components is None:
             eye = torch.eye(len(self.relative_r), device=self.relative_r.device, dtype=self.relative_r.dtype)
             return torch.complex(eye, torch.zeros_like(eye))
@@ -134,7 +136,7 @@ class Submodes(nn.Module):
 
     @property
     def nsubmode(self) -> int:
-        """Dimension of the submode basis."""
+        """Number of common orthogonal basis modes per spatial mode."""
         return len(self.relative_r) if self.components is None else self.components.shape[1]
 
     def mean_photon_weights(self, r: Any) -> torch.Tensor:
@@ -155,13 +157,13 @@ class ThermalSource(nn.Module):
 
     Subsequent squeezing preserves the single-mode purity.
     Existing correlations with these modes are removed.
-    Fock preparation retains the unnormalized projection below the circuit cutoff;
+    Fock preparation retains the unnormalized projection below the circuit cutoff.
     its trace is ``1 - (nbar/(1+nbar))**cutoff`` per prepared mode.
 
     Args:
-        nbar: Mean thermal photon number. Specify exactly one of ``nbar`` and ``purity``.
-        purity: Single-mode purity, equal to ``1 / (2*nbar + 1)`` and in ``(0, 1]``.
-        requires_grad: Whether to train the internal amplitude, with ``nbar = amplitude**2``. Default: ``False``.
+        nbar: Mean thermal photon number. Specify exactly one of ``nbar`` and ``purity``. Default: ``None``
+        purity: Single-mode purity ``1 / (2*nbar + 1)`` in ``(0, 1]``. Default: ``None``
+        requires_grad: Whether to train the amplitude whose square is ``nbar``. Default: ``False``
     """
 
     def __init__(
@@ -225,20 +227,22 @@ class ThermalSource(nn.Module):
 
 
 class SinglePhotonSource(nn.Module):
-    r"""Single-photon input in a pure wavepacket or mixed submode state.
+    r"""Pure or mixed single-photon input in an orthogonal basis.
 
     Use ``QumodeCircuit.single_photon`` to prepare independent spatial inputs.
-    Mixed inputs require Fock density representation; pure coefficients also
-    support Fock kets and basis states through the circuit API.
+    Mixed inputs require Fock density matrices. Pure inputs also support pure Fock state tensors
+    and Fock basis states through the circuit API.
+    Specify at most one of ``coefficients``, ``density_matrix`` and ``factor``.
 
     Args:
-        density_matrix: Trace-one positive matrix on the single-photon submode basis, not the full Fock space.
-        coefficients: Complex wavepacket vector in the common basis, normalized internally.
-            Defaults to the first basis submode when all three state arguments are omitted.
-        factor: Nonzero matrix with ``rho = factor @ factor.mH / trace(factor @ factor.mH)``.
-            Supports differentiable inputs. Specify at most one of the three state arguments.
-        requires_grad: Whether to train real and imaginary coefficient/factor components.
-            A supplied density matrix is first factorized. Default: ``False``.
+        density_matrix: Trace-one density matrix in the single-photon orthogonal basis,
+            with shape ``(nsubmode, nsubmode)``. Default: ``None``
+        coefficients: Complex coefficient vector in the common orthogonal basis, normalized internally.
+            Default: ``None`` (the first orthogonal basis mode when no state is specified)
+        factor: Nonzero matrix of shape ``(nsubmode, rank)`` with
+            ``rho = factor @ factor.mH / trace(factor @ factor.mH)``. Default: ``None``
+        requires_grad: Whether to train the real and imaginary coefficient or factor components.
+            A supplied density matrix is first factorized. Default: ``False``
     """
 
     def __init__(
@@ -262,12 +266,10 @@ class SinglePhotonSource(nn.Module):
         if not values.is_floating_point() and not values.is_complex():
             values = values.to(torch.get_default_dtype())
         if values.ndim != 2 or min(values.shape) == 0 or not torch.isfinite(values).all():
-            raise ValueError('The internal state must be a finite nonempty matrix.')
+            raise ValueError('The single-photon state must be a finite nonempty matrix.')
         if factor is None:
             if values.requires_grad:
-                raise ValueError(
-                    'Use factor for differentiable internal inputs, or requires_grad=True to train a source.'
-                )
+                raise ValueError('Use factor for differentiable mixed inputs, or requires_grad=True to train a source.')
             tol = 100 * torch.finfo(values.real.dtype).eps
             if values.shape[0] != values.shape[1] or not torch.allclose(values, values.mH, atol=tol, rtol=tol):
                 raise ValueError('density_matrix must be Hermitian.')
@@ -283,27 +285,27 @@ class SinglePhotonSource(nn.Module):
 
     @property
     def coefficients(self) -> torch.Tensor:
-        """Normalized wavepacket coefficients for a pure single photon."""
+        """Normalized coefficients of a pure single photon in the common orthogonal basis."""
         if not self.is_pure:
-            raise ValueError('A mixed single-photon state has no single wavepacket.')
+            raise ValueError('A mixed single-photon state has no single coefficient vector.')
         vector = torch.view_as_complex(self.components.contiguous())[:, 0]
-        return vector / vector.norm()
+        return _normalize_coefficients(vector)
 
     @property
     def density_matrix(self) -> torch.Tensor:
-        """Normalized density matrix in the internal one-photon basis."""
+        """Normalized density matrix on the single-photon orthogonal basis."""
         factor = torch.view_as_complex(self.components.contiguous())
-        density = factor @ factor.mH
-        return density / density.diagonal().sum().real
+        factor = _normalize_coefficients(factor.flatten()).reshape_as(factor)
+        return factor @ factor.mH
 
     @property
     def purity(self) -> torch.Tensor:
-        """Internal-state purity, equal to HOM visibility for two independent identical sources."""
+        """Single-photon purity, equal to HOM visibility for two independent identical sources."""
         density = self.density_matrix
         return (density @ density).diagonal().sum().real
 
     def forward(self, state: Any, run: '_HardwareRun') -> Any:
-        """Replace the selected internal modes with one photon in the specified mixed state."""
+        """Prepare one photon in the specified state across the selected orthogonal basis modes."""
         if run.backend != 'fock' or run.basis:
             raise NotImplementedError('SinglePhotonSource requires Fock density matrices (basis=False, den_mat=True).')
         density = self.density_matrix

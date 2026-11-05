@@ -170,11 +170,13 @@ class QumodeCircuit(Operation):
             raise TypeError('model must be a HardwareModel or None.')
         if self.backend == 'fock':
             if not self.basis and (not self.den_mat or self.mps) and any(isinstance(m, Loss) for m in model.modules()):
-                raise NotImplementedError('Fock tensor loss requires density matrix representation (den_mat=True).')
+                raise NotImplementedError('Fock state tensor loss requires a density matrix (den_mat=True).')
             if self.basis and any(
                 b.where is not None and not isinstance(b.plugin, (Loss, Submodes)) for b in model.bindings.values()
             ):
-                raise NotImplementedError('Fock basis state plugins support loss and internal profiles only.')
+                raise NotImplementedError(
+                    'Fock basis state plugins support loss and orthogonal-basis coefficients only.'
+                )
         gates = [gate for op in self.operators for gate in (op.gates if isinstance(op, Delay) else [op])]
         for op in gates:
             if not isinstance(op, (Gate, Channel)):
@@ -313,7 +315,7 @@ class QumodeCircuit(Operation):
 
         Returns:
             The result of the photonic quantum circuit after applying the ``operators``.
-            With internal modes, return ``SubmodeResult`` describing the joint or factorized layout;
+            With orthogonal basis modes, return ``SubmodeResult`` describing the joint or factorized layout.
             ``is_prob=True`` instead returns spatial photon-count probabilities.
         """
         self._prepare_unroll_dict()
@@ -340,7 +342,7 @@ class QumodeCircuit(Operation):
             if self.backend == 'fock' and self.basis:
                 if is_prob is False:
                     raise ValueError(
-                        'Unresolved internal readout sums probabilities, not amplitudes; use is_prob=True.'
+                        'Readout without resolving orthogonal basis modes sums probabilities; use is_prob=True.'
                     )
                 expanded(data, is_prob=is_prob, sort=sort)
             else:
@@ -1283,7 +1285,7 @@ class QumodeCircuit(Operation):
 
     def _get_permanent_norms(self, init_state: torch.Tensor, final_state: torch.Tensor) -> torch.Tensor:
         """Get the normalization factors for permanent."""
-        return torch.sqrt(product_factorial(init_state) * product_factorial(final_state))
+        return product_factorial(init_state, 0.5) * product_factorial(final_state, 0.5)
 
     def get_amplitude(
         self, final_state: Any, init_state: Any = None, unitary: torch.Tensor | None = None
@@ -1345,7 +1347,7 @@ class QumodeCircuit(Operation):
         """
         if self._submode_circuit is not None:
             if refer_state is not None or unitary is not None:
-                raise ValueError('Internal-mode probabilities use the most recent forward state.')
+                raise ValueError('Submode probabilities use the most recent forward state.')
             return self._submode_circuit.get_spatial_prob(final_state)
         if not isinstance(final_state, torch.Tensor):
             final_state = torch.tensor(final_state, dtype=torch.long)
@@ -1595,8 +1597,9 @@ class QumodeCircuit(Operation):
             else:
                 sub_mat[torch.arange(len(sub_gamma)), torch.arange(len(sub_gamma))] = sub_gamma
             temp_haf = hafnian(sub_mat, loop=loop)
-            haf = temp_haf.real.square() + temp_haf.imag.square() if purity else temp_haf
-            prob = p_vac * haf / product_factorial(final_state).to(haf.device, haf.dtype)
+            norm = product_factorial(final_state, 0.5 if purity else 1.0).to(temp_haf)
+            normalized = temp_haf / norm
+            prob = p_vac * (normalized.real.square() + normalized.imag.square() if purity else normalized)
         elif detector == 'threshold':
             final_state_double = torch.cat([final_state, final_state])
             sub_mat = sub_matrix(matrix, final_state_double, final_state_double)
@@ -2135,9 +2138,10 @@ class QumodeCircuit(Operation):
 
         Args:
             wires: The wires to measure. It can be an integer or a list of integers specifying
-                the indices of the wires. Default: ``None`` (which means all wires are measured).
+                the indices of the wires. Default: ``None`` (which means all wires are measured)
             phi: The phi angles for quadrature operator :math:`\hat{X}\cos\phi + \hat{P}\sin\phi`. Default: ``None``
-            lo: Complex submode coefficients of the local oscillator. Default: the first common-basis submode.
+            lo: Local-oscillator coefficients in the common orthogonal basis, normalized per spatial mode.
+                Default: ``None`` (the first orthogonal basis mode)
         """
         if self._submode_circuit is not None:
             from .submode import _lo_view
@@ -2145,11 +2149,11 @@ class QumodeCircuit(Operation):
             selected = self.wires if wires is None else self._convert_indices(wires)
             expanded = self._submode_circuit
             if self.basis and self.backend == 'fock':
-                raise NotImplementedError('Homodyne readout requires Fock tensors (basis=False).')
+                raise NotImplementedError('Homodyne readout requires Fock state tensors (basis=False).')
             view = _lo_view(expanded.result(), self.cutoff, selected, lo)
             return view.quadrature_mean(phi=phi)
         if lo is not None:
-            raise ValueError('Configure submodes before specifying a local-oscillator profile.')
+            raise ValueError('Configure orthogonal basis modes before specifying local-oscillator coefficients.')
 
         if len(self.measurements) == 0:
             if wires is None:
@@ -2240,25 +2244,25 @@ class QumodeCircuit(Operation):
         *,
         lo: Any = None,
     ) -> tuple[FockState, torch.Tensor]:
-        """Return the normalized Fock density state and probability of a PNR event.
+        """Return the normalized Fock density matrix and probability of a PNR event.
 
-        Requires a completed dense Fock forward pass (``basis=False``).
+        Requires a completed Fock state tensor forward pass (``basis=False``, ``mps=False``).
         The circuit state is unchanged. Modes not retained are traced out.
 
         Args:
             wires: Spatial wires measured by photon-number-resolving detectors.
-            counts: One nonnegative integer per measured wire, summed over all its submodes.
-            keep: Unmeasured spatial wires to retain, in output order. Default: all unmeasured wires.
-            submode: Zero-based index in the common orthogonal basis to retain at every wire in ``keep``.
-                Default: ``None``, retaining all submodes when ``lo`` is also omitted.
-            lo: Complex wavepacket coefficients in the common basis, normalized internally.
-                A vector selects the same wavepacket at every retained wire; matrix rows correspond to ``keep``.
-                Retains one mode per wire and cannot be combined with ``submode``.
+            counts: One nonnegative integer per measured wire, summed over all its orthogonal basis modes.
+            keep: Unmeasured spatial wires to retain, in output order. Default: ``None`` (all unmeasured wires)
+            submode: Zero-based orthogonal-basis mode index to retain at every wire in ``keep``.
+                Default: ``None`` (all orthogonal basis modes when ``lo`` is also omitted)
+            lo: Complex coefficients in the common orthogonal basis, normalized per row.
+                A vector selects the same linear combination at every retained wire. Matrix rows correspond to ``keep``.
+                Retains one mode per wire and cannot be combined with ``submode``. Default: ``None``
 
         Returns:
             Conditional Fock density state and PNR-event probability, both with a leading batch dimension.
-            State axes follow ``keep``, then submode index when retaining all submodes.
-            The Fock cutoff also applies after a wavepacket basis change.
+            State axes follow ``keep``, then orthogonal-basis mode index when retaining all modes.
+            The Fock cutoff also applies after a change of orthogonal basis.
 
         Raises:
             ValueError: If the requested event has zero probability or the selection is invalid.
@@ -2266,7 +2270,7 @@ class QumodeCircuit(Operation):
         from .qmath import _pnr_condition
 
         if self.backend != 'fock' or self.basis or self.mps:
-            raise NotImplementedError('post_select() requires Fock tensors (basis=False).')
+            raise NotImplementedError('post_select() requires Fock state tensors (basis=False).')
         wires = self._convert_indices(wires)
         if not wires:
             raise ValueError('Measure at least one spatial wire.')
@@ -2327,8 +2331,9 @@ class QumodeCircuit(Operation):
             shots: The number of times to sample from the quantum state. Default: 10
             wires: The wires to measure for the ideal homodyne. It can be an integer or a list of integers specifying
                 the indices of the wires. Default: ``None`` (which means all wires are measured)
-            lo: Complex submode coefficients of the local oscillator. Default: the first common-basis submode.
-            phi: Optional quadrature angle. With no explicit measurements, selects X_phi only.
+            lo: Local-oscillator coefficients in the common orthogonal basis, normalized per spatial mode.
+                Default: ``None`` (the first orthogonal basis mode)
+            phi: The quadrature angle. Only used when no measurements are configured. Default: ``None``
         """
         if self._submode_circuit is not None:
             from .submode import _lo_view
@@ -2336,11 +2341,11 @@ class QumodeCircuit(Operation):
             selected = self.wires if wires is None else self._convert_indices(wires)
             expanded = self._submode_circuit
             if self.basis and self.backend == 'fock':
-                raise NotImplementedError('Homodyne readout requires Fock tensors (basis=False).')
+                raise NotImplementedError('Homodyne readout requires Fock state tensors (basis=False).')
             view = _lo_view(expanded.result(), self.cutoff, selected, lo)
             return view.measure_homodyne(shots, phi=phi)
         if lo is not None:
-            raise ValueError('Configure submodes before specifying a local-oscillator profile.')
+            raise ValueError('Configure orthogonal basis modes before specifying local-oscillator coefficients.')
         if self.state is None:
             return
         assert isinstance(self.state, (list, torch.Tensor)), 'NOT valid when "is_prob" is True'
@@ -2469,18 +2474,18 @@ class QumodeCircuit(Operation):
     def thermal(
         self, wires: int | list[int], nbar: Any = None, *, purity: Any = None, requires_grad: bool = False
     ) -> None:
-        """Prepare independent thermal inputs before all gates.
+        """Prepare independent thermal states on the selected inputs.
 
-        Replaces the initial state and earlier preparation on each selected wire.
-        Supports Gaussian, Bosonic and Fock density states. With submodes configured,
-        the thermal state occupies the configured input wavepacket (the first basis submode by default);
-        additional input submodes are vacuum.
+        Replaces the selected inputs before all gates. Supports Gaussian, Bosonic and Fock density matrices.
+        The occupied mode is set by ``HardwareModel.input().submodes()`` and defaults to the first
+        orthogonal basis mode. Its orthogonal complement is vacuum.
 
         Args:
-            wires: Spatial input wires to prepare with the same thermal state.
+            wires: The spatial input wires to prepare.
             nbar: Mean photon number per prepared mode. Specify exactly one of ``nbar`` and ``purity``.
-            purity: Single-mode purity, equal to ``1 / (2*nbar + 1)`` and in ``(0, 1]``.
-            requires_grad: Whether to train the internal amplitude, whose square is ``nbar``. Default: ``False``.
+                Default: ``None``
+            purity: Single-mode purity ``1 / (2*nbar + 1)`` in ``(0, 1]``. Default: ``None``
+            requires_grad: Whether to train the amplitude whose square is ``nbar``. Default: ``False``
         """
         if self.mps or self.backend == 'fock' and (self.basis or not self.den_mat):
             raise NotImplementedError('Thermal inputs require Gaussian, Bosonic or Fock density states.')
@@ -2497,23 +2502,23 @@ class QumodeCircuit(Operation):
         factor: Any = None,
         requires_grad: bool = False,
     ) -> None:
-        """Prepare one photon per input in a pure wavepacket or a mixed submode state.
+        """Prepare one photon on each selected input.
 
-        Preparation precedes all gates and replaces earlier preparation on each selected wire.
-        Requires the Fock backend. Mixed inputs require density matrices; pure inputs also support
-        Fock kets and basis states. For kets, the selected input wires must initially be vacuum.
+        Replaces the selected inputs before all gates. Requires the Fock backend.
+        Mixed states require ``basis=False, den_mat=True``. For pure Fock state tensors,
+        the selected inputs must initially be vacuum.
+        Specify at most one of ``coefficients``, ``density_matrix`` and ``factor``.
 
         Args:
-            wires: Spatial input wires, each prepared independently with the same single-photon state.
-            coefficients: Complex amplitudes in the common orthogonal submode basis, normalized internally.
-                Defaults to the first basis submode when neither ``density_matrix`` nor ``factor`` is given.
-            density_matrix: Trace-one positive density matrix on the single-photon submode basis,
-                with shape ``(nsubmode, nsubmode)``. This is not a full Fock density matrix.
-            factor: Nonzero matrix of shape ``(nsubmode, rank)``, defining
-                ``rho = factor @ factor.mH / trace(factor @ factor.mH)`` for differentiable mixed inputs.
-                Specify at most one of ``coefficients``, ``density_matrix`` and ``factor``.
+            wires: The spatial input wires, each prepared independently with the same state.
+            coefficients: Pure-state coefficients in the common orthogonal basis, normalized internally.
+                Default: ``None`` (the first orthogonal basis mode when no state is specified)
+            density_matrix: Trace-one density matrix in the single-photon orthogonal basis,
+                with shape ``(nsubmode, nsubmode)``. Default: ``None``
+            factor: Nonzero matrix of shape ``(nsubmode, rank)`` with
+                ``rho = factor @ factor.mH / trace(factor @ factor.mH)``. Default: ``None``
             requires_grad: Whether to train the real and imaginary components of the coefficients or factor.
-                A supplied density matrix is first factorized. Default: ``False``.
+                A supplied density matrix is first factorized. Default: ``False``
         """
         if self.backend != 'fock' or self.mps:
             raise NotImplementedError('Single photons require the Fock backend without MPS.')
@@ -2532,7 +2537,7 @@ class QumodeCircuit(Operation):
             self.sources[str(wire)] = source
 
     def _prepare_sources(self):
-        """Build the declared input before optical evolution; never insert reset gates."""
+        """Build the declared input state before optical evolution."""
         source = copy(self.init_state)
         source._buffers = self.init_state._buffers.copy()
         if self.backend == 'bosonic' and self._bosonic_states is not None:

@@ -195,7 +195,7 @@ def test_thermal_preparation(backend):
 def test_validation():
     with pytest.raises(ValueError, match='positive reference'):
         dqp.Submodes(relative_r=[0, 0.3])
-    with pytest.raises(ValueError, match='orthonormal'):
+    with pytest.raises(ValueError, match='orthogonal'):
         dqp.Submodes([[1, 0], [1, 0]], relative_r=[1, 1])
     with pytest.raises(ValueError, match='positive semidefinite'):
         dqp.SinglePhotonSource([[1.2, 0], [0, -0.2]])
@@ -218,6 +218,14 @@ def test_validation():
 
 
 def test_internal_mode_calibration_preserves_reference_squeezing():
+    modes = dqp.Submodes([[3, 4j], [4j, 3]], relative_r=[3, 2])
+    torch.testing.assert_close(modes.coefficients, torch.tensor([[0.6, 0.8j], [0.8j, 0.6]]))
+    large = torch.tensor([3e38 + 3e38j, 3e38 - 3e38j], dtype=torch.cfloat)
+    expected = torch.tensor([0.5 + 0.5j, 0.5 - 0.5j], dtype=torch.cfloat)
+    torch.testing.assert_close(dqp.Submodes(large).coefficients[0], expected)
+    torch.testing.assert_close(
+        dqp.SinglePhotonSource(coefficients=large).density_matrix, torch.outer(expected, expected.conj())
+    )
     torch.testing.assert_close(dqp.Submodes(relative_r=[3, 2]).relative_r, torch.tensor([1, 2 / 3]))
     nbar = torch.tensor([0.6, 0.08, 0.01])
     modes = dqp.Submodes.from_nbar(nbar)
@@ -239,6 +247,22 @@ def test_internal_mode_calibration_preserves_reference_squeezing():
         dqp.HardwareModel().s(0).submodes(relative_r=[3, 2], nbar=[0.6, 0.1])
     with pytest.raises(ValueError, match='already specifies'):
         dqp.HardwareModel().s(0).submodes(modes, nbar=nbar)
+
+
+def test_fock_isometry_high_occupation_and_zero_coefficient_gradient():
+    from deepquantum.photonic.qmath import _fock_isometry
+
+    coefficients = torch.tensor([2**-0.5, 1j * 2**-0.5], dtype=torch.cfloat)
+    matrix = _fock_isometry(coefficients, 301)
+    column = matrix[..., 300]
+    assert torch.isfinite(column).all()
+    torch.testing.assert_close(column.abs().square().sum(), torch.ones((), dtype=torch.float32), atol=2e-5, rtol=2e-5)
+    expected = -math.exp((math.lgamma(301) - 2 * math.lgamma(151)) / 2 - 150 * math.log(2))
+    torch.testing.assert_close(column[150, 150].real, torch.tensor(expected, dtype=torch.float32), atol=1e-5, rtol=1e-5)
+    coefficients = torch.tensor([1.0, 0.0], dtype=torch.cdouble, requires_grad=True)
+    matrix = _fock_isometry(coefficients, 5)
+    gradient = torch.autograd.grad(matrix[3, 1, 4].real, coefficients)[0]
+    torch.testing.assert_close(gradient, torch.tensor([0, 2], dtype=torch.cdouble))
 
 
 @pytest.mark.parametrize('backend,den_mat', [('gaussian', False), ('fock', False), ('fock', True)])
@@ -516,7 +540,9 @@ def test_lo_projection_matches_displaced_wavepacket(backend):
     for lo in (profile, torch.tensor([0.6j, 0.8]), torch.tensor([1.0, 0.0])):
         alpha = torch.vdot(lo.to(profile), profile) * 0.2 * torch.exp(torch.tensor(0.3j))
         expected = math.sqrt(dqp.hbar) / dqp.kappa * (alpha * torch.exp(torch.tensor(-0.2j))).real
-        torch.testing.assert_close(cir.quadrature_mean(0, 0.2, lo=lo).squeeze().real, expected, atol=1e-8, rtol=1e-6)
+        torch.testing.assert_close(
+            cir.quadrature_mean(0, 0.2, lo=3 * lo).squeeze().real, expected, atol=1e-8, rtol=1e-6
+        )
     samples = cir.measure_homodyne(8, wires=0, lo=profile, phi=0.2)
     assert samples.shape == (8,) and torch.isfinite(samples).all()
 

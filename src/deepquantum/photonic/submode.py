@@ -1,7 +1,6 @@
 """Submode expansion and unresolved readout of spatial photonic circuits."""
 
 import itertools
-import math
 from collections import Counter
 from copy import copy
 from dataclasses import dataclass, replace
@@ -31,7 +30,15 @@ from .gate import (
     UAnyGate,
 )
 from .hardware import HardwareModel, Loss, _PluginBinding
-from .qmath import _convolve_counts, _fock_conditional_blocks, _group_count_axes, fock_combinations, group_probabilities
+from .qmath import (
+    _convolve_counts,
+    _fock_conditional_blocks,
+    _fock_isometry,
+    _group_count_axes,
+    _normalize_coefficients,
+    fock_combinations,
+    group_probabilities,
+)
 from .source import SinglePhotonSource, Submodes
 from .state import BosonicState, FockState, GaussianState
 
@@ -41,17 +48,17 @@ _ACTIVE = (Squeezing, Squeezing2, Displacement, DisplacementPosition, Displaceme
 
 @dataclass(frozen=True)
 class SubmodeResult:
-    """Circuit output with an explicit submode layout.
+    """Circuit output with an explicit orthogonal-basis mode layout.
 
-    ``nmode`` counts spatial ports. Joint data use spatial-then-internal order.
-    Factorized data have leading ``(batch, internal)`` axes; each factor contains
+    ``nmode`` counts spatial modes. Joint data use spatial-then-orthogonal-basis order.
+    Factorized data have leading ``(batch, nsubmode)`` axes. Each factor contains
     nmode spatial modes. They are simultaneous independent quantum systems, not
     alternative samples. ``to_joint()`` explicitly materializes their tensor product.
-    Gaussian factors contain [cov, mean]; Fock factors contain kets or densities.
+    Gaussian factors contain [cov, mean]. Fock factors contain pure or mixed state tensors.
     With partially coupled groups, ``data`` is a tuple of joint block states and
-    ``blocks`` records their common-basis indices. ``partition`` describes either layout.
-    Bosonic and Fock-basis outputs currently use the joint representation;
-    Fock-basis data are a transfer matrix when ``is_prob`` is None.
+    ``blocks`` records their orthogonal-basis mode indices. ``partition`` describes either layout.
+    Bosonic and Fock basis state outputs currently use the joint representation.
+    Fock basis state data are a transfer matrix when ``is_prob`` is None.
     """
 
     data: Any
@@ -64,7 +71,7 @@ class SubmodeResult:
 
     @property
     def partition(self):
-        """Common-basis indices evolved jointly in each independent block."""
+        """Orthogonal-basis mode indices evolved jointly in each independent block."""
         return self.blocks or (
             tuple((k,) for k in range(self.nsubmode)) if self.factorized else (tuple(range(self.nsubmode)),)
         )
@@ -102,7 +109,7 @@ register_pytree_node(
 
 
 def _post_select_spatial(result, cutoff, wires, counts, keep, retained_submodes):
-    """Convolve independent PNR conditional operators, tracing unretained submodes first."""
+    """Convolve independent PNR conditional operators, tracing unretained orthogonal basis modes first."""
     accumulated, labels = None, []
     factors = sorted(result._factors(), key=lambda item: bool(set(retained_submodes).intersection(item[0])))
     for block, state in factors:
@@ -172,7 +179,7 @@ def _join_states(states, blocks, nmode, nsubmode, backend, den_mat):
 
 
 def _profile_rotations(coefficients):
-    """Complete orthonormal profiles and decompose their unitary into two-mode rotations."""
+    """Complete the specified orthogonal basis and decompose its unitary into two-mode rotations."""
     columns = coefficients.mT
     n, p = columns.shape
     remaining = columns
@@ -197,7 +204,7 @@ def _profile_rotations(coefficients):
 
 
 def _lo_coefficients(lo, nwire, nsubmode, reference):
-    """Normalize one common-basis LO profile per measured spatial port."""
+    """Normalize LO coefficients in the common orthogonal basis for each measured spatial mode."""
     if lo is None:
         coefficients = reference.new_zeros(nwire, nsubmode)
         coefficients[:, 0] = 1
@@ -207,15 +214,16 @@ def _lo_coefficients(lo, nwire, nsubmode, reference):
             coefficients = coefficients.unsqueeze(0).expand(nwire, -1)
         if coefficients.ndim != 2 or coefficients.shape[0] != nwire or not 0 < coefficients.shape[1] <= nsubmode:
             raise ValueError(
-                'lo must be a profile vector or one row per selected spatial wire, in the common submode basis.'
+                'lo must be a coefficient vector or one row per selected spatial wire, in the common orthogonal basis.'
             )
         coefficients = coefficients.to(
             torch.complex128 if reference.dtype in (torch.float64, torch.complex128) else torch.complex64
         )
-        norms = coefficients.norm(dim=-1, keepdim=True)
-        if not torch.isfinite(coefficients).all() or (norms == 0).any():
-            raise ValueError('LO profiles must be finite and nonzero.')
-        coefficients = torch.nn.functional.pad(coefficients / norms, (0, nsubmode - coefficients.shape[1]))
+        if not torch.isfinite(coefficients).all() or (coefficients.abs().amax(dim=-1) == 0).any():
+            raise ValueError('LO coefficient rows must be finite and nonzero.')
+        coefficients = torch.nn.functional.pad(
+            _normalize_coefficients(coefficients), (0, nsubmode - coefficients.shape[1])
+        )
     return coefficients.to(
         torch.complex128 if reference.dtype in (torch.float64, torch.complex128) else torch.complex64
     )
@@ -279,24 +287,11 @@ def _clone_operation(op, wires, nmode):
 
 
 def _embed_fock(state, profiles, cutoff, den_mat):
-    """Apply one multinomial isometry per spatial ket/bra axis, preserving coherences."""
+    """Apply one isometry per spatial ket/bra axis, preserving number coherences."""
     nspatial, nsubmode = profiles.shape
     state = state.to(torch.promote_types(state.dtype, profiles.dtype))
     state = state.reshape([-1] + [cutoff] * nspatial * (2 if den_mat else 1))
-    patterns = list(itertools.product(range(cutoff), repeat=nsubmode))
-    isometries = []
-    for profile in profiles:
-        columns = []
-        for n in range(cutoff):
-            amplitudes = [
-                math.sqrt(math.factorial(n) / math.prod(math.factorial(k) for k in pattern))
-                * math.prod((profile[k] ** nk for k, nk in enumerate(pattern) if nk), start=profile.new_ones(()))
-                if sum(pattern) == n
-                else profile.new_zeros(())
-                for pattern in patterns
-            ]
-            columns.append(torch.stack(amplitudes).reshape([cutoff] * nsubmode))
-        isometries.append(torch.stack(columns, -1).to(state))
+    isometries = [_fock_isometry(profile, cutoff).to(state) for profile in profiles]
     for axis in range(state.ndim - 1, 0, -1):
         matrix = isometries[(axis - 1) % nspatial]
         if axis > nspatial:
@@ -330,9 +325,7 @@ class _SubmodeCircuit(QumodeCircuit):
 
     def __init__(self, parent: QumodeCircuit, state: Any = None, *, nsubmode=None, joint=False):
         if parent.mps or parent._with_delay:
-            raise NotImplementedError(
-                'Internal modes currently require a dense circuit; unfold delays with global_circuit().'
-            )
+            raise NotImplementedError('Submode expansion does not support MPS; unfold delays with global_circuit().')
         if parent.measurements:
             raise NotImplementedError('Use measure_homodyne() without conditional homodyne operations for submodes.')
         model = parent.hardware_model if parent.hardware_model is not None else HardwareModel()
@@ -441,9 +434,11 @@ class _SubmodeCircuit(QumodeCircuit):
         self._bindings = model._bind(parent.operators)
         self._rotations = {}
         if any(not isinstance(op, _PASSIVE + _ACTIVE + (Barrier,)) for op in parent.operators):
-            raise NotImplementedError('Internal modes support passive optics, squeezing, displacement, OPA and loss.')
+            raise NotImplementedError(
+                'Submode expansion supports passive optics, squeezing, displacement, OPA and loss.'
+            )
 
-    def forward(self, data=None, state=None, is_prob=None, detector=None, sort=True, stepwise=False):
+    def forward(self, data=None, state=None, is_prob=None, detector=None, sort=True):
         if self.backend == 'fock':
             result = self._forward_fock(data, state, is_prob, sort)
             if not self.basis and result.ndim == self.nmode * (2 if self.den_mat else 1) + self.factorized:
@@ -462,10 +457,12 @@ class _SubmodeCircuit(QumodeCircuit):
         self.parent.encode(data)
 
     def _prepare_init_state(self, state, reset_fock_basis=False, nloss=None):
-        self._nloss = self.nsubmode * (
-            sum(isinstance(op, PhotonLoss) for op in self.parent.operators)
-            + self.hardware_model._loss_count(self.parent.operators, self.parent.wires)
-        )
+        if nloss is None:
+            nloss = self.nsubmode * (
+                sum(isinstance(op, PhotonLoss) for op in self.parent.operators)
+                + self.hardware_model._loss_count(self.parent.operators, self.parent.wires)
+            )
+        self._nloss = nloss
         self._lossy = self._nloss > 0
         return super()._prepare_init_state(state, reset_fock_basis, self._nloss)
 
@@ -476,7 +473,7 @@ class _SubmodeCircuit(QumodeCircuit):
             return PhotonLoss._apply_unitary(state, op.gate.update_matrix(), op.wires, self.nmode)
         matrix = op.update_matrix()
         if matrix.shape != (len(op.wires), len(op.wires)):
-            raise NotImplementedError('Active operations require Fock tensors (basis=False).')
+            raise NotImplementedError('Active operations require Fock state tensors (basis=False).')
         if state is None:
             state = torch.eye(self.nmode, dtype=matrix.dtype, device=matrix.device)
         dtype = torch.promote_types(state.dtype, matrix.dtype)
@@ -582,7 +579,7 @@ class _SubmodeCircuit(QumodeCircuit):
                 selected = tuple(wires) if self.factorized else tuple(k for wire in wires for k in self.groups[wire])
                 state = plugin(state, replace(run, wires=selected))
             else:
-                raise NotImplementedError('Submode input/output plugins support profiles and loss.')
+                raise NotImplementedError('Submode input/output plugins support mode coefficients and loss.')
         return state
 
     def _execute(self, state, basis=False, run=None):
@@ -615,7 +612,8 @@ class _SubmodeCircuit(QumodeCircuit):
             state = torch.eye(self.nmode, dtype=torch.cfloat)
         return state
 
-    def _get_unitary(self, operators, model=None):
+    def _get_unitary(self, _operators, _model=None):
+        # Parent hooks pass these arguments; this view executes the compiled parent circuit.
         return self._execute(None, basis=True)
 
     def _forward_helper_tensor(self, data=None, state=None, is_prob=None):
@@ -634,7 +632,8 @@ class _SubmodeCircuit(QumodeCircuit):
             )
         return result.squeeze(0)
 
-    def _forward_helper_gaussian(self, data=None, state=None, stepwise=True):
+    def _forward_helper_gaussian(self, data=None, state=None, _stepwise=True):
+        # The parent CV hook supplies a flag; submode operations always execute stepwise.
         self.encode(data)
         state = [self.init_state.cov, self.init_state.mean] if state is None else state
         result = self._execute(state)
@@ -656,7 +655,7 @@ class _SubmodeCircuit(QumodeCircuit):
         return view
 
     def _probabilities(self, wires=None, limits=None):
-        """Resolved probabilities, with (batch, internal) leading axes for product states."""
+        """Resolved probabilities, with (batch, nsubmode) leading axes for product states."""
         selected = self.wires if wires is None else wires
         view = self.readout_view()
         if self.backend == 'fock':
@@ -876,7 +875,7 @@ class _SubmodeCircuit(QumodeCircuit):
 
 
 def _slice_profiles(modes, block):
-    """Restrict fixed profiles without renormalizing their squeezing reference."""
+    """Restrict orthogonal-basis coefficients without renormalizing their squeezing reference."""
     rows = [i for i, support in enumerate(modes.supports) if support and set(support) <= set(block)]
     result = copy(modes)
     result._buffers = modes._buffers.copy()
@@ -890,11 +889,11 @@ def _slice_profiles(modes, block):
 
 
 def _expand_submodes(parent, state=None):
-    """Compile exact connected submode blocks from input and addressed-profile supports."""
+    """Group orthogonal basis modes connected by nonzero input or operation coefficients."""
     model = parent.hardware_model if parent.hardware_model is not None else HardwareModel()
     photons = [s for s in parent.sources.values() if isinstance(s, SinglePhotonSource)]
     d = max([model.nsubmode] + [s.components.shape[0] for s in photons])
-    # Preserve the batched native-kernel path for identical coordinate-basis families.
+    # Preserve the batched native-kernel path for operations diagonal in the common orthogonal basis.
     profiles = [b.plugin for b in model.bindings.values() if isinstance(b.plugin, Submodes)]
     if (
         d == 1
@@ -912,7 +911,7 @@ def _expand_submodes(parent, state=None):
             merged = set().union(*touched)
             components[:] = [group for group in components if group not in touched] + [merged]
 
-    # An arbitrary spatial input may correlate its differently addressed wavepackets.
+    # An arbitrary spatial input may correlate the orthogonal basis modes it occupies.
     inputs = {w: (0,) for w in parent.wires}
     for binding, wires in model._io_bindings(parent.wires, 'input'):
         if isinstance(binding.plugin, Submodes):
@@ -934,7 +933,7 @@ def _expand_submodes(parent, state=None):
 
 
 class _SubmodeBlocks:
-    """Small execution plan for partially coupled, mutually independent submode groups."""
+    """Small execution plan for independent groups of coupled orthogonal basis modes."""
 
     def __init__(self, parent, state, blocks, initial_support):
         self.parent, self.blocks = parent, blocks
@@ -1011,7 +1010,7 @@ class _SubmodeBlocks:
                 initial.mean = initial.mean.expand(reference.shape[0], -1, -1)
             self.circuits.append(_SubmodeCircuit(view, initial, nsubmode=len(block), joint=True))
 
-    def forward(self, data=None, **kwargs):
+    def forward(self, data=None):
         initial = [
             cir.tensor_rep(cir.init_state.state)
             if self.backend == 'fock'

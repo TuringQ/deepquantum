@@ -17,6 +17,37 @@ from .draw import plot_wigner
 from .utils import mem_to_chunksize
 
 
+def _normalize_coefficients(value: torch.Tensor) -> torch.Tensor:
+    """Normalize nonzero coefficient rows without squaring their original scale."""
+    magnitude = torch.maximum(value.real.abs(), value.imag.abs()) if value.is_complex() else value.abs()
+    scaled = value / magnitude.amax(dim=-1, keepdim=True)
+    return scaled / torch.linalg.vector_norm(scaled, dim=-1, keepdim=True)
+
+
+def _fock_isometry(coefficients: torch.Tensor, cutoff: int) -> torch.Tensor:
+    """Return the Fock isometry for a normalized orthogonal-basis coefficient vector.
+
+    Output axes index occupations in each orthogonal basis mode, followed by the input photon number.
+    Each axis has size ``cutoff``.
+    """
+    nsubmode = len(coefficients)
+    vacuum = coefficients.new_zeros([cutoff] * nsubmode)
+    vacuum[(0,) * nsubmode] = 1
+    ladder = torch.arange(1, cutoff, dtype=coefficients.real.dtype, device=coefficients.device).sqrt()
+    columns = [vacuum]
+    for n in range(1, cutoff):
+        column = torch.zeros_like(vacuum)
+        for k in range(nsubmode):
+            shape = [1] * nsubmode
+            shape[k] = cutoff - 1
+            raised = columns[-1].narrow(k, 0, cutoff - 1) * ladder.reshape(shape)
+            raised = torch.nn.functional.pad(raised, (0, 0) * (nsubmode - k - 1) + (1, 0))
+            column = column + coefficients[k] * raised
+        # |n_c> = sum_k c_k a_k^dagger |(n-1)_c> / sqrt(n).
+        columns.append(column / math.sqrt(n))
+    return torch.stack(columns, -1)
+
+
 def dirac_rep(state: torch.Tensor, den_mat: bool = False, topk: int = 5) -> dict:
     """Convert the batched Fock state tensors to the dictionary of Dirac representation."""
     dirac_dict = {}
@@ -57,7 +88,7 @@ def sort_dict_fock_basis(state_dict: dict, idx: int = 0) -> dict:
 
 
 def group_probabilities(probabilities: dict | torch.Tensor, groups: list[list[int]]) -> dict:
-    """Sum photon-count probabilities over unresolved internal modes of each spatial port.
+    """Sum photon-count probabilities over unresolved orthogonal basis modes of each spatial mode.
 
     ``groups`` must partition all modes, in the desired order of spatial outputs.
     Input is the probability dictionary or dense probability tensor returned by
@@ -286,11 +317,21 @@ def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
     return value_perm
 
 
-def product_factorial(state: torch.Tensor) -> torch.Tensor:
-    """Get the product of the factorial from the Fock state, i.e., :math:`|s_1,s_2,...s_n> -> s_1!s_2!...s_n!`."""
-    state = state + 0.0
-    # nature log gamma function
-    return torch.exp(torch.lgamma(state.cpu().double() + 1).sum(-1, keepdim=True)).to(state.device, state.dtype)
+def product_factorial(state: torch.Tensor, power: float = 1.0) -> torch.Tensor:
+    """Return the factorial product raised to ``power``, evaluating the power in log space.
+
+    Integer photon counts produce float64 results, or float32 on MPS.
+    Floating inputs retain their dtype.
+
+    Args:
+        state: Photon counts, with modes along the final axis.
+        power: Exponent applied to the factorial product. Default: 1.0
+    """
+    log_value = torch.lgamma(state.cpu().double() + 1).sum(-1, keepdim=True)
+    dtype = state.dtype
+    if not state.is_floating_point():
+        dtype = torch.float32 if state.device.type == 'mps' else torch.float64
+    return torch.exp(power * log_value).to(device=state.device, dtype=dtype)
 
 
 def fock_combinations(nmode: int, nphoton: int, cutoff: int | None = None, nancilla: int = 0) -> list[list[int]]:
@@ -681,24 +722,19 @@ def sample_homodyne_fock(
 ) -> torch.Tensor:
     """Get the samples of homodyne measurement for batched Fock state tensors on one mode."""
     coef = 2 * dqp.kappa**2 / dqp.hbar
-    if den_mat:
-        state = state.reshape(-1, cutoff**nmode, cutoff**nmode)
-    else:
-        state = state.reshape(-1, cutoff**nmode, 1)
-        state = state @ state.mH
-    trace_lst = [i for i in range(nmode) if i != wire]
-    reduced_dm = partial_trace(state, nmode, trace_lst, cutoff)  # (batch, cutoff, cutoff)
-    orders = torch.arange(cutoff, dtype=state.real.dtype, device=state.device).reshape(-1, 1)  # (cutoff, 1)
-    # with dimension \sqrt{m\omega\hbar}
+    reduced_dm = _fock_conditional_blocks(state, nmode, cutoff, den_mat, [], [wire])
     xs = torch.linspace(-x_range, x_range, nbin, dtype=state.real.dtype, device=state.device)  # (nbin)
-    h_vals = torch.special.hermite_polynomial_h(coef**0.5 * xs, orders)  # （cutoff, nbin)
-    # H_n / \sqrt{2^n * n!}
-    factorial = torch.exp(torch.lgamma(orders.cpu().double() + 1)).to(orders.device, orders.dtype)
-    h_vals = h_vals / torch.sqrt(2**orders * factorial)
-    h_mat = h_vals.reshape(1, cutoff, nbin) * h_vals.reshape(cutoff, 1, nbin)  # (cutoff, cutoff, nbin)
-    h_terms = reduced_dm.unsqueeze(-1) * h_mat  # (batch, cutoff, cutoff, nbin)
-    probs = (h_terms.sum(dim=[-3, -2]) * torch.exp(-coef * xs**2)).real  # (batch, nbin)
-    probs = abs(probs)
+    scaled_x = coef**0.5 * xs
+    # Normalized Hermite functions include the Gaussian envelope, avoiding large H_n and n!.
+    functions = [torch.exp(-scaled_x.square() / 2)]
+    for n in range(1, cutoff):
+        value = math.sqrt(2 / n) * scaled_x * functions[-1]
+        if n > 1:
+            value = value - math.sqrt((n - 1) / n) * functions[-2]
+        functions.append(value)
+    h_vals = torch.stack(functions).to(reduced_dm.dtype)
+    probs = torch.einsum('...ij,ix,jx->...x', reduced_dm, h_vals, h_vals).real.reshape(-1, nbin)
+    probs = abs(probs).contiguous()
     probs[probs < 1e-10] = 0
     indices = torch.multinomial(probs.reshape(-1, nbin), num_samples=shots, replacement=True)  # (batch, shots)
     samples = xs[indices]

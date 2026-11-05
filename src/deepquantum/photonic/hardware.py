@@ -132,7 +132,7 @@ class Loss(nn.Module):
             nmode, cutoff = run.nmode, 2
             if not run.basis:
                 if not isinstance(state, torch.Tensor) or state.ndim != 2 * nmode + 1:
-                    raise NotImplementedError('Fock tensor loss requires density matrix representation (den_mat=True).')
+                    raise NotImplementedError('Fock state tensor loss requires a density matrix (den_mat=True).')
                 cutoff = state.shape[-1]
             if state is not None:
                 theta = theta.to(state.real)
@@ -344,7 +344,7 @@ class _StateConfig:
         return self.use(Loss(t, db=db, requires_grad=requires_grad), name=name)
 
     def submodes(self, coefficients: Any = None, *, name: str | None = None) -> 'HardwareModel':
-        """Assign one internal profile to each selected, already prepared input mode."""
+        """Set normalized orthogonal-basis coefficients for each selected, already prepared spatial input."""
         if self.where != 'input' or self.op_type is not None:
             raise ValueError('Use input().submodes() for input states or s().submodes() for squeezing.')
         modes = coefficients if isinstance(coefficients, Submodes) else Submodes(coefficients)
@@ -395,7 +395,7 @@ class _BeamSplitterConfig(_PhaseConfig):
 
 class _AmplitudePhaseConfig(_PhaseConfig):
     def submodes(self, coefficients: Any, *, name: str | None = None) -> 'HardwareModel':
-        """Set the single internal mode addressed by the active operation."""
+        """Set normalized orthogonal-basis coefficients for the mode addressed by the active operation."""
         return self.model._register(
             _PluginBinding(
                 coefficients if isinstance(coefficients, Submodes) else Submodes(coefficients),
@@ -424,19 +424,21 @@ class _SqueezingConfig(_AmplitudePhaseConfig):
         nbar: Any = None,
         name: str | None = None,
     ) -> 'HardwareModel':
-        """Set squeezed profiles from relative squeezing or calibrated vacuum photon numbers.
+        """Set orthogonal-basis coefficients and relative squeezing for the addressed modes.
 
-        The circuit's ``r`` remains the squeezing of the first wavepacket.
+        The circuit's ``r`` remains the squeezing of the first addressed mode.
 
         Args:
-            coefficients: One normalized wavepacket or a matrix of orthonormal wavepacket rows in the common
-                submode basis. Omit to squeeze the common-basis modes independently. Also accepts ``Submodes``.
-            relative_r: Squeezing ratios for the rows of ``coefficients``, or common-basis modes when coefficients
+            coefficients: A vector or matrix of coefficients in the common orthogonal basis.
+                Rows are normalized internally and must be orthogonal. Also accepts ``Submodes``.
+                Default: ``None`` (the common orthogonal basis modes)
+            relative_r: Squeezing ratios for the rows of ``coefficients``, or orthogonal basis modes when coefficients
                 are omitted.
-                Normalized by the positive first entry, e.g. ``[3, 2]`` becomes ``[1, 2/3]``.
+                Normalized by the positive first entry, e.g. ``[3, 2]`` becomes ``[1, 2/3]``. Default: ``None``
             nbar: Loss-corrected mean photon numbers for those modes with vacuum input.
                 Calibrates ratios only via ``asinh(sqrt(nbar))``. Cannot be combined with ``relative_r``.
-            name: Optional binding name, following other hardware rules.
+                Default: ``None``
+            name: The binding name. Default: ``None``
         """
         if relative_r is not None and nbar is not None:
             raise ValueError('Specify either relative_r or calibrated nbar, not both.')
@@ -605,7 +607,7 @@ class HardwareModel(nn.Module):
 
     @property
     def nsubmode(self) -> int:
-        """Number of orthogonal submodes per spatial port."""
+        """Number of common orthogonal basis modes per spatial mode."""
         return max((b.plugin.nsubmode for b in self.bindings.values() if isinstance(b.plugin, Submodes)), default=1)
 
     @property
@@ -637,15 +639,15 @@ class HardwareModel(nn.Module):
             if isinstance(binding.plugin, Submodes):
                 if not binding.op_types:
                     if binding.where != 'input' or len(binding.plugin.relative_r) != 1:
-                        raise ValueError('Input profiles specify one prepared mode per spatial port.')
+                        raise ValueError('Input coefficients must specify one prepared mode per spatial input.')
                 elif binding.where != 'modes' or any(
                     kind not in (Squeezing, Squeezing2, Displacement, OPA) for kind in binding.op_types
                 ):
-                    raise ValueError('Internal profiles apply to squeezing, displacement or OPA.')
+                    raise ValueError('Orthogonal-basis coefficients apply to squeezing, displacement or OPA.')
                 elif len(binding.plugin.relative_r) > 1 and any(
                     kind not in (Squeezing, Squeezing2) for kind in binding.op_types
                 ):
-                    raise ValueError('Multiple active profiles require squeezing or two-mode squeezing.')
+                    raise ValueError('Multiple coefficient rows require squeezing or two-mode squeezing.')
 
             if binding.bound_ops is not None and not binding.bound_ops <= operations:
                 raise ValueError(f'{name}: a bound operation was removed or replaced; rebuild the hardware binding.')
