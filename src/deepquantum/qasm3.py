@@ -232,9 +232,7 @@ def qasm3_to_cir(qasm_string: str) -> QubitCircuit:
     circuit = QubitCircuit(nqubit=num_qubits)
 
     # --- Helper Function to get gate matrix ---
-    def get_gate_matrix(
-        gate_name: str, params_str: str, gate_qubits_str: list[str], scope: dict[str, Any]
-    ) -> torch.Tensor:
+    def get_gate_matrix(gate_name: str, params_str: str, gate_qubits_str: list[str]) -> torch.Tensor:
         """Dynamically builds the unitary matrix for a given gate call."""
         n_gate_qubits = len(gate_qubits_str)
         # Create a fake QASM program to parse
@@ -315,7 +313,7 @@ def qasm3_to_cir(qasm_string: str) -> QubitCircuit:
                 gate_qubits = [int(q[2:-1]) for q in gate_qubits_actual_str]
 
                 try:
-                    base_unitary = get_gate_matrix(gate_name, params_str, gate_qubits_actual_str, scope)
+                    base_unitary = get_gate_matrix(gate_name, params_str, gate_qubits_actual_str)
                     eigvals, eigvecs = torch.linalg.eig(base_unitary.to(dtype=torch.cfloat))
                     eigvals_pow = eigvals**power
                     final_unitary = eigvecs @ torch.diag(eigvals_pow) @ torch.linalg.inv(eigvecs)

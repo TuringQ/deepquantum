@@ -55,7 +55,7 @@ def transform_cut2move(
 
 
 def partition_labels(
-    operators: nn.Sequential, ignore: Callable = lambda x: False, keep_idle_wires: bool = False
+    operators: nn.Sequential, ignore: Callable = lambda _: False, keep_idle_wires: bool = False
 ) -> list[int | None]:
     """Generate partition labels from the connectivity of a quantum circuit."""
     nqubit = operators[0].nqubit

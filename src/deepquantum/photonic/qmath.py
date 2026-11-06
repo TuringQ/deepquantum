@@ -82,7 +82,7 @@ def delay_coefficients(
     Frequency samples must resolve the supplied spectrum, including its phase.
 
     The result uses complex128 on CPU for calibration, with shape ``(ninput, nsubmode)``.
-    ``C.conj() @ C.T`` gives the numerical spectral overlaps.
+    ``coefficients.conj() @ coefficients.T`` gives the numerical spectral overlaps.
     The first input defines the first basis mode, with coefficient row ``[1, 0, ...]``.
     Later basis modes span orthogonal residuals in input order.
     Residual norms below ten times float64 epsilon are discarded, so the number of columns can change.

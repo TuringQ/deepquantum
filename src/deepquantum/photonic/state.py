@@ -260,8 +260,8 @@ class GaussianState(nn.Module):
             k: The batch index for covariance matrix.
             threshold: Cutoff threshold for ignoring extremely small numerical edge weights
             in the visualization.
-            layout: The layout algorithm (``'spring'``, ``'circular'``,
-                ``'kamada_kawai'``, ``'grid'``, ``'custom'``). Default ``'circular'``
+            layout: The layout algorithm (``'spring'``, ``'circular'`` or ``'kamada_kawai'``).
+                Also accepts ``'kamada'`` for Kamada-Kawai layout. Default: ``'spring'``
             mode: The ``'simplified'`` mode for the core structure including node squeezing :math:`Im(Z_{jj})` and
             edge entanglement :math:`Re(Z_{jk})`. The ``'full'`` mode for all structure including
             local shear :math:`Re(Z_{jj})` and correlated noise :math:`Im(Z_{jk})`. Default: ``'simplified'``
@@ -269,7 +269,7 @@ class GaussianState(nn.Module):
         assert self.is_pure, 'The visualization is valid for Gaussian pure state'
         cov = 2 * dqp.kappa**2 / dqp.hbar * self.cov[k]
         graph_visualizer = GaussianGraphVisualizer(cov, threshold, mode)
-        graph_visualizer.draw()
+        graph_visualizer.draw(layout=layout)
         return graph_visualizer
 
 

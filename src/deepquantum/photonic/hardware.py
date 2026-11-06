@@ -427,6 +427,7 @@ class _SqueezingConfig(_AmplitudePhaseConfig):
         """Set orthogonal-basis coefficients and relative squeezing for the addressed modes.
 
         The circuit's ``r`` remains the squeezing of the first addressed mode.
+        Without coefficients, the length of ``relative_r`` or ``nbar`` sets the number of orthogonal basis modes.
 
         Args:
             coefficients: A vector or matrix of coefficients in the common orthogonal basis.
