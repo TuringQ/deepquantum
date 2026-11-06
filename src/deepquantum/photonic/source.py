@@ -48,6 +48,11 @@ class Submodes(nn.Module):
     Ratios describe fixed couplings under a common pump-amplitude sweep. Photon
     fractions generally change with gain. All calibration data are fixed buffers.
 
+    See https://arxiv.org/pdf/1012.0262v2 Eq.(5)-(7) for independent mode pairs and their squeezing strengths.
+    For single-mode squeezing, see https://arxiv.org/pdf/1110.3234v1 Eq.(31)-(32).
+    Here ``r_k = r * relative_r[k]``, with the first mode as reference, rather than
+    the paper's unit-normalized Schmidt amplitudes ``lambda_k``.
+
     Args:
         coefficients: A vector or matrix of coefficients in the common orthogonal basis.
             Each row defines one addressed mode and is normalized internally. Multiple rows must be orthogonal.
@@ -117,6 +122,8 @@ class Submodes(nn.Module):
 
         This sets ratios only. Set the circuit's reference squeezing separately.
         Input photon numbers must be corrected for propagation and detection loss.
+        See https://arxiv.org/pdf/1012.0262v2 Eq.(6) and Eq.(B.6).
+        Vacuum input gives ``nbar_k = sinh(r_k)**2``.
         """
         nbar = torch.as_tensor(nbar)
         if nbar.is_complex() or nbar.ndim != 1 or not len(nbar) or not torch.isfinite(nbar).all():
@@ -140,7 +147,11 @@ class Submodes(nn.Module):
         return len(self.relative_r) if self.components is None else self.components.shape[1]
 
     def mean_photon_weights(self, r: Any) -> torch.Tensor:
-        """Vacuum-generated photon fractions at reference squeezing r, including its zero-gain limit."""
+        """Return vacuum-generated photon fractions, including their zero-gain limit.
+
+        See https://arxiv.org/pdf/1012.0262v2 Eq.(6) and Eq.(18).
+        With ``r_k = r * relative_r[k]``, weights are ``sinh(r_k)**2 / sum_j sinh(r_j)**2``.
+        """
         r = torch.as_tensor(r, device=self.relative_r.device, dtype=self.relative_r.dtype).unsqueeze(-1)
         denominator = torch.where(r == 0, torch.ones_like(r), r.sinh())
         amplitudes = torch.where(r == 0, self.relative_r, (r * self.relative_r).sinh() / denominator)
@@ -148,7 +159,11 @@ class Submodes(nn.Module):
         return photons / photons.sum(-1, keepdim=True)
 
     def effective_mode_number(self, r: Any) -> torch.Tensor:
-        """Inverse squared photon-fraction sum at reference squeezing r."""
+        """Return the inverse squared photon-fraction sum at reference squeezing r.
+
+        See https://arxiv.org/pdf/1012.0262v2 Eq.(17)-(19).
+        This finite-gain intensity mode number approaches the Schmidt number at low gain.
+        """
         return self.mean_photon_weights(r).square().sum(-1).reciprocal()
 
 
@@ -159,6 +174,10 @@ class ThermalSource(nn.Module):
     Existing correlations with these modes are removed.
     Fock preparation retains the unnormalized projection below the circuit cutoff.
     Its trace is ``1 - (nbar/(1+nbar))**cutoff`` per prepared mode.
+
+    See https://arxiv.org/pdf/1110.3234v1 Eq.(27) and the following covariance formula.
+    Here ``V = (2*nbar + 1) * hbar / (4*kappa**2) * I``. Summing the squared Fock
+    probabilities gives ``purity = 1 / (2*nbar + 1)`` before truncation.
 
     Args:
         nbar: Mean thermal photon number. Specify exactly one of ``nbar`` and ``purity``. Default: ``None``
@@ -234,6 +253,10 @@ class SinglePhotonSource(nn.Module):
     and Fock basis states through the circuit API.
     Specify at most one of ``coefficients``, ``density_matrix`` and ``factor``.
 
+    See https://arxiv.org/pdf/1909.04294v2 Eq.(1)-(2).
+    Here ``density_matrix[k, l] = <1_k|rho|1_l>`` uses the common orthogonal basis,
+    rather than the continuous frequency basis of Eq.(2).
+
     Args:
         density_matrix: Trace-one density matrix in the single-photon orthogonal basis,
             with shape ``(nsubmode, nsubmode)``. Default: ``None``
@@ -300,7 +323,11 @@ class SinglePhotonSource(nn.Module):
 
     @property
     def purity(self) -> torch.Tensor:
-        """Single-photon purity, equal to HOM visibility for two independent identical sources."""
+        """Single-photon purity, equal to HOM visibility for two independent identical sources.
+
+        See https://arxiv.org/pdf/1909.04294v2 Eq.(3). Integrating over frequencies and mixing the inputs gives
+        ``P_coinc = (1 - trace(rho_a @ rho_b)) / 2`` for an ideal balanced beam splitter.
+        """
         density = self.density_matrix
         return (density @ density).diagonal().sum().real
 

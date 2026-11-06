@@ -230,7 +230,11 @@ def _lo_coefficients(lo, nwire, nsubmode, reference):
 
 
 def _lo_view(result, cutoff, wires, lo=None):
-    """Reduce saved states to the LO modes without constructing the evolved joint state."""
+    """Reduce saved states to the LO modes without constructing the evolved joint state.
+
+    See https://arxiv.org/pdf/quant-ph/0511044v2 Eq.(11)-(14) for mode-selective homodyne detection.
+    Here the selected annihilation operator is ``b = sum_k conj(lo[k]) * a_k``.
+    """
     factors = result._factors()
     reference = factors[0][1] if result.backend == 'fock' else factors[0][1][0]
     coefficients = _lo_coefficients(lo, len(wires), result.nsubmode, reference)
@@ -321,7 +325,13 @@ class _SubmodeOperation(nn.Module):
 
 
 class _SubmodeCircuit(QumodeCircuit):
-    """Ephemeral execution view that reuses the ordinary backend and measurement kernels."""
+    """Ephemeral execution view that reuses the ordinary backend and measurement kernels.
+
+    See https://arxiv.org/pdf/1110.3234v1 Eq.(25) for Gaussian covariance evolution.
+    With vacuum auxiliary modes, an isometric quadrature embedding E gives
+    ``V_out = E @ (V - v0*I) @ E.T + v0*I`` and ``mean_out = E @ mean``, where
+    ``v0 = hbar / (4*kappa**2)``. The added term supplies vacuum in the orthogonal complement.
+    """
 
     def __init__(self, parent: QumodeCircuit, state: Any = None, *, nsubmode=None, joint=False):
         if parent.mps or parent._with_delay:

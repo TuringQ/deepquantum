@@ -1284,7 +1284,10 @@ class QumodeCircuit(Operation):
         return mean
 
     def _get_permanent_norms(self, init_state: torch.Tensor, final_state: torch.Tensor) -> torch.Tensor:
-        """Get the normalization factors for permanent."""
+        """Get the normalization factors for permanent.
+
+        See https://arxiv.org/pdf/quant-ph/0406127v1 Eq.(10).
+        """
         return product_factorial(init_state, 0.5) * product_factorial(final_state, 0.5)
 
     def get_amplitude(
@@ -1469,7 +1472,11 @@ class QumodeCircuit(Operation):
         purity: bool | None = None,
         loop: bool | None = None,
     ) -> torch.Tensor:
-        """Get the probabilities of the final states for Gaussian backend."""
+        """Get the probabilities of the final states for Gaussian backend.
+
+        See https://arxiv.org/pdf/2010.15595v4 Eq.(3)-(5) and Eq.(8)-(12).
+        The vacuum prefactor in Eq.(10) is evaluated using ``logdet(Q)``, since Q is positive Hermitian.
+        """
         if loop is None:
             loop = ~torch.all(mean == 0)
         if final_states.ndim == 1:
@@ -1576,7 +1583,11 @@ class QumodeCircuit(Operation):
         purity: bool = True,
         loop: bool = False,
     ) -> torch.Tensor:
-        """Get the probability of the final state for Gaussian backend."""
+        """Get the probability of the final state for Gaussian backend.
+
+        See https://arxiv.org/pdf/2010.15595v4 Eq.(11)-(12).
+        For pure states, normalize the loop hafnian by ``sqrt(prod(n!))`` before taking its squared modulus.
+        """
         gamma = gamma.squeeze()
         nmode = len(final_state)
         with warnings.catch_warnings():

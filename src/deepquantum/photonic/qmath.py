@@ -88,6 +88,10 @@ def delay_coefficients(
     Residual norms below ten times float64 epsilon are discarded, so the number of columns can change.
     Include all sources and local oscillators in the same call to share their basis.
 
+    See https://arxiv.org/pdf/1909.04294v2 Eq.(1) for spectral mode operators.
+    The delay rule follows from https://dlmf.nist.gov/1.14.E1 Eq.(1.14.1), using the
+    negative-exponent Fourier convention: ``f(t - tau)`` gives ``exp(-2j*pi*nu*tau)``.
+
     Args:
         delays: A scalar or one-dimensional array of input delays in seconds.
         frequency_hz: A shared one-dimensional frequency grid, or one grid per input.
@@ -178,6 +182,8 @@ def _fock_isometry(coefficients: torch.Tensor, cutoff: int) -> torch.Tensor:
 
     Output axes index occupations in each orthogonal basis mode, followed by the input photon number.
     Each axis has size ``cutoff``.
+
+    See https://arxiv.org/pdf/quant-ph/0406127v1 Eq.(14), specialized to one occupied input mode.
     """
     nsubmode = len(coefficients)
     vacuum = coefficients.new_zeros([cutoff] * nsubmode)
@@ -274,7 +280,11 @@ def group_probabilities(probabilities: dict | torch.Tensor, groups: list[list[in
 
 
 def _pnr_condition(state, nmode, cutoff, den_mat, measured, counts, keep):
-    """Project unresolved PNR counts and trace all unretained modes without a dense POVM."""
+    """Project unresolved PNR counts and trace all unretained modes without a dense POVM.
+
+    See https://arxiv.org/pdf/1902.02323v2 Eq.(24) and Eq.(109) for PNR projection and probability.
+    Here each unresolved event sums resolved projectors, with unretained modes traced out.
+    """
     rest = [wire for wire in range(nmode) if wire not in keep]
     order = keep + rest
     positions = [[rest.index(wire) for wire in group] for group in measured]
@@ -309,6 +319,9 @@ def _fock_conditional_blocks(state, nmode, cutoff, den_mat, measured, keep):
     Output axes are (batch, measured photon counts..., retained ket, retained bra).
     Empty keep gives event probabilities in 1 x 1 blocks. No division by the
     event probability is performed, so impossible allocations remain valid zeros.
+
+    See https://arxiv.org/pdf/1902.02323v2 Eq.(97) for the resolved PNR conditional operator.
+    This implementation contracts Fock coefficients directly and traces unretained modes.
     """
     rest = [w for w in range(nmode) if w not in keep and w not in measured]
     order = keep + measured + rest
@@ -353,6 +366,10 @@ def _convolve_counts(left, right, limits=None, operators=False):
     operators=True, the last two axes are retained ket/bra axes. Optional limits
     discard counts above a target event. Direct products and scatter-add avoid
     FFT cancellation in very small herald probabilities.
+
+    For independent blocks, ``P(n) = sum_{a+b=n} P_left(a) * P_right(b)``.
+    Retained states replace each scalar product by ``A_left(a) tensor A_right(b)``.
+    See https://arxiv.org/pdf/1012.0262v2, the convolution discussion following Eq.(19).
     """
     end = -2 if operators else None
     a, b = left.shape[1:end], right.shape[1:end]
@@ -471,6 +488,9 @@ def product_factorial(state: torch.Tensor, power: float = 1.0) -> torch.Tensor:
 
     Integer photon counts produce float64 results, or float32 on MPS.
     Floating inputs retain their dtype.
+
+    See https://dlmf.nist.gov/5.4.E1 Eq.(5.4.1) for ``n! = Gamma(n + 1)``.
+    Evaluate ``exp(power * sum(lgamma(n + 1)))`` without forming the unpowered factorial product.
 
     Args:
         state: Photon counts, with modes along the final axis.
@@ -869,7 +889,14 @@ def sample_homodyne_fock(
     x_range: float = 15,
     nbin: int = 100000,
 ) -> torch.Tensor:
-    """Get the samples of homodyne measurement for batched Fock state tensors on one mode."""
+    """Get the samples of homodyne measurement for batched Fock state tensors on one mode.
+
+    See https://arxiv.org/pdf/quant-ph/0511044v2 Eq.(26) and Eq.(43)-(44) for Fock
+    wavefunctions and quadrature probabilities. The recurrence uses
+    https://dlmf.nist.gov/18.9.E1 Eq.(18.9.1) and Table 18.9.1, rescaled by
+    ``exp(-y**2/2) / sqrt(2**n * n!)``, with ``y = sqrt(2*kappa**2/hbar) * x``.
+    Common normalization constants cancel in the discrete sampling weights.
+    """
     coef = 2 * dqp.kappa**2 / dqp.hbar
     reduced_dm = _fock_conditional_blocks(state, nmode, cutoff, den_mat, [], [wire])
     xs = torch.linspace(-x_range, x_range, nbin, dtype=state.real.dtype, device=state.device)  # (nbin)
