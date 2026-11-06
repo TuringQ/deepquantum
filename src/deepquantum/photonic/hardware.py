@@ -32,6 +32,7 @@ from .gate import (
 )
 from .measurement import Homodyne
 from .operation import Delay, Operation
+from .source import Submodes
 
 _PARAMETERS = {
     PhaseShift: ('theta',),
@@ -131,7 +132,7 @@ class Loss(nn.Module):
             nmode, cutoff = run.nmode, 2
             if not run.basis:
                 if not isinstance(state, torch.Tensor) or state.ndim != 2 * nmode + 1:
-                    raise NotImplementedError('Fock tensor loss requires density matrix representation (den_mat=True).')
+                    raise NotImplementedError('Fock state tensor loss requires a density matrix (den_mat=True).')
                 cutoff = state.shape[-1]
             if state is not None:
                 theta = theta.to(state.real)
@@ -342,6 +343,13 @@ class _StateConfig:
         """Add photon loss initialized by t or db, optionally training its internal theta."""
         return self.use(Loss(t, db=db, requires_grad=requires_grad), name=name)
 
+    def submodes(self, coefficients: Any = None, *, name: str | None = None) -> 'HardwareModel':
+        """Set normalized orthogonal-basis coefficients for each selected, already prepared spatial input."""
+        if self.where != 'input' or self.op_type is not None:
+            raise ValueError('Use input().submodes() for input states or s().submodes() for squeezing.')
+        modes = coefficients if isinstance(coefficients, Submodes) else Submodes(coefficients)
+        return self.use(modes, name=name)
+
 
 @dataclass
 class _OperationConfig:
@@ -386,10 +394,64 @@ class _BeamSplitterConfig(_PhaseConfig):
 
 
 class _AmplitudePhaseConfig(_PhaseConfig):
+    def submodes(self, coefficients: Any, *, name: str | None = None) -> 'HardwareModel':
+        """Set normalized orthogonal-basis coefficients for the mode addressed by the active operation."""
+        return self.model._register(
+            _PluginBinding(
+                coefficients if isinstance(coefficients, Submodes) else Submodes(coefficients),
+                self.op_type,
+                self.wires,
+                where='modes',
+                delay=self.delay,
+                index=self.index,
+                bound_ops=self.bound_ops,
+            ),
+            name,
+        )
+
     @property
     def r(self) -> _ParameterConfig:
         """Select squeezing or displacement magnitude."""
         return _ParameterConfig(self.model, self.op_type, self.wires, 'r', self.delay, self.index, self.bound_ops)
+
+
+class _SqueezingConfig(_AmplitudePhaseConfig):
+    def submodes(
+        self,
+        coefficients: Any = None,
+        *,
+        relative_r: Any = None,
+        nbar: Any = None,
+        name: str | None = None,
+    ) -> 'HardwareModel':
+        """Set orthogonal-basis coefficients and relative squeezing for the addressed modes.
+
+        The circuit's ``r`` remains the squeezing of the first addressed mode.
+        Without coefficients, the length of ``relative_r`` or ``nbar`` sets the number of orthogonal basis modes.
+
+        Args:
+            coefficients: A vector or matrix of coefficients in the common orthogonal basis.
+                Rows are normalized internally and must be orthogonal. Also accepts ``Submodes``.
+                Default: ``None`` (the common orthogonal basis modes)
+            relative_r: Squeezing ratios for the rows of ``coefficients``, or orthogonal basis modes when coefficients
+                are omitted.
+                Normalized by the positive first entry, e.g. ``[3, 2]`` becomes ``[1, 2/3]``. Default: ``None``
+            nbar: Loss-corrected mean photon numbers for those modes with vacuum input.
+                Calibrates ratios only via ``asinh(sqrt(nbar))``. Cannot be combined with ``relative_r``.
+                Default: ``None``
+            name: The binding name. Default: ``None``
+        """
+        if relative_r is not None and nbar is not None:
+            raise ValueError('Specify either relative_r or calibrated nbar, not both.')
+        if isinstance(coefficients, Submodes):
+            if relative_r is not None or nbar is not None:
+                raise ValueError('A Submodes object already specifies the squeezing ratios.')
+            modes = coefficients
+        elif nbar is not None:
+            modes = Submodes.from_nbar(nbar, coefficients)
+        else:
+            modes = Submodes(coefficients, relative_r=relative_r)
+        return super().submodes(modes, name=name)
 
 
 class _OPAConfig(_AmplitudePhaseConfig):
@@ -445,9 +507,9 @@ class _DelayConfig:
         """Select internal MZIs."""
         return _BeamSplitterConfig(self.model, MZI, None, (self.wires, self.index), index)
 
-    def s(self, index: int | None = None) -> _AmplitudePhaseConfig:
+    def s(self, index: int | None = None) -> _SqueezingConfig:
         """Select internal single-mode squeezers."""
-        return _AmplitudePhaseConfig(self.model, Squeezing, None, (self.wires, self.index), index)
+        return _SqueezingConfig(self.model, Squeezing, None, (self.wires, self.index), index)
 
     def opa(self, index: int | None = None) -> _OPAConfig:
         """Select internal OPA channels for control noise or before/after plugins."""
@@ -516,17 +578,17 @@ class HardwareModel(nn.Module):
         """Select MZIs."""
         return _BeamSplitterConfig(self, MZI, wires)
 
-    def s(self, wires: int | None = None) -> _AmplitudePhaseConfig:
+    def s(self, wires: int | None = None) -> _SqueezingConfig:
         """Select single-mode squeezers."""
-        return _AmplitudePhaseConfig(self, Squeezing, wires)
+        return _SqueezingConfig(self, Squeezing, wires)
 
     def opa(self, wires: int | None = None) -> _OPAConfig:
         """Select explicit OPA channels for control noise or before/after plugins."""
         return _OPAConfig(self, OPA, wires)
 
-    def s2(self, wires: list[int] | None = None) -> _AmplitudePhaseConfig:
+    def s2(self, wires: list[int] | None = None) -> _SqueezingConfig:
         """Select two-mode squeezers."""
-        return _AmplitudePhaseConfig(self, Squeezing2, wires)
+        return _SqueezingConfig(self, Squeezing2, wires)
 
     def d(self, wires: int | None = None) -> _AmplitudePhaseConfig:
         """Select displacements."""
@@ -543,6 +605,15 @@ class HardwareModel(nn.Module):
     def output(self, wires: int | list[int] | None = None) -> _StateConfig:
         """Select output modes, with None selecting all modes."""
         return _StateConfig(self, 'output', None, wires)
+
+    @property
+    def nsubmode(self) -> int:
+        """Number of common orthogonal basis modes per spatial mode."""
+        return max((b.plugin.nsubmode for b in self.bindings.values() if isinstance(b.plugin, Submodes)), default=1)
+
+    @property
+    def _has_submodes(self) -> bool:
+        return any(isinstance(b.plugin, Submodes) for b in self.bindings.values())
 
     def _register(self, binding: _PluginBinding, name: str | None) -> 'HardwareModel':
         previous_name = next((key for key, current in self.bindings.items() if current.same_rule(binding)), None)
@@ -566,6 +637,19 @@ class HardwareModel(nn.Module):
             raise ValueError('Use distinct operation objects for separate circuit positions; parameters may be shared.')
         operations = set(operations)
         for name, binding in self.bindings.items():
+            if isinstance(binding.plugin, Submodes):
+                if not binding.op_types:
+                    if binding.where != 'input' or len(binding.plugin.relative_r) != 1:
+                        raise ValueError('Input coefficients must specify one prepared mode per spatial input.')
+                elif binding.where != 'modes' or any(
+                    kind not in (Squeezing, Squeezing2, Displacement, OPA) for kind in binding.op_types
+                ):
+                    raise ValueError('Orthogonal-basis coefficients apply to squeezing, displacement or OPA.')
+                elif len(binding.plugin.relative_r) > 1 and any(
+                    kind not in (Squeezing, Squeezing2) for kind in binding.op_types
+                ):
+                    raise ValueError('Multiple coefficient rows require squeezing or two-mode squeezing.')
+
             if binding.bound_ops is not None and not binding.bound_ops <= operations:
                 raise ValueError(f'{name}: a bound operation was removed or replaced; rebuild the hardware binding.')
             if binding.wires is not None and max(binding.wires) >= nmode:

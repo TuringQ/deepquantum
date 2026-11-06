@@ -55,7 +55,9 @@ from .mapper import UnitaryMapper
 from .measurement import GeneralBosonic, Generaldyne, Homodyne, PhotonNumberResolvingBosonic
 from .qmath import (
     cv_to_wigner,
+    delay_coefficients,
     fock_to_wigner,
+    group_probabilities,
     ladder_to_quadrature,
     permanent,
     quadrature_to_ladder,
@@ -66,7 +68,9 @@ from .qmath import (
     xpxp_to_xxpp,
     xxpp_to_xpxp,
 )
+from .source import SinglePhotonSource, Submodes, ThermalSource
 from .state import BosonicState, CatState, DistributedFockState, FockState, FockStateBosonic, GKPState, GaussianState
+from .submode import SubmodeResult
 from .tdm import QumodeCircuitTDM
 from .torontonian_ import torontonian
 from .utils import set_hbar, set_kappa, set_perm_chunksize

@@ -827,6 +827,69 @@ print(cov_opa_tdm.shape, mean_opa_tdm.shape)  # (1, 4, 4), (1, 4, 1)
 #
 
 # %% [markdown]
+# ### 不完美光源与正交基模
+#
+# `nmode` 仍表示空间模式数，正交基模用于描述每个空间模式内的时频等自由度。
+# `cir.thermal(wires, nbar=...)` 或 `purity=...` 在所有门之前制备热态，默认占据第一个正交基模。
+# `model.input(wires).submodes(c)` 设置已有输入态的模式系数。
+# `model.s(wires).submodes(relative_r=...)` 设置各正交基模的压缩比例，线路的 `r` 对应第一个模式。
+# 也可以用 `nbar=...` 从各模式的真空播种平均光子数标定比例。
+#
+# 下面在两个正交基模中配置压缩光，并给第一个空间输入添加热混合。
+# 含正交基模的线路默认返回 `SubmodeResult`，独立模式组会分别演化，`to_joint()` 可获取完整联合态。
+
+# %%
+cir_source = dq.QumodeCircuit(2, 'vac', backend='gaussian')
+cir_source.thermal(0, purity=0.9)
+cir_source.s(0, r=0.4)
+cir_source.s(1, r=0.3, theta=torch.pi)
+cir_source.bs([0, 1], [torch.pi / 4, 0.0])
+model_source = dqp.HardwareModel().s().submodes(relative_r=[1.0, 0.3])
+cir_source.set_hardware_model(model_source)
+state_source = cir_source()
+print(state_source.nmode, state_source.nsubmode)  # 2 个空间模式，每个含 2 个正交基模
+
+# %% [markdown]
+# `delay_coefficients` 将频谱和延时转换为共同正交基中的系数，支持每路独立的频谱及采样网格。
+# 频率单位为 Hz，延时单位为秒，谱相位单位为弧度。
+# 传入线性强度谱 `intensity` 与可选的 `phase`，或直接传入复振幅谱 `amplitude`，各路按频率积分自动归一化。
+# 省略 `phase` 时采用零谱相位，频段之外按零处理。
+# 使用 float64 频率数组，函数返回 CPU 上的 complex128 系数。
+# 源和本振应放在同一次调用中，以使用同一组正交基模。
+#
+# 下面用两个不同采样网格描述有相对延时的单光子，计算平衡分束器后的符合概率。
+# `cir.single_photon` 还接受 `density_matrix` 或 `factor` 配置单光子混态，需要 `basis=False, den_mat=True`。
+
+# %%
+frequency_source = [torch.linspace(199.4e12, 200.6e12, n, dtype=torch.float64) for n in (601, 801)]
+intensity_source = [torch.exp(-0.5 * ((nu - 200e12) / 1e11).square()) for nu in frequency_source]
+coefficients_source = dqp.delay_coefficients(
+    [0.0, 0.5e-12], frequency_hz=frequency_source, intensity=intensity_source, phase=0.0
+)
+cir_photon = dq.QumodeCircuit(2, 'vac', cutoff=3, basis=False)
+cir_photon.single_photon(0, coefficients=coefficients_source[0])
+cir_photon.single_photon(1, coefficients=coefficients_source[1])
+cir_photon.bs([0, 1], torch.tensor([torch.pi / 4, 0.0], dtype=torch.float64))
+cir_photon.double()()
+print(cir_photon.get_prob([1, 1]))
+
+# %% [markdown]
+# `post_select` 对指定空间输出的总光子数做 PNR 后选择，返回归一化的 Fock 密度矩阵态和事件概率。
+# `keep` 指定保留的空间模式，`submode` 指定保留的正交基模，`lo` 则指定要保留的本振模式系数。
+# `submode` 与 `lo` 二选一，均省略时保留全部正交基模。
+#
+# 这里在输出 1 探测到一个光子，保留输出 0 中与第一路输入同形的本振模式，再做 Homodyne。
+# 直接测量含正交基模的线路时，也可以调用 `cir.measure_homodyne(..., lo=..., phi=...)`。
+# `lo` 默认选择第一个正交基模，`phi` 是额外的 quadrature 测量角度。
+
+# %%
+rho_source, probability_source = cir_photon.post_select(wires=1, counts=1, keep=0, lo=coefficients_source[0])
+readout_source = dq.QumodeCircuit(1, rho_source)
+readout_source()
+samples_source = readout_source.measure_homodyne(shots=5, phi=0.0)
+print(probability_source, samples_source.shape)  # 事件概率和 (5,)
+
+# %% [markdown]
 # ### 支持GPU计算
 #
 #
