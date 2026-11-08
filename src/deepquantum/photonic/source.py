@@ -121,7 +121,7 @@ class Submodes(nn.Module):
         """Calibrate relative squeezing from per-mode vacuum-seeded mean photon numbers.
 
         This sets ratios only. Set the circuit's reference squeezing separately.
-        Input photon numbers must be corrected for propagation and detection loss.
+        Use absolute photon numbers corrected for propagation and detection loss, not normalized fractions.
         See https://arxiv.org/pdf/1012.0262v2 Eq.(6) and Eq.(B.6).
         Vacuum input gives ``nbar_k = sinh(r_k)**2``.
         """

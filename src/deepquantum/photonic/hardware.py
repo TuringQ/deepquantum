@@ -421,13 +421,14 @@ class _SqueezingConfig(_AmplitudePhaseConfig):
         coefficients: Any = None,
         *,
         relative_r: Any = None,
-        nbar: Any = None,
+        relative_nbar: Any = None,
         name: str | None = None,
     ) -> 'HardwareModel':
         """Set orthogonal-basis coefficients and relative squeezing for the addressed modes.
 
         The circuit's ``r`` remains the squeezing of the first addressed mode.
-        Without coefficients, the length of ``relative_r`` or ``nbar`` sets the number of orthogonal basis modes.
+        Without coefficients, the length of ``relative_r`` or ``relative_nbar``
+        sets the number of orthogonal basis modes.
 
         Args:
             coefficients: A vector or matrix of coefficients in the common orthogonal basis.
@@ -436,19 +437,20 @@ class _SqueezingConfig(_AmplitudePhaseConfig):
             relative_r: Squeezing ratios for the rows of ``coefficients``, or orthogonal basis modes when coefficients
                 are omitted.
                 Normalized by the positive first entry, e.g. ``[3, 2]`` becomes ``[1, 2/3]``. Default: ``None``
-            nbar: Loss-corrected mean photon numbers for those modes with vacuum input.
-                Calibrates ratios only via ``asinh(sqrt(nbar))``. Cannot be combined with ``relative_r``.
+            relative_nbar: Loss-corrected, vacuum-seeded mean photon numbers at one calibration point.
+                Uses absolute photon numbers, not normalized fractions, to set ratios via ``asinh(sqrt(nbar))``.
+                The circuit's ``r`` sets the reference squeezing. Cannot be combined with ``relative_r``.
                 Default: ``None``
             name: The binding name. Default: ``None``
         """
-        if relative_r is not None and nbar is not None:
-            raise ValueError('Specify either relative_r or calibrated nbar, not both.')
+        if relative_r is not None and relative_nbar is not None:
+            raise ValueError('Specify either relative_r or relative_nbar, not both.')
         if isinstance(coefficients, Submodes):
-            if relative_r is not None or nbar is not None:
+            if relative_r is not None or relative_nbar is not None:
                 raise ValueError('A Submodes object already specifies the squeezing ratios.')
             modes = coefficients
-        elif nbar is not None:
-            modes = Submodes.from_nbar(nbar, coefficients)
+        elif relative_nbar is not None:
+            modes = Submodes.from_nbar(relative_nbar, coefficients)
         else:
             modes = Submodes(coefficients, relative_r=relative_r)
         return super().submodes(modes, name=name)

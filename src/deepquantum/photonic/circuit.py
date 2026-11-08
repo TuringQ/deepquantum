@@ -325,7 +325,7 @@ class QumodeCircuit(Operation):
             self._validate_hardware_model(self.hardware_model)
         if self.sources:
             if self._with_delay:
-                raise NotImplementedError('Unfold source preparations with global_circuit() before execution.')
+                raise NotImplementedError('Unroll source preparations with global_circuit() before execution.')
             if state is not None:
                 raise ValueError('Use either source preparations or a forward state override.')
             state = self._prepare_sources()
@@ -473,10 +473,10 @@ class QumodeCircuit(Operation):
         unitary = self._get_unitary(self.operators, self.hardware_model)
         if is_prob is None:
             return unitary
-        return self._evaluate_fock_unitary(unitary, state, is_prob)
+        return self._get_fock_basis_results(unitary, state, is_prob)
 
-    def _evaluate_fock_unitary(self, unitary, state, is_prob):
-        """Evaluate a fixed unitary without resampling hardware controls."""
+    def _get_fock_basis_results(self, unitary, state, is_prob):
+        """Compute Fock basis amplitudes or probabilities from a mode unitary."""
         if state is None:
             state = self.init_state.state
         out_dict = defaultdict(float)

@@ -77,6 +77,7 @@ class SubmodeResult:
         )
 
     def _factors(self):
+        """Return independent state blocks with their orthogonal-basis mode indices."""
         if self.blocks:
             return list(zip(self.blocks, self.data, strict=True))
         if not self.factorized:
@@ -283,6 +284,7 @@ def _lo_view(result, cutoff, wires, lo=None):
 
 
 def _clone_operation(op, wires, nmode):
+    """Copy an operation onto new wires while sharing its parameter and buffer tensors."""
     cloned = copy(op)
     cloned._parameters = op._parameters.copy()
     cloned._buffers = op._buffers.copy()
@@ -310,6 +312,7 @@ class _SubmodeOperation(nn.Module):
     """Expose physical controls to HardwareModel while adapting their action on modes."""
 
     def __init__(self, operation, circuit, modes, run):
+        """Bind the physical operation and execution view with shared control tensors."""
         super().__init__()
         object.__setattr__(self, 'operation', operation)
         object.__setattr__(self, 'circuit', circuit)
@@ -319,6 +322,7 @@ class _SubmodeOperation(nn.Module):
         self.modes, self.run = modes, run
 
     def forward(self, state):
+        """Apply the operation's current controls to the addressed orthogonal basis modes."""
         operation = _clone_operation(self.operation, self.operation.wires, self.operation.nmode)
         operation._parameters, operation._buffers = self._parameters.copy(), self._buffers.copy()
         return self.circuit._lift(operation, state, self.modes, self.run)
@@ -334,8 +338,9 @@ class _SubmodeCircuit(QumodeCircuit):
     """
 
     def __init__(self, parent: QumodeCircuit, state: Any = None, *, nsubmode=None, joint=False):
+        """Embed spatial inputs and configure joint or independent orthogonal-basis evolution."""
         if parent.mps or parent._with_delay:
-            raise NotImplementedError('Submode expansion does not support MPS; unfold delays with global_circuit().')
+            raise NotImplementedError('Submode expansion does not support MPS; unroll delays with global_circuit().')
         if parent.measurements:
             raise NotImplementedError('Use measure_homodyne() without conditional homodyne operations for submodes.')
         model = parent.hardware_model if parent.hardware_model is not None else HardwareModel()
@@ -449,6 +454,7 @@ class _SubmodeCircuit(QumodeCircuit):
             )
 
     def forward(self, data=None, state=None, is_prob=None, detector=None, sort=True):
+        """Run the expanded circuit and store its backend output."""
         if self.backend == 'fock':
             result = self._forward_fock(data, state, is_prob, sort)
             if not self.basis and result.ndim == self.nmode * (2 if self.den_mat else 1) + self.factorized:
@@ -461,12 +467,15 @@ class _SubmodeCircuit(QumodeCircuit):
         return result
 
     def result(self):
+        """Wrap the saved backend state with its spatial and orthogonal-basis mode layout."""
         return SubmodeResult(self.state, self.parent.nmode, self.nsubmode, self.backend, self.den_mat, self.factorized)
 
     def encode(self, data):
+        """Encode data into the parent circuit's physical controls."""
         self.parent.encode(data)
 
     def _prepare_init_state(self, state, reset_fock_basis=False, nloss=None):
+        """Prepare the expanded input and allocate its required loss environments."""
         if nloss is None:
             nloss = self.nsubmode * (
                 sum(isinstance(op, PhotonLoss) for op in self.parent.operators)
@@ -477,6 +486,7 @@ class _SubmodeCircuit(QumodeCircuit):
         return super()._prepare_init_state(state, reset_fock_basis, self._nloss)
 
     def _primitive(self, op, state, run):
+        """Apply one backend operation to a state or Fock basis transfer matrix."""
         if not run.basis:
             return op(state)
         if isinstance(op, PhotonLoss):
@@ -493,6 +503,7 @@ class _SubmodeCircuit(QumodeCircuit):
         return state.index_put((rows[:, None], cols), matrix @ state[rows])
 
     def _rotate(self, state, modes, wire, run, inverse=False):
+        """Rotate one spatial mode between the common and addressed orthogonal bases."""
         if modes.components is None or not len(modes.relative_r):
             return state
         if modes not in self._rotations:
@@ -514,6 +525,7 @@ class _SubmodeCircuit(QumodeCircuit):
         return state
 
     def _lift(self, op, state, modes, run):
+        """Apply a spatial operation to its addressed orthogonal basis modes."""
         if isinstance(op, Barrier):
             return state
         if self.factorized:
@@ -529,6 +541,7 @@ class _SubmodeCircuit(QumodeCircuit):
             blocks = self._reshape_blocks(state, batch)
 
             def apply(block, ratio):
+                """Apply an active operation with this orthogonal basis mode's relative strength."""
                 gate = _clone_operation(op, op.wires, self.nmode)
                 gate._parameters.pop('r', None)
                 gate._buffers['r'] = op.r * ratio
@@ -558,16 +571,19 @@ class _SubmodeCircuit(QumodeCircuit):
         return state
 
     def _reshape_blocks(self, state, batch):
+        """Separate the flattened orthogonal-basis and sample batch axes."""
         if isinstance(state, list):
             return [value.reshape(self.nsubmode, batch, *value.shape[1:]) for value in state]
         return state.reshape(self.nsubmode, batch, *state.shape[1:])
 
     def _flatten_blocks(self, state):
+        """Merge the orthogonal-basis and sample axes for native backend execution."""
         if isinstance(state, list):
             return [value.flatten(0, 1) for value in state]
         return state.flatten(0, 1)
 
     def _factor_input(self, state):
+        """Place the input in the first orthogonal basis mode and initialize the rest in vacuum."""
         if self.backend == 'fock':
             vacuum = torch.zeros_like(state)
             vacuum[(slice(None),) + (0,) * (state.ndim - 1)] = 1
@@ -581,6 +597,7 @@ class _SubmodeCircuit(QumodeCircuit):
         ]
 
     def _io(self, state, run, where):
+        """Apply input or output loss to the corresponding expanded spatial wires."""
         for binding, wires in self.hardware_model._io_bindings(self.parent.wires, where):
             plugin = binding.plugin
             if isinstance(plugin, Submodes):
@@ -593,6 +610,7 @@ class _SubmodeCircuit(QumodeCircuit):
         return state
 
     def _execute(self, state, basis=False, run=None):
+        """Evolve expanded inputs with the parent operations and shared hardware controls."""
         if run is None:
             run = self.hardware_model._new_run(self.backend, range(self.nmode), basis)
         else:
@@ -623,10 +641,12 @@ class _SubmodeCircuit(QumodeCircuit):
         return state
 
     def _get_unitary(self, _operators, _model=None):
+        """Compute the expanded mode unitary for the parent circuit's current controls."""
         # Parent hooks pass these arguments; this view executes the compiled parent circuit.
         return self._execute(None, basis=True)
 
     def _forward_helper_tensor(self, data=None, state=None, is_prob=None):
+        """Evolve one encoded Fock state tensor and optionally return resolved probabilities."""
         self.encode(data)
         state = self.init_state.state if state is None else state
         result = self._execute(self.tensor_rep(state))
@@ -643,6 +663,7 @@ class _SubmodeCircuit(QumodeCircuit):
         return result.squeeze(0)
 
     def _forward_helper_gaussian(self, data=None, state=None, _stepwise=True):
+        """Evolve one encoded Gaussian state through the expanded operations."""
         # The parent CV hook supplies a flag; submode operations always execute stepwise.
         self.encode(data)
         state = [self.init_state.cov, self.init_state.mean] if state is None else state
@@ -710,6 +731,7 @@ class _SubmodeCircuit(QumodeCircuit):
         return prob
 
     def spatial_probabilities(self, detector=None):
+        """Return PNR probabilities after summing counts over orthogonal basis modes."""
         detector = self.detector if detector is None else detector
         if detector != 'pnrd':
             raise NotImplementedError('Unresolved submode readout currently supports PNR detection.')
@@ -718,7 +740,7 @@ class _SubmodeCircuit(QumodeCircuit):
         if self.backend == 'fock' and self.basis:
             unitary = self.state.unsqueeze(0) if self.state.ndim == 2 else self.state
             initial = self._init_state_forward.reshape(-1, self._init_state_forward.shape[-1])
-            probabilities = vmap(self._evaluate_fock_unitary, in_dims=(0, 0, None))(
+            probabilities = vmap(self._get_fock_basis_results, in_dims=(0, 0, None))(
                 unitary, initial.expand(len(unitary), -1), True
             )
             return group_probabilities(probabilities, self.groups)
@@ -731,6 +753,7 @@ class _SubmodeCircuit(QumodeCircuit):
         return group_probabilities(prob, self.groups)
 
     def _factor_probability(self, counts, wires=None):
+        """Convolve independent count distributions for one spatial PNR outcome."""
         prob = self._probabilities(wires, counts)
         result = prob[:, 0]
         for k in range(1, self.nsubmode):
@@ -740,6 +763,7 @@ class _SubmodeCircuit(QumodeCircuit):
         return result[(slice(None),) + tuple(counts)]
 
     def get_spatial_prob(self, final_state):
+        """Return the probability of total photon counts at the spatial outputs."""
         counts = final_state.state if isinstance(final_state, FockState) else torch.as_tensor(final_state)
         if counts.ndim != 1 or len(counts) != len(self.groups) or (counts < 0).any() or (counts != counts.long()).any():
             raise ValueError('Specify one nonnegative integer count per spatial output.')
@@ -781,6 +805,7 @@ class _SubmodeCircuit(QumodeCircuit):
         return reference.real.new_zeros(1 if self.basis and reference.ndim == 2 else reference.shape[0])
 
     def measure_spatial(self, shots, with_prob, wires, detector, mcmc):
+        """Sample spatial photon counts without resolving orthogonal basis modes."""
         detector = self.detector if detector is None else detector
         if detector != 'pnrd':
             raise NotImplementedError('Submode readout currently supports PNR detection.')
@@ -832,6 +857,7 @@ class _SubmodeCircuit(QumodeCircuit):
         return results[0] if len(results) == 1 else results
 
     def spatial_photon_number_mean_var(self, wires):
+        """Return the mean and variance of total photon counts at selected spatial outputs."""
         selected = self.parent.wires if wires is None else self.parent._convert_indices(wires)
         if self.factorized:
             if self.backend == 'gaussian':
@@ -916,6 +942,7 @@ def _expand_submodes(parent, state=None):
     components = [{k} for k in range(d)]
 
     def connect(indices):
+        """Merge groups linked by the supplied orthogonal-basis mode indices."""
         touched = [group for group in components if group.intersection(indices)]
         if touched:
             merged = set().union(*touched)
@@ -946,6 +973,7 @@ class _SubmodeBlocks:
     """Small execution plan for independent groups of coupled orthogonal basis modes."""
 
     def __init__(self, parent, state, blocks, initial_support):
+        """Build one execution circuit for each independent group of orthogonal basis modes."""
         self.parent, self.blocks = parent, blocks
         self.backend, self.den_mat = parent.backend, parent.den_mat
         self.nsubmode = sum(map(len, blocks))
@@ -1021,6 +1049,7 @@ class _SubmodeBlocks:
             self.circuits.append(_SubmodeCircuit(view, initial, nsubmode=len(block), joint=True))
 
     def forward(self, data=None):
+        """Evolve independent blocks with one shared realization of hardware controls."""
         initial = [
             cir.tensor_rep(cir.init_state.state)
             if self.backend == 'fock'
@@ -1029,6 +1058,7 @@ class _SubmodeBlocks:
         ]
 
         def execute(values, inputs):
+            """Run all blocks for one encoded sample with a shared hardware context."""
             self.parent.encode(values)
             run = self.model._new_run(self.backend, self.parent.wires)
             return [cir._execute(value, run=run) for cir, value in zip(self.circuits, inputs, strict=True)]
@@ -1045,6 +1075,7 @@ class _SubmodeBlocks:
                     data = data.expand(batch, -1)
 
                 def one(value, inputs):
+                    """Restore singleton state batch axes for one mapped data and input pair."""
                     inputs = (
                         [x.unsqueeze(0) for x in inputs]
                         if self.backend == 'fock'
@@ -1067,11 +1098,13 @@ class _SubmodeBlocks:
     __call__ = forward
 
     def result(self):
+        """Wrap the saved block states with their orthogonal-basis partition."""
         return SubmodeResult(
             self.state, self.parent.nmode, self.nsubmode, self.backend, self.den_mat, True, self.blocks
         )
 
     def _probability(self, wires, limits=None):
+        """Convolve spatial photon-count distributions across independent blocks."""
         accumulated = None
         for cir in self.circuits:
             selected = [k for w in wires for k in cir.groups[w]]
@@ -1083,11 +1116,13 @@ class _SubmodeBlocks:
         return accumulated
 
     def spatial_probabilities(self, detector=None):
+        """Return PNR probabilities after summing counts over orthogonal basis modes."""
         if (self.parent.detector if detector is None else detector) != 'pnrd':
             raise NotImplementedError('Submode readout currently supports PNR detection.')
         return group_probabilities(self._probability(self.parent.wires), [[w] for w in self.parent.wires])
 
     def get_spatial_prob(self, final_state):
+        """Return the probability of total photon counts at the spatial outputs."""
         counts = final_state.state if isinstance(final_state, FockState) else torch.as_tensor(final_state)
         if (
             counts.ndim != 1
@@ -1103,6 +1138,7 @@ class _SubmodeBlocks:
         return result[(slice(None),) + tuple(counts)]
 
     def measure_spatial(self, shots, with_prob, wires, detector, mcmc):
+        """Sample spatial photon counts without resolving orthogonal basis modes."""
         if (self.parent.detector if detector is None else detector) != 'pnrd':
             raise NotImplementedError('Submode readout currently supports PNR detection.')
         selected = self.parent.wires if wires is None else self.parent._convert_indices(wires)
@@ -1133,6 +1169,7 @@ class _SubmodeBlocks:
         return output[0] if len(output) == 1 else output
 
     def spatial_photon_number_mean_var(self, wires):
+        """Return the mean and variance of total photon counts at selected spatial outputs."""
         selected = self.parent.wires if wires is None else self.parent._convert_indices(wires)
         if self.backend == 'gaussian':
             moments = [cir.spatial_photon_number_mean_var(selected) for cir in self.circuits]

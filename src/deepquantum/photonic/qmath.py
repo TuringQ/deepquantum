@@ -80,6 +80,7 @@ def delay_coefficients(
     Complex amplitudes are linearly interpolated and zero outside each supplied frequency range.
     Each mode is normalized by its frequency integral, independently of its original scale.
     Frequency samples must resolve the supplied spectrum, including its phase.
+    Transverse profiles and polarization are assumed matched at each frequency.
 
     The result uses complex128 on CPU for calibration, with shape ``(ninput, nsubmode)``.
     ``coefficients.conj() @ coefficients.T`` gives the numerical spectral overlaps.

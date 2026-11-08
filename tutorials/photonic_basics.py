@@ -833,7 +833,7 @@ print(cov_opa_tdm.shape, mean_opa_tdm.shape)  # (1, 4, 4), (1, 4, 1)
 # `cir.thermal(wires, nbar=...)` 或 `purity=...` 在所有门之前制备热态，默认占据第一个正交基模。
 # `model.input(wires).submodes(c)` 设置已有输入态的模式系数。
 # `model.s(wires).submodes(relative_r=...)` 设置各正交基模的压缩比例，线路的 `r` 对应第一个模式。
-# 也可以用 `nbar=...` 从各模式的真空播种平均光子数标定比例。
+# 也可以用 `relative_nbar=...` 从同一标定点、校正损耗后的各模平均光子数标定压缩比例（真空输入，不归一化）。
 #
 # 下面在两个正交基模中配置压缩光，并给第一个空间输入添加热混合。
 # 含正交基模的线路默认返回 `SubmodeResult`，独立模式组会分别演化，`to_joint()` 可获取完整联合态。

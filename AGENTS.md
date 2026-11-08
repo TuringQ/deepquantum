@@ -74,13 +74,13 @@ Photonic hardware models:
 - Hardware loss reuses `PhotonLoss` and supports Gaussian, Bosonic, Fock basis and Fock density-matrix simulation. Parameter-noise support follows the underlying gates.
 - Use `cir.opa(wires, r=..., theta=..., loss=..., convention='theta'/'t'/'db')` for a single-mode OPA channel with uniform distributed vacuum loss. Gaussian, Bosonic and TDM paths are supported; `model.opa()` selects its control noise and external before/after loss. `cir.opa_db(wires, gain_db=..., theta=..., loss_db=...)` accepts net coherent power gain and pump-off loss in dB. Fock support is not implemented.
 - Supply `nn.Parameter` for trainable `mu/sigma` and use `loss(..., requires_grad=True)` to train the internal loss angle `theta`. Attach the model before creating the optimizer. Use `model.manual_seed(seed)` to reset hardware sampling independently of measurement sampling.
-- Use `model.input(wires).submodes(c)` for prepared inputs and `.submodes(c, relative_r=...)` on `model.s(wires)` or `model.s2(wires)` for squeezing. Coefficient vectors are normalized. Squeezing coefficient matrices require orthogonal rows. Ratios are divided by the first entry, preserving the circuit's reference `r`. `nbar=...` calibrates ratios from vacuum-seeded photon numbers.
+- Use `model.input(wires).submodes(c)` for prepared inputs and `.submodes(c, relative_r=...)` on `model.s(wires)` or `model.s2(wires)` for squeezing. Coefficient vectors are normalized. Squeezing coefficient matrices require orthogonal rows. Ratios are divided by the first entry, preserving the circuit's reference `r`. `relative_nbar=...` calibrates ratios from absolute vacuum-seeded photon numbers at one operating point.
 - `dqp.delay_coefficients(delays, frequency_hz=..., intensity=..., phase=...)` converts sampled spectra to common orthogonal-basis coefficients. It also accepts `amplitude=...`, shared or per-input grids, and returns CPU complex128 data. Use float64 frequencies in Hz and delays in seconds. Omitted phase means zero spectral phase. Include sources and local oscillators in one call.
 - With submodes, `nmode` still counts spatial modes. `SubmodeResult` stores expanded states with independent groups evolved separately. Call `to_joint()` only when the full joint state is needed. Photon counts are merged per spatial output.
 
 Photonic TDM:
 
-- `global_circuit(nstep)` unfolds delay loops and remaps the attached hardware model. `tdm_substate(nstep, time_steps, wires=..., data=...)` computes selected Gaussian outputs without building the full global circuit.
+- `global_circuit(nstep)` unrolls delay loops and remaps the attached hardware model. `tdm_substate(nstep, time_steps, wires=..., data=...)` computes selected Gaussian outputs without building the full unrolled circuit.
 - `QumodeCircuitTDM` supports stepwise Gaussian/Bosonic evolution with homodyne measurements.
 
 Photonic measurement and probabilities:

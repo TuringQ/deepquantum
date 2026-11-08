@@ -261,14 +261,14 @@ def test_internal_mode_calibration_preserves_reference_squeezing():
     assert torch.isfinite(torch.autograd.grad(modes.effective_mode_number(zero), zero)[0])
     cir = dqp.QumodeCircuit(1, 'vac', backend='gaussian')
     cir.s(0, r=r, theta=0.0)
-    cir.set_hardware_model(dqp.HardwareModel().s(0).submodes(nbar=nbar))
+    cir.set_hardware_model(dqp.HardwareModel().s(0).submodes(relative_nbar=nbar))
     cir.to(torch.double)()
     torch.testing.assert_close(cir.photon_number_mean_var()[0], nbar.sum())
     torch.testing.assert_close(cir.operators[0].r, r)
     with pytest.raises(ValueError, match='not both'):
-        dqp.HardwareModel().s(0).submodes(relative_r=[3, 2], nbar=[0.6, 0.1])
+        dqp.HardwareModel().s(0).submodes(relative_r=[3, 2], relative_nbar=[0.6, 0.1])
     with pytest.raises(ValueError, match='already specifies'):
-        dqp.HardwareModel().s(0).submodes(modes, nbar=nbar)
+        dqp.HardwareModel().s(0).submodes(modes, relative_nbar=nbar)
 
 
 def test_fock_isometry_high_occupation_and_zero_coefficient_gradient():
