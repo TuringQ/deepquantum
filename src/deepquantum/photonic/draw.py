@@ -136,7 +136,6 @@ class DrawCircuit:
                 for i in op.wires:
                     depth[i] = depth[i] + 1
             elif isinstance(op, Delay):
-                name_ = ''
                 order = depth[op.wires[0]]
                 inputs = [op.ntau, op.theta.item(), op.phi.item()]
                 self.draw_delay(order, op.wires, inputs=inputs)
@@ -144,10 +143,9 @@ class DrawCircuit:
                 for i in op.wires:
                     depth[i] = depth[i] + 1
             elif isinstance(op, PhotonLoss):
-                name_ = 'loss'
                 order = depth[op.wires[0]]
                 t = op.t.item()
-                self.draw_loss(order, op.wires, name_, t)
+                self.draw_loss(order, op.wires, t)
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = depth[i] + 1
@@ -408,7 +406,7 @@ class DrawCircuit:
             self.draw_.text('ϕ=' + str(np.round(inputs[2], 2)), insert=(x + 58, y_up * 30 + 24), font_size=6)
         )
 
-    def draw_loss(self, order, wires, name, t):
+    def draw_loss(self, order, wires, t):
         """Draw loss gate."""
         x = 90 * order + 40
         y_up = wires[0]
@@ -906,8 +904,8 @@ class GaussianGraphVisualizer:
         """Draw Gaussian graph state.
 
         Args:
-            layout: The layout algorithm (``'spring'``, ``'circular'``,
-                ``'kamada_kawai'``, ``'grid'``, ``'custom'``). Default ``'circular'``
+            layout: The layout algorithm (``'spring'``, ``'circular'``, ``'kamada_kawai'`` or ``'custom'``).
+                Also accepts ``'kamada'`` for Kamada-Kawai layout. Default: ``'circular'``
             pos_dict: Custom positions if layout=``'custom'``.
             style_config: Dictionary to override default visual styles.
         """
@@ -933,9 +931,9 @@ class GaussianGraphVisualizer:
 
         if layout == 'custom' and pos_dict is not None:
             pos = pos_dict
-        if layout == 'circular':
+        elif layout == 'circular':
             pos = nx.circular_layout(g)
-        elif layout == 'kamada':
+        elif layout in ('kamada', 'kamada_kawai'):
             pos = nx.kamada_kawai_layout(g, weight='layout_weight')
         else:
             pos = nx.spring_layout(g, seed=42, weight='layout_weight')
@@ -974,9 +972,9 @@ class GaussianGraphVisualizer:
                 edgecolors=edgecolors,
                 linewidths=5,
             )
-        _, _, edges_val = zip(*(self._edges_imag + self._edges_real), strict=True)
-        vmax_e = max(edges_val)
-        vmin_e = min(edges_val)
+        edges_val = [value for _, _, value in self._edges_imag + self._edges_real]
+        vmax_e = max(edges_val, default=0.0)
+        vmin_e = min(edges_val, default=0.0)
         if self._edges_real:
             e_real_u, e_real_v, e_real_w = zip(*self._edges_real, strict=True)
             cmap_e_real = cfg['edge_cmap_real']

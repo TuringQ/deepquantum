@@ -1,6 +1,47 @@
+import math
+
+import pytest
 import torch
 
 import deepquantum as dq
+import deepquantum.photonic as dqp
+from deepquantum.photonic.qmath import product_factorial, sample_homodyne_fock
+
+
+def test_large_photon_normalization_and_homodyne(monkeypatch):
+    cir = dq.QumodeCircuit(1, [100], cutoff=101)
+    counts = torch.tensor([100])
+    norm = cir._get_permanent_norms(counts, counts)
+    torch.testing.assert_close(norm, torch.tensor([float(math.factorial(100))], dtype=torch.double))
+
+    probabilities = []
+
+    def capture(weights, num_samples, **_kwargs):
+        assert torch.isfinite(weights).all()
+        probabilities.append(weights / weights.sum(-1, keepdim=True))
+        return torch.zeros(weights.shape[0], num_samples, dtype=torch.long, device=weights.device)
+
+    monkeypatch.setattr(torch, 'multinomial', capture)
+    state = torch.zeros(1, 41, dtype=torch.cfloat)
+    state[0, 40] = 1
+    sample_homodyne_fock(state, 0, 1, 41, nbin=4097)
+    xs = torch.linspace(-15, 15, 4097)
+    variance = (probabilities[0] * xs.square()).sum()
+    expected = torch.tensor(81 * dqp.hbar / (4 * dqp.kappa**2), dtype=variance.dtype)
+    torch.testing.assert_close(variance, expected, atol=1e-3, rtol=1e-4)
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason='MPS is not available')
+def test_product_factorial_mps_dtype():
+    previous = torch.get_default_dtype()
+    try:
+        torch.set_default_dtype(torch.float64)
+        counts = torch.tensor([3], dtype=torch.long, device='mps')
+        expected = torch.tensor([6.0], dtype=torch.float32, device='mps')
+        torch.testing.assert_close(product_factorial(counts), expected)
+        torch.testing.assert_close(product_factorial(counts.half()), expected.half())
+    finally:
+        torch.set_default_dtype(previous)
 
 
 def test_batched_fock_basis_states():

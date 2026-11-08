@@ -1,11 +1,14 @@
 """Common functions"""
 
 import itertools
+import math
 import warnings
 from collections import Counter
 from collections.abc import Generator
+from typing import Any
 
 import torch
+from numpy.polynomial.legendre import leggauss
 from torch import vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
 
@@ -14,6 +17,191 @@ import deepquantum.photonic as dqp
 from ..qmath import block_sample, decimal_to_list, is_unitary, list_to_decimal, partial_trace
 from .draw import plot_wigner
 from .utils import mem_to_chunksize
+
+
+def _normalize_coefficients(value: torch.Tensor) -> torch.Tensor:
+    """Normalize nonzero coefficient rows without squaring their original scale."""
+    magnitude = torch.maximum(value.real.abs(), value.imag.abs()) if value.is_complex() else value.abs()
+    scaled = value / magnitude.amax(dim=-1, keepdim=True)
+    return scaled / torch.linalg.vector_norm(scaled, dim=-1, keepdim=True)
+
+
+def _spectrum_rows(value: Any, count: int, name: str) -> list[torch.Tensor]:
+    """Read shared or per-input samples in double precision on CPU."""
+    if isinstance(value, (list, tuple)) and value and torch.as_tensor(value[0], device='cpu').ndim:
+        rows = value
+    else:
+        values = torch.as_tensor(value, device='cpu')
+        rows = value if values.ndim == 2 else [value]
+    result = []
+    for row in rows:
+        dtype = torch.complex128 if torch.as_tensor(row, device='cpu').is_complex() else torch.float64
+        row = torch.as_tensor(row, dtype=dtype, device='cpu')
+        if row.ndim > 1 or row.numel() == 0 or not torch.isfinite(row).all():
+            raise ValueError(f'{name} must contain finite scalars or one-dimensional sample arrays.')
+        result.append(row)
+    if len(result) == 1:
+        result *= count
+    if len(result) != count:
+        raise ValueError(f'{name} must be shared or have one row per delay.')
+    return result
+
+
+def _spectral_quadrature(knots: torch.Tensor, delay_span: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Integrate linear spectral amplitudes with at most one radian of relative delay per interval."""
+    widths = knots.diff()
+    counts = (2 * torch.pi * delay_span * widths).ceil().clamp_min(1)
+    if not torch.isfinite(counts).all() or counts.sum() > 1_000_000:
+        raise ValueError('The frequency range and delay span require more than one million integration intervals.')
+    counts = counts.long()
+    intervals = torch.arange(len(widths), device=knots.device).repeat_interleave(counts)
+    offsets = torch.arange(len(intervals), device=knots.device) - (counts.cumsum(0) - counts).repeat_interleave(counts)
+    steps = widths[intervals] / counts[intervals]
+    left = knots[intervals] + offsets * steps
+    nodes, weights = (torch.as_tensor(value, device=knots.device) for value in leggauss(8))
+    samples = left[:, None] + steps[:, None] * (nodes + 1) / 2
+    weights = steps[:, None] * weights / 2
+    return samples.flatten(), weights.flatten()
+
+
+def delay_coefficients(
+    delays: Any,
+    *,
+    frequency_hz: Any,
+    intensity: Any = None,
+    amplitude: Any = None,
+    phase: Any = None,
+) -> torch.Tensor:
+    r"""Expand delayed spectral modes in a common orthogonal basis.
+
+    Each input describes one spectral mode with amplitude
+    ``sqrt(intensity) * exp(1j * phase)`` or the supplied ``amplitude``.
+    Delay multiplies it by ``exp(-2j * pi * frequency_hz * delay)``.
+    Complex amplitudes are linearly interpolated and zero outside each supplied frequency range.
+    Each mode is normalized by its frequency integral, independently of its original scale.
+    Frequency samples must resolve the supplied spectrum, including its phase.
+    Transverse profiles and polarization are assumed matched at each frequency.
+
+    The result uses complex128 on CPU for calibration, with shape ``(ninput, nsubmode)``.
+    ``coefficients.conj() @ coefficients.T`` gives the numerical spectral overlaps.
+    The first input defines the first basis mode, with coefficient row ``[1, 0, ...]``.
+    Later basis modes span orthogonal residuals in input order.
+    Residual norms below ten times float64 epsilon are discarded, so the number of columns can change.
+    Include all sources and local oscillators in the same call to share their basis.
+
+    See https://arxiv.org/pdf/1909.04294v2 Eq.(1) for spectral mode operators.
+    The delay rule follows from https://dlmf.nist.gov/1.14.E1 Eq.(1.14.1), using the
+    negative-exponent Fourier convention: ``f(t - tau)`` gives ``exp(-2j*pi*nu*tau)``.
+
+    Args:
+        delays: A scalar or one-dimensional array of input delays in seconds.
+        frequency_hz: A shared one-dimensional frequency grid, or one grid per input.
+            Grids may have different lengths and are sorted internally. Frequencies must be distinct
+            within each grid and use the same reference across inputs. Use float64 samples for optical frequencies.
+        intensity: Nonnegative linear spectral density per Hz, with shape ``(nsample,)`` or
+            ``(ninput, nsample)``, or a list of per-input arrays. Specify exactly one of
+            ``intensity`` and ``amplitude``. Default: ``None``
+        amplitude: Real or complex spectral amplitudes with the same layout as ``intensity``.
+            Default: ``None``
+        phase: Spectral phase in radians before the additional delays, used with ``intensity``.
+            A scalar, shared array or per-input arrays. Use shape ``(ninput, 1)`` for per-input
+            constant phases. Default: ``None`` (zero spectral phase)
+
+    Returns:
+        Normalized coefficient rows in a common orthogonal basis.
+    """
+    if (intensity is None) == (amplitude is None):
+        raise ValueError('Specify exactly one of intensity and amplitude.')
+    if amplitude is not None and phase is not None:
+        raise ValueError('phase is only used with intensity. Complex amplitude already includes its phase.')
+    delays = _spectrum_rows(delays, 1, 'delays')[0].reshape(-1)
+    if delays.is_complex():
+        raise ValueError('delays must be real.')
+    delays = delays - delays[0]
+    count = len(delays)
+    frequencies = _spectrum_rows(frequency_hz, count, 'frequency_hz')
+    spectra = _spectrum_rows(intensity if amplitude is None else amplitude, count, 'spectrum')
+    phases = _spectrum_rows(0.0 if phase is None else phase, count, 'phase')
+    for j, (frequency, spectrum, phi) in enumerate(zip(frequencies, spectra, phases, strict=True)):
+        if frequency.is_complex() or frequency.ndim != 1 or len(frequency) < 2:
+            raise ValueError('Each frequency grid must contain at least two distinct real frequencies.')
+        if spectrum.ndim != 1 or spectrum.shape != frequency.shape:
+            raise ValueError('Each spectrum must match its frequency grid.')
+        if amplitude is None:
+            if spectrum.is_complex() or (spectrum < 0).any():
+                raise ValueError('intensity must be real and nonnegative.')
+            if phi.is_complex() or phi.numel() not in (1, len(frequency)):
+                raise ValueError('Each phase must be real and scalar or match its frequency grid.')
+            spectrum = torch.polar(spectrum.sqrt(), phi.expand_as(spectrum))
+        if spectrum.abs().amax() == 0:
+            raise ValueError('Each spectrum must be nonzero.')
+        frequency, order = frequency.sort()
+        if (frequency.diff() == 0).any():
+            raise ValueError('Frequencies within each grid must be distinct.')
+        frequencies[j] = frequency
+        spectra[j] = _normalize_coefficients(spectrum[order])
+
+    # Center frequencies before interpolation and retain their carrier phases separately.
+    reference = frequencies[0][0]
+    frequencies = [frequency - reference for frequency in frequencies]
+    knots = torch.cat(frequencies).unique(sorted=True)
+    grid, weights = _spectral_quadrature(knots, delays.max() - delays.min())
+    samples = []
+    for frequency, spectrum, delay in zip(frequencies, spectra, delays, strict=True):
+        index = torch.searchsorted(frequency, grid).clamp(1, len(frequency) - 1)
+        fraction = ((grid - frequency[index - 1]) / (frequency[index] - frequency[index - 1])).clamp(0, 1)
+        value = spectrum[index - 1] * (1 - fraction) + spectrum[index] * fraction
+        value = torch.where((grid >= frequency[0]) & (grid <= frequency[-1]), value, 0)
+        value = value * torch.exp(-2j * torch.pi * grid * delay)
+        samples.append(_normalize_coefficients(value * weights.sqrt()))
+
+    # Two orthogonalization passes retain tiny residuals without subtracting 1 - |overlap|**2.
+    basis, rows, origins = [], [], []
+    for j, value in enumerate(samples):
+        coefficients = value.new_zeros(len(basis))
+        residual = value
+        if basis:
+            vectors = torch.stack(basis)
+            for _ in range(2):
+                correction = vectors.conj() @ residual
+                coefficients = coefficients + correction
+                residual = residual - correction @ vectors
+        norm = torch.linalg.vector_norm(residual)
+        if norm > 10 * torch.finfo(torch.float64).eps:
+            basis.append(residual / norm)
+            origins.append(j)
+            coefficients = torch.cat([coefficients, norm.reshape(1)])
+        rows.append(coefficients)
+    coefficients = torch.stack([torch.nn.functional.pad(row, (0, len(basis) - len(row))) for row in rows])
+    carrier = torch.exp(-2j * torch.pi * torch.fmod(reference * delays, 1))
+    coefficients = coefficients * carrier[:, None] * carrier[origins].conj()[None, :]
+    return _normalize_coefficients(coefficients)
+
+
+def _fock_isometry(coefficients: torch.Tensor, cutoff: int) -> torch.Tensor:
+    """Return the Fock isometry for a normalized orthogonal-basis coefficient vector.
+
+    Output axes index occupations in each orthogonal basis mode, followed by the input photon number.
+    Each axis has size ``cutoff``.
+
+    See https://arxiv.org/pdf/quant-ph/0406127v1 Eq.(14), specialized to one occupied input mode.
+    """
+    nsubmode = len(coefficients)
+    vacuum = coefficients.new_zeros([cutoff] * nsubmode)
+    vacuum[(0,) * nsubmode] = 1
+    ladder = torch.arange(1, cutoff, dtype=coefficients.real.dtype, device=coefficients.device).sqrt()
+    columns = [vacuum]
+    for n in range(1, cutoff):
+        column = torch.zeros_like(vacuum)
+        for k in range(nsubmode):
+            shape = [1] * nsubmode
+            shape[k] = cutoff - 1
+            raised = columns[-1].narrow(k, 0, cutoff - 1) * ladder.reshape(shape)
+            raised = torch.nn.functional.pad(raised, (0, 0) * (nsubmode - k - 1) + (1, 0))
+            column = column + coefficients[k] * raised
+        # |n_c> = sum_k c_k a_k^dagger |(n-1)_c> / sqrt(n).
+        columns.append(column / math.sqrt(n))
+    return torch.stack(columns, -1)
 
 
 def dirac_rep(state: torch.Tensor, den_mat: bool = False, topk: int = 5) -> dict:
@@ -53,6 +241,165 @@ def sort_dict_fock_basis(state_dict: dict, idx: int = 0) -> dict:
     for key, value in sort_list:
         sorted_dict[key] = value
     return sorted_dict
+
+
+def group_probabilities(probabilities: dict | torch.Tensor, groups: list[list[int]]) -> dict:
+    """Sum photon-count probabilities over unresolved orthogonal basis modes of each spatial mode.
+
+    ``groups`` must partition all modes, in the desired order of spatial outputs.
+    Input is the probability dictionary or dense probability tensor returned by
+    ``cir(is_prob=True)``. Tensor input has shape ``(batch, cutoff, ..., cutoff)``
+    or omits the batch dimension. Output keys are spatial Fock states and values
+    retain the input batch dimensions and gradients. Probabilities are summed,
+    never amplitudes. Truncation mass is preserved without renormalization.
+    """
+    wires = [wire for group in groups for wire in group]
+    nmode = len(wires)
+    if not groups or any(not group for group in groups) or sorted(wires) != list(range(nmode)):
+        raise ValueError('groups must partition consecutive mode indices without duplicates.')
+    if isinstance(probabilities, torch.Tensor):
+        if probabilities.is_complex() or probabilities.ndim not in (nmode, nmode + 1):
+            raise ValueError('Expected real probability tensors with one optional batch dimension.')
+        if probabilities.ndim == nmode:
+            probabilities = probabilities.unsqueeze(0)
+        items = (
+            (pattern, probabilities[(slice(None),) + pattern])
+            for pattern in itertools.product(*(range(size) for size in probabilities.shape[1:]))
+        )
+    else:
+        items = ((tuple(key.state.tolist()), value) for key, value in probabilities.items())
+    result = {}
+    for pattern, value in items:
+        if isinstance(value, complex) or isinstance(value, torch.Tensor) and value.is_complex():
+            raise ValueError('Group probabilities, not complex amplitudes.')
+        if len(pattern) != nmode:
+            raise ValueError('groups must cover every input mode.')
+        counts = [sum(pattern[wire] for wire in group) for group in groups]
+        key = dqp.FockState(counts)
+        result[key] = result.get(key, 0) + value
+    return result
+
+
+def _pnr_condition(state, nmode, cutoff, den_mat, measured, counts, keep):
+    """Project unresolved PNR counts and trace all unretained modes without a dense POVM.
+
+    See https://arxiv.org/pdf/1902.02323v2 Eq.(24) and Eq.(109) for PNR projection and probability.
+    Here each unresolved event sums resolved projectors, with unretained modes traced out.
+    """
+    rest = [wire for wire in range(nmode) if wire not in keep]
+    order = keep + rest
+    positions = [[rest.index(wire) for wire in group] for group in measured]
+    mask = torch.tensor(
+        [
+            all(sum(pattern[i] for i in group) == count for group, count in zip(positions, counts, strict=True))
+            for pattern in itertools.product(range(cutoff), repeat=len(rest))
+        ],
+        device=state.device,
+    )
+    nkeep, nrest = cutoff ** len(keep), cutoff ** len(rest)
+    state = state.reshape([-1] + [cutoff] * nmode * (2 if den_mat else 1))
+    axes = [0] + [w + 1 for w in order]
+    if den_mat:
+        axes += [w + nmode + 1 for w in order]
+        state = state.permute(axes).reshape(-1, nkeep, nrest, nkeep, nrest)
+        density = (state.diagonal(dim1=2, dim2=4) * mask).sum(-1)
+    else:
+        state = state.permute(axes).reshape(-1, nkeep, nrest)
+        selected = state * mask
+        density = selected @ selected.mH
+    probability = density.diagonal(dim1=-2, dim2=-1).sum(-1).real
+    if (probability <= 0).any():
+        raise ValueError('Cannot normalize a zero-probability PNR event.')
+    density = density / probability[:, None, None]
+    return density.reshape([-1] + [cutoff] * (2 * len(keep))), probability
+
+
+def _fock_conditional_blocks(state, nmode, cutoff, den_mat, measured, keep):
+    """Return unnormalized retained density blocks for every resolved PNR outcome.
+
+    Output axes are (batch, measured photon counts..., retained ket, retained bra).
+    Empty keep gives event probabilities in 1 x 1 blocks. No division by the
+    event probability is performed, so impossible allocations remain valid zeros.
+
+    See https://arxiv.org/pdf/1902.02323v2 Eq.(97) for the resolved PNR conditional operator.
+    This implementation contracts Fock coefficients directly and traces unretained modes.
+    """
+    rest = [w for w in range(nmode) if w not in keep and w not in measured]
+    order = keep + measured + rest
+    k, p, r = cutoff ** len(keep), cutoff ** len(measured), cutoff ** len(rest)
+    state = state.reshape([-1] + [cutoff] * nmode * (2 if den_mat else 1))
+    axes = [0] + [w + 1 for w in order]
+    if den_mat:
+        axes += [w + nmode + 1 for w in order]
+        state = state.permute(axes).reshape(-1, k, p, r, k, p, r)
+        state = state.diagonal(dim1=3, dim2=6).sum(-1)
+        density = state.diagonal(dim1=2, dim2=4).movedim(-1, 1)
+    else:
+        state = state.permute(axes).reshape(-1, k, p, r).transpose(1, 2)
+        density = state @ state.mH
+    return density.reshape([-1] + [cutoff] * len(measured) + [k, k])
+
+
+def _group_count_axes(values, groups, limits=None, operators=False):
+    """Sum resolved count axes per spatial port, preserving optional retained operators."""
+    end = -2 if operators else None
+    sizes = values.shape[1:end]
+    shape = [1 + sum(sizes[k] - 1 for k in group) for group in groups]
+    if limits is not None:
+        shape = [min(size, count + 1) for size, count in zip(shape, limits, strict=True)]
+    coordinates = torch.stack(
+        torch.meshgrid(*(torch.arange(n, device=values.device) for n in sizes), indexing='ij'), -1
+    ).reshape(-1, len(sizes))
+    counts = torch.stack([coordinates[:, group].sum(-1) for group in groups], -1)
+    valid = (counts < torch.tensor(shape, device=values.device)).all(-1)
+    strides = torch.tensor([math.prod(shape[i + 1 :]) for i in range(len(shape))], device=values.device)
+    index = torch.where(valid, (counts * strides).sum(-1), 0)
+    flattened = values.reshape(values.shape[0], math.prod(sizes), -1) * valid[None, :, None]
+    result = values.new_zeros(values.shape[0], math.prod(shape), flattened.shape[-1])
+    result = result.scatter_add(1, index[None, :, None].expand_as(flattened), flattened)
+    return result.reshape([values.shape[0]] + shape + (list(values.shape[-2:]) if operators else []))
+
+
+def _convolve_counts(left, right, limits=None, operators=False):
+    """Convolve count distributions, optionally tensoring their retained operators.
+
+    A leading batch axis is followed by one count axis per detector. With
+    operators=True, the last two axes are retained ket/bra axes. Optional limits
+    discard counts above a target event. Direct products and scatter-add avoid
+    FFT cancellation in very small herald probabilities.
+
+    For independent blocks, ``P(n) = sum_{a+b=n} P_left(a) * P_right(b)``.
+    Retained states replace each scalar product by ``A_left(a) tensor A_right(b)``.
+    See https://arxiv.org/pdf/1012.0262v2, the convolution discussion following Eq.(19).
+    """
+    end = -2 if operators else None
+    a, b = left.shape[1:end], right.shape[1:end]
+    shape = [x + y - 1 for x, y in zip(a, b, strict=True)]
+    if limits is not None:
+        shape = [min(size, n + 1) for size, n in zip(shape, limits, strict=True)]
+    device = left.device
+    ca = torch.stack(torch.meshgrid(*(torch.arange(n, device=device) for n in a), indexing='ij'), -1).reshape(
+        -1, len(a)
+    )
+    cb = torch.stack(torch.meshgrid(*(torch.arange(n, device=device) for n in b), indexing='ij'), -1).reshape(
+        -1, len(b)
+    )
+    counts = ca[:, None] + cb[None, :]
+    valid = (counts < torch.tensor(shape, device=device)).all(-1).flatten()
+    strides = torch.tensor([math.prod(shape[i + 1 :]) for i in range(len(shape))], device=device)
+    indices = (counts * strides).sum(-1).flatten()
+    indices = torch.where(valid, indices, torch.zeros_like(indices))
+    batch = torch.broadcast_shapes(left.shape[:1], right.shape[:1])[0]
+    if operators:
+        k, nright = left.shape[-1], right.shape[-1]
+        left, right = left.reshape(-1, math.prod(a), k, k), right.reshape(-1, math.prod(b), nright, nright)
+        values = torch.einsum('baij,bckl->bacikjl', left, right).reshape(batch, -1, (k * nright) ** 2)
+    else:
+        values = (left.reshape(-1, math.prod(a), 1) * right.reshape(-1, 1, math.prod(b))).reshape(batch, -1, 1)
+    values = values * valid[None, :, None]
+    result = values.new_zeros(batch, math.prod(shape), values.shape[-1])
+    result = result.scatter_add(1, indices[None, :, None].expand_as(values), values)
+    return result.reshape([batch] + shape + ([k * nright, k * nright] if operators else []))
 
 
 def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.Tensor) -> torch.Tensor:
@@ -137,11 +484,24 @@ def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
     return value_perm
 
 
-def product_factorial(state: torch.Tensor) -> torch.Tensor:
-    """Get the product of the factorial from the Fock state, i.e., :math:`|s_1,s_2,...s_n> -> s_1!s_2!...s_n!`."""
-    state = state + 0.0
-    # nature log gamma function
-    return torch.exp(torch.lgamma(state.cpu().double() + 1).sum(-1, keepdim=True)).to(state.device, state.dtype)
+def product_factorial(state: torch.Tensor, power: float = 1.0) -> torch.Tensor:
+    """Return the factorial product raised to ``power``, evaluating the power in log space.
+
+    Integer photon counts produce float64 results, or float32 on MPS.
+    Floating inputs retain their dtype.
+
+    See https://dlmf.nist.gov/5.4.E1 Eq.(5.4.1) for ``n! = Gamma(n + 1)``.
+    Evaluate ``exp(power * sum(lgamma(n + 1)))`` without forming the unpowered factorial product.
+
+    Args:
+        state: Photon counts, with modes along the final axis.
+        power: Exponent applied to the factorial product. Default: 1.0
+    """
+    log_value = torch.lgamma(state.cpu().double() + 1).sum(-1, keepdim=True)
+    dtype = state.dtype
+    if not state.is_floating_point():
+        dtype = torch.float32 if state.device.type == 'mps' else torch.float64
+    return torch.exp(power * log_value).to(device=state.device, dtype=dtype)
 
 
 def fock_combinations(nmode: int, nphoton: int, cutoff: int | None = None, nancilla: int = 0) -> list[list[int]]:
@@ -530,26 +890,28 @@ def sample_homodyne_fock(
     x_range: float = 15,
     nbin: int = 100000,
 ) -> torch.Tensor:
-    """Get the samples of homodyne measurement for batched Fock state tensors on one mode."""
+    """Get the samples of homodyne measurement for batched Fock state tensors on one mode.
+
+    See https://arxiv.org/pdf/quant-ph/0511044v2 Eq.(26) and Eq.(43)-(44) for Fock
+    wavefunctions and quadrature probabilities. The recurrence uses
+    https://dlmf.nist.gov/18.9.E1 Eq.(18.9.1) and Table 18.9.1, rescaled by
+    ``exp(-y**2/2) / sqrt(2**n * n!)``, with ``y = sqrt(2*kappa**2/hbar) * x``.
+    Common normalization constants cancel in the discrete sampling weights.
+    """
     coef = 2 * dqp.kappa**2 / dqp.hbar
-    if den_mat:
-        state = state.reshape(-1, cutoff**nmode, cutoff**nmode)
-    else:
-        state = state.reshape(-1, cutoff**nmode, 1)
-        state = state @ state.mH
-    trace_lst = [i for i in range(nmode) if i != wire]
-    reduced_dm = partial_trace(state, nmode, trace_lst, cutoff)  # (batch, cutoff, cutoff)
-    orders = torch.arange(cutoff, dtype=state.real.dtype, device=state.device).reshape(-1, 1)  # (cutoff, 1)
-    # with dimension \sqrt{m\omega\hbar}
+    reduced_dm = _fock_conditional_blocks(state, nmode, cutoff, den_mat, [], [wire])
     xs = torch.linspace(-x_range, x_range, nbin, dtype=state.real.dtype, device=state.device)  # (nbin)
-    h_vals = torch.special.hermite_polynomial_h(coef**0.5 * xs, orders)  # （cutoff, nbin)
-    # H_n / \sqrt{2^n * n!}
-    factorial = torch.exp(torch.lgamma(orders.cpu().double() + 1)).to(orders.device, orders.dtype)
-    h_vals = h_vals / torch.sqrt(2**orders * factorial)
-    h_mat = h_vals.reshape(1, cutoff, nbin) * h_vals.reshape(cutoff, 1, nbin)  # (cutoff, cutoff, nbin)
-    h_terms = reduced_dm.unsqueeze(-1) * h_mat  # (batch, cutoff, cutoff, nbin)
-    probs = (h_terms.sum(dim=[-3, -2]) * torch.exp(-coef * xs**2)).real  # (batch, nbin)
-    probs = abs(probs)
+    scaled_x = coef**0.5 * xs
+    # Normalized Hermite functions include the Gaussian envelope, avoiding large H_n and n!.
+    functions = [torch.exp(-scaled_x.square() / 2)]
+    for n in range(1, cutoff):
+        value = math.sqrt(2 / n) * scaled_x * functions[-1]
+        if n > 1:
+            value = value - math.sqrt((n - 1) / n) * functions[-2]
+        functions.append(value)
+    h_vals = torch.stack(functions).to(reduced_dm.dtype)
+    probs = torch.einsum('...ij,ix,jx->...x', reduced_dm, h_vals, h_vals).real.reshape(-1, nbin)
+    probs = abs(probs).contiguous()
     probs[probs < 1e-10] = 0
     indices = torch.multinomial(probs.reshape(-1, nbin), num_samples=shots, replacement=True)  # (batch, shots)
     samples = xs[indices]
