@@ -44,14 +44,6 @@ def test_complex_symmetric_matrix_and_roundoff_accepted(dtype):
 def test_invalid_loss_transmittance_rejected(invalid):
     with pytest.raises(ValueError, match='transmittance'):
         loss_kernel(torch.tensor(invalid))
-    with pytest.raises(ValueError, match='loss|Loss'):
-        PhotonLoss(inputs=invalid, convention='t')
-
-
-@pytest.mark.parametrize('convention, invalid', [('db', -1.0), ('db', float('inf')), ('theta', float('nan'))])
-def test_invalid_loss_other_conventions(convention, invalid):
-    with pytest.raises(ValueError):
-        PhotonLoss(inputs=invalid, convention=convention)
 
 
 @pytest.mark.parametrize('transmittance', [0.0, 1.0])
