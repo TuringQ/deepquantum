@@ -18,7 +18,7 @@ import deepquantum.photonic as dqp
 
 from ..qmath import block_sample, get_prob_mps, inner_product_mps, is_positive_definite, sample_sc_mcmc
 from ..state import MatrixProductState
-from .bargmann import BargmannState, PolyExpAnsatz, conditional_fock, op_to_kernel
+from .bargmann import PolyExpAnsatz, conditional_fock
 from .channel import DisplacementChannel, OPA, PhotonLoss
 from .decompose import UnitaryDecomposer
 from .distributed import measure_dist
@@ -70,6 +70,7 @@ from .qmath import (
 )
 from .source import SinglePhotonSource, Submodes, ThermalSource
 from .state import (
+    BargmannState,
     BosonicState,
     CatState,
     DistributedFockState,
@@ -951,11 +952,10 @@ class QumodeCircuit(Operation):
         """Perform a forward pass for one sample with the Bargmann backend."""
         self.encode(data)
         for op in self.operators:
-            item = op_to_kernel(op)
-            if item is None:
+            kernel = op.get_bargmann_kernel()
+            if kernel is None:
                 continue
-            kernel, kind = item
-            if kind == 'channel':
+            if isinstance(op, Channel):
                 state = state.apply_channel(kernel, op.wires)
             else:
                 state = state.apply_unitary(kernel, op.wires)

@@ -3,8 +3,9 @@
 import pytest
 import torch
 
-from deepquantum.photonic.bargmann import BargmannState, PolyExpAnsatz, loss_kernel
+from deepquantum.photonic.bargmann import PolyExpAnsatz, loss_kernel
 from deepquantum.photonic.channel import PhotonLoss
+from deepquantum.photonic.state import BargmannState
 
 
 def make_ansatz(dtype=torch.complex128, coefficient=1):

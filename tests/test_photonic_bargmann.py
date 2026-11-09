@@ -9,7 +9,6 @@ import torch
 import deepquantum as dq
 import deepquantum.photonic as dqp
 from deepquantum.photonic.bargmann import (
-    BargmannState,
     PolyExpAnsatz,
     _fock_coefficients,
     displacement_kernel,
@@ -19,6 +18,7 @@ from deepquantum.photonic.bargmann import (
     squeezing_kernel,
     two_mode_squeezing_kernel,
 )
+from deepquantum.photonic.state import BargmannState
 
 DT = torch.float64
 CT = torch.complex128
@@ -95,6 +95,52 @@ def test_kernels_match_fock_matrices(case):
     _, kernel, reference = case
     value = kernel.to_fock((C,) * kernel.n_cv)[0]
     torch.testing.assert_close(value, reference.to(CT), atol=1e-12, rtol=1e-10)
+
+
+@pytest.mark.parametrize(
+    'gate_type',
+    [
+        dqp.PhaseShift,
+        dqp.BeamSplitter,
+        dqp.BeamSplitterTheta,
+        dqp.BeamSplitterPhi,
+        dqp.BeamSplitterSingle,
+        dqp.MZI,
+        dqp.Squeezing,
+        dqp.Squeezing2,
+        dqp.Displacement,
+        dqp.DisplacementPosition,
+        dqp.DisplacementMomentum,
+        dqp.UAnyGate,
+    ],
+)
+def test_operation_kernel_matches_fock_matrix(gate_type):
+    two_mode = issubclass(gate_type, dqp.BeamSplitter) or gate_type in (dqp.Squeezing2, dqp.UAnyGate)
+    nmode = 2 if two_mode else 1
+    kwargs = dict(nmode=nmode, wires=list(range(nmode)), cutoff=3)
+    if gate_type is dqp.UAnyGate:
+        gate = gate_type(torch.tensor([[1, 1j], [1j, 1]], dtype=CT) / 2**0.5, **kwargs)
+    else:
+        gate = gate_type(**kwargs).to(DT)
+    kernel = gate.get_bargmann_kernel()
+    actual = kernel.to_fock((3,) * kernel.n_cv)[0]
+    torch.testing.assert_close(actual, gate.update_matrix_state().to(CT), atol=1e-10, rtol=1e-9)
+
+
+def test_channel_kernel_matches_kraus_map():
+    channel = dqp.PhotonLoss(t(0.9), cutoff=3)
+    kraus = channel.update_matrix_state().to(CT)
+    expected = torch.einsum('lac,lbd->abcd', kraus, kraus.conj())
+    torch.testing.assert_close(channel.get_bargmann_kernel().to_fock((3,) * 4)[0], expected)
+
+
+def test_bargmann_exports_and_unsupported_operations():
+    assert dq.BargmannState is dqp.BargmannState is BargmannState
+    assert dqp.PolyExpAnsatz is PolyExpAnsatz
+    assert dqp.Barrier(nmode=2).get_bargmann_kernel() is None
+    for operation in (dqp.Kerr(cutoff=3), dqp.OPA(cutoff=3)):
+        with pytest.raises(NotImplementedError, match='not supported by the Bargmann backend'):
+            operation.get_bargmann_kernel()
 
 
 # ---------------------------------------------------------------------- evolution

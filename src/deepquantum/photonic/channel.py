@@ -9,6 +9,7 @@ from torch import nn
 
 import deepquantum.photonic as dqp
 
+from .bargmann import PolyExpAnsatz, loss_kernel
 from .gate import BeamSplitterSingle, Displacement
 from .operation import Channel
 
@@ -428,3 +429,9 @@ class PhotonLoss(Channel):
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, transmittance={self.t.item()}'
+
+    def get_bargmann_kernel(self) -> PolyExpAnsatz:
+        """Return the pure-loss density kernel from the live transmittance."""
+        if len(self.wires) != 1:
+            raise NotImplementedError('PhotonLoss acts on a single mode')
+        return loss_kernel(self.t)

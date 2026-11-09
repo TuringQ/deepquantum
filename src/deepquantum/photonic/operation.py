@@ -8,6 +8,7 @@ from torch import nn, vmap
 
 from ..qmath import evolve_den_mat, evolve_state, state_to_tensors
 from ..state import MatrixProductState
+from .bargmann import PolyExpAnsatz
 from .distributed import dist_gate
 from .state import DistributedFockState
 
@@ -71,6 +72,14 @@ class Operation(nn.Module):
         assert len(minmax) == 2
         assert all(isinstance(i, int) for i in minmax)
         assert -1 < minmax[0] <= minmax[1] < self.nmode
+
+    def get_bargmann_kernel(self) -> PolyExpAnsatz | None:
+        """Return the live Bargmann kernel, or None for an operation without effect.
+
+        Unitary kernels order outputs before inputs. Channel kernels order ket output,
+        bra output, ket input, then bra input. Unsupported operations raise explicitly.
+        """
+        raise NotImplementedError(f'{self.name} is not supported by the Bargmann backend')
 
 
 class Gate(Operation):

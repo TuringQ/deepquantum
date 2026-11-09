@@ -4,7 +4,8 @@ import pytest
 import torch
 
 import deepquantum as dq
-from deepquantum.photonic.bargmann import BargmannState, PolyExpAnsatz
+from deepquantum.photonic.bargmann import PolyExpAnsatz
+from deepquantum.photonic.state import BargmannState
 
 
 @pytest.mark.parametrize('density', [False, True])
