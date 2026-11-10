@@ -892,30 +892,18 @@ print(probability_source, samples_source.shape)  # 事件概率和 (5,)
 # %% [markdown] tags=["hardware-readout-example"]
 # ### 真实位移与 Homodyne 读出
 #
-# `cir.d(0, r=0.3, theta=0.0)` 表示理想位移。
-# `cir.d_channel(0, amplitude=3.0, phase=0.0, t=0.99)` 表示相干辅助光经分束器耦入信号的独立器件。
-# `amplitude` 和 `phase` 是耦合前辅助相干光的振幅与相位，即 $\beta=\mathrm{amplitude}\,e^{i\,\mathrm{phase}}$，平均光子数为 `amplitude**2`。
-# 默认的 `convention='t'` 将 `t` 解释为信号功率透射率，辅助光耦入率为 $1-t$，送达信号端的位移为 $\alpha=\sqrt{1-t}\beta$。
-# 在此约定下，单模信道为 $\rho' = D(\alpha)\mathcal{L}_t(\rho)D^\dagger(\alpha)$。
-# 其协方差满足 $V'=tV+(1-t)V_0 I$，真空方差 $V_0=\hbar/(4\kappa^2)$。
-# 固定辅助光复振幅 $\beta$ 改变 `t` 时，信号衰减和位移量同时改变。
-# `t=1` 时器件为恒等操作。
-# `convention='loss_theta'` 将第三个参数 `t` 解释为弧度制的内部耦合角，例如 `cir.d_channel(0, amplitude=3.0, phase=0.0, t=0.2, convention='loss_theta')`。
-# 任意实角输入保留场系数的符号，位移为 $\alpha=\sin(\mathrm{loss\_theta}/2)\beta$，负系数对应额外的 $\pi$ 相位。
-# Gaussian、Bosonic 和 Fock 密度矩阵路径复用现有损耗和位移内核，无需显式保留强辅助光模式。
-# `model.d_channel().submodes(c)` 指定辅助光模式，耦合损耗仍作用于该空间端口的所有正交基模。
-# `model.d_channel().amplitude`、`.phase` 和 `.loss_theta` 可配置控制误差，其中 $t=\cos^2(\mathrm{loss\_theta}/2)$。
-# `encode=True` 消耗三个实数 `[amplitude, phase, t]`，第三个数按 `convention` 解释。
-# `DisplacementChannel.coherent_amplitude` 给出辅助光复振幅 $\beta$，`displacement_amplitude` 给出实际复位移 $\alpha$。
-# `cir.d_channel(0)` 随机初始化三个可训练参数，显式提供参数时使用固定配置。
-# 推导参见 [Windhager et al. Eq.(8), Eq.(18)](https://arxiv.org/pdf/1009.1844v2)。
+# `cir.d_channel(wires, amplitude=..., phase=..., t=...)` 用辅助相干光实现位移，并包含耦合损耗。
+# `amplitude` 是耦合前辅助光的实数振幅，平均光子数为 `amplitude**2`，`phase` 的单位为弧度。
+# 默认 `convention='t'`，`t` 表示信号功率透射率，例如 `amplitude=3.0, t=0.99` 对应位移振幅 0.3。
+# 使用 `convention='loss_theta'` 时，`t` 参数改为内部角度，透射率为 `cos(loss_theta / 2)**2`。
+# 支持 Gaussian、Bosonic 和 Fock 密度矩阵（`basis=False, den_mat=True`）。
 #
-# 探测端用 `efficiency(eta)` 设置功率效率，与 `before.loss(t=eta)` 是同一种配置，重复设置时后者覆盖前者。
-# `readout(gain=g, bias=b, noise_var=v)` 对应 $y=g[\sqrt{\eta}q_\phi+\sqrt{1-\eta}q_{\rm vac}]+b+\epsilon$，其中 $\mathrm{Var}(\epsilon)=v$。
-# `gain` 是每个 quadrature 单位对应的输出增益，允许非零正负值；`bias` 的单位与输出相同，`noise_var` 的单位是输出单位的平方。
-# 理想采样已经包含量子涨落，电子噪声不再包含额外的散粒噪声项。
-# 探测效率、读出参数和相位误差同时适用于 `cir.homodyne()` 显式测量与直接 `measure_homodyne(phi=..., lo=...)`。
-# 模式失配继续由正交基模与 LO 系数决定，硬件选择器里的端口编号始终是原线路的空间端口。
+# `model.d_channel().amplitude`、`.phase` 和 `.loss_theta` 配置控制误差，`.submodes(c)` 设置辅助光模式。
+# `encode=True` 读取 `[amplitude, phase, t]`，第三项按 `convention` 解释。
+#
+# 探测端用 `model.homodyne(wires).efficiency(eta)` 设置效率，用 `model.homodyne(wires).readout(gain=..., bias=..., noise_var=...)` 设置输出增益、偏置和电子噪声方差。
+# `noise_var` 以输出单位的平方计。
+# 下面配置真实位移和探测器，并采样 `phi=0` 的正交分量。
 #
 
 # %% tags=["hardware-readout-example"]
@@ -937,23 +925,17 @@ samples_readout = cir_readout.measure_homodyne(shots=1024, phi=0.0)
 print(samples_readout.shape, samples_readout.mean(), samples_readout.var())
 
 # %% [markdown] tags=["hardware-readout-example"]
-# 若还需要未测量模式的条件态，先登记 `cir.homodyne()`。
-# 有电子噪声时，`state_measured` 对应实际读出记录，而非未知的理想测量值。
-# Homodyne 是 Generaldyne 的无限压缩极限，使用精确的单正交条件更新；`cov_m=None` 表示这一极限。
-# 电子噪声由 `readout(noise_var=...)` 配置，对实际读数的条件更新会积分掉未知的理想读数。
-# 需要有限压缩 Generaldyne 测量时，使用 `dqp.Generaldyne(cov_m=V0 * torch.diag(torch.tensor([eps**2, eps**-2])), ...)` 并保留两个测量读数。
-# Generaldyne 的条件态与仅给 Homodyne 读数加噪声不同。
-# 含噪 Fock 条件测量需要 `basis=False, den_mat=True`，采用等效损耗与结果缩放，条件态精度仍需检查 Fock cutoff 收敛。
-# 等效损耗关系参见 [Appel et al. Eq.(12)](https://arxiv.org/pdf/quant-ph/0610116v2)。
+# 直接调用 `measure_homodyne(shots=..., phi=...)` 返回指定正交分量的样本。
+# 先添加 `cir.homodyne(wires, phi=...)` 时，还会将每个 shot 的条件态保存到 `state_measured`。
+# 有电子噪声时，条件态对应实际读出记录。
 #
-# 相位误差每次调用、每个测量端口抽取一次，同一批 shots 共享该相位；电子噪声逐 shot 独立。
-# `model.manual_seed(seed)` 控制硬件相位误差与终端电子噪声，`torch.manual_seed(seed)` 控制量子采样及含电子噪声的条件测量采样；同时重置两者可复现实验。
-# `nn.Parameter` 可用于读出参数；`efficiency(..., requires_grad=True)` 训练探测器内部损耗角，需在创建 optimizer 前配置模型。
-# 参数梯度沿当前条件态计算图传播；离散 Fock 采样和 Bosonic 拒绝采样不提供对抽样分布的路径梯度。
+# `Homodyne` 的后选择参数 `samples` 形状为 `(batch, 1)`。
+# 指定 `cov_m` 的 `Generaldyne` 接收 xxpp 顺序的 `samples`，`cov_m` 与输入态的协方差使用相同单位。
+# `cov_m=None` 表示理想 x-homodyne。
 #
-# 直接读出不会构造每个 shot 的条件态，也不会再次施加 forward 中已执行的光路损耗。
-# Gaussian/Bosonic 的 `phi=None` 返回联合 x/p 的 Wigner 抽样；它不表示同时测得两个正交分量的物理读数，单 quadrature 实验应显式指定 `phi`。
-# 本接口支持 submode 的终端 LO 读出，尚不支持 submode 条件 Homodyne、跨时间相关电子噪声或 ADC 模型。
+# 含噪 Fock 条件测量需要 `basis=False, den_mat=True`。
+# 含正交基模时，可用 `measure_homodyne(..., lo=..., phi=...)` 做终端读出，暂不支持条件 Homodyne。
+# 未添加条件测量且 `phi=None` 时，Gaussian/Bosonic 路径返回联合 x/p Wigner 样本。
 #
 
 # %% tags=["hardware-readout-example"]
