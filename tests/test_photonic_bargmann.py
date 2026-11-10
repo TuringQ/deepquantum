@@ -12,6 +12,7 @@ from deepquantum.photonic.bargmann import (
     PolyExpAnsatz,
     _fock_coefficients,
     displacement_kernel,
+    gaussian_contract,
     gaussian_to_bargmann,
     loss_kernel,
     passive_kernel,
@@ -37,6 +38,19 @@ def ansatz(a, b, c, n_cv):
 
 
 # ---------------------------------------------------------------------- algebra
+
+
+def test_complex_gaussian_contraction_keeps_determinant_phase():
+    phase = torch.tensor(math.pi / 3, dtype=DT)
+    z = torch.exp(1j * phase)
+    coupling = 1 - z
+    matrix = torch.zeros(1, 4, 4, dtype=CT)
+    matrix[0, 0, 1] = matrix[0, 1, 0] = coupling
+    matrix[0, 2, 3] = matrix[0, 3, 2] = coupling
+    linear = torch.zeros(1, 4, dtype=CT)
+    contracted, displacement, factor, keep = gaussian_contract(matrix, linear, [(0, 1), (2, 3)])
+    assert keep == [] and contracted.shape == (1, 0, 0) and displacement.shape == (1, 0)
+    torch.testing.assert_close(factor, (1 / z**2).reshape(1))
 
 
 def test_identity_contraction():

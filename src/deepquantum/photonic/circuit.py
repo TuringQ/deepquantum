@@ -713,12 +713,18 @@ class QumodeCircuit(Operation):
             self.encode(data[-1])
         if not self.basis and not self.mps:
             rank = 2 * self.nmode if self.den_mat else self.nmode
-            self.state = self.state.reshape(-1, *([self.cutoff] * rank))
+            # Factorized submode states have separate batch and orthogonal-basis axes.
+            # Ordinary Fock states need one batch axis even for an unbatched input.
+            leading = self.state.shape[:-rank] if getattr(self, 'factorized', False) else (-1,)
+            self.state = self.state.reshape(*leading, *([self.cutoff] * rank))
+            leading = self.state.shape[:-rank]
             self._herald_state = self.state
             if is_prob:
                 if self.den_mat:
-                    matrix = self.state.reshape(-1, self.cutoff**self.nmode, self.cutoff**self.nmode)
-                    self.state = matrix.diagonal(dim1=-2, dim2=-1).abs().reshape(-1, *([self.cutoff] * self.nmode))
+                    matrix = self.state.reshape(*leading, self.cutoff**self.nmode, self.cutoff**self.nmode)
+                    self.state = (
+                        matrix.diagonal(dim1=-2, dim2=-1).abs().reshape(*leading, *([self.cutoff] * self.nmode))
+                    )
                 else:
                     self.state = self.state.abs().square()
         if sort and self.basis and is_prob is not None:

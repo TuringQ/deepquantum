@@ -40,9 +40,11 @@ def gaussian_contract(
         b'=b_o+A_{oi}M^{-1}b_i,\qquad
         f=\frac{\exp(b_i^TM^{-1}b_i/2)}{\sqrt{\det(I-\Omega A_{ii})}}.
 
-    The scalar ``f`` multiplies the coefficient tensor of the kernel. Derived variables
-    are never integrated; they are simply kept, so delayed derivatives commute with
-    the integral.
+    The scalar ``f`` multiplies the coefficient tensor of the kernel. Integrate pairs
+    one at a time so each square root follows the analytic branch; taking the principal
+    square root of the combined complex determinant can introduce a sign error.
+    Derived variables are never integrated; they are simply kept, so delayed
+    derivatives commute with the integral.
 
     Args:
         a: Complex symmetric tensor of shape ``(K, N, N)``.
@@ -60,31 +62,34 @@ def gaussian_contract(
     integrated = first + second
     if len(set(integrated)) != len(integrated) or any(i < 0 or i >= nvar for i in integrated):
         raise ValueError('Integrated variable pairs must use distinct valid indices')
-    keep = [k for k in range(nvar) if k not in set(integrated)]
-    if not pairs:
-        return a, b, a.new_ones(a.shape[0]), keep
-    npair = len(pairs)
-    idx = torch.tensor(integrated, dtype=torch.long, device=a.device)
-    kdx = torch.tensor(keep, dtype=torch.long, device=a.device)
-    a_ii = a[:, idx][:, :, idx]
-    a_oi = a[:, kdx][:, :, idx]
-    a_oo = a[:, kdx][:, :, kdx]
-    b_i = b[:, idx]
-    b_o = b[:, kdx]
-    eye = torch.eye(npair, dtype=a.dtype, device=a.device)
-    zero = torch.zeros_like(eye)
-    omega = torch.cat([torch.cat([zero, eye], -1), torch.cat([eye, zero], -1)], -2)
-    rhs = torch.cat([a_oi.mT, b_i.unsqueeze(-1)], dim=-1)
-    try:
-        sol = torch.linalg.solve(omega - a_ii, rhs)
-    except RuntimeError as exc:
-        raise ValueError('Singular Gaussian integral; the kernel is not integrable over these variables') from exc
-    a_new = a_oo + a_oi @ sol[..., :-1]
-    a_new = (a_new + a_new.mT) / 2
-    b_new = b_o + (a_oi @ sol[..., -1:]).squeeze(-1)
-    det = torch.linalg.det(torch.eye(2 * npair, dtype=a.dtype, device=a.device) - omega @ a_ii)
-    factor = torch.exp((b_i * sol[..., -1]).sum(-1) / 2) / torch.sqrt(det)
-    return a_new, b_new, factor, keep
+    remaining = list(range(nvar))
+    factor = a.new_ones(a.shape[0])
+    omega = a.new_tensor([[0, 1], [1, 0]])
+    eye = torch.eye(2, dtype=a.dtype, device=a.device)
+    for first, second in pairs:
+        pair_idx = [remaining.index(first), remaining.index(second)]
+        keep_positions = [k for k in range(len(remaining)) if k not in pair_idx]
+        idx = torch.tensor(pair_idx, dtype=torch.long, device=a.device)
+        keep_idx = torch.tensor(keep_positions, dtype=torch.long, device=a.device)
+        a_ii = a[:, idx][:, :, idx]
+        a_oi = a[:, keep_idx][:, :, idx]
+        a_oo = a[:, keep_idx][:, :, keep_idx]
+        b_i = b[:, idx]
+        b_o = b[:, keep_idx]
+        rhs = torch.cat([a_oi.mT, b_i.unsqueeze(-1)], dim=-1)
+        try:
+            sol = torch.linalg.solve(omega - a_ii, rhs)
+        except RuntimeError as exc:
+            if 'singular' not in str(exc).lower():
+                raise
+            raise ValueError('Singular Gaussian integral; the kernel is not integrable over these variables') from exc
+        a = a_oo + a_oi @ sol[..., :-1]
+        a = (a + a.mT) / 2
+        b = b_o + (a_oi @ sol[..., -1:]).squeeze(-1)
+        det = torch.linalg.det(eye - omega @ a_ii)
+        factor = factor * torch.exp((b_i * sol[..., -1]).sum(-1) / 2) / torch.sqrt(det)
+        remaining = [remaining[k] for k in keep_positions]
+    return a, b, factor, remaining
 
 
 # Bounds include recurrence indices and intermediates, not only the output.
