@@ -9,7 +9,7 @@ from torch import nn
 
 import deepquantum.photonic as dqp
 
-from .gate import BeamSplitterSingle
+from .gate import BeamSplitterSingle, Displacement
 from .operation import Channel
 
 
@@ -30,50 +30,161 @@ def _loss_to_theta(inputs: Any, convention: str) -> torch.Tensor | None:
         return torch.arccos(t**0.5) * 2
 
 
+class DisplacementChannel(Channel):
+    r"""Displacement by mixing the signal with a coherent auxiliary mode.
+
+    The auxiliary amplitude is :math:`\beta=\mathrm{amplitude}\,e^{i\theta}`, with mean photon number
+    ``amplitude**2`` before the beam splitter. The phase ``theta`` is in radians.
+    The beam splitter acts as
+    :math:`\hat a_{\mathrm{out}}=\cos(\mathrm{loss\_theta}/2)\hat a_{\mathrm{in}}
+    +\sin(\mathrm{loss\_theta}/2)\hat b_{\mathrm{in}}`.
+    Tracing out the auxiliary output gives attenuation followed by displacement
+    :math:`\alpha=\sin(\mathrm{loss\_theta}/2)\,\beta`.
+    The signal power transmittance is :math:`t=\cos^2(\mathrm{loss\_theta}/2)`.
+    A transmittance input selects ``loss_theta`` in ``[0, pi]``. Angle inputs retain the
+    signed field amplitudes, with a negative amplitude corresponding to a pi phase shift.
+    See https://arxiv.org/pdf/1009.1844v2 Eq.(8), Eq.(18).
+
+    Args:
+        inputs: The parameters of the channel (``amplitude``, ``theta`` and ``loss``).
+            ``theta`` is the auxiliary phase. ``loss`` is interpreted by ``convention``. Default: ``None``
+        nmode: The number of modes that the quantum operation acts on. Default: 1
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
+        cutoff: The Fock space truncation. Default: ``None``
+        convention: The convention of ``loss``, ``'theta'`` for ``loss_theta`` in radians or
+            ``'t'`` for signal power transmittance. Default: ``'theta'``
+        requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
+    """
+
+    def __init__(
+        self,
+        inputs: Any = None,
+        nmode: int = 1,
+        wires: int | list[int] | None = None,
+        cutoff: int | None = None,
+        convention: str = 'theta',
+        requires_grad: bool = False,
+    ) -> None:
+        super().__init__(name='DisplacementChannel', nmode=nmode, wires=wires, cutoff=cutoff)
+        assert len(self.wires) == 1, 'DisplacementChannel must act on one mode.'
+        assert convention in ('t', 'theta'), 'Invalid coupling convention'
+        self.convention = convention
+        self.requires_grad = requires_grad
+        self.npara = 3
+        if inputs is not None:
+            if len(inputs) != 3:
+                raise ValueError('Expected [amplitude, theta, loss].')
+            for value in inputs:
+                value = torch.as_tensor(value)
+                if value.numel() != 1 or value.is_complex() or not torch.isfinite(value).all():
+                    raise ValueError('DisplacementChannel controls must be finite real scalars.')
+            t = torch.as_tensor(inputs[2])
+            if convention == 't' and ((t < 0) | (t > 1)).any():
+                raise ValueError('Signal power retention t must be in [0, 1].')
+        self.init_para(inputs)
+
+    def init_para(self, inputs: Any = None) -> None:
+        """Initialize the parameters."""
+        if inputs is None:
+            values = [torch.rand(()), torch.rand(()) * 2 * torch.pi, torch.rand(()) * torch.pi]
+        else:
+            values = [
+                v if isinstance(v, torch.Tensor) else torch.tensor(v, dtype=torch.get_default_dtype()) for v in inputs
+            ]
+            values = [v if v.is_floating_point() else v.to(torch.get_default_dtype()) for v in values]
+            values[2] = _loss_to_theta(values[2], self.convention)
+        for name, value in zip(('amplitude', 'theta', 'loss_theta'), values, strict=True):
+            if self.requires_grad:
+                setattr(self, name, nn.Parameter(value))
+            else:
+                self.register_buffer(name, value)
+
+    def _apply(self, fn: Any, recurse: bool = True) -> 'DisplacementChannel':
+        """Preserve the complete-loss coupling angle when converting dtype."""
+        dtype = self.loss_theta.dtype
+        full_loss = self.loss_theta == torch.pi
+        super()._apply(fn, recurse)
+        if self.loss_theta.dtype != dtype:
+            with torch.no_grad():
+                self.loss_theta.copy_(torch.where(full_loss.to(self.loss_theta.device), torch.pi, self.loss_theta))
+        return self
+
+    @property
+    def beta(self) -> torch.Tensor:
+        """Complex auxiliary amplitude, whose squared magnitude is its mean photon number."""
+        return self.amplitude * torch.exp(1j * self.theta)
+
+    @property
+    def t(self) -> torch.Tensor:
+        """Signal power retention."""
+        return torch.cos(self.loss_theta / 2).square()
+
+    @property
+    def alpha(self) -> torch.Tensor:
+        """Delivered displacement, including the beam-splitter coupling sign."""
+        return torch.sin(self.loss_theta / 2) * self.beta
+
+    def update_transform_xy(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Update the local transformation matrices X and Y."""
+        angle = self.loss_theta.reshape(())
+        identity = torch.eye(2, dtype=angle.dtype, device=angle.device)
+        matrix_x = torch.cos(angle / 2) * identity
+        matrix_y = torch.sin(angle / 2).square() * identity * dqp.hbar / (4 * dqp.kappa**2)
+        return matrix_x, matrix_y
+
+    def update_transform_xyd(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Update the local transformation matrices X, Y and displacement."""
+        matrix_x, matrix_y = self.update_transform_xy()
+        alpha = self.alpha.reshape(())
+        displacement = torch.stack([alpha.real, alpha.imag]).reshape(2, 1) * dqp.hbar**0.5 / dqp.kappa
+        return matrix_x, matrix_y, displacement
+
+    def update_matrix_state(self) -> torch.Tensor:
+        """Update the local Kraus matrices."""
+        loss = PhotonLoss(self.loss_theta, cutoff=self.cutoff)
+        amplitude = torch.sin(self.loss_theta / 2) * self.amplitude
+        displacement = Displacement(cutoff=self.cutoff).get_matrix_state(amplitude, self.theta)
+        return displacement @ loss.update_matrix_state()
+
+    def extra_repr(self) -> str:
+        return (
+            f'wires={self.wires}, amplitude={self.amplitude.item()}, '
+            f'theta={self.theta.item()}, loss_theta={self.loss_theta.item()}'
+        )
+
+
 class OPA(Channel):
     r"""Single-mode optical parametric amplifier with uniform distributed vacuum loss.
 
-    Gain, loss and pump phase are constant along the device, with an undepleted
-    classical pump. The complete channel is ``mean -> X @ mean`` and
-    ``cov -> X @ cov @ X.T + Y``. Gaussian and Bosonic states are supported.
-
-    With ``r = g L``, ``T = cos(loss_theta / 2)**2`` and ``a = -log(T) = 2 alpha L``,
+    Gain, loss and pump phase are constant along the device, with an undepleted classical pump.
+    With ``r = g L``, ``T = cos(loss_theta / 2)**2`` and ``a = -log(T)``, the Gaussian channel is
 
     .. math::
 
-        X = R(\theta/2)\operatorname{diag}(e^{-r-a/2}, e^{r-a/2})R(\theta/2)^T,
+        X = R(\theta/2)\operatorname{diag}(e^{-r-a/2},e^{r-a/2})R(\theta/2)^T,
 
         Y = a v_0 R(\theta/2)\operatorname{diag}
             (\operatorname{exprel}(-2r-a),\operatorname{exprel}(2r-a))R(\theta/2)^T,
 
-    where :math:`v_0=\hbar/(4\kappa^2)`, :math:`R(\phi)` is the counterclockwise
-    quadrature rotation, and ``exprel(z) = expm1(z) / z`` continued to 1 at zero.
-    The squeezing convention matches :class:`~deepquantum.photonic.gate.Squeezing`:
-    positive ``r`` and ``theta=0`` squeeze x and amplify p.
-    See https://arxiv.org/abs/2606.02524v1, Eq. (16) and Methods, Internal Loss.
-
-    The three internal parameters are ``r``, ``theta`` and ``loss_theta``.
-    Loss uses the same angle-to-transmittance map as :class:`PhotonLoss`; here the
-    angle only sets attenuation and adds no phase rotation. Complete loss gives
-    ``X=0, Y=v_0 I``. Encoding consumes all three inputs under the chosen convention.
-    Trainable parameters always use the internal angle, keeping ``T`` in [0, 1].
-    With ``convention='gain_db'``, inputs are ``[gain_db, theta, loss_db]``:
-    ``gain_db`` is the coherent seed's net power gain along the amplified axis,
-    including distributed loss, and ``r = (gain_db + loss_db) * log(10) / 20``.
-    This gain excludes spontaneous background and external input/output losses.
+    where :math:`v_0=\hbar/(4\kappa^2)`, :math:`R` is a quadrature rotation and
+    ``exprel(z) = expm1(z) / z`` with ``exprel(0) = 1``.
+    Positive ``r`` and ``theta=0`` squeeze x and amplify p.
+    The internal parameters are ``r``, ``theta`` and ``loss_theta``.
+    See https://arxiv.org/abs/2606.02524v1 Eq.(16) and Methods, Internal Loss.
 
     Args:
-        inputs: The parameters ``[r, theta, loss]``, or ``[gain_db, theta, loss_db]``
-            under ``convention='gain_db'``. Random if ``None``. Default: ``None``
+        inputs: The parameters of the channel (``r``, ``theta`` and loss).
+            With ``convention='gain_db'``, use ``[gain_db, theta, loss_db]``, where gain is the net
+            coherent power gain along the amplified axis and ``r = (gain_db + loss_db) * log(10) / 20``.
+            Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 1
-        wires: The single target mode. Default: ``None``
+        wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
-        convention: The input convention: ``'theta'`` for the loss angle,
-            ``'t'`` for pump-off power transmittance, or ``'db'`` for power loss in dB.
-            These retain ``r`` as the first input. ``'gain_db'`` uses net power gain
-            and pump-off power loss in dB as the first and third inputs.
+        convention: The loss convention: ``'theta'`` for the loss angle, ``'t'`` for pump-off power
+            transmittance, ``'db'`` for power loss in dB, or ``'gain_db'`` for gain and loss in dB.
             Default: ``'theta'``
-        requires_grad: Whether all three parameters are ``nn.Parameter`` or ``buffer``.
+        requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
 

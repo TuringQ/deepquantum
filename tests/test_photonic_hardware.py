@@ -249,7 +249,7 @@ def test_noise_overrides_in_streaming_unrolling_and_measurement():
             cir.loss_t(0, torch.tensor(0.8))
             cir.loss_t(0, torch.tensor(0.85))
             cir.loss_t(1, torch.tensor(0.9))
-        cir.homodyne(0, phi=torch.tensor(0.25 if manual else 0.2), eps=0.1)
+        cir.homodyne(0, phi=torch.tensor(0.25 if manual else 0.2))
         return cir.to(torch.double)
 
     cir, ref = template(), template(manual=True)
@@ -448,7 +448,7 @@ def test_measurements_use_the_noisy_state_once():
     for wire in [0, 1]:
         ref.loss_t(wire, torch.tensor(0.8))
     for target in [cir, ref]:
-        target.homodyne(0, phi=0.3, eps=0.1)
+        target.homodyne(0, phi=0.3)
         target.to(torch.double)
         target()
     optical = [value.clone() for value in cir.state]
@@ -651,7 +651,7 @@ def test_standalone_gate_noise_and_gradients(gate_type):
     gate = gate_type(inputs=inputs.squeeze() if len(names) == 1 else inputs, nmode=2, cutoff=3).to(torch.double)
     mu, sigma = [torch.nn.Parameter(torch.tensor(value)) for value in [0.02, 0.03]]
     model = dqp.HardwareModel(seed=9).on(gate).gaussian(mu, sigma)
-    if isinstance(gate, dqp.OPA):
+    if isinstance(gate, (dqp.OPA, dqp.DisplacementChannel)):
         state = [torch.eye(4, dtype=torch.double), torch.arange(4, dtype=torch.double).reshape(4, 1) / 10]
         backend = 'gaussian'
     else:
@@ -735,8 +735,8 @@ def test_homodyne_phase_noise(backend):
     cir.s(0, r=0.2)
     cir.d(0, r=0.1)
     ref = deepcopy(cir)
-    cir.homodyne(0, phi=0.2, eps=0.1)
-    ref.homodyne(0, phi=0.23, eps=0.1)
+    cir.homodyne(0, phi=0.2)
+    ref.homodyne(0, phi=0.23)
     cir.set_hardware_model(dqp.HardwareModel().homodyne(0).phi.gaussian(mu=0.03, sigma=0))
     cir.to(torch.double)()
     ref.to(torch.double)()
@@ -760,7 +760,7 @@ def test_tdm_homodyne_and_global_mapping(backend):
             inputs=torch.tensor([0.3 + offset, 0.1 + offset]),
             loop_gates=[dqp.PhotonLoss(torch.tensor(0.9), convention='t')] if offset else None,
         )
-        cir.homodyne(0, phi=torch.tensor(0.2 + offset), eps=0.1)
+        cir.homodyne(0, phi=torch.tensor(0.2 + offset))
         return cir.to(torch.double)
 
     cir, ref = template(0), template(0.03)

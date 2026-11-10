@@ -74,7 +74,7 @@ class Operation(nn.Module):
 
 
 class Gate(Operation):
-    r"""A base class for photonic quantum gates.
+    """A base class for photonic quantum gates.
 
     Args:
         name: The name of the gate. Default: ``None``
@@ -260,7 +260,7 @@ class Gate(Operation):
 
 
 class Channel(Operation):
-    r"""A base class for photonic quantum channels.
+    """A base class for photonic quantum channels.
 
     Args:
         name: The name of the channel. Default: ``None``
@@ -299,6 +299,14 @@ class Channel(Operation):
         """Update the local transformation matrices X and Y acting on Gaussian states."""
         return self.matrix_x, self.matrix_y
 
+    def update_transform_xyd(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
+        """Update the local X, Y and displacement for mean -> X @ mean + d.
+
+        The displacement has shape ``(2 * len(wires), 1)`` in xxpp order, or is ``None``.
+        """
+        matrix_x, matrix_y = self.update_transform_xy()
+        return matrix_x, matrix_y, None
+
     def op_cv(self, x: list[torch.Tensor]) -> list[torch.Tensor]:
         """Perform a forward pass for Gaussian (Bosonic) states.
 
@@ -306,7 +314,7 @@ class Channel(Operation):
         by Alessio Serafini Eq.(5.35-5.37) in page 90
         """
         cov, mean = x[:2]
-        local_x, local_y = self.update_transform_xy()
+        local_x, local_y, local_d = self.update_transform_xyd()
         assert local_x.shape[-2] == local_x.shape[-1] == 2 * len(self.wires), 'Invalid matrix shape.'
         assert local_y.shape[-2] == local_y.shape[-1] == 2 * len(self.wires), 'Invalid matrix shape.'
         wires = self.wires + [wire + self.nmode for wire in self.wires]
@@ -317,6 +325,12 @@ class Channel(Operation):
         mat_y[np.ix_(wires, wires)] = local_y
         cov = mat_x @ cov @ mat_x.mT + mat_y
         mean = mat_x.to(mean.dtype) @ mean
+        if local_d is not None:
+            assert local_d.shape == (2 * len(self.wires), 1), 'Invalid displacement shape.'
+            displacement = local_d.new_zeros(2 * self.nmode, 1)
+            displacement[wires] = local_d
+            displacement = displacement.to(mean)
+            mean = mean + displacement
         return [cov, mean] + x[2:]
 
     def forward(self, x: torch.Tensor | list[torch.Tensor]) -> torch.Tensor | list[torch.Tensor]:
@@ -328,7 +342,7 @@ class Channel(Operation):
 
 
 class Delay(Operation):
-    r"""Delay loop.
+    """Delay loop.
 
     Args:
         name: The name of the quantum operation. Default: ``'Delay'``

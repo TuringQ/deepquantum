@@ -12,7 +12,7 @@ from torch.utils._pytree import register_pytree_node
 
 import deepquantum.photonic as dqp
 
-from .channel import OPA, PhotonLoss
+from .channel import DisplacementChannel, OPA, PhotonLoss
 from .circuit import QumodeCircuit
 from .gate import (
     Barrier,
@@ -43,22 +43,21 @@ from .source import SinglePhotonSource, Submodes
 from .state import BosonicState, FockState, GaussianState
 
 _PASSIVE = (BeamSplitter, BeamSplitterPhi, BeamSplitterSingle, BeamSplitterTheta, MZI, PhaseShift, UAnyGate, PhotonLoss)
-_ACTIVE = (Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum, OPA)
+_ACTIVE = (Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum, OPA, DisplacementChannel)
 
 
 @dataclass(frozen=True)
 class SubmodeResult:
-    """Circuit output with an explicit orthogonal-basis mode layout.
+    """Circuit output in a common orthogonal basis.
 
-    ``nmode`` counts spatial modes. Joint data use spatial-then-orthogonal-basis order.
-    Factorized data have leading ``(batch, nsubmode)`` axes. Each factor contains
-    nmode spatial modes. They are simultaneous independent quantum systems, not
-    alternative samples. ``to_joint()`` explicitly materializes their tensor product.
-    Gaussian factors contain [cov, mean]. Fock factors contain pure or mixed state tensors.
-    With partially coupled groups, ``data`` is a tuple of joint block states and
-    ``blocks`` records their orthogonal-basis mode indices. ``partition`` describes either layout.
-    Bosonic and Fock basis state outputs currently use the joint representation.
-    Fock basis state data are a transfer matrix when ``is_prob`` is None.
+    ``nmode`` counts spatial modes. Joint data use spatial-then-basis-mode order.
+    Factorized data have leading ``(batch, nsubmode)`` axes, with each factor containing
+    all spatial modes. ``to_joint()`` constructs their tensor product.
+    For partially coupled groups, ``data`` contains joint block states and ``partition``
+    gives the basis-mode indices in each block.
+    Gaussian data contain [cov, mean]. Fock state tensors may be pure or mixed.
+    Bosonic and Fock basis outputs use joint data. Fock basis data are a transfer matrix
+    when ``is_prob`` is ``None``.
     """
 
     data: Any
@@ -528,42 +527,49 @@ class _SubmodeCircuit(QumodeCircuit):
         """Apply a spatial operation to its addressed orthogonal basis modes."""
         if isinstance(op, Barrier):
             return state
-        if self.factorized:
-            if isinstance(op, _PASSIVE):
-                return op(state)
-            ratios = op.r.new_zeros(self.nsubmode)
+        active = isinstance(op, _ACTIVE)
+        if active:
+            controls = ('amplitude',) if isinstance(op, DisplacementChannel) else ('r',)
+            reference = getattr(op, controls[0])
+            ratios = reference.new_zeros(self.nsubmode)
             if modes is None:
                 ratios[0] = 1
             else:
-                ratios = torch.nn.functional.pad(modes.relative_r.to(op.r), (0, self.nsubmode - len(modes.relative_r)))
+                ratios = torch.nn.functional.pad(
+                    modes.relative_r.to(reference), (0, self.nsubmode - len(modes.relative_r))
+                )
+
+        def scaled_gate(wires, ratio):
+            """Scale the active field while retaining a displacement coupler's loss on every basis mode."""
+            gate = _clone_operation(op, wires, self.nmode)
+            for name in controls:
+                gate._parameters.pop(name, None)
+                gate._buffers[name] = getattr(op, name) * ratio
+            if isinstance(op, OPA):
+                gate._parameters.pop('loss_theta', None)
+                gate._buffers['loss_theta'] = op.loss_theta * ratio
+            return gate
+
+        if self.factorized:
+            if not active:
+                return op(state)
             values = state if self.backend == 'fock' else state[0]
             batch = values.shape[0] // self.nsubmode
             blocks = self._reshape_blocks(state, batch)
 
             def apply(block, ratio):
-                """Apply an active operation with this orthogonal basis mode's relative strength."""
-                gate = _clone_operation(op, op.wires, self.nmode)
-                gate._parameters.pop('r', None)
-                gate._buffers['r'] = op.r * ratio
-                if isinstance(op, OPA):
-                    gate._parameters.pop('loss_theta', None)
-                    gate._buffers['loss_theta'] = op.loss_theta * ratio
-                return gate(block)
+                return scaled_gate(op.wires, ratio)(block)
 
             result = vmap(apply, randomness='same')(blocks, ratios)
             return self._flatten_blocks(result)
         if modes is not None:
             for wire in op.wires:
                 state = self._rotate(state, modes, wire, run, inverse=True)
-        count = self.nsubmode if isinstance(op, _PASSIVE) else 1 if modes is None else len(modes.relative_r)
+        uniform_loss = isinstance(op, DisplacementChannel)
+        count = self.nsubmode if not active or uniform_loss else 1 if modes is None else len(modes.relative_r)
         for k in range(count):
-            gate = _clone_operation(op, [w * self.nsubmode + k for w in op.wires], self.nmode)
-            if modes is not None and isinstance(op, _ACTIVE):
-                gate._parameters.pop('r', None)
-                gate._buffers['r'] = op.r * modes.relative_r[k].to(op.r)
-                if isinstance(op, OPA):
-                    gate._parameters.pop('loss_theta', None)
-                    gate._buffers['loss_theta'] = op.loss_theta * modes.relative_r[k].to(op.loss_theta)
+            wires = [w * self.nsubmode + k for w in op.wires]
+            gate = scaled_gate(wires, ratios[k]) if active else _clone_operation(op, wires, self.nmode)
             state = self._primitive(gate, state, run)
         if modes is not None:
             for wire in op.wires:

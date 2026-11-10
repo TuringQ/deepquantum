@@ -889,6 +889,84 @@ readout_source()
 samples_source = readout_source.measure_homodyne(shots=5, phi=0.0)
 print(probability_source, samples_source.shape)  # 事件概率和 (5,)
 
+# %% [markdown] tags=["hardware-readout-example"]
+# ### 真实位移与 Homodyne 读出
+#
+# `cir.d(0, r=0.3, theta=0.0)` 表示理想位移。
+# `cir.d_channel(0, amplitude=3.0, theta=0.0, loss=0.99, convention='t')` 表示相干辅助光经分束器耦入信号的独立器件。
+# `amplitude` 和 `theta` 是耦合前辅助相干光的振幅与相位，即 $\beta=\mathrm{amplitude}\,e^{i\theta}$，平均光子数为 `amplitude**2`。
+# `convention='t'` 时，`loss` 是信号功率透射率，记为 $t$，辅助光耦入率为 $1-t$，送达信号端的位移为 $\alpha=\sqrt{1-t}\beta$。
+# 在此约定下，单模信道为 $\rho' = D(\alpha)\mathcal{L}_t(\rho)D^\dagger(\alpha)$。
+# 其协方差满足 $V'=tV+(1-t)V_0 I$，真空方差 $V_0=\hbar/(4\kappa^2)$。
+# 固定 `beta` 改变 `t` 时，信号衰减和位移量同时改变；`t=1` 时器件为恒等操作。
+# 默认的 `convention='theta'` 将 `loss` 解释为弧度制的 `loss_theta`，与辅助光相位 `theta` 分开。
+# 任意实角输入保留场系数的符号，位移为 $\alpha=\sin(\mathrm{loss\_theta}/2)\beta$，负系数对应额外的 $\pi$ 相位。
+# Gaussian、Bosonic 和 Fock 密度矩阵路径复用现有损耗和位移内核，无需显式保留强辅助光模式。
+# `model.d_channel().submodes(c)` 指定辅助光模式；耦合损耗仍作用于该空间端口的所有正交基模。
+# `model.d_channel().amplitude`、`.theta` 和 `.loss_theta` 可配置控制误差，其中 $t=\cos^2(\mathrm{loss\_theta}/2)$。
+# `encode=True` 消耗三个实数 `[amplitude, theta, loss]`，第三个数按 `convention` 解释。
+# `cir.d_channel(0)` 随机初始化三个可训练参数，显式提供参数时使用固定配置。
+# 推导参见 [Windhager et al. Eq.(8), Eq.(18)](https://arxiv.org/pdf/1009.1844v2)。
+#
+# 探测端用 `efficiency(eta)` 设置功率效率，与 `before.loss(t=eta)` 是同一种配置，重复设置时后者覆盖前者。
+# `readout(gain=g, bias=b, noise_var=v)` 对应 $y=g[\sqrt{\eta}q_\phi+\sqrt{1-\eta}q_{\rm vac}]+b+\epsilon$，其中 $\mathrm{Var}(\epsilon)=v$。
+# `gain` 是每个 quadrature 单位对应的输出增益，允许非零正负值；`bias` 的单位与输出相同，`noise_var` 的单位是输出单位的平方。
+# 理想采样已经包含量子涨落，电子噪声不再包含额外的散粒噪声项。
+# 探测效率、读出参数和相位误差同时适用于 `cir.homodyne()` 显式测量与直接 `measure_homodyne(phi=..., lo=...)`。
+# 模式失配继续由正交基模与 LO 系数决定，硬件选择器里的端口编号始终是原线路的空间端口。
+#
+
+# %% tags=["hardware-readout-example"]
+import deepquantum as dq
+import deepquantum.photonic as dqp
+import torch
+
+cir_readout = dq.QumodeCircuit(1, 'vac', backend='gaussian')
+cir_readout.s(0, r=0.4)
+cir_readout.d_channel(0, amplitude=3.0, theta=0.0, loss=0.99, convention='t')
+model_readout = dqp.HardwareModel(seed=7)
+model_readout.homodyne(0).efficiency(0.85)
+model_readout.homodyne(0).readout(gain=1.2, bias=0.05, noise_var=0.02)
+cir_readout.set_hardware_model(model_readout)
+cir_readout.double()
+cir_readout()
+torch.manual_seed(7)
+samples_readout = cir_readout.measure_homodyne(shots=1024, phi=0.0)
+print(samples_readout.shape, samples_readout.mean(), samples_readout.var())
+
+# %% [markdown] tags=["hardware-readout-example"]
+# 若还需要未测量模式的条件态，先登记 `cir.homodyne()`。
+# 有电子噪声时，`state_measured` 对应实际读出记录，而非未知的理想测量值。
+# Homodyne 是 Generaldyne 的无限压缩极限，使用精确的单正交条件更新；`cov_m=None` 表示这一极限。
+# 电子噪声由 `readout(noise_var=...)` 配置，对实际读数的条件更新会积分掉未知的理想读数。
+# 需要有限压缩 Generaldyne 测量时，使用 `dqp.Generaldyne(cov_m=V0 * torch.diag(torch.tensor([eps**2, eps**-2])), ...)` 并保留两个测量读数。
+# Generaldyne 的条件态与仅给 Homodyne 读数加噪声不同。
+# 含噪 Fock 条件测量需要 `basis=False, den_mat=True`，采用等效损耗与结果缩放，条件态精度仍需检查 Fock cutoff 收敛。
+# 等效损耗关系参见 [Appel et al. Eq.(12)](https://arxiv.org/pdf/quant-ph/0610116v2)。
+#
+# 相位误差每次调用、每个测量端口抽取一次，同一批 shots 共享该相位；电子噪声逐 shot 独立。
+# `model.manual_seed(seed)` 控制硬件相位误差与终端电子噪声，`torch.manual_seed(seed)` 控制量子采样及含电子噪声的条件测量采样；同时重置两者可复现实验。
+# `nn.Parameter` 可用于读出参数；`efficiency(..., requires_grad=True)` 训练探测器内部损耗角，需在创建 optimizer 前配置模型。
+# 参数梯度沿当前条件态计算图传播；离散 Fock 采样和 Bosonic 拒绝采样不提供对抽样分布的路径梯度。
+#
+# 直接读出不会构造每个 shot 的条件态，也不会再次施加 forward 中已执行的光路损耗。
+# Gaussian/Bosonic 的 `phi=None` 返回联合 x/p 的 Wigner 抽样；它不表示同时测得两个正交分量的物理读数，单 quadrature 实验应显式指定 `phi`。
+# 本接口支持 submode 的终端 LO 读出，尚不支持 submode 条件 Homodyne、跨时间相关电子噪声或 ADC 模型。
+#
+
+# %% tags=["hardware-readout-example"]
+cir_condition = dq.QumodeCircuit(2, 'vac', backend='gaussian')
+cir_condition.s2([0, 1], r=0.5)
+cir_condition.homodyne(0, phi=0.0)
+model_condition = dqp.HardwareModel().homodyne(0).efficiency(0.85)
+model_condition.homodyne(0).readout(gain=1.2, bias=0.05, noise_var=0.02)
+cir_condition.set_hardware_model(model_condition)
+cir_condition.double()
+cir_condition()
+records_condition = cir_condition.measure_homodyne(shots=5)
+cov_condition, mean_condition = cir_condition.state_measured
+print(records_condition.shape, cov_condition.shape, mean_condition.shape)
+
 # %% [markdown]
 # ### 支持GPU计算
 #

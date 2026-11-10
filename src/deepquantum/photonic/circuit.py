@@ -16,7 +16,7 @@ import deepquantum.photonic as dqp
 
 from ..qmath import block_sample, get_prob_mps, inner_product_mps, is_positive_definite, sample_sc_mcmc
 from ..state import MatrixProductState
-from .channel import OPA, PhotonLoss
+from .channel import DisplacementChannel, OPA, PhotonLoss
 from .decompose import UnitaryDecomposer
 from .distributed import measure_dist
 from .draw import DrawCircuit
@@ -2331,9 +2331,8 @@ class QumodeCircuit(Operation):
     ) -> torch.Tensor | None:
         """Get the homodyne measurement results.
 
-        If ``self.measurements`` is specified via ``self.homodyne``, return the results of
-        the conditional homodyne measurement. Otherwise, return the results of the ideal homodyne measurement.
-        The Gaussian states after measurements are stored in ``self.state_measured``.
+        Measurements added by ``homodyne`` condition the state and store it in ``state_measured``.
+        Otherwise, sample the terminal quadrature distribution.
 
         Note:
             ``batch`` * ``shots`` can not be too large for Fock backend.
@@ -2344,22 +2343,38 @@ class QumodeCircuit(Operation):
                 the indices of the wires. Default: ``None`` (which means all wires are measured)
             lo: Local-oscillator coefficients in the common orthogonal basis, normalized per spatial mode.
                 Default: ``None`` (the first orthogonal basis mode)
-            phi: The quadrature angle. Only used when no measurements are configured. Default: ``None``
+            phi: The terminal quadrature angle. Default: ``None`` (joint x/p Wigner samples for Gaussian/Bosonic
+                states, x samples for Fock states). Specify an angle for single-quadrature homodyne outcomes.
         """
         if self._submode_circuit is not None:
             from .submode import _lo_view
 
+            if self.measurements:
+                raise NotImplementedError(
+                    'Use terminal measure_homodyne() without conditional operations for submodes.'
+                )
             selected = self.wires if wires is None else self._convert_indices(wires)
             expanded = self._submode_circuit
             if self.basis and self.backend == 'fock':
                 raise NotImplementedError('Homodyne readout requires Fock state tensors (basis=False).')
             view = _lo_view(expanded.result(), self.cutoff, selected, lo)
+            if self.hardware_model is not None and self.hardware_model._has_terminal_homodyne:
+                self._validate_hardware_model(self.hardware_model)
+                return view._measure_homodyne_hardware(shots, view.wires, phi, self.hardware_model, selected)
             return view.measure_homodyne(shots, phi=phi)
         if lo is not None:
             raise ValueError('Configure orthogonal basis modes before specifying local-oscillator coefficients.')
         if self.state is None:
             return
         assert isinstance(self.state, (list, torch.Tensor)), 'NOT valid when "is_prob" is True'
+        if not self.measurements and self.hardware_model is not None and self.hardware_model._has_terminal_homodyne:
+            self._validate_hardware_model(self.hardware_model)
+            selected = self.wires if wires is None else self._convert_indices(wires)
+            if phi is None:
+                selected = sorted(selected)
+            self._prepare_unroll_dict()
+            mapped = [self._unroll_dict[w][-1] for w in selected] if self._with_delay else selected
+            return self._measure_homodyne_hardware(shots, mapped, phi, self.hardware_model, selected)
         if phi is not None and not self.measurements:
             selected = self.wires if wires is None else self._convert_indices(wires)
             reference = self.state if self.backend == 'fock' else self.state[0]
@@ -2400,9 +2415,10 @@ class QumodeCircuit(Operation):
             if self.backend == 'fock':
                 assert not self.basis
                 assert not self.mps, 'Currently NOT supported.'
-                shape = self.state.shape
+                state = self.tensor_rep(self.state)
+                shape = state.shape
                 batch = shape[0]
-                self.state_measured = torch.stack([self.state] * shots).reshape(-1, *shape[1:])
+                self.state_measured = torch.stack([state] * shots).reshape(-1, *shape[1:])
             else:
                 batch = self.state[0].shape[0]
                 self.state_measured = []
@@ -2452,6 +2468,50 @@ class QumodeCircuit(Operation):
                     samples = sample_reject_bosonic(cov_sub, mean_sub, weight, cov_sub.new_zeros(1), shots)
             return samples.squeeze()
 
+    def _measure_homodyne_hardware(self, shots, wires, phi, model, spatial_wires):
+        """Apply detector rules to a saved state without constructing shot-wise conditional states."""
+        reference = self.state.real if self.backend == 'fock' else self.state[0]
+        angles = torch.as_tensor(0.0 if phi is None else phi, dtype=reference.dtype, device=reference.device).flatten()
+        if angles.numel() == 1:
+            angles = angles.expand(len(wires))
+        if angles.numel() != len(wires):
+            raise ValueError('phi must be scalar or match the measured wires.')
+        sources = [
+            Homodyne(angle, max(spatial_wires) + 1, wire) for wire, angle in zip(spatial_wires, angles, strict=True)
+        ]
+        bindings = model._bind(sources)
+        view = copy(self)
+        view._modules = self._modules.copy()
+        view.hardware_model = None
+        view.nmode = reference.shape[-1] // 2 if self.backend != 'fock' else self.nmode
+        view.state = self.tensor_rep(self.state) if self.backend == 'fock' else list(self.state)
+        run = model._new_run(self.backend, range(view.nmode))
+        readouts = []
+        resolved_angles = []
+        for source, wire in zip(sources, wires, strict=True):
+            op = copy(source)
+            op.wires, op.nmode = [wire], view.nmode
+            rules = bindings.get(source, ())
+            if any(b.where == 'after' for b, _ in rules):
+                raise ValueError('Terminal homodyne has no conditional state for after plugins.')
+            view.state = model._apply_state_plugins(view.state, op, run, rules, 'before', source)
+            angle = model._parameter_overrides(op, run, rules, source).get('phi', op.phi)
+            if phi is None:
+                rotation = PhaseShift(-angle, view.nmode, wire, cutoff=self.cutoff, den_mat=self.den_mat)
+                view.state = rotation(view.state)
+            else:
+                resolved_angles.append(angle.reshape(()))
+            readouts.append(next((b.plugin for b, _ in rules if b.where == 'readout'), None))
+        samples = view.measure_homodyne(shots, wires, phi=None if phi is None else torch.stack(resolved_angles))
+        shape = samples.shape
+        nquad = 2 if phi is None and self.backend != 'fock' else 1
+        records = samples.reshape(-1, shots, nquad * len(wires))
+        columns = [
+            records[..., i] if readouts[i % len(wires)] is None else readouts[i % len(wires)](records[..., i], run)
+            for i in range(records.shape[-1])
+        ]
+        return torch.stack(columns, -1).reshape(shape)
+
     @property
     def max_depth(self) -> int:
         """Get the max number of gates on the wires."""
@@ -2485,19 +2545,7 @@ class QumodeCircuit(Operation):
     def thermal(
         self, wires: int | list[int], nbar: Any = None, *, purity: Any = None, requires_grad: bool = False
     ) -> None:
-        """Prepare independent thermal states on the selected inputs.
-
-        Replaces the selected inputs before all gates. Supports Gaussian, Bosonic and Fock density matrices.
-        The occupied mode is set by ``HardwareModel.input().submodes()`` and defaults to the first
-        orthogonal basis mode. Its orthogonal complement is vacuum.
-
-        Args:
-            wires: The spatial input wires to prepare.
-            nbar: Mean photon number per prepared mode. Specify exactly one of ``nbar`` and ``purity``.
-                Default: ``None``
-            purity: Single-mode purity ``1 / (2*nbar + 1)`` in ``(0, 1]``. Default: ``None``
-            requires_grad: Whether to train the amplitude whose square is ``nbar``. Default: ``False``
-        """
+        """Prepare thermal inputs. See :class:`~deepquantum.photonic.source.ThermalSource`."""
         if self.mps or self.backend == 'fock' and (self.basis or not self.den_mat):
             raise NotImplementedError('Thermal inputs require Gaussian, Bosonic or Fock density states.')
         source = ThermalSource(nbar, purity=purity, requires_grad=requires_grad)
@@ -2513,24 +2561,7 @@ class QumodeCircuit(Operation):
         factor: Any = None,
         requires_grad: bool = False,
     ) -> None:
-        """Prepare one photon on each selected input.
-
-        Replaces the selected inputs before all gates. Requires the Fock backend.
-        Mixed states require ``basis=False, den_mat=True``. For pure Fock state tensors,
-        the selected inputs must initially be vacuum.
-        Specify at most one of ``coefficients``, ``density_matrix`` and ``factor``.
-
-        Args:
-            wires: The spatial input wires, each prepared independently with the same state.
-            coefficients: Pure-state coefficients in the common orthogonal basis, normalized internally.
-                Default: ``None`` (the first orthogonal basis mode when no state is specified)
-            density_matrix: Trace-one density matrix in the single-photon orthogonal basis,
-                with shape ``(nsubmode, nsubmode)``. Default: ``None``
-            factor: Nonzero matrix of shape ``(nsubmode, rank)`` with
-                ``rho = factor @ factor.mH / trace(factor @ factor.mH)``. Default: ``None``
-            requires_grad: Whether to train the real and imaginary components of the coefficients or factor.
-                A supplied density matrix is first factorized. Default: ``False``
-        """
+        """Prepare single-photon inputs. See :class:`~deepquantum.photonic.source.SinglePhotonSource`."""
         if self.backend != 'fock' or self.mps:
             raise NotImplementedError('Single photons require the Fock backend without MPS.')
         source = SinglePhotonSource(
@@ -2628,6 +2659,10 @@ class QumodeCircuit(Operation):
         assert isinstance(op, Operation)
         if self.backend == 'fock':
             operations = op.gates if isinstance(op, Delay) else [op]
+            if any(isinstance(operation, DisplacementChannel) for operation in operations) and (
+                self.basis or not self.den_mat or self.mps
+            ):
+                raise NotImplementedError('d_channel requires Fock state tensors with den_mat=True.')
             if any(isinstance(operation, OPA) for operation in operations):
                 raise NotImplementedError(
                     'OPA supports Gaussian and Bosonic states only; Fock support is not implemented.'
@@ -2984,6 +3019,34 @@ class QumodeCircuit(Operation):
         )
         self.add(d, encode=encode)
 
+    def d_channel(
+        self,
+        wires: int,
+        amplitude: Any = None,
+        theta: Any = None,
+        loss: Any = None,
+        convention: str = 'theta',
+        encode: bool = False,
+    ) -> None:
+        """Add a displacement channel."""
+        requires_grad = not encode
+        if amplitude is None and theta is None and loss is None:
+            inputs = None
+        else:
+            requires_grad = False
+            inputs = [torch.rand(1)[0] if amplitude is None else amplitude, 0 if theta is None else theta, loss]
+            if loss is None:
+                inputs[2] = 1 if convention == 't' else 0
+        channel = DisplacementChannel(
+            inputs=inputs,
+            nmode=self.nmode,
+            wires=wires,
+            cutoff=self.cutoff,
+            convention=convention,
+            requires_grad=requires_grad,
+        )
+        self.add(channel, encode=encode)
+
     def x(self, wires: int, inputs: Any = None, encode: bool = False) -> None:
         """Add a position displacement gate."""
         requires_grad = not encode
@@ -3165,7 +3228,7 @@ class QumodeCircuit(Operation):
             )
         self.add(delay, encode=encode)
 
-    def homodyne(self, wires: int, phi: Any = None, eps: float = 2e-4) -> None:
+    def homodyne(self, wires: int, phi: Any = None) -> None:
         """Add a homodyne measurement."""
         homodyne = Homodyne(
             phi=phi,
@@ -3173,12 +3236,11 @@ class QumodeCircuit(Operation):
             wires=wires,
             cutoff=self.cutoff,
             den_mat=self.den_mat,
-            eps=eps,
             requires_grad=False,
         )
         self.add(homodyne)
 
-    def homodyne_x(self, wires: int, eps: float = 2e-4) -> None:
+    def homodyne_x(self, wires: int) -> None:
         """Add a homodyne measurement for quadrature x."""
         phi = 0.0
         homodyne = Homodyne(
@@ -3187,12 +3249,11 @@ class QumodeCircuit(Operation):
             wires=wires,
             cutoff=self.cutoff,
             den_mat=self.den_mat,
-            eps=eps,
             requires_grad=False,
         )
         self.add(homodyne)
 
-    def homodyne_p(self, wires: int, eps: float = 2e-4) -> None:
+    def homodyne_p(self, wires: int) -> None:
         """Add a homodyne measurement for quadrature p."""
         phi = np.pi / 2
         homodyne = Homodyne(
@@ -3201,7 +3262,6 @@ class QumodeCircuit(Operation):
             wires=wires,
             cutoff=self.cutoff,
             den_mat=self.den_mat,
-            eps=eps,
             requires_grad=False,
         )
         self.add(homodyne)
