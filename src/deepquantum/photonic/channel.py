@@ -33,8 +33,8 @@ def _loss_to_theta(inputs: Any, convention: str) -> torch.Tensor | None:
 class DisplacementChannel(Channel):
     r"""Displacement by mixing the signal with a coherent auxiliary mode.
 
-    The auxiliary amplitude is :math:`\beta=\mathrm{amplitude}\,e^{i\theta}`, with mean photon number
-    ``amplitude**2`` before the beam splitter. The phase ``theta`` is in radians.
+    The auxiliary amplitude is :math:`\beta=\mathrm{amplitude}\,e^{i\,\mathrm{phase}}`, with mean photon number
+    ``amplitude**2`` before the beam splitter. The phase is in radians.
     The beam splitter acts as
     :math:`\hat a_{\mathrm{out}}=\cos(\mathrm{loss\_theta}/2)\hat a_{\mathrm{in}}
     +\sin(\mathrm{loss\_theta}/2)\hat b_{\mathrm{in}}`.
@@ -46,13 +46,13 @@ class DisplacementChannel(Channel):
     See https://arxiv.org/pdf/1009.1844v2 Eq.(8), Eq.(18).
 
     Args:
-        inputs: The parameters of the channel (``amplitude``, ``theta`` and ``loss``).
-            ``theta`` is the auxiliary phase. ``loss`` is interpreted by ``convention``. Default: ``None``
+        inputs: The parameters of the channel (``amplitude``, ``phase`` and ``t``).
+            The third input is interpreted by ``convention``. Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 1
         wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
-        convention: The convention of ``loss``, ``'theta'`` for ``loss_theta`` in radians or
-            ``'t'`` for signal power transmittance. Default: ``'theta'``
+        convention: The convention of the third input, ``'t'`` for signal power transmittance or
+            ``'loss_theta'`` for the internal coupling angle in radians. Default: ``'t'``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
@@ -63,18 +63,18 @@ class DisplacementChannel(Channel):
         nmode: int = 1,
         wires: int | list[int] | None = None,
         cutoff: int | None = None,
-        convention: str = 'theta',
+        convention: str = 't',
         requires_grad: bool = False,
     ) -> None:
         super().__init__(name='DisplacementChannel', nmode=nmode, wires=wires, cutoff=cutoff)
         assert len(self.wires) == 1, 'DisplacementChannel must act on one mode.'
-        assert convention in ('t', 'theta'), 'Invalid coupling convention'
+        assert convention in ('t', 'loss_theta'), 'Invalid coupling convention'
         self.convention = convention
         self.requires_grad = requires_grad
         self.npara = 3
         if inputs is not None:
             if len(inputs) != 3:
-                raise ValueError('Expected [amplitude, theta, loss].')
+                raise ValueError('Expected [amplitude, phase, t].')
             for value in inputs:
                 value = torch.as_tensor(value)
                 if value.numel() != 1 or value.is_complex() or not torch.isfinite(value).all():
@@ -93,8 +93,9 @@ class DisplacementChannel(Channel):
                 v if isinstance(v, torch.Tensor) else torch.tensor(v, dtype=torch.get_default_dtype()) for v in inputs
             ]
             values = [v if v.is_floating_point() else v.to(torch.get_default_dtype()) for v in values]
-            values[2] = _loss_to_theta(values[2], self.convention)
-        for name, value in zip(('amplitude', 'theta', 'loss_theta'), values, strict=True):
+            if self.convention == 't':
+                values[2] = _loss_to_theta(values[2], 't')
+        for name, value in zip(('amplitude', 'phase', 'loss_theta'), values, strict=True):
             if self.requires_grad:
                 setattr(self, name, nn.Parameter(value))
             else:
@@ -111,9 +112,9 @@ class DisplacementChannel(Channel):
         return self
 
     @property
-    def beta(self) -> torch.Tensor:
+    def coherent_amplitude(self) -> torch.Tensor:
         """Complex auxiliary amplitude, whose squared magnitude is its mean photon number."""
-        return self.amplitude * torch.exp(1j * self.theta)
+        return self.amplitude * torch.exp(1j * self.phase)
 
     @property
     def t(self) -> torch.Tensor:
@@ -121,9 +122,9 @@ class DisplacementChannel(Channel):
         return torch.cos(self.loss_theta / 2).square()
 
     @property
-    def alpha(self) -> torch.Tensor:
-        """Delivered displacement, including the beam-splitter coupling sign."""
-        return torch.sin(self.loss_theta / 2) * self.beta
+    def displacement_amplitude(self) -> torch.Tensor:
+        """Complex displacement amplitude, including the beam-splitter coupling sign."""
+        return torch.sin(self.loss_theta / 2) * self.coherent_amplitude
 
     def update_transform_xy(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Update the local transformation matrices X and Y."""
@@ -136,7 +137,7 @@ class DisplacementChannel(Channel):
     def update_transform_xyd(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Update the local transformation matrices X, Y and displacement."""
         matrix_x, matrix_y = self.update_transform_xy()
-        alpha = self.alpha.reshape(())
+        alpha = self.displacement_amplitude.reshape(())
         displacement = torch.stack([alpha.real, alpha.imag]).reshape(2, 1) * dqp.hbar**0.5 / dqp.kappa
         return matrix_x, matrix_y, displacement
 
@@ -144,13 +145,13 @@ class DisplacementChannel(Channel):
         """Update the local Kraus matrices."""
         loss = PhotonLoss(self.loss_theta, cutoff=self.cutoff)
         amplitude = torch.sin(self.loss_theta / 2) * self.amplitude
-        displacement = Displacement(cutoff=self.cutoff).get_matrix_state(amplitude, self.theta)
+        displacement = Displacement(cutoff=self.cutoff).get_matrix_state(amplitude, self.phase)
         return displacement @ loss.update_matrix_state()
 
     def extra_repr(self) -> str:
         return (
             f'wires={self.wires}, amplitude={self.amplitude.item()}, '
-            f'theta={self.theta.item()}, loss_theta={self.loss_theta.item()}'
+            f'phase={self.phase.item()}, loss_theta={self.loss_theta.item()}'
         )
 
 

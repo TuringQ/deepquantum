@@ -893,18 +893,20 @@ print(probability_source, samples_source.shape)  # 事件概率和 (5,)
 # ### 真实位移与 Homodyne 读出
 #
 # `cir.d(0, r=0.3, theta=0.0)` 表示理想位移。
-# `cir.d_channel(0, amplitude=3.0, theta=0.0, loss=0.99, convention='t')` 表示相干辅助光经分束器耦入信号的独立器件。
-# `amplitude` 和 `theta` 是耦合前辅助相干光的振幅与相位，即 $\beta=\mathrm{amplitude}\,e^{i\theta}$，平均光子数为 `amplitude**2`。
-# `convention='t'` 时，`loss` 是信号功率透射率，记为 $t$，辅助光耦入率为 $1-t$，送达信号端的位移为 $\alpha=\sqrt{1-t}\beta$。
+# `cir.d_channel(0, amplitude=3.0, phase=0.0, t=0.99)` 表示相干辅助光经分束器耦入信号的独立器件。
+# `amplitude` 和 `phase` 是耦合前辅助相干光的振幅与相位，即 $\beta=\mathrm{amplitude}\,e^{i\,\mathrm{phase}}$，平均光子数为 `amplitude**2`。
+# 默认的 `convention='t'` 将 `t` 解释为信号功率透射率，辅助光耦入率为 $1-t$，送达信号端的位移为 $\alpha=\sqrt{1-t}\beta$。
 # 在此约定下，单模信道为 $\rho' = D(\alpha)\mathcal{L}_t(\rho)D^\dagger(\alpha)$。
 # 其协方差满足 $V'=tV+(1-t)V_0 I$，真空方差 $V_0=\hbar/(4\kappa^2)$。
-# 固定 `beta` 改变 `t` 时，信号衰减和位移量同时改变；`t=1` 时器件为恒等操作。
-# 默认的 `convention='theta'` 将 `loss` 解释为弧度制的 `loss_theta`，与辅助光相位 `theta` 分开。
+# 固定辅助光复振幅 $\beta$ 改变 `t` 时，信号衰减和位移量同时改变。
+# `t=1` 时器件为恒等操作。
+# `convention='loss_theta'` 将第三个参数 `t` 解释为弧度制的内部耦合角，例如 `cir.d_channel(0, amplitude=3.0, phase=0.0, t=0.2, convention='loss_theta')`。
 # 任意实角输入保留场系数的符号，位移为 $\alpha=\sin(\mathrm{loss\_theta}/2)\beta$，负系数对应额外的 $\pi$ 相位。
 # Gaussian、Bosonic 和 Fock 密度矩阵路径复用现有损耗和位移内核，无需显式保留强辅助光模式。
-# `model.d_channel().submodes(c)` 指定辅助光模式；耦合损耗仍作用于该空间端口的所有正交基模。
-# `model.d_channel().amplitude`、`.theta` 和 `.loss_theta` 可配置控制误差，其中 $t=\cos^2(\mathrm{loss\_theta}/2)$。
-# `encode=True` 消耗三个实数 `[amplitude, theta, loss]`，第三个数按 `convention` 解释。
+# `model.d_channel().submodes(c)` 指定辅助光模式，耦合损耗仍作用于该空间端口的所有正交基模。
+# `model.d_channel().amplitude`、`.phase` 和 `.loss_theta` 可配置控制误差，其中 $t=\cos^2(\mathrm{loss\_theta}/2)$。
+# `encode=True` 消耗三个实数 `[amplitude, phase, t]`，第三个数按 `convention` 解释。
+# `DisplacementChannel.coherent_amplitude` 给出辅助光复振幅 $\beta$，`displacement_amplitude` 给出实际复位移 $\alpha$。
 # `cir.d_channel(0)` 随机初始化三个可训练参数，显式提供参数时使用固定配置。
 # 推导参见 [Windhager et al. Eq.(8), Eq.(18)](https://arxiv.org/pdf/1009.1844v2)。
 #
@@ -923,7 +925,7 @@ import torch
 
 cir_readout = dq.QumodeCircuit(1, 'vac', backend='gaussian')
 cir_readout.s(0, r=0.4)
-cir_readout.d_channel(0, amplitude=3.0, theta=0.0, loss=0.99, convention='t')
+cir_readout.d_channel(0, amplitude=3.0, phase=0.0, t=0.99)
 model_readout = dqp.HardwareModel(seed=7)
 model_readout.homodyne(0).efficiency(0.85)
 model_readout.homodyne(0).readout(gain=1.2, bias=0.05, noise_var=0.02)

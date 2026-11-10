@@ -3023,19 +3023,19 @@ class QumodeCircuit(Operation):
         self,
         wires: int,
         amplitude: Any = None,
-        theta: Any = None,
-        loss: Any = None,
-        convention: str = 'theta',
+        phase: Any = None,
+        t: Any = None,
+        convention: str = 't',
         encode: bool = False,
     ) -> None:
         """Add a displacement channel."""
         requires_grad = not encode
-        if amplitude is None and theta is None and loss is None:
+        if amplitude is None and phase is None and t is None:
             inputs = None
         else:
             requires_grad = False
-            inputs = [torch.rand(1)[0] if amplitude is None else amplitude, 0 if theta is None else theta, loss]
-            if loss is None:
+            inputs = [torch.rand(1)[0] if amplitude is None else amplitude, 0 if phase is None else phase, t]
+            if t is None:
                 inputs[2] = 1 if convention == 't' else 0
         channel = DisplacementChannel(
             inputs=inputs,

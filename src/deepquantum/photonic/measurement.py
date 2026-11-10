@@ -117,8 +117,8 @@ class Generaldyne(Operation):
             exponent = delta.square() / cov_t
             logdet = cov_t.squeeze(-2, -1).log()
         else:
-            whitened = torch.linalg.solve_triangular(factor.to(mean.dtype), delta, upper=False)
-            exponent = whitened.square().sum(-2, keepdim=True)
+            standardized_delta = torch.linalg.solve_triangular(factor.to(mean.dtype), delta, upper=False)
+            exponent = standardized_delta.square().sum(-2, keepdim=True)
             logdet = 2 * factor.diagonal(dim1=-2, dim2=-1).log().sum(-1)
         likelihood = torch.exp(-(exponent.squeeze(-2, -1) + logdet) / 2)
         weight = x[2] * likelihood

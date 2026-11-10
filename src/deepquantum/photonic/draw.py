@@ -141,7 +141,7 @@ class DrawCircuit:
                 self.draw_sq(
                     order,
                     op.wires,
-                    {'amp': op.amplitude.item(), 'θ': op.theta.item(), 'θl': op.loss_theta.item()},
+                    {'amp': op.amplitude.item(), 'φ': op.phase.item(), 't': op.t.item()},
                     name='Dch',
                 )
                 order_dic[order] = order_dic[order] + op.wires
@@ -348,7 +348,7 @@ class DrawCircuit:
                 transform=f'rotate({rotation} {arc_center_x} {arc_center_y})',
             )
         )
-        self.draw_.add(self.draw_.text('ϕ=' + str(np.round(phi, 3)), insert=(x + 55, y_up * 30 + 20), font_size=7))
+        self.draw_.add(self.draw_.text('φ=' + str(np.round(phi, 3)), insert=(x + 55, y_up * 30 + 20), font_size=7))
 
     def draw_sq(self, order, wires, para_dic, name=None):
         """Draw squeezing gate, displacement gate."""

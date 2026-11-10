@@ -45,7 +45,7 @@ _PARAMETERS = {
     OPA: ('r', 'theta', 'loss_theta'),
     Squeezing2: ('r', 'theta'),
     Displacement: ('r', 'theta'),
-    DisplacementChannel: ('amplitude', 'theta', 'loss_theta'),
+    DisplacementChannel: ('amplitude', 'phase', 'loss_theta'),
     DisplacementPosition: ('r',),
     DisplacementMomentum: ('r',),
     QuadraticPhase: ('s',),
@@ -499,13 +499,18 @@ class _OPAConfig(_AmplitudePhaseConfig):
         )
 
 
-class _DisplacementChannelConfig(_PhaseConfig, _ModeConfig):
+class _DisplacementChannelConfig(_ModeConfig):
     @property
     def amplitude(self) -> _ParameterConfig:
         """Select the auxiliary amplitude."""
         return _ParameterConfig(
             self.model, self.op_type, self.wires, 'amplitude', self.delay, self.index, self.bound_ops
         )
+
+    @property
+    def phase(self) -> _ParameterConfig:
+        """Select the auxiliary phase."""
+        return _ParameterConfig(self.model, self.op_type, self.wires, 'phase', self.delay, self.index, self.bound_ops)
 
     @property
     def loss_theta(self) -> _ParameterConfig:
