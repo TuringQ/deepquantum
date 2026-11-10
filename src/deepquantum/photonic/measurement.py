@@ -10,6 +10,7 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 
 import deepquantum.photonic as dqp
 
+from .channel import PhotonLoss
 from .gate import Displacement, PhaseShift
 from .operation import Operation, evolve_den_mat, evolve_state
 from .qmath import sample_homodyne_fock, sample_reject_bosonic
@@ -19,8 +20,12 @@ from .state import FockStateBosonic
 class Generaldyne(Operation):
     """General-dyne measurement.
 
+    A finite seed covariance specifies a Gaussian POVM with x and p outcomes.
+    ``cov_m=None`` selects the ideal x-homodyne limit, with one outcome per mode.
+
     Args:
-        cov_m: The covariance matrix for the general-dyne measurement.
+        cov_m: The seed covariance in xxpp order and the input state's quadrature units.
+            Vacuum is ``hbar / (4*kappa**2) * I``. Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 1
         wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
@@ -30,7 +35,7 @@ class Generaldyne(Operation):
 
     def __init__(
         self,
-        cov_m: Any,
+        cov_m: Any = None,
         nmode: int = 1,
         wires: int | list[int] | None = None,
         cutoff: int | None = None,
@@ -45,11 +50,80 @@ class Generaldyne(Operation):
         if cutoff is None:
             cutoff = 2
         super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat)
-        if not isinstance(cov_m, torch.Tensor):
-            cov_m = torch.tensor(cov_m, dtype=torch.float).reshape(2 * nwire, 2 * nwire)
-        assert cov_m.shape[-2] == cov_m.shape[-1] == 2 * nwire, 'The size of cov_m does not match the wires'
+        if cov_m is not None:
+            if not isinstance(cov_m, torch.Tensor):
+                cov_m = torch.tensor(cov_m, dtype=torch.float).reshape(2 * nwire, 2 * nwire)
+            assert cov_m.shape[-2] == cov_m.shape[-1] == 2 * nwire, 'The size of cov_m does not match the wires'
         self.register_buffer('cov_m', cov_m)
         self.samples = None
+
+    def _format_samples(self, samples: Any, reference: torch.Tensor, nobs: int) -> torch.Tensor:
+        """Validate one row of real quadrature outcomes per batch item."""
+        values = torch.as_tensor(samples)
+        if values.is_complex():
+            raise ValueError('samples must contain real quadrature outcomes.')
+        batch = reference.shape[0]
+        shape = (batch, nobs)
+        valid = values.shape == shape
+        if values.ndim < 2:
+            valid = (batch == 1 or nobs == 1) and values.numel() == batch * nobs
+        if not valid:
+            raise ValueError(f'samples must have shape {shape}, got {tuple(values.shape)}.')
+        return torch.as_tensor(samples, dtype=reference.real.dtype, device=reference.device).reshape(shape)
+
+    def _condition(
+        self, x: list[torch.Tensor], observed: list[int], noise_cov: Any, samples: Any = None
+    ) -> list[torch.Tensor]:
+        """Condition Gaussian components on the observed quadratures."""
+        cov, mean = x[:2]
+        wires = torch.tensor(self.wires, device=cov.device)
+        mode_indices = torch.cat([wires, wires + self.nmode])
+        indices = torch.arange(2 * self.nmode, device=cov.device)
+        rest = indices[~torch.isin(indices, mode_indices)]
+        observed = torch.tensor(observed, device=cov.device)
+        nobs = len(observed)
+        cov_b = cov[..., observed[:, None], observed]
+        cov_ab = cov[..., rest[:, None], observed]
+        mean_b = mean[..., observed, :]
+        cov_t = cov_b + noise_cov
+        if nobs == 1:
+            gain = cov_ab / cov_t
+        else:
+            factor = torch.linalg.cholesky(cov_t)
+            gain = torch.cholesky_solve(cov_ab.mT, factor).mT
+        conditional_cov = cov[..., rest[:, None], rest] - gain @ cov_ab.mT
+        if samples is None:
+            if len(x) == 2:
+                samples = MultivariateNormal(mean_b.squeeze(-1), cov_t).sample()
+            else:
+                samples = sample_reject_bosonic(cov_b, mean_b, x[2], noise_cov, 1)[:, 0]
+        else:
+            samples = self._format_samples(samples, mean, nobs)
+        self.samples = samples
+        outcome = samples.unsqueeze(-1)
+        if len(x) == 3:
+            outcome = outcome.unsqueeze(-3)
+        delta = outcome - mean_b
+        conditional_mean = mean[..., rest, :] + gain.to(mean.dtype) @ delta
+        vacuum = dqp.hbar / (4 * dqp.kappa**2)
+        cov_out = conditional_cov.new_ones(cov.shape[:-1]).diag_embed() * vacuum
+        cov_out[..., rest[:, None], rest] = conditional_cov
+        mean_out = conditional_mean.new_zeros(mean.shape)
+        mean_out[..., rest, :] = conditional_mean
+        if len(x) == 2:
+            return [cov_out, mean_out]
+        # Complex Gaussian likelihoods include the interference between components.
+        if nobs == 1:
+            exponent = delta.square() / cov_t
+            logdet = cov_t.squeeze(-2, -1).log()
+        else:
+            standardized_delta = torch.linalg.solve_triangular(factor.to(mean.dtype), delta, upper=False)
+            exponent = standardized_delta.square().sum(-2, keepdim=True)
+            logdet = 2 * factor.diagonal(dim1=-2, dim2=-1).log().sum(-1)
+        likelihood = torch.exp(-(exponent.squeeze(-2, -1) + logdet) / 2)
+        weight = x[2] * likelihood
+        weight = weight / weight.sum(-1, keepdim=True)
+        return [cov_out, mean_out, weight]
 
     def forward(self, x: list[torch.Tensor], samples: Any = None) -> list[torch.Tensor]:
         """Perform a forward pass for Gaussian (Bosonic) states.
@@ -58,65 +132,27 @@ class Generaldyne(Operation):
         by Alessio Serafini Eq.(5.143) and Eq.(5.144) in page 121
 
         For Bosonic state, see https://arxiv.org/abs/2103.05530 Eq.(35-37)
+
+        Args:
+            x: The Gaussian (Bosonic) state.
+            samples: The measurement outcomes with one row per batch item, in xxpp order.
+                With ``cov_m=None``, each row contains only x outcomes. Default: ``None``
         """
-        cov, mean = x[:2]
-        size = cov.size()
-        wires = torch.tensor(self.wires)
-        idx = torch.cat([wires, wires + self.nmode])  # xxpp order
-        idx_all = torch.arange(2 * self.nmode)
-        mask = ~torch.isin(idx_all, idx)
-        idx_rest = idx_all[mask]
-
-        cov_a = cov[..., idx_rest[:, None], idx_rest]
-        cov_b = cov[..., idx[:, None], idx]
-        cov_ab = cov[..., idx_rest[:, None], idx]
-        mean_a = mean[..., idx_rest, :]
-        mean_b = mean[..., idx, :]
-        cov_t = cov_b + self.cov_m
-
-        cov_a = cov_a - cov_ab @ torch.linalg.solve(cov_t, cov_ab.mT)  # update the unmeasured part
-        cov_out = cov.new_ones(size[:-1].numel()).reshape(size[:-1]).diag_embed()
-        cov_out[..., idx_rest[:, None], idx_rest] = cov_a  # update the total cov mat
-
-        if len(x) == 2:  # Gaussian
-            if samples is None:
-                mean_m = MultivariateNormal(mean_b.squeeze(-1), cov_t).sample([1])[0]  # (batch, 2 * nwire)
-            else:
-                if not isinstance(samples, torch.Tensor):
-                    samples = torch.tensor(samples, dtype=cov.dtype, device=cov.device)
-                mean_m = samples.reshape(-1, 2 * len(self.wires))
-            mean_a = mean_a + cov_ab @ torch.linalg.solve(cov_t, mean_m.unsqueeze(-1) - mean_b)
-        elif len(x) == 3:  # Bosonic
-            weight = x[2]
-            if samples is None:
-                mean_m = sample_reject_bosonic(cov_b, mean_b, weight, self.cov_m, 1)[:, 0]  # (batch, 2 * nwire)
-            else:
-                if not isinstance(samples, torch.Tensor):
-                    samples = torch.tensor(samples, dtype=cov.dtype, device=cov.device)
-                mean_m = samples.reshape(-1, 2 * len(self.wires))
-            # (batch, ncomb)
-            exp_real = torch.exp(mean_b.imag.mT @ torch.linalg.solve(cov_t, mean_b.imag) / 2).squeeze(-2, -1)
-            gaus_b = MultivariateNormal(mean_b.squeeze(-1).real, cov_t)  # (batch, ncomb, 2 * nwire)
-            prob_g = gaus_b.log_prob(mean_m.unsqueeze(-2)).exp()  # (batch, ncomb, 2 * nwire) -> (batch, ncomb)
-            rm = mean_m.unsqueeze(-1).unsqueeze(-3)  # (batch, 2 * nwire) -> (batch, 1, 2 * nwire, 1)
-            # (batch, ncomb)
-            exp_imag = torch.exp((rm - mean_b.real).mT @ torch.linalg.solve(cov_t, mean_b.imag) * 1j).squeeze(-2, -1)
-            weight *= exp_real * prob_g * exp_imag
-            weight /= weight.sum(dim=-1, keepdim=True)
-            mean_a = mean_a + cov_ab.to(mean_b.dtype) @ torch.linalg.solve(cov_t.to(mean_b.dtype), rm - mean_b)
-
-        mean_out = torch.zeros_like(mean)
-        mean_out[..., idx_rest, :] = mean_a
-
-        self.samples = mean_m  # xxpp order
-        if len(x) == 2:
-            return [cov_out, mean_out]
-        elif len(x) == 3:
-            return [cov_out, mean_out, weight]
+        if self.cov_m is None:
+            observed = self.wires
+            noise_cov = x[0].new_zeros(len(observed), len(observed))
+        else:
+            observed = self.wires + [wire + self.nmode for wire in self.wires]
+            noise_cov = self.cov_m
+        return self._condition(x, observed, noise_cov, samples)
 
 
 class Homodyne(Generaldyne):
-    """Homodyne measurement.
+    r"""Homodyne measurement of :math:`x\cos\phi+p\sin\phi`.
+
+    This is the infinitely squeezed limit of general-dyne measurement.
+    Only the measured quadrature conditions the remaining state.
+    See https://arxiv.org/pdf/1110.3234 Eq.(63-64).
 
     Args:
         phi: The homodyne measurement angle. Default: ``None``
@@ -124,7 +160,6 @@ class Homodyne(Generaldyne):
         wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         den_mat: Whether to use density matrix representation. Default: ``False``
-        eps: The measurement accuracy. Default: 2e-4
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
         name: The name of the measurement. Default: ``'Homodyne'``
@@ -137,7 +172,6 @@ class Homodyne(Generaldyne):
         wires: int | list[int] | None = None,
         cutoff: int | None = None,
         den_mat: bool = False,
-        eps: float = 2e-4,
         requires_grad: bool = False,
         name: str = 'Homodyne',
     ) -> None:
@@ -145,8 +179,7 @@ class Homodyne(Generaldyne):
         if wires is None:
             wires = [0]
         wires = self._convert_indices(wires)
-        cov_m = torch.diag(torch.tensor([eps**2] * len(wires) + [1 / eps**2] * len(wires)))  # xxpp
-        super().__init__(cov_m=cov_m, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat, name=name)
+        super().__init__(cov_m=None, name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=den_mat)
         assert len(self.wires) == 1, f'{self.name} must act on one mode'
         self.requires_grad = requires_grad
         self.init_para(inputs=phi)
@@ -177,9 +210,7 @@ class Homodyne(Generaldyne):
             # (batch, 1, 1)
             samples = sample_homodyne_fock(r(x), self.wires[0], self.nmode, self.cutoff, 1, self.den_mat)
         else:
-            if not isinstance(samples, torch.Tensor):
-                samples = torch.tensor(samples, dtype=x.real.dtype, device=x.device)
-            samples = samples.reshape(-1, 1, 1)
+            samples = self._format_samples(samples, x, 1).unsqueeze(-2)
         self.samples = samples.squeeze(-2)  # with dimension \sqrt{m\omega\hbar}
         # projection operator as single gate
         vac_state = x.new_zeros(self.cutoff)  # (cutoff)
@@ -210,19 +241,44 @@ class Homodyne(Generaldyne):
             x = x / norm.reshape([-1] + [1] * self.nmode)
         return x
 
-    def op_cv(self, x: list[torch.Tensor], samples: Any = None) -> list[torch.Tensor]:
+    def op_cv(self, x: list[torch.Tensor], samples: Any = None, noise_var: Any = None) -> list[torch.Tensor]:
         """Perform a forward pass for Gaussian (Bosonic) states."""
         r = PhaseShift(inputs=-self.phi, nmode=self.nmode, wires=self.wires, cutoff=self.cutoff)
         cov, mean = x[:2]
         cov, mean = r([cov, mean])
-        return super().forward([cov, mean] + x[2:], samples)
+        noise_cov = cov.new_zeros(1, 1) if noise_var is None else noise_var
+        return self._condition([cov, mean] + x[2:], self.wires, noise_cov, samples)
 
-    def forward(self, x: torch.Tensor | list[torch.Tensor], samples: Any = None) -> torch.Tensor | list[torch.Tensor]:
-        """Perform a forward pass."""
+    def forward(
+        self, x: torch.Tensor | list[torch.Tensor], samples: Any = None, *, noise_var: Any = None
+    ) -> torch.Tensor | list[torch.Tensor]:
+        """Perform a forward pass conditioned on a quadrature outcome.
+
+        Gaussian noise convolves the quadrature POVM. For Fock states this requires
+        ``den_mat=True`` and uses equivalent loss followed by outcome rescaling.
+        See https://arxiv.org/pdf/quant-ph/0610116v2 Eq.(12).
+
+        Args:
+            x: The Fock state tensor or Gaussian (Bosonic) state.
+            samples: The measured quadrature values with shape ``(batch, 1)``, before readout gain and bias.
+                A scalar is also accepted for a single batch item. Default: ``None``
+            noise_var: The Gaussian noise variance in quadrature units squared. Default: ``None``
+        """
         if isinstance(x, torch.Tensor):
+            if noise_var is not None:
+                if not self.den_mat:
+                    raise NotImplementedError('Noisy conditional Fock homodyne requires den_mat=True.')
+                noise_var = torch.as_tensor(noise_var, dtype=x.real.dtype, device=x.device)
+                vacuum = dqp.hbar / (4 * dqp.kappa**2)
+                t = vacuum / (vacuum + noise_var)
+                loss = PhotonLoss(t, self.nmode, self.wires, self.cutoff, convention='t')
+                scaled = None if samples is None else self._format_samples(samples, x, 1) * t.sqrt()
+                result = self.op_fock(loss(x), scaled)
+                self.samples = self.samples / t.sqrt()
+                return result
             return self.op_fock(x, samples)
         elif isinstance(x, list):
-            return self.op_cv(x, samples)
+            return self.op_cv(x, samples, noise_var)
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, phi={self.phi.item()}'

@@ -41,26 +41,19 @@ def _replace_fock_modes(state: torch.Tensor, density: torch.Tensor, wires: tuple
 
 
 class Submodes(nn.Module):
-    r"""Mode coefficients and squeezing ratios in a common orthogonal basis.
+    """Mode coefficients and squeezing ratios in a common orthogonal basis.
 
-    Orthogonal basis modes can describe temporal, spectral, polarization or transverse
-    degrees of freedom within each spatial mode, or combinations of these degrees of freedom.
-    Ratios describe fixed couplings under a common pump-amplitude sweep. Photon
-    fractions generally change with gain. All calibration data are fixed buffers.
-
-    See https://arxiv.org/pdf/1012.0262v2 Eq.(5)-(7) for independent mode pairs and their squeezing strengths.
-    For single-mode squeezing, see https://arxiv.org/pdf/1110.3234v1 Eq.(31)-(32).
-    Here ``r_k = r * relative_r[k]``, with the first mode as reference, rather than
-    the paper's unit-normalized Schmidt amplitudes ``lambda_k``.
+    The basis may describe temporal, spectral, polarization or transverse modes.
+    Calibration data are fixed buffers. Squeezing strengths satisfy ``r_k = r * relative_r[k]``,
+    with the first addressed mode as reference.
+    See https://arxiv.org/pdf/1012.0262v2 Eq.(5)-(7).
 
     Args:
-        coefficients: A vector or matrix of coefficients in the common orthogonal basis.
-            Each row defines one addressed mode and is normalized internally. Multiple rows must be orthogonal.
-            Default: ``None`` (the common orthogonal basis modes)
-        relative_r: Nonnegative squeezing ratios with a positive first entry. Entries correspond to rows of
-            ``coefficients``, or to orthogonal basis modes when coefficients are omitted.
-            Ratios are divided by the first entry, so ``[3, 2]`` means ``[1, 2/3]`` and the circuit's ``r``
-            remains the squeezing of the first addressed mode. Required for multiple rows. Default: ``None``
+        coefficients: A coefficient vector or matrix with orthogonal rows, normalized internally.
+            Default: ``None`` (the common orthogonal basis)
+        relative_r: Nonnegative squeezing ratios with a positive first entry, normalized by that entry.
+            One entry per coefficient row, or per basis mode when coefficients are omitted.
+            Required for multiple rows. Default: ``None``
     """
 
     def __init__(self, coefficients: Any = None, *, relative_r: Any = None) -> None:
@@ -118,12 +111,10 @@ class Submodes(nn.Module):
 
     @classmethod
     def from_nbar(cls, nbar: Any, coefficients: Any = None) -> 'Submodes':
-        """Calibrate relative squeezing from per-mode vacuum-seeded mean photon numbers.
+        """Infer squeezing ratios from absolute vacuum-seeded photon numbers corrected for loss.
 
-        This sets ratios only. Set the circuit's reference squeezing separately.
-        Use absolute photon numbers corrected for propagation and detection loss, not normalized fractions.
+        Vacuum input gives ``nbar_k = sinh(r_k)**2``. The circuit sets the reference squeezing separately.
         See https://arxiv.org/pdf/1012.0262v2 Eq.(6) and Eq.(B.6).
-        Vacuum input gives ``nbar_k = sinh(r_k)**2``.
         """
         nbar = torch.as_tensor(nbar)
         if nbar.is_complex() or nbar.ndim != 1 or not len(nbar) or not torch.isfinite(nbar).all():
@@ -168,21 +159,20 @@ class Submodes(nn.Module):
 
 
 class ThermalSource(nn.Module):
-    r"""Prepare an independent thermal state at each selected spatial input.
+    """Thermal input preparation.
 
-    Subsequent squeezing preserves the single-mode purity.
-    Existing correlations with these modes are removed.
-    Fock preparation retains the unnormalized projection below the circuit cutoff.
-    Its trace is ``1 - (nbar/(1+nbar))**cutoff`` per prepared mode.
-
-    See https://arxiv.org/pdf/1110.3234v1 Eq.(27) and the following covariance formula.
-    Here ``V = (2*nbar + 1) * hbar / (4*kappa**2) * I``. Summing the squared Fock
-    probabilities gives ``purity = 1 / (2*nbar + 1)`` before truncation.
+    Each selected input is replaced by an independent thermal state before all gates.
+    Its covariance is ``(2*nbar + 1) * hbar / (4*kappa**2) * I``.
+    ``HardwareModel.input().submodes()`` selects the occupied mode. Other basis modes remain vacuum.
+    Fock preparation requires density matrices and retains the unnormalized cutoff projection,
+    with trace ``1 - (nbar/(1+nbar))**cutoff`` per mode. The internal parameter is ``sqrt(nbar)``.
+    See https://arxiv.org/pdf/1110.3234v1 Eq.(27).
 
     Args:
-        nbar: Mean thermal photon number. Specify exactly one of ``nbar`` and ``purity``. Default: ``None``
-        purity: Single-mode purity ``1 / (2*nbar + 1)`` in ``(0, 1]``. Default: ``None``
-        requires_grad: Whether to train the amplitude whose square is ``nbar``. Default: ``False``
+        nbar: The mean thermal photon number. Specify exactly one of ``nbar`` and ``purity``. Default: ``None``
+        purity: The single-mode purity ``1 / (2*nbar + 1)`` in (0, 1]. Default: ``None``
+        requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
     """
 
     def __init__(
@@ -246,26 +236,23 @@ class ThermalSource(nn.Module):
 
 
 class SinglePhotonSource(nn.Module):
-    r"""Pure or mixed single-photon input in an orthogonal basis.
+    """Pure or mixed single-photon input in an orthogonal basis.
 
-    Use ``QumodeCircuit.single_photon`` to prepare independent spatial inputs.
-    Mixed inputs require Fock density matrices. Pure inputs also support pure Fock state tensors
-    and Fock basis states through the circuit API.
+    ``QumodeCircuit.single_photon`` prepares independent spatial inputs before all gates.
+    Mixed inputs require Fock density matrices. Pure Fock state tensors require vacuum on the selected inputs.
     Specify at most one of ``coefficients``, ``density_matrix`` and ``factor``.
-
-    See https://arxiv.org/pdf/1909.04294v2 Eq.(1)-(2).
-    Here ``density_matrix[k, l] = <1_k|rho|1_l>`` uses the common orthogonal basis,
-    rather than the continuous frequency basis of Eq.(2).
+    Trainable parameters are the real and imaginary components of the coefficients or factor.
+    A supplied density matrix is first factorized.
+    See https://arxiv.org/pdf/1909.04294v2 Eq.(1)-(2) for the corresponding spectral representation.
 
     Args:
-        density_matrix: Trace-one density matrix in the single-photon orthogonal basis,
-            with shape ``(nsubmode, nsubmode)``. Default: ``None``
-        coefficients: Complex coefficient vector in the common orthogonal basis, normalized internally.
-            Default: ``None`` (the first orthogonal basis mode when no state is specified)
-        factor: Nonzero matrix of shape ``(nsubmode, rank)`` with
+        density_matrix: The trace-one density matrix with shape ``(nsubmode, nsubmode)``. Default: ``None``
+        coefficients: The coefficient vector in the common orthogonal basis, normalized internally.
+            Default: ``None`` (the first basis mode when no state is specified)
+        factor: A nonzero matrix of shape ``(nsubmode, rank)``, with
             ``rho = factor @ factor.mH / trace(factor @ factor.mH)``. Default: ``None``
-        requires_grad: Whether to train the real and imaginary coefficient or factor components.
-            A supplied density matrix is first factorized. Default: ``False``
+        requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
     """
 
     def __init__(

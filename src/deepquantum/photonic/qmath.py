@@ -72,43 +72,33 @@ def delay_coefficients(
     amplitude: Any = None,
     phase: Any = None,
 ) -> torch.Tensor:
-    r"""Expand delayed spectral modes in a common orthogonal basis.
+    """Expand delayed spectral modes in a common orthogonal basis.
 
-    Each input describes one spectral mode with amplitude
-    ``sqrt(intensity) * exp(1j * phase)`` or the supplied ``amplitude``.
-    Delay multiplies it by ``exp(-2j * pi * frequency_hz * delay)``.
-    Complex amplitudes are linearly interpolated and zero outside each supplied frequency range.
-    Each mode is normalized by its frequency integral, independently of its original scale.
-    Frequency samples must resolve the supplied spectrum, including its phase.
-    Transverse profiles and polarization are assumed matched at each frequency.
+    Each mode has amplitude ``sqrt(intensity) * exp(1j * phase)`` or the supplied ``amplitude``.
+    A delay multiplies it by ``exp(-2j * pi * frequency_hz * delay)``.
+    Amplitudes are linearly interpolated, zero outside each grid, and normalized by frequency integration.
+    The grids must resolve the spectra and phases. Transverse profiles and polarization are assumed matched.
+    See https://arxiv.org/pdf/1909.04294v2 Eq.(1) and https://dlmf.nist.gov/1.14.E1 Eq.(1.14.1).
 
-    The result uses complex128 on CPU for calibration, with shape ``(ninput, nsubmode)``.
-    ``coefficients.conj() @ coefficients.T`` gives the numerical spectral overlaps.
-    The first input defines the first basis mode, with coefficient row ``[1, 0, ...]``.
-    Later basis modes span orthogonal residuals in input order.
-    Residual norms below ten times float64 epsilon are discarded, so the number of columns can change.
-    Include all sources and local oscillators in the same call to share their basis.
-
-    See https://arxiv.org/pdf/1909.04294v2 Eq.(1) for spectral mode operators.
-    The delay rule follows from https://dlmf.nist.gov/1.14.E1 Eq.(1.14.1), using the
-    negative-exponent Fourier convention: ``f(t - tau)`` gives ``exp(-2j*pi*nu*tau)``.
+    Include all sources and local oscillators in one call to share their basis.
+    The first input defines the first basis mode. Subsequent modes span orthogonal residuals in input order.
+    Residual norms below ten times float64 epsilon are discarded.
 
     Args:
-        delays: A scalar or one-dimensional array of input delays in seconds.
-        frequency_hz: A shared one-dimensional frequency grid, or one grid per input.
-            Grids may have different lengths and are sorted internally. Frequencies must be distinct
-            within each grid and use the same reference across inputs. Use float64 samples for optical frequencies.
-        intensity: Nonnegative linear spectral density per Hz, with shape ``(nsample,)`` or
-            ``(ninput, nsample)``, or a list of per-input arrays. Specify exactly one of
-            ``intensity`` and ``amplitude``. Default: ``None``
-        amplitude: Real or complex spectral amplitudes with the same layout as ``intensity``.
+        delays: A scalar or one-dimensional array of delays in seconds.
+        frequency_hz: A shared frequency grid or a list of per-input grids, sorted internally.
+            Frequencies must be distinct within each grid and use the same reference across inputs.
+            Use float64 for optical frequencies.
+        intensity: Nonnegative spectral density per Hz, with shape ``(nsample,)`` or ``(ninput, nsample)``,
+            or a list of per-input arrays. Specify exactly one of ``intensity`` and ``amplitude``.
             Default: ``None``
-        phase: Spectral phase in radians before the additional delays, used with ``intensity``.
-            A scalar, shared array or per-input arrays. Use shape ``(ninput, 1)`` for per-input
-            constant phases. Default: ``None`` (zero spectral phase)
+        amplitude: Real or complex spectral amplitudes with the same layout as ``intensity``. Default: ``None``
+        phase: Spectral phase in radians, used with ``intensity``. A scalar, shared array or per-input arrays.
+            Shape ``(ninput, 1)`` specifies constant per-input phases. Default: ``None`` (zero phase)
 
     Returns:
-        Normalized coefficient rows in a common orthogonal basis.
+        Normalized coefficient rows of shape ``(ninput, nsubmode)``, in CPU complex128.
+        ``coefficients.conj() @ coefficients.T`` gives the spectral overlaps.
     """
     if (intensity is None) == (amplitude is None):
         raise ValueError('Specify exactly one of intensity and amplitude.')
@@ -923,6 +913,7 @@ def sample_reject_bosonic(
 ) -> torch.Tensor:
     """Get the samples of the Bosonic states via rejection sampling.
 
+    The covariance and mean may describe a marginal over selected quadratures.
     See https://arxiv.org/abs/2103.05530 Algorithm 1 in Section VI B
     """
     if cov.ndim == 3:
@@ -948,12 +939,12 @@ def sample_reject_bosonic(
         m0 = torch.multinomial(c_tilde[batches], 1).reshape(-1)  # (batch)
         cov_m0 = cov[batches, m0]
         mean_m0 = mean[batches, m0].squeeze(-1).real
-        dist_g = MultivariateNormal(mean_rest.squeeze(-1).real, cov_t)  # (batch, ncomb, 2 * nmode)
-        r0 = MultivariateNormal(mean_m0, cov_m + cov_m0).sample([shots_tmp])  # (shots, batch, 2 * nmode)
-        prob_g = dist_g.log_prob(r0.unsqueeze(-2)).exp()  # (shots, batch, ncomb, 2 * nmode) -> (shots, batch, ncomb)
+        dist_g = MultivariateNormal(mean_rest.squeeze(-1).real, cov_t)  # (batch, ncomb, nquad)
+        r0 = MultivariateNormal(mean_m0, cov_m + cov_m0).sample([shots_tmp])  # (shots, batch, nquad)
+        prob_g = dist_g.log_prob(r0.unsqueeze(-2)).exp()  # (shots, batch, ncomb, nquad) -> (shots, batch, ncomb)
         g_r0 = (c_tilde[batches] * prob_g).sum(-1)  # (shots, batch)
         y0 = torch.rand_like(g_r0) * g_r0
-        rm = r0.unsqueeze(-1).unsqueeze(-3)  # (shots, batch, 2 * nmode) -> (shots, batch, 1, 2 * nmode, 1)
+        rm = r0.unsqueeze(-1).unsqueeze(-3)  # (shots, batch, nquad) -> (shots, batch, 1, nquad, 1)
         # (shots, batch, ncomb)
         exp_imag = torch.exp((rm - mean_rest.real).mT @ torch.linalg.solve(cov_t, mean_rest.imag) * 1j).squeeze()
         # Eq.(70-71)
@@ -963,7 +954,7 @@ def sample_reject_bosonic(
         batches_done = []
         for i in range(len(batches)):
             idx = batches[i]
-            rst[idx] = torch.cat([rst[idx], r0[idx_shots[idx_batch == i], i]])  # (shots, 2 * nmode)
+            rst[idx] = torch.cat([rst[idx], r0[idx_shots[idx_batch == i], i]])  # (shots, nquad)
             count_shots[idx] = len(rst[idx])
             if count_shots[idx] >= shots:
                 batches_done.append(idx)
@@ -971,7 +962,7 @@ def sample_reject_bosonic(
         for i in batches_done:
             batches.remove(i)
         shots_tmp = shots - min(count_shots)
-    return torch.stack(rst)  # (batch, shots, 2 * nmode)
+    return torch.stack(rst)  # (batch, shots, nquad)
 
 
 def align_shape(cov: torch.Tensor, mean: torch.Tensor, weight: torch.Tensor) -> list[torch.Tensor]:

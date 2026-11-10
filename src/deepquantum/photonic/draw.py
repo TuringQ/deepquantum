@@ -18,6 +18,7 @@ info_dic = {
     'OPA': ['royalblue', -4],
     'S2': ['royalblue', 0],
     'D': ['green', 3],
+    'Dch': ['green', -4],
     'U': ['cadetblue', 0],
     'QP': ['peru', 0],
     'CP': ['peru', 0],
@@ -54,7 +55,7 @@ class DrawCircuit:
 
     def draw(self, depth=None, ops=None, measurements=None):
         """Draw circuit."""
-        from .channel import OPA, PhotonLoss
+        from .channel import DisplacementChannel, OPA, PhotonLoss
         from .gate import (
             Barrier,
             BeamSplitter,
@@ -135,6 +136,17 @@ class DrawCircuit:
                 order_dic[order] = order_dic[order] + op.wires
                 for i in op.wires:
                     depth[i] = depth[i] + 1
+            elif isinstance(op, DisplacementChannel):
+                order = depth[op.wires[0]]
+                self.draw_sq(
+                    order,
+                    op.wires,
+                    {'amp': op.amplitude.item(), 'φ': op.phase.item(), 't': op.t.item()},
+                    name='Dch',
+                )
+                order_dic[order] = order_dic[order] + op.wires
+                for i in op.wires:
+                    depth[i] += 1
             elif isinstance(op, Delay):
                 order = depth[op.wires[0]]
                 inputs = [op.ntau, op.theta.item(), op.phi.item()]
@@ -336,7 +348,7 @@ class DrawCircuit:
                 transform=f'rotate({rotation} {arc_center_x} {arc_center_y})',
             )
         )
-        self.draw_.add(self.draw_.text('ϕ=' + str(np.round(phi, 3)), insert=(x + 55, y_up * 30 + 20), font_size=7))
+        self.draw_.add(self.draw_.text('φ=' + str(np.round(phi, 3)), insert=(x + 55, y_up * 30 + 20), font_size=7))
 
     def draw_sq(self, order, wires, para_dic, name=None):
         """Draw squeezing gate, displacement gate."""
@@ -374,10 +386,11 @@ class DrawCircuit:
         )
         self.draw_.add(self.draw_.text(name, insert=(x + 40 + shift, y_up * 30 + 20), font_size=9))
 
+        parameter_y = y_up * 30 + 18 - 6 * max(0, len(para_dic) - 2)
         for k, key in enumerate(para_dic):
             self.draw_.add(
                 self.draw_.text(
-                    key + '=' + str(np.round(para_dic[key], 3)), insert=(x + 55, y_up * 30 + 18 + 6 * k), font_size=7
+                    key + '=' + str(np.round(para_dic[key], 3)), insert=(x + 55, parameter_y + 6 * k), font_size=7
                 )
             )
 

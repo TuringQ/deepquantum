@@ -10,7 +10,7 @@ import torch
 from torch import nn
 from torch.func import functional_call
 
-from .channel import OPA, PhotonLoss
+from .channel import DisplacementChannel, OPA, PhotonLoss
 from .gate import (
     BeamSplitter,
     BeamSplitterPhi,
@@ -45,6 +45,7 @@ _PARAMETERS = {
     OPA: ('r', 'theta', 'loss_theta'),
     Squeezing2: ('r', 'theta'),
     Displacement: ('r', 'theta'),
+    DisplacementChannel: ('amplitude', 'phase', 'loss_theta'),
     DisplacementPosition: ('r',),
     DisplacementMomentum: ('r',),
     QuadraticPhase: ('s',),
@@ -89,9 +90,15 @@ class _HardwareRun:
 
 
 class Loss(nn.Module):
-    """Photon loss initialized by transmittance t or loss in dB.
+    """Photon loss specified by power transmittance or loss in dB.
 
-    Set requires_grad=True to train the internal angle theta, with t = cos(theta / 2)**2.
+    The internal parameter is the loss angle, with ``t = cos(theta / 2)**2``.
+
+    Args:
+        t: The power transmittance. Specify exactly one of ``t`` and ``db``. Default: ``None``
+        db: The power loss in dB. Default: ``None``
+        requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
+            Default: ``False`` (which means ``buffer``)
     """
 
     def __init__(
@@ -148,10 +155,14 @@ class Loss(nn.Module):
 
 
 class GaussianNoise(nn.Module):
-    """Add mu + sigma * epsilon with one sample per binding, operation and parameter per execution.
+    """Gaussian control noise with mean mu and standard deviation sigma.
 
-    Parameters are validated at construction. A numeric sigma=0 disables sampling.
-    Tensor sigma remains dynamic and is sampled even at zero.
+    Each execution draws one sample per bound operation and parameter.
+    Numeric ``sigma=0`` disables sampling. Tensor sigma supports gradients at zero.
+
+    Args:
+        mu: The mean offset. Default: 0
+        sigma: The standard deviation. Default: 0.1
     """
 
     def __init__(self, mu: float | torch.Tensor = 0, sigma: float | torch.Tensor = 0.1) -> None:
@@ -178,6 +189,37 @@ class GaussianNoise(nn.Module):
             device = value.device if run.generator is None else run.generator.device
             run.cache[key] = torch.randn((), dtype=value.dtype, device=device, generator=run.generator).to(value.device)
         return value + self.sigma.to(value).reshape(()) * run.cache[key]
+
+
+class _HomodyneReadout(nn.Module):
+    """Calibrated affine readout with independent Gaussian electronic noise."""
+
+    def __init__(self, gain=1.0, bias=0.0, noise_var=0.0):
+        super().__init__()
+        for name, value in [('gain', gain), ('bias', bias), ('noise_var', noise_var)]:
+            _register_scalar(self, name, value)
+            _check_scalar(getattr(self, name), name, 0 if name == 'noise_var' else None)
+        if (self.gain == 0).any():
+            raise ValueError('gain must be nonzero.')
+        self._no_noise = not self.noise_var.requires_grad and bool((self.noise_var == 0).all())
+
+    def forward(self, samples, run):
+        """Convert quadrature samples to output units, drawing electronic noise per shot."""
+        output = self.gain.to(samples).reshape(()) * samples + self.bias.to(samples).reshape(())
+        if not self._no_noise:
+            device = samples.device if run.generator is None else run.generator.device
+            noise = torch.randn(samples.shape, dtype=samples.dtype, device=device, generator=run.generator)
+            output = output + self.noise_var.to(samples).reshape(()).sqrt() * noise.to(samples.device)
+        return output
+
+    def condition(self, state, op, overrides):
+        """Condition on the noisy record itself, integrating out the unknown ideal outcome."""
+        reference = state.real if isinstance(state, torch.Tensor) else state[0]
+        gain, bias = self.gain.to(reference).reshape(()), self.bias.to(reference).reshape(())
+        noise_var = None if self._no_noise else self.noise_var.to(reference).reshape(()) / gain.square()
+        state = functional_call(op, overrides, (state,), {'noise_var': noise_var})
+        op.samples = gain * op.samples + bias
+        return state
 
 
 class _PluginBinding(nn.Module):
@@ -393,9 +435,9 @@ class _BeamSplitterConfig(_PhaseConfig):
         return _ParameterConfig(self.model, self.op_type, self.wires, 'phi', self.delay, self.index, self.bound_ops)
 
 
-class _AmplitudePhaseConfig(_PhaseConfig):
+class _ModeConfig(_OperationConfig):
     def submodes(self, coefficients: Any, *, name: str | None = None) -> 'HardwareModel':
-        """Set normalized orthogonal-basis coefficients for the mode addressed by the active operation."""
+        """Set the addressed mode coefficients. See :class:`~deepquantum.photonic.source.Submodes`."""
         return self.model._register(
             _PluginBinding(
                 coefficients if isinstance(coefficients, Submodes) else Submodes(coefficients),
@@ -409,6 +451,8 @@ class _AmplitudePhaseConfig(_PhaseConfig):
             name,
         )
 
+
+class _AmplitudePhaseConfig(_PhaseConfig, _ModeConfig):
     @property
     def r(self) -> _ParameterConfig:
         """Select squeezing or displacement magnitude."""
@@ -424,23 +468,13 @@ class _SqueezingConfig(_AmplitudePhaseConfig):
         relative_nbar: Any = None,
         name: str | None = None,
     ) -> 'HardwareModel':
-        """Set orthogonal-basis coefficients and relative squeezing for the addressed modes.
-
-        The circuit's ``r`` remains the squeezing of the first addressed mode.
-        Without coefficients, the length of ``relative_r`` or ``relative_nbar``
-        sets the number of orthogonal basis modes.
+        """Set mode coefficients and relative squeezing.
 
         Args:
-            coefficients: A vector or matrix of coefficients in the common orthogonal basis.
-                Rows are normalized internally and must be orthogonal. Also accepts ``Submodes``.
-                Default: ``None`` (the common orthogonal basis modes)
-            relative_r: Squeezing ratios for the rows of ``coefficients``, or orthogonal basis modes when coefficients
-                are omitted.
-                Normalized by the positive first entry, e.g. ``[3, 2]`` becomes ``[1, 2/3]``. Default: ``None``
-            relative_nbar: Loss-corrected, vacuum-seeded mean photon numbers at one calibration point.
-                Uses absolute photon numbers, not normalized fractions, to set ratios via ``asinh(sqrt(nbar))``.
-                The circuit's ``r`` sets the reference squeezing. Cannot be combined with ``relative_r``.
-                Default: ``None``
+            coefficients: Mode coefficients or a ``Submodes`` object. Default: ``None`` (the common orthogonal basis)
+            relative_r: Squeezing ratios normalized by the first entry. Default: ``None``
+            relative_nbar: Absolute vacuum-seeded photon numbers, corrected for loss, used to infer squeezing ratios.
+                Cannot be combined with ``relative_r``. Default: ``None``
             name: The binding name. Default: ``None``
         """
         if relative_r is not None and relative_nbar is not None:
@@ -465,7 +499,68 @@ class _OPAConfig(_AmplitudePhaseConfig):
         )
 
 
+class _DisplacementChannelConfig(_ModeConfig):
+    @property
+    def amplitude(self) -> _ParameterConfig:
+        """Select the auxiliary amplitude."""
+        return _ParameterConfig(
+            self.model, self.op_type, self.wires, 'amplitude', self.delay, self.index, self.bound_ops
+        )
+
+    @property
+    def phase(self) -> _ParameterConfig:
+        """Select the auxiliary phase."""
+        return _ParameterConfig(self.model, self.op_type, self.wires, 'phase', self.delay, self.index, self.bound_ops)
+
+    @property
+    def loss_theta(self) -> _ParameterConfig:
+        """Select the internal loss angle."""
+        return _ParameterConfig(
+            self.model, self.op_type, self.wires, 'loss_theta', self.delay, self.index, self.bound_ops
+        )
+
+
 class _HomodyneConfig(_OperationConfig):
+    def efficiency(
+        self, eta: float | torch.Tensor, *, requires_grad: bool = False, name: str | None = None
+    ) -> 'HardwareModel':
+        """Set detection efficiency as loss before measurement.
+
+        Args:
+            eta: The photon detection efficiency in [0, 1].
+            requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
+                Default: ``False`` (which means ``buffer``)
+            name: The binding name. Default: ``None``
+        """
+        return self.before.loss(t=eta, requires_grad=requires_grad, name=name)
+
+    def readout(
+        self,
+        gain: float | torch.Tensor = 1.0,
+        bias: float | torch.Tensor = 0.0,
+        noise_var: float | torch.Tensor = 0.0,
+        *,
+        name: str | None = None,
+    ) -> 'HardwareModel':
+        """Set the readout y = gain*q + bias + Gaussian noise.
+
+        Args:
+            gain: The nonzero gain in output units per quadrature unit. Default: 1.0
+            bias: The offset in output units. Default: 0.0
+            noise_var: The nonnegative electronic-noise variance in output units squared. Default: 0.0
+            name: The binding name. Default: ``None``
+        """
+        return self.model._register(
+            _PluginBinding(
+                _HomodyneReadout(gain, bias, noise_var),
+                self.op_type,
+                self.wires,
+                where='readout',
+                bound_ops=self.bound_ops,
+            ),
+            name,
+        )
+
     @property
     def phi(self) -> _ParameterConfig:
         """Select the local-oscillator phase."""
@@ -517,18 +612,24 @@ class _DelayConfig:
         """Select internal OPA channels for control noise or before/after plugins."""
         return _OPAConfig(self.model, OPA, None, (self.wires, self.index), index)
 
+    def d_channel(self, index: int | None = None) -> _DisplacementChannelConfig:
+        """Select internal coherent-injection channels."""
+        return _DisplacementChannelConfig(self.model, DisplacementChannel, None, (self.wires, self.index), index)
+
     def d(self, index: int | None = None) -> _AmplitudePhaseConfig:
         """Select internal displacements."""
         return _AmplitudePhaseConfig(self.model, Displacement, None, (self.wires, self.index), index)
 
 
 class HardwareModel(nn.Module):
-    """Apply hardware plugins without changing ideal controls.
+    """Hardware configuration for photonic circuits.
 
-    Template selectors are re-evaluated against the current circuit. Unrolled bindings
-    follow specific gate objects through insertion/reordering. Removing a bound gate is an error.
-    Later plugins of the same type replace earlier ones on the same operation parameter or before/after hook.
-    Input/output plugins of the same type override earlier ones per mode.
+    Selectors bind control noise, loss and mode profiles to circuit operations.
+    Later bindings of the same type replace earlier ones at the same location.
+    Unrolled circuits retain bindings to their operation objects.
+
+    Args:
+        seed: The random seed for hardware sampling. Default: ``None`` (the global PyTorch RNG)
     """
 
     def __init__(self, *, seed: int | None = None) -> None:
@@ -569,7 +670,9 @@ class HardwareModel(nn.Module):
         return _PhaseConfig(self, PhaseShift, wires)
 
     def homodyne(self, wires: int | None = None) -> _HomodyneConfig:
-        """Select explicit homodyne measurements with noise sampled per measurement call."""
+        """Select homodyne measurements by spatial mode."""
+        if wires is not None and type(wires) is not int:
+            raise ValueError('Select one homodyne spatial port or use wires=None for all ports.')
         return _HomodyneConfig(self, Homodyne, wires)
 
     def bs(self, wires: list[int] | None = None) -> _BeamSplitterConfig:
@@ -585,12 +688,16 @@ class HardwareModel(nn.Module):
         return _SqueezingConfig(self, Squeezing, wires)
 
     def opa(self, wires: int | None = None) -> _OPAConfig:
-        """Select explicit OPA channels for control noise or before/after plugins."""
+        """Select OPA channels."""
         return _OPAConfig(self, OPA, wires)
 
     def s2(self, wires: list[int] | None = None) -> _SqueezingConfig:
         """Select two-mode squeezers."""
         return _SqueezingConfig(self, Squeezing2, wires)
+
+    def d_channel(self, wires: int | None = None) -> _DisplacementChannelConfig:
+        """Select displacement channels."""
+        return _DisplacementChannelConfig(self, DisplacementChannel, wires)
 
     def d(self, wires: int | None = None) -> _AmplitudePhaseConfig:
         """Select displacements."""
@@ -616,6 +723,10 @@ class HardwareModel(nn.Module):
     @property
     def _has_submodes(self) -> bool:
         return any(isinstance(b.plugin, Submodes) for b in self.bindings.values())
+
+    @property
+    def _has_terminal_homodyne(self) -> bool:
+        return any(Homodyne in b.op_types and b.bound_ops is None and b.delay is None for b in self.bindings.values())
 
     def _register(self, binding: _PluginBinding, name: str | None) -> 'HardwareModel':
         previous_name = next((key for key, current in self.bindings.items() if current.same_rule(binding)), None)
@@ -644,7 +755,8 @@ class HardwareModel(nn.Module):
                     if binding.where != 'input' or len(binding.plugin.relative_r) != 1:
                         raise ValueError('Input coefficients must specify one prepared mode per spatial input.')
                 elif binding.where != 'modes' or any(
-                    kind not in (Squeezing, Squeezing2, Displacement, OPA) for kind in binding.op_types
+                    kind not in (Squeezing, Squeezing2, Displacement, DisplacementChannel, OPA)
+                    for kind in binding.op_types
                 ):
                     raise ValueError('Orthogonal-basis coefficients apply to squeezing, displacement or OPA.')
                 elif len(binding.plugin.relative_r) > 1 and any(
@@ -658,7 +770,8 @@ class HardwareModel(nn.Module):
                 raise ValueError('Hardware binding wire index is outside the circuit.')
             if binding.delay is not None and binding.delay[0] is not None and binding.delay[0] >= nmode:
                 raise ValueError('Hardware binding wire index is outside the circuit.')
-            if binding.required and binding.op_types and not binding.resolve(operators):
+            terminal = binding.op_types == (Homodyne,) and binding.bound_ops is None and binding.delay is None
+            if binding.required and binding.op_types and not terminal and not binding.resolve(operators):
                 raise ValueError(f'{name}: binding matches no operations in this circuit.')
 
     def _unroll(
@@ -676,6 +789,16 @@ class HardwareModel(nn.Module):
         if use_deepcopy:
             plugins = deepcopy(plugins)  # Copy shared plugin parameters once, not the referenced circuit gates.
         for (name, binding), plugin in zip(self.bindings.items(), plugins, strict=True):
+            terminal = []
+            if Homodyne in binding.op_types and binding.bound_ops is None and binding.delay is None:
+                # Terminal rules follow spatial output ports even without stored measurements.
+                wires = range(len(wire_map[0])) if binding.wires is None else binding.wires
+                for i, step in enumerate(wire_map):
+                    for wire in wires:
+                        mapped = _PluginBinding(
+                            plugin, Homodyne, step[wire], binding.where, binding.parameter, required=False
+                        )
+                        terminal.append((mapped, f'{name}_homodyne_{i}_{wire}'))
             if not binding.op_types:
                 wires = range(len(wire_map[0])) if binding.wires is None else binding.wires
                 wires = [step[wire] for step in wire_map for wire in wires]
@@ -693,7 +816,10 @@ class HardwareModel(nn.Module):
                     bound_ops=gates,
                     required=binding.required,
                 )
-            model._register(mapped, name)
+            if binding.op_types != (Homodyne,) or not terminal:
+                model._register(mapped, name)
+            for mapped, mapped_name in terminal:
+                model._register(mapped, mapped_name)
         return model
 
     def _bind(self, operators: Sequence[Operation]) -> dict[Operation, list[tuple[_PluginBinding, str | None]]]:
@@ -770,13 +896,22 @@ class HardwareModel(nn.Module):
     ) -> Any:
         """Execute one operation with one coherent realization of its controls."""
         state = self._apply_state_plugins(state, op, run, bindings, 'before', source)
+        overrides = self._parameter_overrides(op, run, bindings, source)
+        readout = next((b.plugin for b, _ in bindings if b.where == 'readout'), None)
+        if readout is None:
+            state = functional_call(op, overrides, (state,)) if overrides else op(state)
+        else:
+            state = readout.condition(state, op, overrides)
+        return self._apply_state_plugins(state, op, run, bindings, 'after', source)
+
+    def _parameter_overrides(self, op, run, bindings, source=None):
+        """Resolve control plugins for both explicit operations and terminal measurements."""
         overrides = {}
         for binding, parameter in bindings:
             if parameter is not None:
                 value = overrides.get(parameter, getattr(op, parameter))
                 overrides[parameter] = binding(value, run, op, parameter, source)
-        state = functional_call(op, overrides, (state,)) if overrides else op(state)
-        return self._apply_state_plugins(state, op, run, bindings, 'after', source)
+        return overrides
 
     def forward(
         self,

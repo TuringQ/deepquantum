@@ -889,6 +889,68 @@ readout_source()
 samples_source = readout_source.measure_homodyne(shots=5, phi=0.0)
 print(probability_source, samples_source.shape)  # 事件概率和 (5,)
 
+# %% [markdown] tags=["hardware-readout-example"]
+# ### 真实位移与 Homodyne 读出
+#
+# `cir.d_channel(wires, amplitude=..., phase=..., t=...)` 用辅助相干光实现位移，并包含耦合损耗。
+# `amplitude` 是耦合前辅助光的实数振幅，平均光子数为 `amplitude**2`，`phase` 的单位为弧度。
+# 默认 `convention='t'`，`t` 表示信号功率透射率，例如 `amplitude=3.0, t=0.99` 对应位移振幅 0.3。
+# 使用 `convention='loss_theta'` 时，`t` 参数改为内部角度，透射率为 `cos(loss_theta / 2)**2`。
+# 支持 Gaussian、Bosonic 和 Fock 密度矩阵（`basis=False, den_mat=True`）。
+#
+# `model.d_channel().amplitude`、`.phase` 和 `.loss_theta` 配置控制误差，`.submodes(c)` 设置辅助光模式。
+# `encode=True` 读取 `[amplitude, phase, t]`，第三项按 `convention` 解释。
+#
+# 探测端用 `model.homodyne(wires).efficiency(eta)` 设置效率，用 `model.homodyne(wires).readout(gain=..., bias=..., noise_var=...)` 设置输出增益、偏置和电子噪声方差。
+# `noise_var` 以输出单位的平方计。
+# 下面配置真实位移和探测器，并采样 `phi=0` 的正交分量。
+#
+
+# %% tags=["hardware-readout-example"]
+import deepquantum as dq
+import deepquantum.photonic as dqp
+import torch
+
+cir_readout = dq.QumodeCircuit(1, 'vac', backend='gaussian')
+cir_readout.s(0, r=0.4)
+cir_readout.d_channel(0, amplitude=3.0, phase=0.0, t=0.99)
+model_readout = dqp.HardwareModel(seed=7)
+model_readout.homodyne(0).efficiency(0.85)
+model_readout.homodyne(0).readout(gain=1.2, bias=0.05, noise_var=0.02)
+cir_readout.set_hardware_model(model_readout)
+cir_readout.double()
+cir_readout()
+torch.manual_seed(7)
+samples_readout = cir_readout.measure_homodyne(shots=1024, phi=0.0)
+print(samples_readout.shape, samples_readout.mean(), samples_readout.var())
+
+# %% [markdown] tags=["hardware-readout-example"]
+# 直接调用 `measure_homodyne(shots=..., phi=...)` 返回指定正交分量的样本。
+# 先添加 `cir.homodyne(wires, phi=...)` 时，还会将每个 shot 的条件态保存到 `state_measured`。
+# 有电子噪声时，条件态对应实际读出记录。
+#
+# `Homodyne` 的后选择参数 `samples` 形状为 `(batch, 1)`。
+# 指定 `cov_m` 的 `Generaldyne` 接收 xxpp 顺序的 `samples`，`cov_m` 与输入态的协方差使用相同单位。
+# `cov_m=None` 表示理想 x-homodyne。
+#
+# 含噪 Fock 条件测量需要 `basis=False, den_mat=True`。
+# 含正交基模时，可用 `measure_homodyne(..., lo=..., phi=...)` 做终端读出，暂不支持条件 Homodyne。
+# 未添加条件测量且 `phi=None` 时，Gaussian/Bosonic 路径返回联合 x/p Wigner 样本。
+#
+
+# %% tags=["hardware-readout-example"]
+cir_condition = dq.QumodeCircuit(2, 'vac', backend='gaussian')
+cir_condition.s2([0, 1], r=0.5)
+cir_condition.homodyne(0, phi=0.0)
+model_condition = dqp.HardwareModel().homodyne(0).efficiency(0.85)
+model_condition.homodyne(0).readout(gain=1.2, bias=0.05, noise_var=0.02)
+cir_condition.set_hardware_model(model_condition)
+cir_condition.double()
+cir_condition()
+records_condition = cir_condition.measure_homodyne(shots=5)
+cov_condition, mean_condition = cir_condition.state_measured
+print(records_condition.shape, cov_condition.shape, mean_condition.shape)
+
 # %% [markdown]
 # ### 支持GPU计算
 #
