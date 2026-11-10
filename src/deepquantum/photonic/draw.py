@@ -386,10 +386,11 @@ class DrawCircuit:
         )
         self.draw_.add(self.draw_.text(name, insert=(x + 40 + shift, y_up * 30 + 20), font_size=9))
 
+        parameter_y = y_up * 30 + 18 - 6 * max(0, len(para_dic) - 2)
         for k, key in enumerate(para_dic):
             self.draw_.add(
                 self.draw_.text(
-                    key + '=' + str(np.round(para_dic[key], 3)), insert=(x + 55, y_up * 30 + 18 + 6 * k), font_size=7
+                    key + '=' + str(np.round(para_dic[key], 3)), insert=(x + 55, parameter_y + 6 * k), font_size=7
                 )
             )
 
