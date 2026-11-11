@@ -110,6 +110,7 @@ from .photonic import (
     williamson,
 )
 from .qasm3 import cir_to_qasm3, qasm3_to_cir
+from .qchem import FermionToBosonMapper
 from .qmath import amplitude_encoding, expectation, measure, meyer_wallach_measure, multi_kron, partial_trace
 from .state import DistributedQubitState, MatrixProductState, QubitState
 
