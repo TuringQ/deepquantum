@@ -170,6 +170,7 @@ class QumodeCircuit(Operation):
         self.hardware_model = model
         self.__dict__['_submode_circuit'] = None
         self.state = None
+        self._herald_state = None
         self.state_measured = None
 
     def _validate_hardware_model(self, model: HardwareModel) -> None:
@@ -184,6 +185,11 @@ class QumodeCircuit(Operation):
                 raise NotImplementedError(
                     'Fock basis state plugins support loss and orthogonal-basis coefficients only.'
                 )
+        if self.backend == 'bargmann':
+            if model._has_submodes:
+                raise NotImplementedError('Orthogonal-basis submodes are not supported by the Bargmann backend')
+            if not self.den_mat and any(isinstance(m, Loss) for m in model.modules()):
+                raise NotImplementedError('Bargmann hardware loss requires den_mat=True')
         gates = [gate for op in self.operators for gate in (op.gates if isinstance(op, Delay) else [op])]
         for op in gates:
             if not isinstance(op, (Gate, Channel)):
@@ -957,15 +963,9 @@ class QumodeCircuit(Operation):
     def _forward_helper_bargmann(self, data: torch.Tensor | None, state: BargmannState) -> BargmannState:
         """Perform a forward pass for one sample with the Bargmann backend."""
         self.encode(data)
-        for op in self.operators:
-            kernel = op.get_bargmann_kernel()
-            if kernel is None:
-                continue
-            if isinstance(op, Channel):
-                state = state.apply_channel(kernel, op.wires)
-            else:
-                state = state.apply_unitary(kernel, op.wires)
-        return state
+        if self.hardware_model is not None:
+            return self.hardware_model(state, self.operators, self.backend, self.wires)
+        return self.operators(state)
 
     def _forward_cv_prob(
         self, cov: torch.Tensor, mean: torch.Tensor, weight: torch.Tensor | None = None, detector: str | None = None

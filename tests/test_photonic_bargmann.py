@@ -157,6 +157,86 @@ def test_bargmann_exports_and_unsupported_operations():
             operation.get_bargmann_kernel()
 
 
+def test_direct_gate_and_channel_apply_to_bargmann_state():
+    ket = BargmannState([1], cutoff=2).to(DT)
+    shifted = dqp.PhaseShift(0.3)(ket)
+    torch.testing.assert_close(shifted.to_fock(2)[0, 1], torch.exp(torch.tensor(0.3j, dtype=CT)))
+    loss = dqp.PhotonLoss(0.25, cutoff=2, convention='t')
+    density = loss(ket.to_dm()).to_fock(2).reshape(2, 2)
+    torch.testing.assert_close(density.diagonal().real, torch.tensor([0.75, 0.25], dtype=DT))
+
+
+def test_bargmann_hardware_output_loss_and_control_offset():
+    circuit = dq.QumodeCircuit(1, [1], cutoff=2, backend='bargmann', den_mat=True)
+    circuit.set_hardware_model(dqp.HardwareModel().output().loss(t=0.25, requires_grad=True))
+    density = circuit.to(DT)().to_fock(2).reshape(2, 2)
+    torch.testing.assert_close(density.diagonal().real, torch.tensor([0.75, 0.25], dtype=DT))
+    theta = next(circuit.hardware_model.parameters())
+    assert torch.autograd.grad(density[1, 1].real, theta)[0].abs() > 0
+
+    phase = dq.QumodeCircuit(1, [1], cutoff=2, backend='bargmann')
+    phase.ps(0, 0.0)
+    mu = torch.nn.Parameter(torch.tensor(0.3, dtype=DT))
+    phase.set_hardware_model(dqp.HardwareModel().ps(0).theta.gaussian(mu=mu, sigma=0))
+    amplitude = phase.to(DT)().to_fock(2)[0, 1]
+    torch.testing.assert_close(amplitude, torch.exp(1j * mu))
+    assert torch.autograd.grad(amplitude.real, mu)[0].abs() > 0
+
+
+def test_bargmann_hardware_seeded_control_noise():
+    circuit = dq.QumodeCircuit(1, [1], cutoff=2, backend='bargmann')
+    circuit.ps(0, 0.2)
+    circuit.set_hardware_model(dqp.HardwareModel(seed=7).ps(0).theta.gaussian(mu=0.03, sigma=0.1))
+    generator = torch.Generator().manual_seed(7)
+    sampled_theta = 0.23 + 0.1 * torch.randn((), generator=generator)
+    torch.testing.assert_close(circuit().to_fock(2)[0, 1], torch.exp(1j * sampled_theta))
+
+
+def test_bargmann_hardware_input_and_gate_boundary_loss_match_explicit_channels():
+    circuit = dq.QumodeCircuit(2, [1, 0], cutoff=2, backend='bargmann', den_mat=True)
+    circuit.ps(0, 0.1)
+    model = dqp.HardwareModel().input(0).loss(t=0.8)
+    model.ps(0).after.loss(t=0.5)
+    model.output(1).loss(t=0.3)
+    circuit.set_hardware_model(model)
+
+    reference = dq.QumodeCircuit(2, [1, 0], cutoff=2, backend='bargmann', den_mat=True)
+    reference.loss_t(0, 0.8)
+    reference.ps(0, 0.1)
+    reference.loss_t(0, 0.5)
+    reference.loss_t(1, 0.3)
+    torch.testing.assert_close(circuit.to(DT)().to_fock(2), reference.to(DT)().to_fock(2))
+
+
+def test_bargmann_hardware_encoded_batch_retains_sample_gradients():
+    circuit = dq.QumodeCircuit(1, [1], cutoff=2, backend='bargmann')
+    circuit.ps(0, encode=True)
+    circuit.set_hardware_model(dqp.HardwareModel().ps(0).theta.gaussian(mu=0.3, sigma=0))
+    data = torch.tensor([[0.1], [0.2]], dtype=DT, requires_grad=True)
+    amplitude = circuit.to(DT)(data).to_fock(2)[:, 1]
+    torch.testing.assert_close(amplitude, torch.exp(1j * (data[:, 0] + 0.3)))
+    torch.testing.assert_close(torch.autograd.grad(amplitude.real.sum(), data)[0], -torch.sin(data + 0.3))
+
+
+def test_replacing_hardware_model_invalidates_bargmann_herald_cache():
+    circuit = dq.QumodeCircuit(2, [1, 0], cutoff=2, backend='bargmann', den_mat=True)
+    circuit()
+    circuit.set_hardware_model(dqp.HardwareModel().output(0).loss(t=0.5))
+    with pytest.raises(RuntimeError, match='Run the circuit forward'):
+        circuit.heralded_state(0, 1)
+    circuit()
+    _, probability = circuit.heralded_state(0, 1)
+    torch.testing.assert_close(probability, torch.tensor([0.5]))
+
+
+def test_bargmann_hardware_rejects_unsupported_state_layouts():
+    pure = dq.QumodeCircuit(1, [1], cutoff=2, backend='bargmann')
+    with pytest.raises(NotImplementedError, match='den_mat=True'):
+        pure.set_hardware_model(dqp.HardwareModel().output().loss(t=0.25))
+    with pytest.raises(NotImplementedError, match='Orthogonal-basis submodes'):
+        pure.set_hardware_model(dqp.HardwareModel().input(0).submodes([0.8, 0.6]))
+
+
 # ---------------------------------------------------------------------- evolution
 
 

@@ -135,6 +135,9 @@ class Loss(nn.Module):
         if run.backend in ('gaussian', 'bosonic'):
             nmode, cutoff = state[0].shape[-1] // 2, 2
             theta = theta.to(state[0])
+        elif run.backend == 'bargmann':
+            nmode, cutoff = state.nmode, state.cutoff
+            theta = theta.to(state.a.real)
         elif run.backend == 'fock':
             nmode, cutoff = run.nmode, 2
             if not run.basis:
