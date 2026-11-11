@@ -386,8 +386,22 @@ class QumodeCircuit(Operation):
         elif self.backend == 'bargmann':
             return self._forward_bargmann(data, state, is_prob)
 
+    def _load_from_state_dict(
+        self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
+    ):
+        if self.backend == 'bargmann':
+            # Checkpoints saved before forward caches were detached may contain these buffers.
+            for cache in ('state', '_herald_state'):
+                for field in ('a', 'b', 'c'):
+                    state_dict.pop(f'{prefix}{cache}.{field}', None)
+        return super()._load_from_state_dict(
+            state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
+        )
+
     def _apply(self, fn: Any, recurse: bool = True) -> 'QumodeCircuit':
         self._herald_state = None
+        if self.backend == 'bargmann':
+            self.state = None
         return super()._apply(fn, recurse=recurse)
 
     def heralded_state(
@@ -947,7 +961,7 @@ class QumodeCircuit(Operation):
         if self.ndata == 0:
             data = None
         if data is None or data.ndim == 1:
-            self.state = self._forward_helper_bargmann(data, state)
+            result = self._forward_helper_bargmann(data, state)
         else:
             assert data.ndim == 2
             if state.batch_size not in (1, data.shape[0]):
@@ -956,9 +970,12 @@ class QumodeCircuit(Operation):
             for i in range(data.shape[0]):
                 sample = state if state.batch_size == 1 else state.select(i)
                 outputs.append(self._forward_helper_bargmann(data[i], sample))
-            self.state = BargmannState.cat(outputs)
-        self._herald_state = self.state
-        return self.state
+            result = BargmannState.cat(outputs)
+        # Forward results are caches, not circuit submodules or checkpoint contents.
+        for name in ('state', '_herald_state'):
+            self._modules.pop(name, None)
+            self.__dict__[name] = result
+        return result
 
     def _forward_helper_bargmann(self, data: torch.Tensor | None, state: BargmannState) -> BargmannState:
         """Perform a forward pass for one sample with the Bargmann backend."""

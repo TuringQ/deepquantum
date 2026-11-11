@@ -237,6 +237,44 @@ def test_bargmann_hardware_rejects_unsupported_state_layouts():
         pure.set_hardware_model(dqp.HardwareModel().input(0).submodes([0.8, 0.6]))
 
 
+@pytest.mark.parametrize('den_mat', [False, True])
+@pytest.mark.parametrize('hardware', [False, True])
+def test_forward_cache_is_not_part_of_bargmann_checkpoint(den_mat, hardware):
+    def build():
+        circuit = dq.QumodeCircuit(1, [1], cutoff=3, backend='bargmann', den_mat=den_mat)
+        circuit.ps(0, 0.2)
+        if hardware:
+            model = dqp.HardwareModel()
+            if den_mat:
+                model.output().loss(t=0.8)
+            else:
+                model.ps(0).theta.gaussian(mu=0.1, sigma=0)
+            circuit.set_hardware_model(model)
+        return circuit
+
+    circuit = build()
+    expected_keys = set(circuit.state_dict())
+    output = circuit()
+    assert circuit.state is output and circuit._herald_state is output
+    assert 'state' not in dict(circuit.named_modules())
+    assert '_herald_state' not in dict(circuit.named_modules())
+    checkpoint = circuit.state_dict()
+    assert set(checkpoint) == expected_keys
+    restored = build()
+    restored.load_state_dict(checkpoint)
+    legacy = checkpoint.copy()
+    for cache in ('state', '_herald_state'):
+        for field in ('a', 'b', 'c'):
+            legacy[f'{cache}.{field}'] = getattr(output, field).clone()
+    build().load_state_dict(legacy)
+    legacy['unrelated_cache_key'] = torch.zeros(())
+    with pytest.raises(RuntimeError, match='unrelated_cache_key'):
+        build().load_state_dict(legacy)
+    torch.testing.assert_close(restored().to_fock(3), output.to_fock(3))
+    circuit.to(DT)
+    assert circuit.state is None and circuit._herald_state is None
+
+
 # ---------------------------------------------------------------------- evolution
 
 
