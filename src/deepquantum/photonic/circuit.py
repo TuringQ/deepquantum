@@ -1641,6 +1641,13 @@ class QumodeCircuit(Operation):
         """
         return product_factorial(init_state, 0.5) * product_factorial(final_state, 0.5)
 
+    def _reject_unsupported_bargmann_readout(self, method: str) -> None:
+        if self.backend == 'bargmann':
+            raise NotImplementedError(
+                f'{method} is not supported by the Bargmann backend; '
+                'call cir() and use the returned BargmannState.to_fock(cutoff) for explicit truncated readout'
+            )
+
     def get_amplitude(
         self, final_state: Any, init_state: Any = None, unitary: torch.Tensor | None = None
     ) -> torch.Tensor:
@@ -1655,6 +1662,7 @@ class QumodeCircuit(Operation):
             init_state: The initial Fock basis state. Default: ``None``
             unitary: The unitary matrix. Default: ``None`` (the ideal circuit unitary)
         """
+        self._reject_unsupported_bargmann_readout('get_amplitude()')
         assert self.backend == 'fock'
         if not isinstance(final_state, torch.Tensor):
             final_state = torch.tensor(final_state, dtype=torch.long)
@@ -1699,6 +1707,7 @@ class QumodeCircuit(Operation):
             refer_state: The initial Fock basis state or the final Gaussian state. Default: ``None``
             unitary: The unitary matrix. Default: ``None`` (the ideal circuit unitary)
         """
+        self._reject_unsupported_bargmann_readout('get_prob()')
         if self._submode_circuit is not None:
             if refer_state is not None or unitary is not None:
                 raise ValueError('Submode probabilities use the most recent forward state.')
@@ -2010,6 +2019,7 @@ class QumodeCircuit(Operation):
 
         See https://arxiv.org/pdf/2108.01622 for MCMC.
         """
+        self._reject_unsupported_bargmann_readout('measure()')
         if self._submode_circuit is not None:
             return self._submode_circuit.measure_spatial(shots, with_prob, wires, detector, mcmc)
         assert self.backend in ('fock', 'gaussian'), 'Currently Fock measurement is not supported in Bosonic backend'
@@ -2442,6 +2452,7 @@ class QumodeCircuit(Operation):
             wires: The wires to measure. It can be an integer or a list of integers specifying
                 the indices of the wires. Default: ``None`` (which means all wires are measured)
         """
+        self._reject_unsupported_bargmann_readout('photon_number_mean_var()')
         if self._submode_circuit is not None:
             return self._submode_circuit.spatial_photon_number_mean_var(wires)
 
@@ -2505,6 +2516,7 @@ class QumodeCircuit(Operation):
             lo: Local-oscillator coefficients in the common orthogonal basis, normalized per spatial mode.
                 Default: ``None`` (the first orthogonal basis mode)
         """
+        self._reject_unsupported_bargmann_readout('quadrature_mean()')
         if self._submode_circuit is not None:
             from .submode import _lo_view
 
@@ -2697,6 +2709,7 @@ class QumodeCircuit(Operation):
             phi: The terminal quadrature angle. Default: ``None`` (joint x/p Wigner samples for Gaussian/Bosonic
                 states, x samples for Fock states). Specify an angle for single-quadrature homodyne outcomes.
         """
+        self._reject_unsupported_bargmann_readout('measure_homodyne()')
         if self._submode_circuit is not None:
             from .submode import _lo_view
 

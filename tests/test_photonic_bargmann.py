@@ -417,6 +417,25 @@ def test_batched_encoding_matches_single_samples():
         torch.testing.assert_close(batched[i], cir(data=data[i]).to_fock()[0])
 
 
+@pytest.mark.parametrize(
+    'method,args',
+    [
+        ('get_prob', ([1],)),
+        ('get_amplitude', ([1],)),
+        ('measure', ()),
+        ('photon_number_mean_var', ()),
+        ('quadrature_mean', ()),
+        ('measure_homodyne', ()),
+    ],
+)
+def test_unsupported_bargmann_readout_raises_explicitly(method, args):
+    circuit = dq.QumodeCircuit(1, [1], cutoff=3, backend='bargmann')
+    state = circuit()
+    torch.testing.assert_close(state.to_fock(3)[0], torch.tensor([0, 1, 0], dtype=torch.complex64))
+    with pytest.raises(NotImplementedError, match=rf'{method}.*to_fock'):
+        getattr(circuit, method)(*args)
+
+
 def test_unsupported_operations():
     cir = dq.QumodeCircuit(1, 'vac', cutoff=4, backend='bargmann')
     cir.k(0, 0.1)
