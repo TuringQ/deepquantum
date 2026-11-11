@@ -418,13 +418,28 @@ class BargmannState(nn.Module):
         return state
 
     def _set_ansatz(self, ansatz: PolyExpAnsatz) -> None:
-        self.register_buffer('a', ansatz.a)
-        self.register_buffer('b', ansatz.b)
-        self.register_buffer('c', ansatz.c)
+        self.register_buffer('mat_a', ansatz.mat_a)
+        self.register_buffer('vec_b', ansatz.vec_b)
+        self.register_buffer('coeff_c', ansatz.coeff_c)
         self.n_cv = ansatz.n_cv
 
+    def _load_from_state_dict(
+        self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
+    ):
+        # Accept checkpoints written before the Abc buffer names were clarified.
+        for old, new in (('a', 'mat_a'), ('b', 'vec_b'), ('c', 'coeff_c')):
+            legacy = f'{prefix}{old}'
+            current = f'{prefix}{new}'
+            if legacy in state_dict:
+                if current not in state_dict:
+                    state_dict[current] = state_dict[legacy]
+                del state_dict[legacy]
+        return super()._load_from_state_dict(
+            state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
+        )
+
     def _apply(self, fn: Any) -> 'BargmannState':
-        tensors = {name: self._buffers.pop(name) for name in ('a', 'b', 'c')}
+        tensors = {name: self._buffers.pop(name) for name in ('mat_a', 'vec_b', 'coeff_c')}
         super()._apply(fn)
         for name, value in apply_complex_fix(fn, tensors).items():
             self.register_buffer(name, value)
@@ -438,7 +453,7 @@ class BargmannState(nn.Module):
     @property
     def ansatz(self) -> PolyExpAnsatz:
         """The underlying :class:`PolyExpAnsatz`."""
-        return PolyExpAnsatz(self.a, self.b, self.c, self.n_cv)
+        return PolyExpAnsatz(self.mat_a, self.vec_b, self.coeff_c, self.n_cv)
 
     @property
     def representation(self) -> str:
@@ -448,20 +463,20 @@ class BargmannState(nn.Module):
     @property
     def batch_size(self) -> int:
         """Size of the batch axis."""
-        return self.a.shape[0]
+        return self.mat_a.shape[0]
 
     def select(self, index: int) -> 'BargmannState':
         """Return the batch element ``index`` as a state with batch size 1."""
         sl = slice(index, index + 1)
-        return self._new(PolyExpAnsatz(self.a[sl], self.b[sl], self.c[sl], self.n_cv))
+        return self._new(PolyExpAnsatz(self.mat_a[sl], self.vec_b[sl], self.coeff_c[sl], self.n_cv))
 
     @staticmethod
     def cat(states: list['BargmannState']) -> 'BargmannState':
         """Concatenate states with identical structure along the batch axis."""
         first = states[0]
-        a = torch.cat([s.a for s in states])
-        b = torch.cat([s.b for s in states])
-        c = torch.cat([s.c for s in states])
+        a = torch.cat([s.mat_a for s in states])
+        b = torch.cat([s.vec_b for s in states])
+        c = torch.cat([s.coeff_c for s in states])
         ansatz = PolyExpAnsatz(a, b, c, first.n_cv)
         return first._new(ansatz)
 
@@ -532,7 +547,7 @@ class BargmannState(nn.Module):
     def __repr__(self) -> str:
         return (
             f'BargmannState(nmode={self.nmode}, wires={self.wires}, representation={self.representation!r}, '
-            f'batch={self.batch_size}, derived_shape={tuple(self.c.shape[2:])}, dtype={self.a.dtype})'
+            f'batch={self.batch_size}, derived_shape={tuple(self.coeff_c.shape[2:])}, dtype={self.mat_a.dtype})'
         )
 
 

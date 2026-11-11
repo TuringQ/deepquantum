@@ -48,13 +48,13 @@ def test_invalid_loss_transmittance_rejected(invalid):
 
 @pytest.mark.parametrize('transmittance', [0.0, 1.0])
 def test_loss_endpoints_accepted(transmittance):
-    assert torch.isfinite(loss_kernel(torch.tensor(transmittance)).a).all()
+    assert torch.isfinite(loss_kernel(torch.tensor(transmittance)).mat_a).all()
     assert torch.isfinite(PhotonLoss(inputs=transmittance, convention='t').t).all()
 
 
 def test_loss_interior_gradient():
     t = torch.tensor(0.4, dtype=torch.float64, requires_grad=True)
-    coefficient = loss_kernel(t).a[0, 0, 0, 2].real
+    coefficient = loss_kernel(t).mat_a[0, 0, 0, 2].real
     derivative = torch.autograd.grad(coefficient, t)[0]
     torch.testing.assert_close(derivative, 0.5 / t.sqrt())
     torch.autograd.gradcheck(lambda x: PhotonLoss(inputs=x, convention='t').t, (t,))

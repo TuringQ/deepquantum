@@ -198,14 +198,14 @@ class PolyExpAnsatz:
     where :math:`z` are the ``n_cv`` continuous (CV) variables and :math:`y` are derived
     variables that are differentiated at :math:`y=0`. :math:`G_k` is the renormalized Hermite
     tensor :math:`\exp(\tfrac12y^TAy+\beta^Ty)=\sum_kG_k(A,\beta)\,y^k/\sqrt{k!}`, so that
-    ``c`` pairs directly with Fock coefficients. A Gaussian kernel is the special case with
+    ``coeff_c`` pairs directly with Fock coefficients. A Gaussian kernel is the special case with
     no derived variables.
 
     Conventions (see ``Bargmann/claude_docs/01_bargmann_backend_requirements.md`` Section 6):
 
     * ``A`` is complex symmetric; quadratic forms use the transpose, not the adjoint.
     * Variables are ordered as all CV variables followed by all derived variables.
-    * Axis layout: ``A (B, L, N, N)``, ``b (B, L, N)``, ``c (B, L, *derived_shape)``, where ``B`` is
+    * Axis layout: ``mat_a (B, L, N, N)``, ``vec_b (B, L, N)``, ``coeff_c (B, L, *derived_shape)``, where ``B`` is
       the batch axis and ``L`` the axis of a coherent linear superposition (summed over).
     * Integrals use the Bargmann measure :math:`d\mu(z)=e^{-|z|^2}d^2z/\pi`.
 
@@ -217,51 +217,51 @@ class PolyExpAnsatz:
     conjugate transpose), with absolute and relative tolerances of 100 dtype eps.
 
     Args:
-        a: Complex symmetric tensor of shape ``(B, L, N, N)``.
-        b: Complex tensor of shape ``(B, L, N)``.
-        c: Complex tensor of shape ``(B, L, *derived_shape)`` with ``N - n_cv`` derived axes.
+        mat_a: Complex symmetric tensor of shape ``(B, L, N, N)``.
+        vec_b: Complex tensor of shape ``(B, L, N)``.
+        coeff_c: Complex tensor of shape ``(B, L, *derived_shape)`` with ``N - n_cv`` derived axes.
         n_cv: Number of CV variables, which come first.
     """
 
-    def __init__(self, a: torch.Tensor, b: torch.Tensor, c: torch.Tensor, n_cv: int) -> None:
-        if a.ndim != 4 or a.shape[-1] != a.shape[-2]:
-            raise ValueError('a must have shape (B, L, N, N)')
-        nvar = a.shape[-1]
-        if b.shape != a.shape[:-1]:
-            raise ValueError('b must have shape (B, L, N), matching a')
-        if c.ndim < 2 or c.shape[:2] != a.shape[:2]:
-            raise ValueError('c must have shape (B, L, *derived_shape), matching a')
-        if not 0 <= n_cv <= nvar or c.ndim - 2 != nvar - n_cv:
-            raise ValueError('c must have one axis per derived variable')
-        if not (a.is_complex() and a.dtype == b.dtype == c.dtype):
-            raise ValueError('a, b and c must share one complex dtype')
-        if not a.device == b.device == c.device:
-            raise ValueError('a, b and c must be on the same device')
-        for name, value in (('a', a), ('b', b), ('c', c)):
+    def __init__(self, mat_a: torch.Tensor, vec_b: torch.Tensor, coeff_c: torch.Tensor, n_cv: int) -> None:
+        if mat_a.ndim != 4 or mat_a.shape[-1] != mat_a.shape[-2]:
+            raise ValueError('mat_a must have shape (B, L, N, N)')
+        nvar = mat_a.shape[-1]
+        if vec_b.shape != mat_a.shape[:-1]:
+            raise ValueError('vec_b must have shape (B, L, N), matching mat_a')
+        if coeff_c.ndim < 2 or coeff_c.shape[:2] != mat_a.shape[:2]:
+            raise ValueError('coeff_c must have shape (B, L, *derived_shape), matching mat_a')
+        if not 0 <= n_cv <= nvar or coeff_c.ndim - 2 != nvar - n_cv:
+            raise ValueError('coeff_c must have one axis per derived variable')
+        if not (mat_a.is_complex() and mat_a.dtype == vec_b.dtype == coeff_c.dtype):
+            raise ValueError('mat_a, vec_b and coeff_c must share one complex dtype')
+        if not mat_a.device == vec_b.device == coeff_c.device:
+            raise ValueError('mat_a, vec_b and coeff_c must be on the same device')
+        for name, value in (('mat_a', mat_a), ('vec_b', vec_b), ('coeff_c', coeff_c)):
             if not bool(torch.isfinite(value).all()):
                 raise ValueError(f'{name} must contain only finite values')
-        tolerance = 100 * torch.finfo(a.real.dtype).eps
-        if not torch.allclose(a, a.mT, atol=tolerance, rtol=tolerance):
-            raise ValueError('a must be complex symmetric (a == a.T), not necessarily Hermitian')
-        self.a = a
-        self.b = b
-        self.c = c
+        tolerance = 100 * torch.finfo(mat_a.real.dtype).eps
+        if not torch.allclose(mat_a, mat_a.mT, atol=tolerance, rtol=tolerance):
+            raise ValueError('mat_a must be complex symmetric (mat_a == mat_a.T), not necessarily Hermitian')
+        self.mat_a = mat_a
+        self.vec_b = vec_b
+        self.coeff_c = coeff_c
         self.n_cv = int(n_cv)
 
     @property
     def batch_size(self) -> int:
         """Size of the batch axis."""
-        return self.a.shape[0]
+        return self.mat_a.shape[0]
 
     @property
     def nlin(self) -> int:
         """Number of terms in the linear superposition."""
-        return self.a.shape[1]
+        return self.mat_a.shape[1]
 
     @property
     def nvar(self) -> int:
         """Total number of variables."""
-        return self.a.shape[-1]
+        return self.mat_a.shape[-1]
 
     @property
     def n_derived(self) -> int:
@@ -271,24 +271,24 @@ class PolyExpAnsatz:
     @property
     def derived_shape(self) -> tuple[int, ...]:
         """Shape of the derived axes of ``c``."""
-        return tuple(self.c.shape[2:])
+        return tuple(self.coeff_c.shape[2:])
 
     @property
     def dtype(self) -> torch.dtype:
         """Complex dtype."""
-        return self.a.dtype
+        return self.mat_a.dtype
 
     @property
     def device(self) -> torch.device:
         """Device."""
-        return self.a.device
+        return self.mat_a.device
 
     def to(self, dtype: torch.dtype | None = None, device: torch.device | str | None = None) -> 'PolyExpAnsatz':
         """Return a copy with the given complex dtype and/or device."""
         return PolyExpAnsatz(
-            self.a.to(device=device, dtype=dtype),
-            self.b.to(device=device, dtype=dtype),
-            self.c.to(device=device, dtype=dtype),
+            self.mat_a.to(device=device, dtype=dtype),
+            self.vec_b.to(device=device, dtype=dtype),
+            self.coeff_c.to(device=device, dtype=dtype),
             self.n_cv,
         )
 
@@ -299,22 +299,22 @@ class PolyExpAnsatz:
         if self.batch_size != 1:
             raise ValueError(f'Cannot broadcast batch size {self.batch_size} to {batch}')
         return PolyExpAnsatz(
-            self.a.expand(batch, *self.a.shape[1:]),
-            self.b.expand(batch, *self.b.shape[1:]),
-            self.c.expand(batch, *self.c.shape[1:]),
+            self.mat_a.expand(batch, *self.mat_a.shape[1:]),
+            self.vec_b.expand(batch, *self.vec_b.shape[1:]),
+            self.coeff_c.expand(batch, *self.coeff_c.shape[1:]),
             self.n_cv,
         )
 
     def conj(self) -> 'PolyExpAnsatz':
         r"""Complex-conjugate all coefficients, giving the kernel :math:`F^\#` of the bra side."""
-        return PolyExpAnsatz(self.a.conj(), self.b.conj(), self.c.conj(), self.n_cv)
+        return PolyExpAnsatz(self.mat_a.conj(), self.vec_b.conj(), self.coeff_c.conj(), self.n_cv)
 
     def _permute_vars(self, perm: list[int]) -> 'PolyExpAnsatz':
         """Permute variables of ``A`` and ``b`` only; ``c`` must already match the new derived order."""
         idx = torch.tensor(perm, dtype=torch.long, device=self.device)
-        a = self.a[..., idx, :][..., :, idx]
-        b = self.b[..., idx]
-        return PolyExpAnsatz(a, b, self.c, self.n_cv)
+        a = self.mat_a[..., idx, :][..., :, idx]
+        b = self.vec_b[..., idx]
+        return PolyExpAnsatz(a, b, self.coeff_c, self.n_cv)
 
     def reorder(self, perm: list[int]) -> 'PolyExpAnsatz':
         """Reorder CV variables: new CV variable ``i`` is old CV variable ``perm[i]``."""
@@ -336,12 +336,14 @@ class PolyExpAnsatz:
         f, g = self.expand_batch(batch), other.expand_batch(batch)
         l1, l2 = f.nlin, g.nlin
         n1, n2 = f.nvar, g.nvar
-        a = f.a.new_zeros(batch, l1, l2, n1 + n2, n1 + n2)
-        a[..., :n1, :n1] = f.a[:, :, None]
-        a[..., n1:, n1:] = g.a[:, None]
-        b = torch.cat([f.b[:, :, None].expand(-1, -1, l2, -1), g.b[:, None].expand(-1, l1, -1, -1)], dim=-1)
+        a = f.mat_a.new_zeros(batch, l1, l2, n1 + n2, n1 + n2)
+        a[..., :n1, :n1] = f.mat_a[:, :, None]
+        a[..., n1:, n1:] = g.mat_a[:, None]
+        b = torch.cat([f.vec_b[:, :, None].expand(-1, -1, l2, -1), g.vec_b[:, None].expand(-1, l1, -1, -1)], dim=-1)
         d1, d2 = f.derived_shape, g.derived_shape
-        c = f.c.reshape(batch, l1, 1, *d1, *([1] * len(d2))) * g.c.reshape(batch, 1, l2, *([1] * len(d1)), *d2)
+        c = f.coeff_c.reshape(batch, l1, 1, *d1, *([1] * len(d2))) * g.coeff_c.reshape(
+            batch, 1, l2, *([1] * len(d1)), *d2
+        )
         out = PolyExpAnsatz(
             a.reshape(batch, l1 * l2, n1 + n2, n1 + n2),
             b.reshape(batch, l1 * l2, n1 + n2),
@@ -364,11 +366,11 @@ class PolyExpAnsatz:
         if any(i >= self.n_cv or j >= self.n_cv for i, j in pairs):
             raise ValueError('Only CV variables can be integrated')
         batch, nlin, nvar = self.batch_size, self.nlin, self.nvar
-        a = self.a.reshape(batch * nlin, nvar, nvar)
-        b = self.b.reshape(batch * nlin, nvar)
+        a = self.mat_a.reshape(batch * nlin, nvar, nvar)
+        b = self.vec_b.reshape(batch * nlin, nvar)
         a, b, factor, _ = gaussian_contract(a, b, pairs)
         nkeep = a.shape[-1]
-        c = self.c * factor.reshape(batch, nlin, *([1] * self.n_derived))
+        c = self.coeff_c * factor.reshape(batch, nlin, *([1] * self.n_derived))
         return PolyExpAnsatz(
             a.reshape(batch, nlin, nkeep, nkeep), b.reshape(batch, nlin, nkeep), c, self.n_cv - 2 * len(pairs)
         )
@@ -388,13 +390,13 @@ class PolyExpAnsatz:
         batch, nlin, nvar = self.batch_size, self.nlin, self.nvar
         derived = self.derived_shape
         bounds = cutoffs + derived
-        ones = self.a.new_ones(batch * nlin)
+        ones = self.mat_a.new_ones(batch * nlin)
         # Explicit sizes: with no variables left (nvar == 0) a reshape with -1 would be ambiguous.
-        a = self.a.reshape(batch * nlin, nvar, nvar)
-        b = self.b.reshape(batch * nlin, nvar)
+        a = self.mat_a.reshape(batch * nlin, nvar, nvar)
+        b = self.vec_b.reshape(batch * nlin, nvar)
         g = _fock_coefficients(a, b, ones, bounds)
         g = g.reshape(batch, nlin, *bounds)
-        c = self.c.reshape(batch, nlin, *([1] * self.n_cv), *derived)
+        c = self.coeff_c.reshape(batch, nlin, *([1] * self.n_cv), *derived)
         g = g * c
         if derived:
             g = g.sum(dim=tuple(range(2 + self.n_cv, 2 + self.n_cv + len(derived))))
@@ -664,11 +666,11 @@ def _project_pnr_ansatz(
     perm = remaining + list(range(old.n_cv, old.nvar)) + measured
     idx = torch.tensor(perm, device=old.device)
     bounds = tuple(h + 1 for h in counts)
-    _check_work(old.derived_shape + bounds, old.batch_size * old.nlin, old.c.element_size())
-    selector = old.c.new_zeros(bounds)
+    _check_work(old.derived_shape + bounds, old.batch_size * old.nlin, old.coeff_c.element_size())
+    selector = old.coeff_c.new_zeros(bounds)
     selector[counts] = 1
-    c = old.c.reshape(*old.c.shape, *([1] * len(counts))) * selector
-    ansatz = PolyExpAnsatz(old.a[..., idx, :][..., idx], old.b[..., idx], c, len(remaining))
+    c = old.coeff_c.reshape(*old.coeff_c.shape, *([1] * len(counts))) * selector
+    ansatz = PolyExpAnsatz(old.mat_a[..., idx, :][..., idx], old.vec_b[..., idx], c, len(remaining))
     return ansatz
 
 

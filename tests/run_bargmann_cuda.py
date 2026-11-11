@@ -59,7 +59,7 @@ def native_case(device, dtype, cutoff, density=False):
         cir.loss_t(0, encode=True)
     cir.to(device=device, dtype=dtype)
     original = cir(data=transmittance.reshape(1)) if density else cir()
-    state, p, info = cir.heralded_state(0, 1, cutoff=1, normalize=True, return_info=True)
+    state, p, info = cir.post_select(0, 1, cutoff=1, normalize=True, return_info=True)
     verify_state(state, device, dtype)
     assert cir.state is original and state.wires == (0,) and info['remaining_wires'] == (1,)
     assert info['probability_in_cutoff'] is None and info['retained_fraction'] is None
@@ -96,7 +96,7 @@ def batch_case(device, dtype, cutoff, batch):
     cir.d(1, 0.12, 0.21)
     cir.to(device=device, dtype=dtype)
     cir(data=data)
-    state, p = cir.heralded_state(0, 1)
+    state, p = cir.post_select(0, 1, normalize=False)
     verify_state(state, device, dtype)
     close(p, (1 - data[:, 0].tanh().square()) * data[:, 0].tanh().square(), dtype)
     fock = state.to_fock(cutoff)
@@ -115,7 +115,7 @@ def derived_case(device, dtype, cutoff):
     psi = (psi / psi.norm()).to(device)
     cir = dq.QumodeCircuit(3, BargmannState(psi, nmode=3), backend='bargmann')
     cir()
-    state, p, info = cir.heralded_state([2, 0], [1, 2], return_info=True)
+    state, p, info = cir.post_select([2, 0], [1, 2], return_info=True, normalize=False)
     verify_state(state, device, dtype)
     assert info['remaining_wires'] == (1,)
     expected = psi[:, 2, :, 1]
@@ -134,7 +134,7 @@ def superposition_case(device, dtype, cutoff):
     source = BargmannState(PolyExpAnsatz(a, b, c, 2))
     cir = dq.QumodeCircuit(2, source, backend='bargmann')
     cir()
-    state, p = cir.heralded_state(0, 1)
+    state, p = cir.post_select(0, 1, normalize=False)
     verify_state(state, device, dtype)
     coeff = c[0] * alpha
     beta = 0.5 * alpha
@@ -155,13 +155,13 @@ def two_rounds(device, dtype, cutoff, steps):
         first.s2([0, 1], r, 0.0)
         first.to(device=device, dtype=dtype)
         first()
-        state, p1 = first.heralded_state(0, 1)
+        state, p1 = first.post_select(0, 1, normalize=False)
         second = dq.QumodeCircuit(2, state, backend='bargmann')
         second.bs([0, 1], [theta, 0.0])
         second.loss_t(1, 0.8)
         second.to(device=device, dtype=dtype)
         second()
-        result, p12, info = second.heralded_state(1, 0, return_info=True)
+        result, p12, info = second.post_select(1, 0, return_info=True, normalize=False)
         verify_state(result, device, dtype)
         # Use the actual loss tensor: Python float gate initialization may start in float32.
         transmittance = second.operators[1].t
@@ -188,12 +188,12 @@ def two_rounds(device, dtype, cutoff, steps):
 def edge_case(device, dtype, cutoff):
     cir = dq.QumodeCircuit(2, 'vac', backend='bargmann').to(device=device, dtype=dtype)
     cir()
-    zero, p = cir.heralded_state(0, 1)
+    zero, p = cir.post_select(0, 1, normalize=False)
     verify_state(zero, device, dtype)
     close(p, torch.zeros_like(p), dtype)
     for wires, photons, normalize in [(0, 1, True), ([], [], False), ([0, 1], [0, 0], False)]:
         try:
-            cir.heralded_state(wires, photons, normalize=normalize)
+            cir.post_select(wires, photons, normalize=normalize)
         except ValueError:
             pass
         else:
@@ -272,7 +272,7 @@ def main(default_device='cuda:0', default_output='bargmann_cuda_report.json'):
     selected_dtype = args.dtype
     if selected_dtype == 'auto':
         selected_dtype = 'float32' if device.type == 'mps' else 'both'
-    if not hasattr(dq.QumodeCircuit, 'heralded_state_bargmann'):
+    if not hasattr(dq.QumodeCircuit, 'post_select'):
         parser.error(f'Loaded old DeepQuantum without native heralding: {dq.__file__}')
     revision = None
     if (REPO / '.git').exists():

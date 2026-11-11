@@ -137,7 +137,7 @@ class Loss(nn.Module):
             theta = theta.to(state[0])
         elif run.backend == 'bargmann':
             nmode, cutoff = state.nmode, state.cutoff
-            theta = theta.to(state.a.real)
+            theta = theta.to(state.mat_a.real)
         elif run.backend == 'fock':
             nmode, cutoff = run.nmode, 2
             if not run.basis:

@@ -37,6 +37,19 @@ def ansatz(a, b, c, n_cv):
     return PolyExpAnsatz(a.reshape(1, 1, nvar, nvar), b.reshape(1, 1, nvar), c.reshape(1, 1, *c.shape), n_cv)
 
 
+def test_abc_field_names_and_legacy_state_checkpoint():
+    mat_a = torch.zeros(1, 1, 1, 1, dtype=CT)
+    vec_b = torch.zeros(1, 1, 1, dtype=CT)
+    coeff_c = torch.ones(1, 1, dtype=CT)
+    ansatz = PolyExpAnsatz(mat_a=mat_a, vec_b=vec_b, coeff_c=coeff_c, n_cv=1)
+    state = BargmannState(ansatz)
+    assert set(state.state_dict()) == {'mat_a', 'vec_b', 'coeff_c'}
+    legacy = {'a': mat_a, 'b': vec_b, 'c': coeff_c}
+    restored = BargmannState('vac').to(DT)
+    restored.load_state_dict(legacy)
+    torch.testing.assert_close(restored.to_fock(2), state.to_fock(2))
+
+
 # ---------------------------------------------------------------------- algebra
 
 
@@ -58,8 +71,8 @@ def test_identity_contraction():
     a0 = 0.3 + 0.2j
     joint = ansatz([[0, 1, 0], [1, 0, 0], [0, 0, a0]], [0, 0, 0], 1, 3)
     out = joint.contract([(1, 2)])
-    torch.testing.assert_close(out.a[0, 0], torch.tensor([[a0]], dtype=CT))
-    torch.testing.assert_close(out.c[0, 0], torch.tensor(1, dtype=CT))
+    torch.testing.assert_close(out.mat_a[0, 0], torch.tensor([[a0]], dtype=CT))
+    torch.testing.assert_close(out.coeff_c[0, 0], torch.tensor(1, dtype=CT))
 
 
 def test_thermal_trace():
@@ -223,9 +236,9 @@ def test_replacing_hardware_model_invalidates_bargmann_herald_cache():
     circuit()
     circuit.set_hardware_model(dqp.HardwareModel().output(0).loss(t=0.5))
     with pytest.raises(RuntimeError, match='Run the circuit forward'):
-        circuit.heralded_state(0, 1)
+        circuit.post_select(0, 1, normalize=False)
     circuit()
-    _, probability = circuit.heralded_state(0, 1)
+    _, probability = circuit.post_select(0, 1, normalize=False)
     torch.testing.assert_close(probability, torch.tensor([0.5]))
 
 
@@ -262,10 +275,17 @@ def test_forward_cache_is_not_part_of_bargmann_checkpoint(den_mat, hardware):
     assert set(checkpoint) == expected_keys
     restored = build()
     restored.load_state_dict(checkpoint)
+    old_buffers = {
+        key.rsplit('.', 1)[0] + '.' + {'mat_a': 'a', 'vec_b': 'b', 'coeff_c': 'c'}[key.rsplit('.', 1)[1]]
+        if key.rsplit('.', 1)[1] in ('mat_a', 'vec_b', 'coeff_c')
+        else key: value
+        for key, value in checkpoint.items()
+    }
+    build().load_state_dict(old_buffers)
     legacy = checkpoint.copy()
     for cache in ('state', '_herald_state'):
-        for field in ('a', 'b', 'c'):
-            legacy[f'{cache}.{field}'] = getattr(output, field).clone()
+        for old, current in (('a', 'mat_a'), ('b', 'vec_b'), ('c', 'coeff_c')):
+            legacy[f'{cache}.{old}'] = getattr(output, current).clone()
     build().load_state_dict(legacy)
     legacy['unrelated_cache_key'] = torch.zeros(())
     with pytest.raises(RuntimeError, match='unrelated_cache_key'):
@@ -308,8 +328,8 @@ def test_gaussian_circuit_matches_gaussian_backend(den_mat, loss):
     reference = moments_density(cov, mean, cutoff)
     state = gaussian_circuit('bargmann', den_mat=den_mat, loss=loss, cutoff=cutoff)()
     assert isinstance(state, BargmannState)
-    assert state.a.dtype == CT
-    assert state.c.shape[2:] == ()  # Gaussian states carry no derived variables
+    assert state.mat_a.dtype == CT
+    assert state.coeff_c.shape[2:] == ()  # Gaussian states carry no derived variables
     rho = state.to_dm().to_fock(cutoff)
     torch.testing.assert_close(rho, reference, atol=1e-10, rtol=1e-8)
     torch.testing.assert_close(state.norm(), torch.ones(1, dtype=DT), atol=1e-10, rtol=1e-10)
@@ -337,7 +357,7 @@ def test_fock_input_passive_and_loss_match_fock_backend(den_mat):
 
     reference = build('fock')()
     state = build('bargmann')()
-    assert state.c.shape[2:] == ((2, 1, 2) * (2 if den_mat else 1))
+    assert state.coeff_c.shape[2:] == ((2, 1, 2) * (2 if den_mat else 1))
     torch.testing.assert_close(state.to_fock(3), reference, atol=1e-12, rtol=1e-10)
     torch.testing.assert_close(state.norm(), torch.ones(1, dtype=DT), atol=1e-12, rtol=1e-12)
 

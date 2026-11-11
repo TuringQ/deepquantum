@@ -29,7 +29,7 @@ def test_two_mode_squeezing(backend, den_mat):
     cir.to(torch.float64)
     cir()
     for photons in (0, 1, 2):
-        state, prob, info = cir.heralded_state(0, photons, normalize=True, return_info=True)
+        state, prob, info = cir.post_select(0, photons, normalize=True, return_info=True)
         r = cir.operators[0].r.detach().double()
         expected_prob = (1 - r.tanh() ** 2) * r.tanh() ** (2 * photons)
         torch.testing.assert_close(prob, expected_prob.reshape(1), atol=1e-10, rtol=1e-8)
@@ -52,7 +52,7 @@ def test_coherent_complex_phase_and_cutoff(den_mat):
     reference_prob = coherent_ket(0.4 + 0.7j, 4)[3].abs().square()
     masses = []
     for cutoff in (2, 5, 10):
-        state, prob, info = cir.heralded_state(0, 3, cutoff=cutoff, normalize=True, return_info=True)
+        state, prob, info = cir.post_select(0, 3, cutoff=cutoff, normalize=True, return_info=True)
         ket = coherent_ket(1.2 - 0.6j, cutoff)
         herald_amp = coherent_ket(0.4 + 0.7j, 4)[3]
         expected = ket * herald_amp / reference_prob.sqrt()
@@ -76,7 +76,7 @@ def test_fock_unsorted_modes_and_source_probability(density):
         source = (vector[:, :, None] * vector[:, None, :].conj()).reshape(2, *([3] * 8))
     cir = dq.QumodeCircuit(4, source, cutoff=3, basis=False, den_mat=density)
     full = cir()
-    state, prob, info = cir.heralded_state([2, 0], [1, 2], cutoff=2, return_info=True)
+    state, prob, info = cir.post_select([2, 0], [1, 2], cutoff=2, return_info=True, normalize=False)
     selected = ket[:, 2, :, 1, :]
     torch.testing.assert_close(prob, selected.abs().square().sum((1, 2)))
     selected = selected[:, :2, :2]
@@ -98,7 +98,7 @@ def test_thermal_mixed_batch_and_multiple_remaining_modes():
     mean = torch.zeros(2, 6, 1, dtype=torch.float64)
     cir = dq.QumodeCircuit(3, [cov, mean], backend='gaussian', den_mat=True)
     cir(stepwise=True)
-    state, prob, info = cir.heralded_state(1, 0, cutoff=4, return_info=True)
+    state, prob, info = cir.post_select(1, 0, cutoff=4, return_info=True, normalize=False)
     assert info['representation'] == 'dm'
     assert state.shape == (2, 4, 4, 4, 4)
     expected = torch.zeros_like(state)
@@ -112,7 +112,7 @@ def test_thermal_mixed_batch_and_multiple_remaining_modes():
     ket_cir = dq.QumodeCircuit(3, [cov, mean], backend='gaussian', den_mat=False)
     ket_cir(stepwise=True)
     with pytest.raises(ValueError, match='den_mat=True'):
-        ket_cir.heralded_state(1, 0)
+        ket_cir.post_select(1, 0, normalize=False)
 
 
 def optical_circuit(backend, cutoff, loss=False):
@@ -134,8 +134,8 @@ def test_gaussian_against_fock_evolution(loss):
     fock = optical_circuit('fock', 12, loss)
     gaussian()
     fock()
-    gs, gp = gaussian.heralded_state(0, 1, cutoff=5)
-    fs, fp = fock.heralded_state(0, 1, cutoff=5)
+    gs, gp = gaussian.post_select(0, 1, cutoff=5, normalize=False)
+    fs, fp = fock.post_select(0, 1, cutoff=5, normalize=False)
     torch.testing.assert_close(gs, fs, atol=2e-8, rtol=2e-6)
     torch.testing.assert_close(gp, fp, atol=2e-8, rtol=2e-6)
     torch.testing.assert_close(gs, gs.mH, atol=1e-12, rtol=1e-10)
@@ -148,26 +148,26 @@ def test_forward_probability_cache_and_invalidation(backend, density):
     cir.s2([0, 1], 0.2)
     cir.to(torch.float64)
     with pytest.raises(RuntimeError, match='forward'):
-        cir.heralded_state(0, 1)
+        cir.post_select(0, 1, normalize=False)
     cir()
-    expected = cir.heralded_state(0, 1)
+    expected = cir.post_select(0, 1, normalize=False)
     probabilities = cir(is_prob=True)
-    actual = cir.heralded_state(0, 1)
+    actual = cir.post_select(0, 1, normalize=False)
     for a, b in zip(actual, expected, strict=True):
         torch.testing.assert_close(a, b)
     assert cir.state is probabilities
     cir.ps(0, 0.1)
     cir.to(torch.float64)
     with pytest.raises(RuntimeError, match='forward'):
-        cir.heralded_state(0, 1)
+        cir.post_select(0, 1, normalize=False)
     cir()
     cir.to(torch.float64)
     with pytest.raises(RuntimeError, match='forward'):
-        cir.heralded_state(0, 1)
+        cir.post_select(0, 1, normalize=False)
     cir()
     cir.set_init_state('vac')
     with pytest.raises(RuntimeError, match='forward'):
-        cir.heralded_state(0, 1)
+        cir.post_select(0, 1, normalize=False)
 
 
 @pytest.mark.parametrize('backend', ['gaussian', 'fock'])
@@ -177,7 +177,7 @@ def test_encoded_batch_and_gradient(backend):
     cir.to(torch.float64)
     data = torch.tensor([[0.21, 0.13], [0.34, 0.27]], dtype=torch.float64, requires_grad=True)
     cir(data)
-    state, prob = cir.heralded_state(0, 1)
+    state, prob = cir.post_select(0, 1, normalize=False)
     assert state.shape == (2, 5)
     reference_prob = (1 - data[:, 0].tanh().square()) * data[:, 0].tanh().square()
     torch.testing.assert_close(prob, reference_prob)
@@ -186,7 +186,7 @@ def test_encoded_batch_and_gradient(backend):
     torch.testing.assert_close(actual_grad, expected_grad, atol=1e-8, rtol=1e-6)
     for i in range(2):
         cir(data[i])
-        single_state, single_prob = cir.heralded_state(0, 1)
+        single_state, single_prob = cir.post_select(0, 1, normalize=False)
         torch.testing.assert_close(single_state[0], state[i])
         torch.testing.assert_close(single_prob[0], prob[i])
 
@@ -227,7 +227,7 @@ def test_gradcheck_mixed_loss_parameter():
 def test_requires_measured_and_remaining_modes(backend, den_mat, nmode):
     cir = dq.QumodeCircuit(nmode, 'vac', cutoff=3, backend=backend, basis=False, den_mat=den_mat)
     cir()
-    for method in (cir.heralded_state, getattr(cir, f'heralded_state_{backend}')):
+    for method in (lambda *args: cir.post_select(*args, normalize=False), getattr(cir, f'_post_select_{backend}')):
         with pytest.raises(ValueError, match='at least one measured mode'):
             method([], [])
         with pytest.raises(ValueError, match='at least one remaining mode'):
@@ -242,15 +242,15 @@ def test_requires_measured_and_remaining_modes(backend, den_mat, nmode):
 def test_zero_probability_and_cutoff_excludes_output(backend):
     cir = dq.QumodeCircuit(2, 'vac', cutoff=3, backend=backend, basis=False)
     cir()
-    state, prob, info = cir.heralded_state(0, 1, return_info=True)
+    state, prob, info = cir.post_select(0, 1, return_info=True, normalize=False)
     assert torch.count_nonzero(state) == 0
     assert prob.item() == 0
     assert torch.isnan(info['retained_fraction']).all()
     with pytest.raises(ValueError, match='zero-probability'):
-        cir.heralded_state(0, 1, normalize=True)
+        cir.post_select(0, 1, normalize=True)
     cir.s2([0, 1], 0.3)
     cir()
-    state, prob, info = cir.heralded_state(0, 1, cutoff=1, normalize=True, return_info=True)
+    state, prob, info = cir.post_select(0, 1, cutoff=1, normalize=True, return_info=True)
     assert prob.item() > 0
     assert torch.count_nonzero(state) == 0
     assert info['retained_fraction'].item() == 0
@@ -276,25 +276,25 @@ def test_invalid_arguments(wires, herald, cutoff):
     cir = dq.QumodeCircuit(2, 'vac', backend='gaussian')
     cir()
     with pytest.raises(ValueError):
-        cir.heralded_state(wires, herald, cutoff)
+        cir.post_select(wires, herald, cutoff=cutoff, normalize=False)
 
 
 def test_unsupported_inputs():
     basis = dq.QumodeCircuit(2, [1, 0])
     with pytest.raises(NotImplementedError, match='basis=False'):
-        basis.heralded_state(0, 1)
+        basis.post_select(0, 1, normalize=False)
     bosonic = dq.QumodeCircuit(2, 'vac', backend='bosonic')
     with pytest.raises(NotImplementedError):
-        bosonic.heralded_state(0, 1)
+        bosonic.post_select(0, 1, normalize=False)
     mps = dq.QumodeCircuit(2, 'vac', cutoff=3, basis=False, mps=True)
     with pytest.raises(NotImplementedError, match='MPS'):
-        mps.heralded_state(0, 0)
+        mps.post_select(0, 0, normalize=False)
     density = dq.QumodeCircuit(2, 'vac', cutoff=3, basis=False, den_mat=True)
     density()
     with pytest.raises(ValueError, match='simulated Fock'):
-        density.heralded_state(0, 3)
+        density.post_select(0, 3, normalize=False)
     with pytest.raises(ValueError, match='simulated Fock'):
-        density.heralded_state(0, 0, cutoff=4)
+        density.post_select(0, 0, cutoff=4, normalize=False)
 
 
 @pytest.mark.parametrize('hbar,kappa', [(1.0, 1.0), (3.0, 0.4)])
@@ -306,13 +306,13 @@ def test_nondefault_units(hbar, kappa):
         cov, mean = moments_coherent([0.2 + 0.5j, 0.6 - 0.3j])
         cir = dq.QumodeCircuit(2, [cov, mean], backend='gaussian')
         cir(stepwise=True)
-        state, prob = cir.heralded_state(0, 1, cutoff=5)
+        state, prob = cir.post_select(0, 1, cutoff=5, normalize=False)
         expected = coherent_ket(0.2 + 0.5j, 2)[1] * coherent_ket(0.6 - 0.3j, 5)
         torch.testing.assert_close(state[0], expected)
         torch.testing.assert_close(prob[0], coherent_ket(0.2 + 0.5j, 2)[1].abs().square())
         dqp.set_hbar(hbar + 1)
         with pytest.raises(RuntimeError, match='units changed'):
-            cir.heralded_state(0, 1)
+            cir.post_select(0, 1, normalize=False)
     finally:
         dqp.set_hbar(old[0])
         dqp.set_kappa(old[1])
@@ -323,7 +323,7 @@ def test_against_thewalrus(loss):
     walrus = pytest.importorskip('thewalrus.quantum')
     cir = optical_circuit('gaussian', 5, loss)
     cov, mean = cir()
-    state, prob = cir.heralded_state(0, 1, cutoff=5)
+    state, prob = cir.post_select(0, 1, cutoff=5, normalize=False)
     reference = walrus.density_matrix(
         mean[0].detach().numpy().flatten(), cov[0].detach().numpy(), post_select={0: 1}, cutoff=5
     )
@@ -344,7 +344,7 @@ def test_single_mode_polynomial_matches_full_density_recurrence():
     cir.loss_t(1, 0.74)
     cir.to(torch.float64)
     cov, mean = cir()
-    state, _ = cir.heralded_state([1, 0], [1, 2], cutoff=4)
+    state, _ = cir.post_select([1, 0], [1, 2], cutoff=4, normalize=False)
     a, b, c = gaussian_to_bargmann(cov, mean)
     full = _fock_coefficients(a, b, c, (3, 2, 4, 3, 2, 4))
     torch.testing.assert_close(state, full[:, 2, 1, :, 2, 1, :], atol=1e-12, rtol=1e-9)
@@ -354,7 +354,7 @@ def test_memory_guard():
     cir = dq.QumodeCircuit(3, 'vac', backend='gaussian', den_mat=True)
     cir()
     with pytest.raises(MemoryError, match='working-set'):
-        cir.heralded_state(0, 10000, cutoff=10000)
+        cir.post_select(0, 10000, cutoff=10000, normalize=False)
 
 
 @pytest.mark.parametrize('device', ['cpu', 'cuda', 'mps'])
@@ -369,7 +369,7 @@ def test_device_dtype(device, backend, den_mat):
     cir.s2([0, 1], 0.2)
     cir.to(device=device, dtype=torch.float32)
     cir()
-    state, prob = cir.heralded_state(0, 1, cutoff=4)
+    state, prob = cir.post_select(0, 1, cutoff=4, normalize=False)
     assert state.dtype == torch.complex64
     assert prob.dtype == torch.float32
     assert state.device.type == prob.device.type == device
@@ -384,11 +384,11 @@ def test_batched_mixed_polynomial_and_density_forward():
     gaussian.to(torch.float64)
     data = torch.tensor([[0.21, 0.3], [0.4, -0.2]], dtype=torch.float64)
     gaussian(data)
-    state, prob = gaussian.heralded_state(0, 1, cutoff=4)
+    state, prob = gaussian.post_select(0, 1, cutoff=4, normalize=False)
     assert state.shape == (2, 4, 4)
     for i in range(2):
         gaussian(data[i])
-        single_state, single_prob = gaussian.heralded_state(0, 1, cutoff=4)
+        single_state, single_prob = gaussian.post_select(0, 1, cutoff=4, normalize=False)
         torch.testing.assert_close(single_state[0], state[i])
         torch.testing.assert_close(single_prob[0], prob[i])
     # Continue the conditional state in a dense density-matrix circuit, preserving batch.
@@ -409,12 +409,12 @@ def test_correlated_multimode_density_against_walrus():
     cir.loss_t(0, 0.7)
     cir.to(torch.float64)
     cov, mean = cir()
-    state, _ = cir.heralded_state(1, 1, cutoff=3)
+    state, _ = cir.post_select(1, 1, cutoff=3, normalize=False)
     reference = walrus.density_matrix(mean[0, :, 0].numpy(), cov[0].numpy(), post_select={1: 1}, cutoff=3)
     # Walrus: ket0,bra0,ket2,bra2. DeepQuantum: ket0,ket2,bra0,bra2.
     torch.testing.assert_close(state[0], torch.as_tensor(reference).permute(0, 2, 1, 3), atol=1e-10, rtol=1e-8)
-    reversed_state, reversed_prob = cir.heralded_state([2, 0], [1, 0], cutoff=3)
-    ordered_state, ordered_prob = cir.heralded_state([0, 2], [0, 1], cutoff=3)
+    reversed_state, reversed_prob = cir.post_select([2, 0], [1, 0], cutoff=3, normalize=False)
+    ordered_state, ordered_prob = cir.post_select([0, 2], [0, 1], cutoff=3, normalize=False)
     torch.testing.assert_close(reversed_state, ordered_state)
     torch.testing.assert_close(reversed_prob, ordered_prob)
 
@@ -430,7 +430,7 @@ def test_training_loop(backend):
     for _ in range(5):
         optimizer.zero_grad()
         cir(parameters)
-        state, prob = cir.heralded_state(0, 1, normalize=True)
+        state, prob = cir.post_select(0, 1, normalize=True)
         fidelity = state[:, 1].abs().square()
         loss = (1 - fidelity - 0.1 * prob.log()).mean()
         loss.backward()
@@ -448,8 +448,8 @@ def test_no_rerun_of_noisy_gates():
     handle = cir.hardware_model.register_forward_hook(lambda *args: calls.append(1))
     try:
         cir(is_prob=True)
-        first = cir.heralded_state(0, 1)
-        second = cir.heralded_state(0, 1)
+        first = cir.post_select(0, 1, normalize=False)
+        second = cir.post_select(0, 1, normalize=False)
         assert len(calls) == 1
         for left, right in zip(first, second, strict=True):
             torch.testing.assert_close(left, right)
@@ -462,7 +462,7 @@ def test_broadcast_covariance_with_batched_means():
     _, mean2 = moments_coherent([0.5 - 0.2j, 0.3 + 0.6j])
     cir = dq.QumodeCircuit(2, [cov, torch.cat((mean1, mean2))], backend='gaussian')
     cir(stepwise=True)
-    state, prob = cir.heralded_state(0, 1, cutoff=4)
+    state, prob = cir.post_select(0, 1, cutoff=4, normalize=False)
     for i, mean in enumerate([mean1, mean2]):
         expected_state, expected_prob = conditional_fock(cov, mean, (0,), (1,), 4)
         torch.testing.assert_close(state[i], expected_state[0])

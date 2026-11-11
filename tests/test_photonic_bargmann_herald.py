@@ -17,10 +17,10 @@ def test_gaussian_reference_and_cutoff(density):
         cir.to(torch.float64)
         cir()
         circuits.append(cir)
-    reference, expected_p = circuits[0].heralded_state(0, 2, normalize=True)
+    reference, expected_p = circuits[0].post_select(0, 2, normalize=True)
     cir = circuits[1]
     original = cir.state
-    state, p, info = cir.heralded_state(0, 2, cutoff=1, normalize=True, return_info=True)
+    state, p, info = cir.post_select(0, 2, cutoff=1, normalize=True, return_info=True)
     assert isinstance(state, BargmannState)
     assert cir.state is original
     assert state.cutoff == 1
@@ -42,7 +42,7 @@ def test_existing_derived_unsorted_batch_and_joint_weight(density):
     psi = psi * 0.4  # intentional prior event weight
     cir = dq.QumodeCircuit(3, BargmannState(psi, nmode=3, den_mat=density), backend='bargmann')
     cir()
-    state, p, info = cir.heralded_state([2, 0], [1, 2], return_info=True)
+    state, p, info = cir.post_select([2, 0], [1, 2], return_info=True, normalize=False)
     selected = psi[:, 2, :, 1]
     expected = selected[:, :, None] * selected.conj()[:, None, :] if density else selected
     torch.testing.assert_close(state.to_fock(3), expected)
@@ -60,7 +60,7 @@ def test_superposition_axis():
     state = BargmannState(PolyExpAnsatz(a, b, c, 2))
     cir = dq.QumodeCircuit(2, state, backend='bargmann')
     full = cir().to_fock(8)
-    result, p = cir.heralded_state(0, 1)
+    result, p = cir.post_select(0, 1, normalize=False)
     torch.testing.assert_close(result.to_fock(8), full[:, 1])
     torch.testing.assert_close(p, full[:, 1].abs().square().sum(-1), atol=1e-12, rtol=1e-9)
 
@@ -72,12 +72,12 @@ def test_two_rounds_and_gradient(density):
         first.s2([0, 1], r, 0.0)
         first.to(torch.float64)
         first()
-        state, p1 = first.heralded_state(0, 1)
+        state, p1 = first.post_select(0, 1, normalize=False)
         second = dq.QumodeCircuit(2, state, backend='bargmann')
         second.bs([0, 1], [theta, 0.0])
         second.to(torch.float64)
         second()
-        result, p12, info = second.heralded_state(1, 0, return_info=True)
+        result, p12, info = second.post_select(1, 0, return_info=True, normalize=False)
         torch.testing.assert_close(info['input_weight'], p1)
         torch.testing.assert_close(result.norm(), p12)
         expected = (1 - r.tanh() ** 2) * r.tanh() ** 2 * theta.cos() ** 2
@@ -92,19 +92,19 @@ def test_two_rounds_and_gradient(density):
 def test_validation_zero_and_cache():
     cir = dq.QumodeCircuit(2, 'vac', backend='bargmann')
     with pytest.raises(RuntimeError):
-        cir.heralded_state(0, 0)
+        cir.post_select(0, 0, normalize=False)
     cir()
     for wires, photons in [([], []), ([0, 1], [0, 0]), ([0, 0], [0, 0]), ([0], [-1])]:
         with pytest.raises(ValueError):
-            cir.heralded_state(wires, photons)
-    zero, p = cir.heralded_state(0, 1)
+            cir.post_select(wires, photons, normalize=False)
+    zero, p = cir.post_select(0, 1, normalize=False)
     torch.testing.assert_close(p, torch.zeros_like(p))
-    torch.testing.assert_close(zero.to_fock(2), torch.zeros(1, 2, dtype=zero.a.dtype))
+    torch.testing.assert_close(zero.to_fock(2), torch.zeros(1, 2, dtype=zero.mat_a.dtype))
     with pytest.raises(ValueError, match='zero-probability'):
-        cir.heralded_state(0, 1, normalize=True)
+        cir.post_select(0, 1, normalize=True)
     cir.to(torch.float64)
     with pytest.raises(RuntimeError):
-        cir.heralded_state(0, 0)
+        cir.post_select(0, 0, normalize=False)
 
 
 def test_mixed_loss_against_gaussian_and_no_fock_expansion(monkeypatch):
@@ -122,9 +122,9 @@ def test_mixed_loss_against_gaussian_and_no_fock_expansion(monkeypatch):
 
             with monkeypatch.context() as patch:
                 patch.setattr(BargmannState, 'to_fock', reject)
-                state, p = cir.heralded_state(0, 1, normalize=True)
+                state, p = cir.post_select(0, 1, normalize=True)
             results.append((state.to_fock(5), p))
         else:
-            results.append(cir.heralded_state(0, 1, normalize=True))
+            results.append(cir.post_select(0, 1, normalize=True))
     torch.testing.assert_close(results[0][0], results[1][0])
     torch.testing.assert_close(results[0][1], results[1][1])

@@ -1,6 +1,6 @@
 # Bargmann CUDA 测试
 
-脚本：`tests/run_bargmann_cuda.py`。需使用包含 `heralded_state_bargmann()` 的 DeepQuantum 源码或安装版本，并安装适合 GPU 驱动的 CUDA 版 PyTorch。脚本只依赖 PyTorch 与 DeepQuantum，不需要 pytest 或 The Walrus。
+脚本：`tests/run_bargmann_cuda.py`。需使用包含 `post_select()` 的 DeepQuantum 源码或安装版本，并安装适合 GPU 驱动的 CUDA 版 PyTorch。脚本只依赖 PyTorch 与 DeepQuantum，不需要 pytest 或 The Walrus。
 
 ## 运行
 
