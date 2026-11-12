@@ -427,9 +427,9 @@ class QumodeCircuit(Operation):
         Mixed Gaussian inputs require ``den_mat=True``; no automatic switch is made.
         On Fock circuits, calls without advanced options preserve the existing spatial
         selection behavior and return a normalized density ``FockState``. Pass
-        ``normalize=False`` (or ``cutoff``/``return_info``) to request the dense
-        conditional tensor instead. Gaussian and Bargmann return their conditional
-        representations directly.
+        ``normalize=False``, ``cutoff`` or ``return_info`` to request the dense
+        conditional tensor instead. Both Fock paths normalize by default; Gaussian
+        and Bargmann return their conditional representations directly.
 
         Args:
             wires: Measured mode indices, in the same order as ``counts``.
@@ -443,9 +443,8 @@ class QumodeCircuit(Operation):
                 For Bargmann output, only sets the default subsequent Fock readout dimension.
             normalize: Divide by the event probability (its square root for kets).
                 The finite output may still have norm squared/trace below one.
-                A zero-probability event cannot be normalized. Defaults to ``False``
-                for dense conditional tensors; omitted on Fock uses the existing
-                normalized density-state path.
+                A zero-probability event cannot be normalized. Defaults to ``True``
+                on Fock and ``False`` on Gaussian and Bargmann.
             return_info: Also return an ``info`` dictionary with the retained
                 probability mass and remaining mode labels. Default: ``False``.
 
@@ -485,7 +484,11 @@ class QumodeCircuit(Operation):
         else:
             raise NotImplementedError('Heralding supports only dense Fock, Gaussian and Bargmann backends')
         return method(
-            wires, counts, cutoff, normalize=False if normalize is None else normalize, return_info=return_info
+            wires,
+            counts,
+            cutoff,
+            normalize=(self.backend == 'fock') if normalize is None else normalize,
+            return_info=return_info,
         )
 
     def _prepare_herald(

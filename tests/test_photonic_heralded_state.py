@@ -238,6 +238,21 @@ def test_requires_measured_and_remaining_modes(backend, den_mat, nmode):
             torch.testing.assert_close(prob, torch.ones_like(prob))
 
 
+@pytest.mark.parametrize('den_mat', [False, True])
+def test_fock_return_info_preserves_default_normalization(den_mat):
+    cir = dq.QumodeCircuit(2, 'vac', cutoff=5, backend='fock', basis=False, den_mat=den_mat)
+    cir.s2([0, 1], 0.3)
+    cir.to(torch.float64)
+    cir()
+    state, probability, info = cir.post_select(0, 1, return_info=True)
+    explicit, explicit_probability = cir.post_select(0, 1, normalize=True)
+    torch.testing.assert_close(state, explicit)
+    torch.testing.assert_close(probability, explicit_probability)
+    mass = state.diagonal(dim1=-2, dim2=-1).sum(-1).real if den_mat else state.abs().square().sum(-1)
+    torch.testing.assert_close(mass, torch.ones_like(mass))
+    assert info['representation'] == ('dm' if den_mat else 'ket')
+
+
 @pytest.mark.parametrize('backend', ['fock', 'gaussian'])
 def test_zero_probability_and_cutoff_excludes_output(backend):
     cir = dq.QumodeCircuit(2, 'vac', cutoff=3, backend=backend, basis=False)
