@@ -8,8 +8,9 @@ from torch import nn, vmap
 
 from ..qmath import evolve_den_mat, evolve_state, state_to_tensors
 from ..state import MatrixProductState
+from .bargmann import PolyExpAnsatz
 from .distributed import dist_gate
-from .state import DistributedFockState
+from .state import BargmannState, DistributedFockState
 
 
 class Operation(nn.Module):
@@ -71,6 +72,14 @@ class Operation(nn.Module):
         assert len(minmax) == 2
         assert all(isinstance(i, int) for i in minmax)
         assert -1 < minmax[0] <= minmax[1] < self.nmode
+
+    def get_bargmann_kernel(self) -> PolyExpAnsatz | None:
+        """Return the live Bargmann kernel, or None for an operation without effect.
+
+        Unitary kernels order outputs before inputs. Channel kernels order ket output,
+        bra output, ket input, then bra input. Unsupported operations raise explicitly.
+        """
+        raise NotImplementedError(f'{self.name} is not supported by the Bargmann backend')
 
 
 class Gate(Operation):
@@ -238,11 +247,15 @@ class Gate(Operation):
         return dist_gate(x, targets, matrix)
 
     def forward(
-        self, x: torch.Tensor | list[torch.Tensor] | MatrixProductState | DistributedFockState | None = None
-    ) -> torch.Tensor | list[torch.Tensor] | MatrixProductState | DistributedFockState:
+        self,
+        x: BargmannState | torch.Tensor | list[torch.Tensor] | MatrixProductState | DistributedFockState | None = None,
+    ) -> BargmannState | torch.Tensor | list[torch.Tensor] | MatrixProductState | DistributedFockState:
         """Apply the gate to a state or return its local mode matrix when the state is None."""
         if x is None:
             return self.update_matrix()
+        elif isinstance(x, BargmannState):
+            kernel = self.get_bargmann_kernel()
+            return x if kernel is None else x.apply_unitary(kernel, self.wires)
         elif isinstance(x, DistributedFockState):
             return self.op_dist_state(x)
         elif isinstance(x, MatrixProductState):
@@ -333,9 +346,13 @@ class Channel(Operation):
             mean = mean + displacement
         return [cov, mean] + x[2:]
 
-    def forward(self, x: torch.Tensor | list[torch.Tensor]) -> torch.Tensor | list[torch.Tensor]:
+    def forward(
+        self, x: BargmannState | torch.Tensor | list[torch.Tensor]
+    ) -> BargmannState | torch.Tensor | list[torch.Tensor]:
         """Perform a forward pass."""
-        if isinstance(x, torch.Tensor):
+        if isinstance(x, BargmannState):
+            return x.apply_channel(self.get_bargmann_kernel(), self.wires)
+        elif isinstance(x, torch.Tensor):
             return self.op_den_mat(x)
         elif isinstance(x, list):
             return self.op_cv(x)

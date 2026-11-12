@@ -11,6 +11,13 @@ import deepquantum.photonic as dqp
 
 from ..qmath import is_unitary
 from ..utils import apply_complex_fix
+from .bargmann import (
+    PolyExpAnsatz,
+    displacement_kernel,
+    passive_kernel,
+    squeezing_kernel,
+    two_mode_squeezing_kernel,
+)
 from .operation import Delay, Gate
 from .qmath import ladder_ops
 
@@ -198,6 +205,13 @@ class PhaseShift(SingleGate):
         theta = -self.theta if self.inv_mode else self.theta
         return f'wires={self.wires}, theta={theta.item()}'
 
+    def get_bargmann_kernel(self) -> PolyExpAnsatz:
+        """Return the passive optical kernel from the live mode matrix."""
+        unitary = self.update_matrix()
+        if unitary.shape[-2:] != (len(self.wires), len(self.wires)):
+            raise NotImplementedError(f'{self.name} does not provide a mode unitary matrix')
+        return passive_kernel(unitary)
+
 
 class BeamSplitter(DoubleGate):
     r"""Beam Splitter.
@@ -359,6 +373,13 @@ class BeamSplitter(DoubleGate):
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, theta={self.theta.item()}, phi={self.phi.item()}'
+
+    def get_bargmann_kernel(self) -> PolyExpAnsatz:
+        """Return the passive optical kernel from the live mode matrix."""
+        unitary = self.update_matrix()
+        if unitary.shape[-2:] != (len(self.wires), len(self.wires)):
+            raise NotImplementedError(f'{self.name} does not provide a mode unitary matrix')
+        return passive_kernel(unitary)
 
 
 class MZI(BeamSplitter):
@@ -866,6 +887,13 @@ class UAnyGate(Gate):
         self.vector_xp = vector_xp.detach()
         return matrix_xp, vector_xp
 
+    def get_bargmann_kernel(self) -> PolyExpAnsatz:
+        """Return the passive optical kernel from the live mode matrix."""
+        unitary = self.update_matrix()
+        if unitary.shape[-2:] != (len(self.wires), len(self.wires)):
+            raise NotImplementedError(f'{self.name} does not provide a mode unitary matrix')
+        return passive_kernel(unitary)
+
 
 class Squeezing(SingleGate):
     r"""Squeezing gate.
@@ -1010,6 +1038,11 @@ class Squeezing(SingleGate):
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, r={self.r.item()}, theta={self.theta.item()}'
+
+    def get_bargmann_kernel(self) -> PolyExpAnsatz:
+        """Return the Bargmann kernel from the live gate parameters."""
+        r, theta = self.inputs_to_tensor([self.r, self.theta])
+        return squeezing_kernel(r, theta)
 
 
 class Squeezing2(DoubleGate):
@@ -1175,6 +1208,11 @@ class Squeezing2(DoubleGate):
     def extra_repr(self) -> str:
         return f'wires={self.wires}, r={self.r.item()}, theta={self.theta.item()}'
 
+    def get_bargmann_kernel(self) -> PolyExpAnsatz:
+        """Return the Bargmann kernel from the live gate parameters."""
+        r, theta = self.inputs_to_tensor([self.r, self.theta])
+        return two_mode_squeezing_kernel(r, theta)
+
 
 class Displacement(SingleGate):
     r"""Displacement gate.
@@ -1310,6 +1348,11 @@ class Displacement(SingleGate):
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, r={self.r.item()}, theta={self.theta.item()}'
+
+    def get_bargmann_kernel(self) -> PolyExpAnsatz:
+        """Return the Bargmann kernel from the live gate parameters."""
+        r, theta = self.inputs_to_tensor([self.r, self.theta])
+        return displacement_kernel(r, theta)
 
 
 class DisplacementPosition(Displacement):
@@ -2304,3 +2347,7 @@ class Barrier(Gate):
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}'
+
+    def get_bargmann_kernel(self) -> None:
+        """Return None because a barrier does not change the state."""
+        return None

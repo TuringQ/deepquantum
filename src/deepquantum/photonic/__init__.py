@@ -21,6 +21,7 @@ from . import (
     utils,
 )
 from .ansatz import Clements, GaussianBosonSampling, GraphGBS
+from .bargmann import PolyExpAnsatz
 from .channel import DisplacementChannel, OPA, PhotonLoss
 from .circuit import DistributedQumodeCircuit, QumodeCircuit
 from .decompose import UnitaryDecomposer
@@ -69,7 +70,16 @@ from .qmath import (
     xxpp_to_xpxp,
 )
 from .source import SinglePhotonSource, Submodes, ThermalSource
-from .state import BosonicState, CatState, DistributedFockState, FockState, FockStateBosonic, GKPState, GaussianState
+from .state import (
+    BargmannState,
+    BosonicState,
+    CatState,
+    DistributedFockState,
+    FockState,
+    FockStateBosonic,
+    GKPState,
+    GaussianState,
+)
 from .submode import SubmodeResult
 from .tdm import QumodeCircuitTDM
 from .torontonian_ import torontonian

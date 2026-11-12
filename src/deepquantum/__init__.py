@@ -87,6 +87,7 @@ from .gate import (
 from .layer import CnotLayer, CnotRing, HLayer, Observable, RxLayer, RyLayer, RzLayer, U3Layer, XLayer, YLayer, ZLayer
 from .mbqc import GraphState, Pattern, SubGraphState
 from .photonic import (
+    BargmannState,
     BosonicState,
     CatState,
     Clements,
