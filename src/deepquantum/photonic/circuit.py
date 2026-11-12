@@ -989,9 +989,10 @@ class QumodeCircuit(Operation):
             if state.batch_size not in (1, data.shape[0]):
                 raise ValueError('The batch sizes of data and state do not match')
             outputs = []
+            run = self.hardware_model._new_run(self.backend, self.wires) if self.hardware_model is not None else None
             for i in range(data.shape[0]):
                 sample = state if state.batch_size == 1 else state.select(i)
-                outputs.append(self._forward_helper_bargmann(data[i], sample))
+                outputs.append(self._forward_helper_bargmann(data[i], sample, run))
             result = BargmannState.cat(outputs)
         # Forward results are caches, not circuit submodules or checkpoint contents.
         for name in ('state', '_herald_state'):
@@ -999,11 +1000,13 @@ class QumodeCircuit(Operation):
             self.__dict__[name] = result
         return result
 
-    def _forward_helper_bargmann(self, data: torch.Tensor | None, state: BargmannState) -> BargmannState:
+    def _forward_helper_bargmann(
+        self, data: torch.Tensor | None, state: BargmannState, run: _HardwareRun | None = None
+    ) -> BargmannState:
         """Perform a forward pass for one sample with the Bargmann backend."""
         self.encode(data)
         if self.hardware_model is not None:
-            return self.hardware_model(state, self.operators, self.backend, self.wires)
+            return self.hardware_model(state, self.operators, self.backend, self.wires, _run=run)
         return self.operators(state)
 
     def _forward_cv_prob(

@@ -923,6 +923,8 @@ class HardwareModel(nn.Module):
         backend: str,
         wires: Sequence[int] | None = None,
         sources: Sequence[Operation] | None = None,
+        *,
+        _run: _HardwareRun | None = None,
     ) -> Any:
         """Execute a single operation or a sequence of operations."""
         if isinstance(operators, Operation):
@@ -934,7 +936,7 @@ class HardwareModel(nn.Module):
         sources = operators if sources is None else sources
         bindings = self._bind(sources)
         source_gates = [gate for op in sources for gate in (op.gates if isinstance(op, Delay) else [op])]
-        run = self._new_run(backend, wires)
+        run = self._new_run(backend, wires) if _run is None else _run
         state = self._apply_io_plugins(state, run, 'input')
         for op, source in zip(operators, source_gates, strict=True):
             state = self._apply_operation(state, op, run, bindings.get(source, ()), source)

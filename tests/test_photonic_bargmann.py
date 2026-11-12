@@ -231,6 +231,52 @@ def test_bargmann_hardware_encoded_batch_retains_sample_gradients():
     torch.testing.assert_close(torch.autograd.grad(amplitude.real.sum(), data)[0], -torch.sin(data + 0.3))
 
 
+@pytest.mark.parametrize('den_mat', [False, True])
+def test_bargmann_hardware_batch_shares_noise_with_fock(den_mat):
+    initial = [(1 / math.sqrt(2), [0]), (1 / math.sqrt(2), [1])]
+    data = torch.tensor([[0.2], [0.4], [0.6]], dtype=DT)
+
+    def build(backend):
+        circuit = dq.QumodeCircuit(1, initial, cutoff=3, backend=backend, basis=False, den_mat=den_mat)
+        circuit.ps(0, encode=True)
+        mu = torch.nn.Parameter(torch.tensor(0.01, dtype=DT))
+        sigma = torch.nn.Parameter(torch.tensor(0.2, dtype=DT))
+        model = dqp.HardwareModel(seed=7).ps(0).theta.gaussian(mu=mu, sigma=sigma)
+        if den_mat:
+            model.output().loss(t=0.8)
+        circuit.set_hardware_model(model)
+        return circuit.to(DT), model, mu, sigma
+
+    results = []
+    for backend in ('bargmann', 'fock'):
+        circuit, model, mu, sigma = build(backend)
+        inputs = data.clone().requires_grad_()
+        output = circuit(inputs)
+        tensor = output.to_fock(3) if backend == 'bargmann' else output
+        generator = torch.Generator().manual_seed(7)
+        torch.randn((), generator=generator, dtype=DT)
+        assert torch.equal(model._generator.get_state(), generator.get_state())
+        rows = []
+        for row in data:
+            model.manual_seed(7)
+            single = circuit(row)
+            rows.append(single.to_fock(3)[0] if backend == 'bargmann' else single[0])
+        torch.testing.assert_close(tensor, torch.stack(rows))
+        following = circuit(data)
+        following = following.to_fock(3) if backend == 'bargmann' else following
+        assert not torch.allclose(following, tensor)
+        torch.randn((), generator=generator, dtype=DT)
+        assert torch.equal(model._generator.get_state(), generator.get_state())
+        weights = torch.tensor([1.0, 2.0, 3.0], dtype=DT)
+        entry = tensor[:, 0, 1] if den_mat else tensor[:, 1]
+        gradients = torch.autograd.grad((entry.real * weights).sum(), (inputs, mu, sigma))
+        results.append((tensor, gradients))
+
+    torch.testing.assert_close(results[0][0], results[1][0])
+    for bargmann_grad, fock_grad in zip(results[0][1], results[1][1], strict=True):
+        torch.testing.assert_close(bargmann_grad, fock_grad)
+
+
 def test_replacing_hardware_model_invalidates_bargmann_herald_cache():
     circuit = dq.QumodeCircuit(2, [1, 0], cutoff=2, backend='bargmann', den_mat=True)
     circuit()
