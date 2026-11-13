@@ -884,7 +884,7 @@ print(cir_photon.get_prob([1, 1]))
 # `lo` 默认选择第一个正交基模，`phi` 是额外的 quadrature 测量角度。
 
 # %%
-rho_source, probability_source = cir_photon.post_select(wires=1, counts=1, keep=0, lo=coefficients_source[0])
+rho_source, probability_source = cir_photon.post_select(wires=1, photons=1, keep=0, lo=coefficients_source[0])
 readout_source = dq.QumodeCircuit(1, rho_source)
 readout_source()
 samples_source = readout_source.measure_homodyne(shots=5, phi=0.0)
@@ -1797,7 +1797,8 @@ print(state_bargmann.to_fock().shape)  # (1, 8, 8)
 # %% [markdown]
 # ### PNR 后选择与继续演化
 #
-# `post_select(wires, counts)` 使用最近一次前向演化的末态，返回条件态和事件概率，不改变线路保存的末态。
+# `post_select(wires, photons)` 使用最近一次前向演化的末态，返回条件态和事件概率，不改变线路保存的末态。
+# `photons` 按 `wires` 的顺序给出各被测模式的光子数，单个模式也可以直接传入整数。
 # `normalize=True` 为默认值，`return_info=True` 只增加诊断信息，不改变条件态的类型。
 # Fock 后端（`basis=False`）返回密度矩阵 `FockState`，Gaussian 后端返回 Fock 张量，Bargmann 后端返回可以继续演化的 `BargmannState`。
 #
@@ -1805,7 +1806,7 @@ print(state_bargmann.to_fock().shape)  # (1, 8, 8)
 # 返回态的模式从 0 重新编号，`remaining_wires` 记录它对应的原模式。
 
 # %%
-heralded_bargmann, probability_bargmann, info_bargmann = cir_bargmann.post_select(wires=0, counts=1, return_info=True)
+heralded_bargmann, probability_bargmann, info_bargmann = cir_bargmann.post_select(wires=0, photons=1, return_info=True)
 print(probability_bargmann)  # 约 0.0777
 print(heralded_bargmann.norm())  # (1,) 中的值为 1
 print(info_bargmann['remaining_wires'])  # (1,)

@@ -2371,7 +2371,7 @@ class QumodeCircuit(Operation):
     def post_select(
         self,
         wires: int | list[int] | tuple[int, ...],
-        counts: int | list[int] | tuple[int, ...],
+        photons: int | list[int] | tuple[int, ...],
         keep: int | list[int] | None = None,
         submode: int | None = None,
         *,
@@ -2389,9 +2389,9 @@ class QumodeCircuit(Operation):
         a Fock or Gaussian ``forward(is_prob=True)``.
 
         Args:
-            wires: Measured spatial modes, in the same order as ``counts``.
-            counts: One nonnegative photon count per measured mode. On Fock circuits
-                with submodes, each count sums over all orthogonal basis modes.
+            wires: Measured spatial modes, in the same order as ``photons``.
+            photons: The selected photon numbers, one nonnegative integer per measured spatial mode.
+                On Fock circuits with submodes, each number sums over all orthogonal basis modes.
             keep: Unmeasured Fock spatial modes to retain, in output order.
                 Other unmeasured modes are traced out. Default: ``None`` (all unmeasured modes)
             submode: Orthogonal-basis mode to retain at each selected Fock wire.
@@ -2426,20 +2426,20 @@ class QumodeCircuit(Operation):
             raise NotImplementedError('Fock post_select requires basis=False')
         if self.backend != 'fock' and (keep is not None or submode is not None or lo is not None):
             raise NotImplementedError('keep, submode and lo require the Fock backend')
-        wires, counts, cutoff = self._prepare_post_select(wires, counts, cutoff)
+        wires, photons, cutoff = self._prepare_post_select(wires, photons, cutoff)
         remaining = tuple(w for w in range(self.nmode) if w not in wires)
         if self.backend == 'fock':
             if cutoff > self.cutoff:
                 raise ValueError('Output cutoff must lie within the simulated Fock space')
-            state, probability, remaining = self._post_select_spatial(wires, counts, keep, submode, lo=lo)
+            state, probability, remaining = self._post_select_spatial(wires, photons, keep, submode, lo=lo)
             state = state[(slice(None), *([slice(cutoff)] * (state.ndim - 1)))]
         elif self.backend == 'gaussian':
             if self._state_units != (dqp.hbar, dqp.kappa):
                 raise RuntimeError('Quadrature units changed after forward; recreate the circuit with consistent units')
             cov, mean = self._get_output_state()
-            state, probability = conditional_fock(cov, mean, wires, counts, cutoff, den_mat=self.den_mat)
+            state, probability = conditional_fock(cov, mean, wires, photons, cutoff, den_mat=self.den_mat)
         else:
-            state = self._get_output_state()._project_pnr(wires, counts)
+            state = self._get_output_state()._project_pnr(wires, photons)
             state.cutoff = cutoff
             probability = state.norm()
         return self._finish_post_select(state, probability, remaining, normalize, return_info)
@@ -2452,9 +2452,9 @@ class QumodeCircuit(Operation):
         return state
 
     def _prepare_post_select(
-        self, wires: Any, counts: Any, cutoff: int | None
+        self, wires: Any, photons: Any, cutoff: int | None
     ) -> tuple[tuple[int, ...], tuple[int, ...], int]:
-        """Validate mode indices, photon counts and output cutoff."""
+        """Validate mode indices, photon numbers and output cutoff."""
         if self.mps or self._with_delay or isinstance(self, DistributedQumodeCircuit):
             raise NotImplementedError('post_select does not support MPS, delay or distributed circuits')
         self._get_output_state()
@@ -2462,7 +2462,7 @@ class QumodeCircuit(Operation):
         def integers(values):
             if isinstance(values, torch.Tensor):
                 if values.ndim > 1 or values.dtype == torch.bool or values.is_floating_point() or values.is_complex():
-                    raise ValueError('wires and counts must contain integers')
+                    raise ValueError('wires and photons must contain integers')
                 values = values.tolist()
             if not isinstance(values, (list, tuple)):
                 values = [values]
@@ -2471,19 +2471,19 @@ class QumodeCircuit(Operation):
                     raise TypeError
                 return tuple(operator_index(v) for v in values)
             except TypeError as exc:
-                raise ValueError('wires and counts must contain integers') from exc
+                raise ValueError('wires and photons must contain integers') from exc
 
-        wires, counts = integers(wires), integers(counts)
-        if len(wires) != len(counts):
-            raise ValueError('One photon count is required for each measured wire')
+        wires, photons = integers(wires), integers(photons)
+        if len(wires) != len(photons):
+            raise ValueError('One photon number is required for each measured wire')
         if len(set(wires)) != len(wires) or any(w < 0 or w >= self.nmode for w in wires):
             raise ValueError('Measured wires must be unique valid mode indices')
         if not wires:
             raise ValueError('post_select requires at least one measured mode')
         if len(wires) == self.nmode:
             raise ValueError('post_select requires at least one remaining mode')
-        if any(n < 0 for n in counts):
-            raise ValueError('Photon counts must be nonnegative')
+        if any(n < 0 for n in photons):
+            raise ValueError('Photon numbers must be nonnegative')
         cutoff = self.cutoff if cutoff is None else cutoff
         try:
             if isinstance(cutoff, bool):
@@ -2493,7 +2493,7 @@ class QumodeCircuit(Operation):
             raise ValueError('cutoff must be a positive integer') from exc
         if cutoff < 1:
             raise ValueError('cutoff must be a positive integer')
-        return wires, counts, cutoff
+        return wires, photons, cutoff
 
     def _finish_post_select(self, state, probability, remaining, normalize, return_info) -> tuple:
         """Normalize the conditional output and attach optional readout diagnostics."""
@@ -2547,7 +2547,7 @@ class QumodeCircuit(Operation):
     def _post_select_spatial(
         self,
         wires: tuple[int, ...],
-        counts: tuple[int, ...],
+        photons: tuple[int, ...],
         keep: int | list[int] | None = None,
         submode: int | None = None,
         *,
@@ -2556,14 +2556,14 @@ class QumodeCircuit(Operation):
         """Return unnormalized Fock density, event weight and retained spatial labels."""
         from .qmath import _pnr_condition
 
-        wires, counts = list(wires), list(counts)
+        wires, photons = list(wires), list(photons)
         keep = [w for w in self.wires if w not in wires] if keep is None else self._convert_indices(keep)
         if not keep or len(set(keep)) != len(keep) or set(keep) & set(wires):
             raise ValueError('Retain at least one unmeasured spatial wire.')
         expanded = self._submode_circuit
         d = 1 if expanded is None else expanded.nsubmode
-        if any(n > d * (self.cutoff - 1) for n in counts):
-            raise ValueError('Photon counts must lie within the simulated Fock space')
+        if any(n > d * (self.cutoff - 1) for n in photons):
+            raise ValueError('Photon numbers must lie within the simulated Fock space')
         if lo is not None and submode is not None:
             raise ValueError('Specify either submode or lo for the retained state.')
         if submode is not None and (type(submode) is not int or not 0 <= submode < d):
@@ -2580,13 +2580,13 @@ class QumodeCircuit(Operation):
         if expanded is not None and expanded.factorized:
             from .submode import _post_select_spatial
 
-            density, probability = _post_select_spatial(expanded.result(), self.cutoff, wires, counts, keep, retained)
+            density, probability = _post_select_spatial(expanded.result(), self.cutoff, wires, photons, keep, retained)
         else:
             state = self._get_output_state() if expanded is None else expanded.state
             if not isinstance(state, torch.Tensor) or not state.is_complex():
                 raise ValueError('Run the circuit to obtain a Fock state tensor before post-selection.')
             density, probability = _pnr_condition(
-                state, self.nmode * d, self.cutoff, self.den_mat, measured, counts, selected, normalize=False
+                state, self.nmode * d, self.cutoff, self.den_mat, measured, photons, selected, normalize=False
             )
         if lo is not None:
             from .submode import SubmodeResult, _lo_view

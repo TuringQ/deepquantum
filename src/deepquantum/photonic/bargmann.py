@@ -483,19 +483,18 @@ def _project_pnr(
     No Fock expansion or normalization of retained modes is performed.
     """
     measured = list(positions)
-    counts = photons
     if den_mat:
         measured += [p + nmode for p in positions]
-        counts = photons * 2
+        photons = photons * 2
     remaining = [p for p in range(polyexp.nfree) if p not in measured]
     source = polyexp
     perm = remaining + list(range(source.nfree, source.nvar)) + measured
     idx = torch.tensor(perm, device=source.device)
-    bounds = tuple(h + 1 for h in counts)
+    bounds = tuple(h + 1 for h in photons)
     _check_work(source.aux_shape + bounds, source.batch_size * source.nlin, source.coeff_c.element_size())
     selector = source.coeff_c.new_zeros(bounds)
-    selector[counts] = 1
-    coeff_c = source.coeff_c.reshape(*source.coeff_c.shape, *([1] * len(counts))) * selector
+    selector[photons] = 1
+    coeff_c = source.coeff_c.reshape(*source.coeff_c.shape, *([1] * len(photons))) * selector
     polyexp = BargmannPolyExp._from_tensors(source.mat_a[..., idx, :][..., idx], source.vec_b[..., idx], coeff_c)
     return polyexp
 

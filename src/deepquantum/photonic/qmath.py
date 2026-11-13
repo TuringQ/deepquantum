@@ -270,7 +270,7 @@ def group_probabilities(probabilities: dict | torch.Tensor, groups: list[list[in
     return result
 
 
-def _pnr_condition(state, nmode, cutoff, den_mat, measured, counts, keep, *, normalize=True):
+def _pnr_condition(state, nmode, cutoff, den_mat, measured, photons, keep, *, normalize=True):
     """Project unresolved PNR counts and trace all unretained modes without a dense POVM.
 
     See https://arxiv.org/pdf/1902.02323v2 Eq.(24) and Eq.(109) for PNR projection and probability.
@@ -281,7 +281,7 @@ def _pnr_condition(state, nmode, cutoff, den_mat, measured, counts, keep, *, nor
     positions = [[rest.index(wire) for wire in group] for group in measured]
     mask = torch.tensor(
         [
-            all(sum(pattern[i] for i in group) == count for group, count in zip(positions, counts, strict=True))
+            all(sum(pattern[i] for i in group) == n for group, n in zip(positions, photons, strict=True))
             for pattern in itertools.product(range(cutoff), repeat=len(rest))
         ],
         device=state.device,

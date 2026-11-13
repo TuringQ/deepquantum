@@ -37,7 +37,7 @@ def test_two_mode_squeezing(backend, den_mat):
     cir.to(torch.float64)
     cir()
     for photons in (0, 1, 2):
-        state, prob, info = post_select_tensor(cir, 0, photons, normalize=True, return_info=True)
+        state, prob, info = post_select_tensor(cir, wires=0, photons=photons, normalize=True, return_info=True)
         r = cir.operators[0].r.detach().double()
         expected_prob = (1 - r.tanh() ** 2) * r.tanh() ** (2 * photons)
         torch.testing.assert_close(prob, expected_prob.reshape(1), atol=1e-10, rtol=1e-8)
@@ -269,7 +269,7 @@ def test_submode_selection_with_cutoff_normalization_and_info(den_mat):
     probabilities = circuit(is_prob=True)
     reference, probability = circuit.post_select(1, 1, keep=0, lo=[0.8j, 0.6])
     state, actual_probability, info = circuit.post_select(
-        1, 1, keep=0, lo=[0.8j, 0.6], cutoff=2, normalize=False, return_info=True
+        wires=1, photons=1, keep=0, lo=[0.8j, 0.6], cutoff=2, normalize=False, return_info=True
     )
     expected_probability = sum(p for key, p in probabilities.items() if key.state[1] == 1)
     torch.testing.assert_close(actual_probability, expected_probability)
@@ -299,7 +299,7 @@ def test_zero_probability_and_cutoff_excludes_output(backend):
 
 
 @pytest.mark.parametrize(
-    'wires,herald,cutoff',
+    'wires,photons,cutoff',
     [
         ([0, 0], [1, 1], 3),
         ([2], [1], 3),
@@ -314,11 +314,11 @@ def test_zero_probability_and_cutoff_excludes_output(backend):
         ([0], [1], True),
     ],
 )
-def test_invalid_arguments(wires, herald, cutoff):
+def test_invalid_arguments(wires, photons, cutoff):
     cir = dq.QumodeCircuit(2, 'vac', backend='gaussian')
     cir()
     with pytest.raises(ValueError):
-        post_select_tensor(cir, wires, herald, cutoff=cutoff, normalize=False)
+        post_select_tensor(cir, wires=wires, photons=photons, cutoff=cutoff, normalize=False)
 
 
 def test_unsupported_inputs():
@@ -518,7 +518,7 @@ def test_gaussian_reference_and_cutoff(density):
     reference, expected_p = circuits[0].post_select(0, 2, normalize=True)
     cir = circuits[1]
     original = cir.state
-    state, p, info = cir.post_select(0, 2, cutoff=1, normalize=True, return_info=True)
+    state, p, info = cir.post_select(wires=0, photons=2, cutoff=1, normalize=True, return_info=True)
     assert isinstance(state, BargmannState)
     assert cir.state is original
     assert state.cutoff == 1
@@ -540,7 +540,7 @@ def test_existing_auxiliary_unsorted_batch_and_joint_weight(density):
     psi = psi * 0.4  # intentional prior event weight
     cir = dq.QumodeCircuit(3, BargmannState(psi, nmode=3, den_mat=density), backend='bargmann')
     cir()
-    state, p, info = cir.post_select([2, 0], [1, 2], return_info=True, normalize=False)
+    state, p, info = cir.post_select(wires=[2, 0], photons=[1, 2], return_info=True, normalize=False)
     selected = psi[:, 2, :, 1]
     expected = selected[:, :, None] * selected.conj()[:, None, :] if density else selected
     torch.testing.assert_close(state.to_fock(3), expected)

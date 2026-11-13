@@ -108,7 +108,7 @@ register_pytree_node(
 )
 
 
-def _post_select_spatial(result, cutoff, wires, counts, keep, retained_submodes):
+def _post_select_spatial(result, cutoff, wires, photons, keep, retained_submodes):
     """Convolve independent PNR conditional operators, tracing unretained orthogonal basis modes first."""
     accumulated, labels = None, []
     factors = sorted(result._factors(), key=lambda item: bool(set(retained_submodes).intersection(item[0])))
@@ -119,16 +119,16 @@ def _post_select_spatial(result, cutoff, wires, counts, keep, retained_submodes)
         measured = [w * size + k for w in wires for k in range(size)]
         values = _fock_conditional_blocks(state, result.nmode * size, cutoff, result.den_mat, measured, selected)
         if size == 1:
-            values = values[(slice(None),) + tuple(slice(0, n + 1) for n in counts)]
+            values = values[(slice(None),) + tuple(slice(0, n + 1) for n in photons)]
         else:
             groups = [list(range(j * size, (j + 1) * size)) for j in range(len(wires))]
-            values = _group_count_axes(values, groups, counts, operators=True)
-        accumulated = values if accumulated is None else _convolve_counts(accumulated, values, counts, operators=True)
+            values = _group_count_axes(values, groups, photons, operators=True)
+        accumulated = values if accumulated is None else _convolve_counts(accumulated, values, photons, operators=True)
         labels.extend(retained)
-    if any(n >= size for n, size in zip(counts, accumulated.shape[1:-2], strict=True)):
+    if any(n >= size for n, size in zip(photons, accumulated.shape[1:-2], strict=True)):
         density = accumulated.new_zeros(accumulated.shape[0], *accumulated.shape[-2:])
     else:
-        density = accumulated[(slice(None),) + tuple(counts)]
+        density = accumulated[(slice(None),) + tuple(photons)]
     probability = density.diagonal(dim1=-2, dim2=-1).sum(-1).real
     order = [labels.index((w, k)) for w in keep for k in retained_submodes]
     density = density.reshape([-1] + [cutoff] * (2 * len(labels)))
