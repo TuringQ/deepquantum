@@ -11,7 +11,7 @@ The core package source is under `src/deepquantum/`. Prefer public APIs exported
 ## Repository Layout
 
 - `src/deepquantum/`: qubit state/circuit simulation, gates, layers, observables, channels, ansatz classes, QASM helpers, circuit cutting, distributed state-vector simulation, and shared math utilities.
-- `src/deepquantum/photonic/`: photonic states, `QumodeCircuit`, Fock/Gaussian/Bosonic backends, photonic gates/channels/measurements, Clements/GBS ansatzes, TDM circuits, unitary decomposition/mapping, and photonic distributed simulation.
+- `src/deepquantum/photonic/`: photonic states, `QumodeCircuit`, Fock/Gaussian/Bosonic/Bargmann backends, photonic gates/channels/measurements, Clements/GBS ansatzes, TDM circuits, unitary decomposition/mapping, and photonic distributed simulation.
 - `src/deepquantum/mbqc/`: MBQC `Pattern`, `GraphState`, N/E/M/C commands, standardization, signal shifting, and pattern execution.
 - `tests/`: source of truth for supported behavior and external compatibility checks.
 - `tutorials/`: user-facing notebook tutorials for qubit circuits, photonic circuits, and MBQC.
@@ -63,6 +63,10 @@ Photonic circuits:
   - Use `backend='bosonic'` with `'vac'`, `[cov, mean, weight]`, a list of local `BosonicState`s, or prepared `cat`/`gkp` states.
   - Output is `[cov, mean, weight]`; `CatState`, `GKPState`, `FockStateBosonic`, Wigner functions, marginals, and homodyne workflows are tested.
   - `QumodeCircuit.measure()` asserts Fock/standard sampling is only supported for Fock and Gaussian backends. Use `measure_homodyne` or documented Bosonic measurement classes for Bosonic workflows.
+- Bargmann backend:
+  - Use `backend='bargmann'`; forward returns a `BargmannState`. Its `polyexp` is a `dqp.BargmannPolyExp(mat_a, vec_b, coeff_c)` with inferred free and auxiliary variable counts.
+  - Supported Gaussian gates and photon loss act through `get_bargmann()` representations. Loss requires `den_mat=True`. `state.to_fock(cutoff)` performs explicit finite-cutoff readout; the cutoff does not truncate Bargmann evolution.
+  - Thermal source preparation, submodes, TDM and circuit-level sampling are not supported.
 - Clements and GBS:
   - `dq.Clements`, `dq.UnitaryDecomposer`, `dq.GaussianBosonSampling`, and `dqp.GraphGBS` are documented through tutorials/examples.
   - `QumodeCircuit.any(...)` supports arbitrary unitary gates; tutorials note `clements(...)` performs a physical Clements decomposition and is not used as the differentiable arbitrary-unitary path.
@@ -89,8 +93,8 @@ Photonic measurement and probabilities:
 
 - `QumodeCircuit.measure(shots=1024, with_prob=False, wires=None, detector=None, mcmc=False)` returns Fock-state keyed dictionaries, or a list for batched state/data.
 - Gaussian `measure(..., mcmc=True)` and Fock `measure(..., mcmc=True)` are documented for sampling when full probabilities are expensive.
-- `measure_homodyne(shots=..., wires=...)` returns quadrature samples and stores collapsed states in `state_measured` when measurement operations were added with `homodyne`, `homodyne_x`, or `homodyne_p`.
-- After a Fock state tensor forward pass (`basis=False`), `post_select(wires, counts, keep=...)` returns a conditional Fock density state and event probability. Counts sum over orthogonal basis modes. Select a retained mode with `submode` or `lo`, or omit both to retain all. `measure_homodyne(..., lo=..., phi=...)` selects a local-oscillator mode and an additional quadrature angle.
+- `measure_homodyne(shots=..., wires=...)` returns quadrature samples and stores collapsed states in `state_measured` when measurement operations were added with `homodyne`, `homodyne_x`, or `homodyne_p`. Use `lo` to select a local-oscillator mode and `phi` for an additional quadrature angle.
+- `post_select(wires, photons, ..., normalize=True, return_info=False)` returns the conditional state and event weight from the latest forward pass. Fock (`basis=False`) returns a density `FockState`, Gaussian a Fock tensor, and Bargmann a native `BargmannState` for continued evolution. For Fock, photon numbers sum over orthogonal basis modes, `keep` selects retained spatial modes, and `submode` or `lo` selects one basis mode or combination (omit both to retain all). Use `normalize=False` to preserve joint event weights through repeated conditioning. `return_info=True` only adds diagnostics.
 
 MBQC:
 

@@ -108,7 +108,7 @@ register_pytree_node(
 )
 
 
-def _post_select_spatial(result, cutoff, wires, counts, keep, retained_submodes):
+def _post_select_spatial(result, cutoff, wires, photons, keep, retained_submodes):
     """Convolve independent PNR conditional operators, tracing unretained orthogonal basis modes first."""
     accumulated, labels = None, []
     factors = sorted(result._factors(), key=lambda item: bool(set(retained_submodes).intersection(item[0])))
@@ -119,19 +119,17 @@ def _post_select_spatial(result, cutoff, wires, counts, keep, retained_submodes)
         measured = [w * size + k for w in wires for k in range(size)]
         values = _fock_conditional_blocks(state, result.nmode * size, cutoff, result.den_mat, measured, selected)
         if size == 1:
-            values = values[(slice(None),) + tuple(slice(0, n + 1) for n in counts)]
+            values = values[(slice(None),) + tuple(slice(0, n + 1) for n in photons)]
         else:
             groups = [list(range(j * size, (j + 1) * size)) for j in range(len(wires))]
-            values = _group_count_axes(values, groups, counts, operators=True)
-        accumulated = values if accumulated is None else _convolve_counts(accumulated, values, counts, operators=True)
+            values = _group_count_axes(values, groups, photons, operators=True)
+        accumulated = values if accumulated is None else _convolve_counts(accumulated, values, photons, operators=True)
         labels.extend(retained)
-    if any(n >= size for n, size in zip(counts, accumulated.shape[1:-2], strict=True)):
-        raise ValueError('Cannot normalize a zero-probability PNR event.')
-    density = accumulated[(slice(None),) + tuple(counts)]
+    if any(n >= size for n, size in zip(photons, accumulated.shape[1:-2], strict=True)):
+        density = accumulated.new_zeros(accumulated.shape[0], *accumulated.shape[-2:])
+    else:
+        density = accumulated[(slice(None),) + tuple(photons)]
     probability = density.diagonal(dim1=-2, dim2=-1).sum(-1).real
-    if (probability <= 0).any():
-        raise ValueError('Cannot normalize a zero-probability PNR event.')
-    density = density / probability[:, None, None]
     order = [labels.index((w, k)) for w in keep for k in retained_submodes]
     density = density.reshape([-1] + [cutoff] * (2 * len(labels)))
     return density.permute([0] + [i + 1 for i in order] + [i + len(labels) + 1 for i in order]), probability
@@ -651,21 +649,13 @@ class _SubmodeCircuit(QumodeCircuit):
         # Parent hooks pass these arguments; this view executes the compiled parent circuit.
         return self._execute(None, basis=True)
 
-    def _forward_helper_tensor(self, data=None, state=None, is_prob=None):
-        """Evolve one encoded Fock state tensor and optionally return resolved probabilities."""
+    def _forward_helper_tensor(self, data=None, state=None):
+        """Evolve one encoded Fock state tensor."""
         self.encode(data)
         state = self.init_state.state if state is None else state
         result = self._execute(self.tensor_rep(state))
         if self.factorized:
             result = self._reshape_blocks(result, result.shape[0] // self.nsubmode).movedim(0, 1)
-        if is_prob:
-            result = (
-                result.reshape(-1, self.cutoff**self.nmode, self.cutoff**self.nmode)
-                .diagonal(dim1=-2, dim2=-1)
-                .real.reshape([-1] + [self.cutoff] * self.nmode)
-                if self.den_mat
-                else result.abs().square()
-            )
         return result.squeeze(0)
 
     def _forward_helper_gaussian(self, data=None, state=None, _stepwise=True):

@@ -25,7 +25,7 @@ It facilitates the easy construction of hybrid quantum-classical models, enablin
 - **User-Friendly API Design**:
 The API is designed to be simple and intuitive, making it easy to initialize quantum neural networks and providing flexibility in data encoding.
 - **Photonic Quantum Computing Simulation**:
-The Photonic module includes Fock, Gaussian and Bosonic backends, catering to different simulation needs in photonic quantum computing.
+The Photonic module includes Fock, Gaussian, Bosonic and Bargmann backends, catering to different simulation needs in photonic quantum computing.
 It comes with built-in optimizers to support on-chip training of photonic quantum circuits.
 - **Large-Scale Quantum Circuit Simulation**:
 Leveraging tensor network techniques, DeepQuantum enables approximate simulation of circuits with over 100 qubits on a single laptop.
@@ -309,10 +309,6 @@ If you use DeepQuantum in your research, please cite [our paper](https://arxiv.o
   year={2025}
 }
 ```
-
-# Star History
-
-[![Stargazers over time](https://starchart.cc/TuringQ/deepquantum.svg?variant=adaptive)](https://starchart.cc/TuringQ/deepquantum)
 
 # License
 
