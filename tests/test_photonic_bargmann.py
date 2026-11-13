@@ -65,10 +65,17 @@ def test_fock_tensor_roundtrip_and_tensor_product():
     torch.testing.assert_close(rho, torch.einsum('ab,cd->abcd', full, full.conj()))
 
 
-def test_unbatched_single_mode_ket_converts_to_density():
+@pytest.mark.parametrize('batched', [False, True])
+def test_single_mode_ket_converts_to_density(batched):
     ket = torch.tensor([0.6, 0.8j], dtype=cdtype)
-    state = BargmannState(ket, nmode=1, den_mat=True)
-    torch.testing.assert_close(state.to_fock(2)[0], ket[:, None] * ket.conj()[None, :])
+    if batched:
+        ket = torch.stack([ket, ket.conj()])
+        initial = dq.FockState(ket, nmode=1, basis=False)
+    else:
+        initial = ket
+        ket = ket.unsqueeze(0)
+    state = BargmannState(initial, nmode=1, den_mat=True)
+    torch.testing.assert_close(state.to_fock(2), ket[:, :, None] * ket.conj()[:, None, :])
 
 
 @pytest.mark.parametrize(
@@ -102,8 +109,9 @@ def test_gate_bargmann_matches_fock_matrix(gate_type):
     torch.testing.assert_close(actual, gate.update_matrix_state().to(cdtype), atol=1e-10, rtol=1e-9)
 
 
-def test_channel_bargmann_matches_kraus_map():
-    channel = dqp.PhotonLoss(torch.tensor(0.9, dtype=dtype), cutoff=3)
+@pytest.mark.parametrize('theta', [0.9, 4.0])
+def test_channel_bargmann_matches_kraus_map(theta):
+    channel = dqp.PhotonLoss(torch.tensor(theta, dtype=dtype), cutoff=3)
     kraus = channel.update_matrix_state().to(cdtype)
     expected = torch.einsum('lac,lbd->abcd', kraus, kraus.conj())
     torch.testing.assert_close(channel.get_bargmann().to_fock((3,) * 4)[0], expected)

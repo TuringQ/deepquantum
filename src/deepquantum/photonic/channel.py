@@ -311,7 +311,9 @@ class PhotonLoss(Channel):
 
     .. math::
 
-       \hat{a}_{\text{out}} = \sqrt{T}\hat{a}_{\text{in}} + \sqrt{1-T}\hat{b}_{\text{vac}}
+       \hat{a}_{\text{out}} = \cos(\theta/2)\hat{a}_{\text{in}} + \sin(\theta/2)\hat{b}_{\text{vac}}
+
+    The power transmittance is :math:`T=\cos^2(\theta/2)`.
 
     Args:
         inputs: The parameter of the channel. Default: ``None``
@@ -419,18 +421,18 @@ class PhotonLoss(Channel):
     def get_bargmann(self) -> BargmannPolyExp:
         r"""Get the Bargmann representation of the photon loss channel.
 
-        With power transmittance :math:`T`, the kernel is
+        With field transmittance :math:`t=\cos(\theta/2)` and power transmittance :math:`T=t^2`, the kernel is
 
         .. math::
 
-            K(z,w,u,v) = \exp\!\left[\sqrt{T}\,(zu + wv) + (1-T)\,uv\right].
+            K(z,w,u,v) = \exp\!\left[t\,(zu + wv) + (1-T)\,uv\right].
 
         Variables are ordered as ket output, bra output, ket input, bra input.
         """
         if len(self.wires) != 1:
             raise NotImplementedError('PhotonLoss acts on a single mode')
         transmittance = self.t
-        amplitude = transmittance.sqrt() + 0j
+        amplitude = torch.cos(self.theta / 2) + 0j
         transmittance = transmittance + 0j
         zero = torch.zeros_like(transmittance)
         loss = 1 - transmittance

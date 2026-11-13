@@ -315,6 +315,8 @@ class BargmannState(nn.Module):
         Gaussian moments are converted at their input precision. Use float64 moments for
         double-precision conversion. A Gaussian ket requires pure input and fixes the vacuum
         amplitude to be real and positive.
+        With ``nmode=1, den_mat=True``, a rank-2 tensor is interpreted as an unbatched density matrix.
+        To convert a batch of one-mode kets, wrap it in ``FockState(..., basis=False)`` first.
     """
 
     def __init__(
