@@ -310,10 +310,6 @@ If you use DeepQuantum in your research, please cite [our paper](https://arxiv.o
 }
 ```
 
-# Star History
-
-[![Stargazers over time](https://starchart.cc/TuringQ/deepquantum.svg?variant=adaptive)](https://starchart.cc/TuringQ/deepquantum)
-
 # License
 
 DeepQuantum is open source, released under the Apache License, Version 2.0.
