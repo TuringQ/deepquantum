@@ -41,6 +41,7 @@ from .ansatz import (
     ShorCircuit,
     ShorCircuitFor15,
 )
+from .backends.gpu import QubitCircuitGPU
 from .channel import (
     AmplitudeDamping,
     BitFlip,

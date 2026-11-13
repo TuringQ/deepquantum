@@ -47,6 +47,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+ixquantum = ['ninja', 'setuptools', 'packaging']
 dev = [
     'graphix==0.3.1',
     'jupytext',
@@ -78,6 +79,7 @@ version = { attr = 'deepquantum.__version__' }
 
 [tool.setuptools.package-data]
 'deepquantum.photonic' = ['cache/*']
+'deepquantum.backends.gpu' = ['*.cpp', '*.cu']
 
 [tool.jupytext]
 formats = 'ipynb,py:percent'
