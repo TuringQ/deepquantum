@@ -1,39 +1,36 @@
 # Single-GPU execution with ixquantum
 
-`deepquantum.QubitCircuitGPU` compiles a circuit into a native executor for one Iluvatar (天数) GPU.
+`deepquantum.QubitCircuitGPU` compiles a circuit into a native executor for one Iluvatar CoreX (天数智芯) GPU.
 It reuses DeepQuantum's gate construction API and supports statevector execution, exact expectations, terminal sampling, and first-order adjoint gradients.
 
 ## Installation
 
-The configuration validated for this backend is Linux **x86_64**, an Iluvatar BI-V150 GPU, **CoreX 5.0.0**, **CoreX PyTorch 2.10.0**, and **ixquantum 1.8.0**.
-Other CoreX/PyTorch combinations, including CoreX 4.4.0, have not been validated.
-Install the matching Iluvatar driver, CoreX development toolkit, and vendor PyTorch distribution first.
-A CPU-only or NVIDIA PyTorch distribution cannot execute this backend.
+Request the matching GPU driver, **CoreX development toolkit**, **CoreX-compatible PyTorch**, and **ixquantum headers and shared library** from **Iluvatar CoreX (天数智芯)**.
+The ixquantum files needed by this backend are `custatevec.h` and `libcustatevec.so.1.8.0`.
 
-The native build needs a C++17 host compiler, Python development headers, and the CoreX device compiler and headers.
-The supplied ixquantum library depends on CoreX's CUDA-compatible runtime (`libcudart.so.10.2`), BLAS (`libcublas.so.10`, `libcublasLt.so.10`), and sparse (`libcusparse.so`) libraries.
-These come from the CoreX toolkit/runtime, not from the Python extra.
-Use the vendor's environment setup so these libraries are visible to the dynamic linker.
+The validated configuration is Linux **x86_64**, an Iluvatar BI-V150 GPU, **CoreX 5.0.0**, **CoreX PyTorch 2.10.0**, and **ixquantum 1.8.0**.
+Install the vendor packages and activate the Python environment containing CoreX-compatible PyTorch.
+The native build also needs a C++17 host compiler and Python development headers.
 
-Request the matching **`custatevec.h` and `libcustatevec.so.1.8.0`** from Iluvatar (天数).
-These vendor files are external dependencies and are not distributed with DeepQuantum.
-Place both files in a directory, then set:
+If CoreX is installed under `/usr/local/corex`, configure the compiler and runtime paths as follows.
+Adjust the paths for your installation, and set `IXQUANTUM_ROOT` to the directory containing the two ixquantum files.
 
 ```bash
+export PATH="/usr/local/corex/bin:$PATH"
+export LD_LIBRARY_PATH="/usr/local/corex/lib64:/usr/local/corex/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export IXQUANTUM_ROOT=/path/to/ixquantum
 python -m pip install 'deepquantum[ixquantum]'
 ```
 
+For example, use `export IXQUANTUM_ROOT=/root` if both vendor files are stored directly in `/root`.
+An SDK layout with `include/custatevec.h` and the library under `lib` or `lib64` is also accepted.
+If `IXQUANTUM_ROOT` is unset, the SDK search defaults to `/usr/local/corex`.
 For a source checkout, use `python -m pip install -e '.[ixquantum]'`.
-Install into the environment containing the compatible vendor PyTorch; do not replace it with a stock PyTorch build.
-`IXQUANTUM_ROOT/include/custatevec.h` with the library under `lib` or `lib64` is also accepted.
-If unset, the SDK search defaults to `/usr/local/corex`.
 
-The `ixquantum` extra declares the Python build helpers (`ninja`, `setuptools`, and `packaging`).
-Compilation happens on first GPU use through `torch.utils.cpp_extension.load`, using the installed CoreX PyTorch compiler support.
-Subsequent processes reuse its build cache.
+The `[ixquantum]` extra installs Python build tools (`ninja`, `setuptools`, and `packaging`); the vendor packages come from 天数智芯.
+The extension compiles on first GPU use through `torch.utils.cpp_extension.load` and reuses the build cache thereafter.
 `TORCH_EXTENSIONS_DIR` selects the cache directory and `MAX_JOBS` limits build parallelism.
-Normal DeepQuantum installation and import do not require this SDK or compile an extension.
+Normal DeepQuantum installation and import do not require the GPU SDK or compile an extension.
 
 ## Forward execution and sampling
 
@@ -45,7 +42,9 @@ circuit.h(0)
 circuit.cnot(0, 1)
 circuit.cnot(1, 2)
 state = circuit()                  # complex64 CUDA tensor, shape (8, 1)
-counts = circuit.measure(1024)      # approximately equal '000' and '111' counts
+counts = circuit.measure(shots=1024)
+print(state.shape)                # torch.Size([8, 1])
+print(counts)                     # approximately equal '000' and '111' counts
 circuit.close()
 ```
 
