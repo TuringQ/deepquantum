@@ -20,6 +20,7 @@ quick_start/basic_examples.md
 quick_start/introduction_cn.md
 quick_start/basic_usage_cn.md
 quick_start/basic_examples_cn.md
+quick_start/ixquantum.md
 ```
 
 ```{toctree}
