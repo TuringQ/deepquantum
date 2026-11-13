@@ -11,13 +11,7 @@ import deepquantum.photonic as dqp
 
 from ..qmath import is_unitary
 from ..utils import apply_complex_fix
-from .bargmann import (
-    PolyExpAnsatz,
-    displacement_kernel,
-    passive_kernel,
-    squeezing_kernel,
-    two_mode_squeezing_kernel,
-)
+from .bargmann import BargmannPolyExp, _gaussian_bargmann, passive_bargmann
 from .operation import Delay, Gate
 from .qmath import ladder_ops
 
@@ -205,12 +199,9 @@ class PhaseShift(SingleGate):
         theta = -self.theta if self.inv_mode else self.theta
         return f'wires={self.wires}, theta={theta.item()}'
 
-    def get_bargmann_kernel(self) -> PolyExpAnsatz:
+    def get_bargmann(self) -> BargmannPolyExp:
         """Return the passive optical kernel from the live mode matrix."""
-        unitary = self.update_matrix()
-        if unitary.shape[-2:] != (len(self.wires), len(self.wires)):
-            raise NotImplementedError(f'{self.name} does not provide a mode unitary matrix')
-        return passive_kernel(unitary)
+        return passive_bargmann(self.update_matrix())
 
 
 class BeamSplitter(DoubleGate):
@@ -374,12 +365,9 @@ class BeamSplitter(DoubleGate):
     def extra_repr(self) -> str:
         return f'wires={self.wires}, theta={self.theta.item()}, phi={self.phi.item()}'
 
-    def get_bargmann_kernel(self) -> PolyExpAnsatz:
+    def get_bargmann(self) -> BargmannPolyExp:
         """Return the passive optical kernel from the live mode matrix."""
-        unitary = self.update_matrix()
-        if unitary.shape[-2:] != (len(self.wires), len(self.wires)):
-            raise NotImplementedError(f'{self.name} does not provide a mode unitary matrix')
-        return passive_kernel(unitary)
+        return passive_bargmann(self.update_matrix())
 
 
 class MZI(BeamSplitter):
@@ -887,12 +875,9 @@ class UAnyGate(Gate):
         self.vector_xp = vector_xp.detach()
         return matrix_xp, vector_xp
 
-    def get_bargmann_kernel(self) -> PolyExpAnsatz:
+    def get_bargmann(self) -> BargmannPolyExp:
         """Return the passive optical kernel from the live mode matrix."""
-        unitary = self.update_matrix()
-        if unitary.shape[-2:] != (len(self.wires), len(self.wires)):
-            raise NotImplementedError(f'{self.name} does not provide a mode unitary matrix')
-        return passive_kernel(unitary)
+        return passive_bargmann(self.update_matrix())
 
 
 class Squeezing(SingleGate):
@@ -1039,10 +1024,20 @@ class Squeezing(SingleGate):
     def extra_repr(self) -> str:
         return f'wires={self.wires}, r={self.r.item()}, theta={self.theta.item()}'
 
-    def get_bargmann_kernel(self) -> PolyExpAnsatz:
-        """Return the Bargmann kernel from the live gate parameters."""
+    def get_bargmann(self) -> BargmannPolyExp:
+        r"""Return the Bargmann representation, with output variable before input.
+
+        .. math::
+
+            K(z,w)=\frac{\exp[-e^{i\theta}\tanh(r)z^2/2+\operatorname{sech}(r)zw
+            +e^{-i\theta}\tanh(r)w^2/2]}{\sqrt{\cosh(r)}}.
+        """
         r, theta = self.inputs_to_tensor([self.r, self.theta])
-        return squeezing_kernel(r, theta)
+        phase = torch.exp(1j * theta)
+        tanh = torch.tanh(r) + 0j
+        sech = 1 / torch.cosh(r) + 0j
+        mat_a = torch.stack([-phase * tanh, sech, sech, tanh / phase]).reshape(2, 2)
+        return _gaussian_bargmann(mat_a, mat_a.new_zeros(2), torch.cosh(r) ** -0.5)
 
 
 class Squeezing2(DoubleGate):
@@ -1208,10 +1203,41 @@ class Squeezing2(DoubleGate):
     def extra_repr(self) -> str:
         return f'wires={self.wires}, r={self.r.item()}, theta={self.theta.item()}'
 
-    def get_bargmann_kernel(self) -> PolyExpAnsatz:
-        """Return the Bargmann kernel from the live gate parameters."""
+    def get_bargmann(self) -> BargmannPolyExp:
+        r"""Return the Bargmann representation in order ``(z1, z2, w1, w2)``.
+
+        .. math::
+
+            K=\operatorname{sech}(r)\exp[e^{i\theta}\tanh(r)z_1z_2
+            +\operatorname{sech}(r)(z_1w_1+z_2w_2)-e^{-i\theta}\tanh(r)w_1w_2].
+        """
         r, theta = self.inputs_to_tensor([self.r, self.theta])
-        return two_mode_squeezing_kernel(r, theta)
+        phase = torch.exp(1j * theta)
+        tanh = torch.tanh(r) + 0j
+        sech = 1 / torch.cosh(r) + 0j
+        zero = torch.zeros_like(sech)
+        zz, ww = phase * tanh, -tanh / phase
+        mat_a = torch.stack(
+            [
+                zero,
+                zz,
+                sech,
+                zero,
+                zz,
+                zero,
+                zero,
+                sech,
+                sech,
+                zero,
+                zero,
+                ww,
+                zero,
+                sech,
+                ww,
+                zero,
+            ]
+        ).reshape(4, 4)
+        return _gaussian_bargmann(mat_a, mat_a.new_zeros(4), sech)
 
 
 class Displacement(SingleGate):
@@ -1349,10 +1375,19 @@ class Displacement(SingleGate):
     def extra_repr(self) -> str:
         return f'wires={self.wires}, r={self.r.item()}, theta={self.theta.item()}'
 
-    def get_bargmann_kernel(self) -> PolyExpAnsatz:
-        """Return the Bargmann kernel from the live gate parameters."""
+    def get_bargmann(self) -> BargmannPolyExp:
+        r"""Return :math:`K(z,w)=e^{-|\alpha|^2/2}\exp(\alpha z-\bar\alpha w+zw)`.
+
+        The displacement is :math:`\alpha=re^{i\theta}` and output precedes input.
+        """
         r, theta = self.inputs_to_tensor([self.r, self.theta])
-        return displacement_kernel(r, theta)
+        alpha = r * torch.exp(1j * theta)
+        zero, one = torch.zeros_like(alpha), torch.ones_like(alpha)
+        mat_a = torch.stack([zero, one, one, zero]).reshape(2, 2)
+        vec_b = torch.stack([alpha, -alpha.conj()])
+        # A smooth squared modulus retains the displacement derivative at the vacuum.
+        coeff_c = torch.exp(-(alpha.real**2 + alpha.imag**2) / 2)
+        return _gaussian_bargmann(mat_a, vec_b, coeff_c)
 
 
 class DisplacementPosition(Displacement):
@@ -2348,6 +2383,6 @@ class Barrier(Gate):
     def extra_repr(self) -> str:
         return f'wires={self.wires}'
 
-    def get_bargmann_kernel(self) -> None:
+    def get_bargmann(self) -> None:
         """Return None because a barrier does not change the state."""
         return None

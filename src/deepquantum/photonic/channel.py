@@ -9,7 +9,7 @@ from torch import nn
 
 import deepquantum.photonic as dqp
 
-from .bargmann import PolyExpAnsatz, loss_kernel
+from .bargmann import BargmannPolyExp, _gaussian_bargmann
 from .gate import BeamSplitterSingle, Displacement
 from .operation import Channel
 
@@ -337,8 +337,11 @@ class PhotonLoss(Channel):
         assert convention in ('theta', 't', 'db'), 'Invalid convention'
         self.convention = convention
         self.requires_grad = requires_grad
+        theta = self._inputs_to_theta(inputs)
+        if convention == 't' and theta is not None and (theta.is_complex() or not bool(torch.isfinite(theta).all())):
+            raise ValueError('Loss transmittance must be real, finite and lie in [0, 1]')
         self.gate = BeamSplitterSingle(
-            inputs=self._inputs_to_theta(inputs),
+            inputs=theta,
             nmode=self.nmode + 1,
             wires=self.wires + [self.nmode],
             cutoff=cutoff,
@@ -416,8 +419,40 @@ class PhotonLoss(Channel):
     def extra_repr(self) -> str:
         return f'wires={self.wires}, transmittance={self.t.item()}'
 
-    def get_bargmann_kernel(self) -> PolyExpAnsatz:
-        """Return the pure-loss density kernel from the live transmittance."""
+    def get_bargmann(self) -> BargmannPolyExp:
+        r"""Return the pure-loss Bargmann representation at power transmittance :math:`T`.
+
+        .. math::
+
+            K(z,w,u,v)=\exp[\sqrt{T}(zu+wv)+(1-T)uv].
+
+        Variables are ordered as ket output, bra output, ket input, bra input.
+        """
         if len(self.wires) != 1:
             raise NotImplementedError('PhotonLoss acts on a single mode')
-        return loss_kernel(self.t)
+        transmittance = self.t
+        amplitude = transmittance.sqrt() + 0j
+        transmittance = transmittance + 0j
+        zero = torch.zeros_like(transmittance)
+        loss = 1 - transmittance
+        mat_a = torch.stack(
+            [
+                zero,
+                zero,
+                amplitude,
+                zero,
+                zero,
+                zero,
+                zero,
+                amplitude,
+                amplitude,
+                zero,
+                zero,
+                loss,
+                zero,
+                amplitude,
+                loss,
+                zero,
+            ]
+        ).reshape(4, 4)
+        return _gaussian_bargmann(mat_a, mat_a.new_zeros(4), mat_a.new_ones(()))

@@ -63,6 +63,10 @@ Photonic circuits:
   - Use `backend='bosonic'` with `'vac'`, `[cov, mean, weight]`, a list of local `BosonicState`s, or prepared `cat`/`gkp` states.
   - Output is `[cov, mean, weight]`; `CatState`, `GKPState`, `FockStateBosonic`, Wigner functions, marginals, and homodyne workflows are tested.
   - `QumodeCircuit.measure()` asserts Fock/standard sampling is only supported for Fock and Gaussian backends. Use `measure_homodyne` or documented Bosonic measurement classes for Bosonic workflows.
+- Bargmann backend:
+  - Use `backend='bargmann'`; forward returns a `BargmannState`. Its `polyexp` is a `dqp.BargmannPolyExp(mat_a, vec_b, coeff_c)` with inferred free and auxiliary variable counts.
+  - Supported Gaussian gates and photon loss act through `get_bargmann()` representations. Loss requires `den_mat=True`. `state.to_fock(cutoff)` performs explicit finite-cutoff readout; the cutoff does not truncate Bargmann evolution.
+  - `post_select` returns a native conditional state for continued evolution. Thermal source preparation, submodes, TDM and circuit-level sampling are not supported.
 - Clements and GBS:
   - `dq.Clements`, `dq.UnitaryDecomposer`, `dq.GaussianBosonSampling`, and `dqp.GraphGBS` are documented through tutorials/examples.
   - `QumodeCircuit.any(...)` supports arbitrary unitary gates; tutorials note `clements(...)` performs a physical Clements decomposition and is not used as the differentiable arbitrary-unitary path.
@@ -91,6 +95,7 @@ Photonic measurement and probabilities:
 - Gaussian `measure(..., mcmc=True)` and Fock `measure(..., mcmc=True)` are documented for sampling when full probabilities are expensive.
 - `measure_homodyne(shots=..., wires=...)` returns quadrature samples and stores collapsed states in `state_measured` when measurement operations were added with `homodyne`, `homodyne_x`, or `homodyne_p`.
 - After a Fock state tensor forward pass (`basis=False`), `post_select(wires, counts, keep=...)` returns a conditional Fock density state and event probability. Counts sum over orthogonal basis modes. Select a retained mode with `submode` or `lo`, or omit both to retain all. `measure_homodyne(..., lo=..., phi=...)` selects a local-oscillator mode and an additional quadrature angle.
+- `post_select` defaults to `normalize=True` on Fock, Gaussian and Bargmann. Gaussian returns a Fock tensor; Bargmann returns `BargmannState`. `return_info=True` only adds diagnostics. Use `normalize=False` to retain joint event weights through repeated conditioning.
 
 MBQC:
 

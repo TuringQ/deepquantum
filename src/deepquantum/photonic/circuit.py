@@ -18,7 +18,7 @@ import deepquantum.photonic as dqp
 
 from ..qmath import block_sample, get_prob_mps, inner_product_mps, is_positive_definite, sample_sc_mcmc
 from ..state import MatrixProductState
-from .bargmann import PolyExpAnsatz, conditional_fock
+from .bargmann import conditional_fock
 from .channel import DisplacementChannel, OPA, PhotonLoss
 from .decompose import UnitaryDecomposer
 from .distributed import measure_dist
@@ -94,11 +94,12 @@ class QumodeCircuit(Operation):
             For Bosonic backend, it can be arbitrary linear combinations of Gaussian states
             with ``[cov, mean, weight]``, or a list of local Bosonic states.
             Use ``xxpp`` convention and :math:`\hbar=2` by default.
-        cutoff: The Fock space truncation. Default: ``None``
+        cutoff: The Fock space truncation. For Bargmann this only sets the default Fock readout cutoff.
+            Default: ``None``
         backend: Use ``'fock'`` for Fock backend, ``'gaussian'`` for Gaussian backend,
             ``'bosonic'`` for Bosonic backend or ``'bargmann'`` for Bargmann backend. Default: ``'fock'``
         basis: Whether to use the representation of Fock basis state for the initial state. Default: ``True``
-        den_mat: Whether to use density matrices for Fock tensors and heralded outputs.
+        den_mat: Whether to use density matrices for Fock and Bargmann states and Gaussian conditional outputs.
             Gaussian evolution still uses covariance and mean. Default: ``False``
         detector: For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector or
             ``'threshold'`` for the threshold detector, or ``'click'`` for the click-counting detector.
@@ -134,10 +135,6 @@ class QumodeCircuit(Operation):
         self.encoders = []
         self.measurements = nn.ModuleList()
         self.wires_homodyne = []
-        self.state = None
-        self._herald_state = None
-        self._herald_units = None
-        self.state_measured = None
         self.ndata = 0
         self.depth = np.array([0] * nmode)
 
@@ -160,7 +157,6 @@ class QumodeCircuit(Operation):
         self._tdm_gate_map = []  # (operation location, source gate, spatial wires, optional loop slots)
         self._tdm_measurement_map = []
         self.hardware_model = None
-        self._submode_circuit = None
         self.sources = nn.ModuleDict()
 
     def set_hardware_model(self, model: HardwareModel | None) -> None:
@@ -168,10 +164,7 @@ class QumodeCircuit(Operation):
         if model is not None:
             self._validate_hardware_model(model)
         self.hardware_model = model
-        self.__dict__['_submode_circuit'] = None
-        self.state = None
-        self._herald_state = None
-        self.state_measured = None
+        self._invalidate_state()
 
     def _validate_hardware_model(self, model: HardwareModel) -> None:
         if not isinstance(model, HardwareModel):
@@ -210,7 +203,7 @@ class QumodeCircuit(Operation):
 
     def set_init_state(self, init_state: Any) -> None:
         """Set the initial state of the circuit."""
-        self._herald_state = None
+        self._invalidate_state()
         if self.backend == 'bargmann' and not isinstance(init_state, BargmannState):
             assert not self.mps, 'MPS is not supported by the Bargmann backend'
             init_state = BargmannState(init_state, nmode=self.nmode, cutoff=self.cutoff, den_mat=self.den_mat)
@@ -322,13 +315,14 @@ class QumodeCircuit(Operation):
         detector: str | None = None,
         sort: bool = True,
         stepwise: bool = False,
-    ) -> 'torch.Tensor | dict | list[torch.Tensor] | dqp.SubmodeResult':
+    ) -> 'torch.Tensor | dict | list[torch.Tensor] | BargmannState | dqp.SubmodeResult':
         """Perform a forward pass of the photonic quantum circuit and return the final-state-related result.
 
         Args:
             data: The input data for the ``encoders``. Default: ``None``
             state: The initial state for the photonic quantum circuit. Default: ``None``
             is_prob: For Fock backend, whether to return probabilities or amplitudes.
+                Bargmann returns a BargmannState and does not support ``is_prob=True``.
                 For Gaussian (Bosonic) backend, whether to return probabilities or the final Gaussian (Bosonic) state.
                 For Fock backend with ``basis=True``, set ``None`` to return the unitary matrix. Default: ``None``
             detector: For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector,
@@ -343,10 +337,9 @@ class QumodeCircuit(Operation):
             With orthogonal basis modes, return ``SubmodeResult`` describing the joint or factorized layout.
             ``is_prob=True`` instead returns spatial photon-count probabilities.
         """
+        self._invalidate_state()
         self._prepare_unroll_dict()
         if self.hardware_model is not None:
-            self.state = None
-            self.state_measured = None
             self._validate_hardware_model(self.hardware_model)
         if self.sources:
             if self._with_delay:
@@ -377,8 +370,6 @@ class QumodeCircuit(Operation):
                 result = expanded.spatial_probabilities(detector)
             self.state = result
             return result
-        self.__dict__['_submode_circuit'] = None
-        self._herald_state = None
         if self.backend == 'fock':
             return self._forward_fock(data, state, is_prob, sort)
         elif self.backend in ('gaussian', 'bosonic'):
@@ -386,22 +377,23 @@ class QumodeCircuit(Operation):
         elif self.backend == 'bargmann':
             return self._forward_bargmann(data, state, is_prob)
 
-    def _load_from_state_dict(
-        self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
-    ):
-        if self.backend == 'bargmann':
-            # Checkpoints saved before forward caches were detached may contain these buffers.
-            for cache in ('state', '_herald_state'):
-                for field in ('a', 'b', 'c', 'mat_a', 'vec_b', 'coeff_c'):
-                    state_dict.pop(f'{prefix}{cache}.{field}', None)
-        return super()._load_from_state_dict(
-            state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
-        )
+    def _invalidate_state(self) -> None:
+        """Discard execution results after a circuit, state or device change."""
+        self.__dict__['state'] = None
+        self._state_raw = None
+        self._state_units = None
+        self.state_measured = None
+        self.__dict__['_submode_circuit'] = None
+
+    def _get_output_state(self):
+        """Get the quantum state retained by the latest forward pass."""
+        state = self.state if self._state_raw is None else self._state_raw
+        if state is None:
+            raise RuntimeError('Run the circuit forward before post-selection')
+        return state
 
     def _apply(self, fn: Any, recurse: bool = True) -> 'QumodeCircuit':
-        self._herald_state = None
-        if self.backend == 'bargmann':
-            self.state = None
+        self._invalidate_state()
         return super()._apply(fn, recurse=recurse)
 
     def post_select(
@@ -413,96 +405,85 @@ class QumodeCircuit(Operation):
         *,
         lo: Any = None,
         cutoff: int | None = None,
-        normalize: bool | None = None,
+        normalize: bool = True,
         return_info: bool = False,
     ) -> tuple:
-        """Compute a deterministic PNR conditional state from the latest forward pass.
+        """Return the PNR conditional state and event weight from the latest forward pass.
 
-        Supports dense Fock tensors (``basis=False``, no MPS), Gaussian states
-        and Bargmann states. Call ``cir()`` after changing parameters. This method neither
-        reruns gates nor changes ``self.state``. Dense Fock and Gaussian
-        conditional outputs also work after ``cir(is_prob=True)``; Bargmann
-        rejects that forward option. Remaining modes retain their original order.
-        ``self.den_mat`` selects density matrices when True and kets otherwise.
-        Mixed Gaussian inputs require ``den_mat=True``; no automatic switch is made.
-        On Fock circuits, calls without advanced options preserve the existing spatial
-        selection behavior and return a normalized density ``FockState``. Pass
-        ``normalize=False``, ``cutoff`` or ``return_info`` to request the dense
-        conditional tensor instead. Both Fock paths normalize by default; Gaussian
-        and Bargmann return their conditional representations directly.
+        Fock returns a density-matrix ``FockState``. Gaussian returns a conditional
+        Fock tensor, with ``den_mat`` selecting a ket or density matrix. Bargmann
+        returns a ``BargmannState`` that can continue evolving without Fock truncation.
+        The circuit state is unchanged and gates are not rerun, including after
+        a Fock or Gaussian ``forward(is_prob=True)``.
 
         Args:
-            wires: Measured mode indices, in the same order as ``counts``.
-                At least one mode must be measured and at least one must remain.
-            counts: Nonnegative integer photon counts, one per measured mode.
-            keep: Fock spatial wires to retain, in output order.
-            submode: Orthogonal basis mode to retain at each selected Fock wire.
-            lo: Local oscillator coefficients selecting a basis combination.
-            cutoff: Output dimension per remaining mode (photons 0 through cutoff-1).
-                Defaults to the circuit cutoff. Dense Fock outputs cannot exceed it.
-                For Bargmann output, only sets the default subsequent Fock readout dimension.
-            normalize: Divide by the event probability (its square root for kets).
-                The finite output may still have norm squared/trace below one.
-                A zero-probability event cannot be normalized. Defaults to ``True``
-                on Fock and ``False`` on Gaussian and Bargmann.
-            return_info: Also return an ``info`` dictionary with the retained
-                probability mass and remaining mode labels. Default: ``False``.
+            wires: Measured spatial modes, in the same order as ``counts``.
+            counts: One nonnegative photon count per measured mode. On Fock circuits
+                with submodes, each count sums over all orthogonal basis modes.
+            keep: Unmeasured Fock spatial modes to retain, in output order.
+                Other unmeasured modes are traced out. Default: ``None`` (all unmeasured modes)
+            submode: Orthogonal-basis mode to retain at each selected Fock wire.
+                Cannot be combined with ``lo``. Default: ``None`` (all basis modes)
+            lo: Local-oscillator coefficients selecting one basis combination at each
+                retained Fock wire. A vector is shared across wires. Default: ``None``
+            cutoff: Output Fock dimension per retained mode. Fock outputs cannot exceed
+                the simulated cutoff. For Bargmann, this sets only the default subsequent
+                Fock readout dimension. Default: ``None`` (the circuit cutoff)
+            normalize: Divide by the event weight, or its square root for a ket.
+                Finite-cutoff outputs may still have norm squared or trace below one.
+                Zero-weight events cannot be normalized. Default: ``True``
+            return_info: Also return remaining mode labels and cutoff diagnostics.
+                This does not change the conditional state or its representation. Default: ``False``
 
         Returns:
-            ``(state, probability)`` or ``(state, probability, info)``. The
-            existing Fock spatial-selection path returns a normalized ``FockState``.
-            Dense conditional outputs always have a batch axis: ket
-            ``(B, C, ..., C)``, density matrix
-            ``(B, ket axes..., bra axes...)``, probability ``(B,)``. Gaussian
-            probabilities come from the measured marginal independently of output
-            cutoff. Fock probabilities use the entire available input tensor.
-            The Bargmann backend returns a ``BargmannState`` instead of a tensor,
-            with local consecutive wire labels and no additional Fock truncation.
-            Its probability is the unnormalized output weight (joint event weight
-            for an unnormalized input); cutoff diagnostics in info are None.
+            ``(state, probability)`` or ``(state, probability, info)``, with a leading
+            batch axis and probability shape ``(B,)``. The probability is computed
+            before normalization and output cropping. For unnormalized inputs it is an
+            event weight, such as a joint probability in a chain of post-selections.
+            Gaussian kets require pure inputs. Bargmann outputs use consecutive local
+            mode indices. ``info['remaining_wires']`` records the source spatial modes.
 
-        Raises:
-            NotImplementedError: For unsupported backends, Fock basis states,
-                MPS, distributed or delay circuits.
-            RuntimeError: If no valid forward result is available.
-            ValueError: For invalid arguments or an incompatible representation.
+            ``probability_in_cutoff`` and ``retained_fraction`` report the unnormalized
+            finite-output weight and its fraction of the event weight. They are None for
+            native Bargmann output. Bargmann additionally reports ``input_weight`` and
+            ``conditional_probability``. ``source_cutoff`` is set only for Fock inputs.
         """
-        if keep is not None or submode is not None or lo is not None:
-            if self.backend != 'fock':
-                raise NotImplementedError('Spatial mode selection requires the Fock backend')
-            if cutoff is not None or return_info or normalize is not None:
-                raise ValueError('keep, submode and lo cannot be combined with cutoff, normalize or return_info')
-            return self._post_select_spatial(wires, counts, keep, submode, lo=lo)
-        if self.backend == 'fock' and normalize is None and cutoff is None and not return_info:
-            return self._post_select_spatial(wires, counts)
+        if self.backend not in ('fock', 'gaussian', 'bargmann'):
+            raise NotImplementedError('post_select supports Fock, Gaussian and Bargmann backends')
+        if self.backend == 'fock' and self.basis:
+            raise NotImplementedError('Fock post_select requires basis=False')
+        if self.backend != 'fock' and (keep is not None or submode is not None or lo is not None):
+            raise NotImplementedError('keep, submode and lo require the Fock backend')
+        wires, counts, cutoff = self._prepare_post_select(wires, counts, cutoff)
+        remaining = tuple(w for w in range(self.nmode) if w not in wires)
         if self.backend == 'fock':
-            method = self._post_select_fock
+            if cutoff > self.cutoff:
+                raise ValueError('Output cutoff must lie within the simulated Fock space')
+            state, probability, remaining = self._post_select_spatial(wires, counts, keep, submode, lo=lo)
+            state = state[(slice(None), *([slice(cutoff)] * (state.ndim - 1)))]
         elif self.backend == 'gaussian':
-            method = self._post_select_gaussian
-        elif self.backend == 'bargmann':
-            method = self._post_select_bargmann
+            if self._state_units != (dqp.hbar, dqp.kappa):
+                raise RuntimeError('Quadrature units changed after forward; recreate the circuit with consistent units')
+            cov, mean = self._get_output_state()
+            state, probability = conditional_fock(cov, mean, wires, counts, cutoff, den_mat=self.den_mat)
         else:
-            raise NotImplementedError('Heralding supports only dense Fock, Gaussian and Bargmann backends')
-        return method(
-            wires,
-            counts,
-            cutoff,
-            normalize=(self.backend == 'fock') if normalize is None else normalize,
-            return_info=return_info,
-        )
+            state = self._get_output_state()._project_pnr(wires, counts)
+            state.cutoff = cutoff
+            probability = state.norm()
+        return self._finish_post_select(state, probability, remaining, normalize, return_info)
 
-    def _prepare_herald(
-        self, wires: Any, herald_state: Any, cutoff: int | None
+    def _prepare_post_select(
+        self, wires: Any, counts: Any, cutoff: int | None
     ) -> tuple[tuple[int, ...], tuple[int, ...], int]:
+        """Validate mode indices, photon counts and output cutoff."""
         if self.mps or self._with_delay or isinstance(self, DistributedQumodeCircuit):
-            raise NotImplementedError('Heralding does not support MPS, delay or distributed circuits')
-        if self._herald_state is None:
-            raise RuntimeError('Run the circuit forward before computing a heralded state')
+            raise NotImplementedError('post_select does not support MPS, delay or distributed circuits')
+        self._get_output_state()
 
         def integers(values):
             if isinstance(values, torch.Tensor):
                 if values.ndim > 1 or values.dtype == torch.bool or values.is_floating_point() or values.is_complex():
-                    raise ValueError('wires and herald_state must contain integers')
+                    raise ValueError('wires and counts must contain integers')
                 values = values.tolist()
             if not isinstance(values, (list, tuple)):
                 values = [values]
@@ -511,19 +492,19 @@ class QumodeCircuit(Operation):
                     raise TypeError
                 return tuple(operator_index(v) for v in values)
             except TypeError as exc:
-                raise ValueError('wires and herald_state must contain integers') from exc
+                raise ValueError('wires and counts must contain integers') from exc
 
-        wires, herald = integers(wires), integers(herald_state)
-        if len(wires) != len(herald):
-            raise ValueError('One herald photon number is required for each measured wire')
+        wires, counts = integers(wires), integers(counts)
+        if len(wires) != len(counts):
+            raise ValueError('One photon count is required for each measured wire')
         if len(set(wires)) != len(wires) or any(w < 0 or w >= self.nmode for w in wires):
             raise ValueError('Measured wires must be unique valid mode indices')
         if not wires:
-            raise ValueError('Heralding requires at least one measured mode')
+            raise ValueError('post_select requires at least one measured mode')
         if len(wires) == self.nmode:
-            raise ValueError('Heralding requires at least one remaining mode')
-        if any(h < 0 for h in herald):
-            raise ValueError('Herald photon numbers must be nonnegative')
+            raise ValueError('post_select requires at least one remaining mode')
+        if any(n < 0 for n in counts):
+            raise ValueError('Photon counts must be nonnegative')
         cutoff = self.cutoff if cutoff is None else cutoff
         try:
             if isinstance(cutoff, bool):
@@ -533,124 +514,55 @@ class QumodeCircuit(Operation):
             raise ValueError('cutoff must be a positive integer') from exc
         if cutoff < 1:
             raise ValueError('cutoff must be a positive integer')
-        return wires, herald, cutoff
+        return wires, counts, cutoff
 
-    def _finish_herald(self, state, probability, wires, normalize, return_info, method) -> tuple:
-        remaining = tuple(i for i in range(self.nmode) if i not in wires)
-        if not self.den_mat:
-            mass = state.abs().square().reshape(state.shape[0], -1).sum(-1)
-        else:
-            dimension = math.prod(state.shape[1 : 1 + len(remaining)])
-            matrix = state.reshape(state.shape[0], dimension, dimension)
-            mass = matrix.diagonal(dim1=-2, dim2=-1).sum(-1).real
+    def _finish_post_select(self, state, probability, remaining, normalize, return_info) -> tuple:
+        """Normalize the conditional output and attach optional readout diagnostics."""
         tolerance = 100 * torch.finfo(probability.dtype).eps
         if bool((probability < -tolerance).any()) or not bool(torch.isfinite(probability).all()):
-            raise ValueError('Invalid herald probability; check the input state or use higher precision')
+            raise ValueError('Invalid post-selection probability; check the input state or use higher precision')
         probability = probability.clamp_min(0)
+        native = isinstance(state, BargmannState)
+        den_mat = self.backend == 'fock' or self.den_mat
+        mass = None
+        if return_info and not native:
+            if den_mat:
+                dimension = math.prod(state.shape[1 : (state.ndim + 1) // 2])
+                mass = state.reshape(-1, dimension, dimension).diagonal(dim1=-2, dim2=-1).sum(-1).real
+            else:
+                mass = state.abs().square().flatten(1).sum(-1)
         if normalize:
             if bool((probability <= 0).any()):
-                raise ValueError('Cannot normalize a zero-probability herald event')
-            denominator = probability.sqrt() if not self.den_mat else probability
-            state = state / denominator.reshape(-1, *([1] * (state.ndim - 1)))
+                raise ValueError('Cannot normalize a zero-probability PNR event')
+            if native:
+                state = state._normalize(probability)
+            else:
+                denominator = probability if den_mat else probability.sqrt()
+                state = state / denominator.reshape(-1, *([1] * (state.ndim - 1)))
+        if self.backend == 'fock':
+            state = FockState(state, basis=False, den_mat=True)
         if not return_info:
             return state, probability
         safe_probability = torch.where(probability > 0, probability, torch.ones_like(probability))
-        fraction = torch.where(probability > 0, mass / safe_probability, torch.full_like(probability, float('nan')))
+        fraction = (
+            None
+            if native
+            else torch.where(probability > 0, mass / safe_probability, torch.full_like(probability, float('nan')))
+        )
         info = {
-            'remaining_wires': remaining,
-            'representation': 'dm' if self.den_mat else 'ket',
+            'remaining_wires': tuple(remaining),
+            'representation': 'dm' if den_mat else 'ket',
             'probability_in_cutoff': mass,
             'retained_fraction': fraction,
             'source_cutoff': self.cutoff if self.backend == 'fock' else None,
-            'method': method,
         }
-        return state, probability, info
-
-    def _post_select_fock(self, wires, herald_state, cutoff=None, *, normalize=False, return_info=False) -> tuple:
-        """Slice a dense Fock ket or density matrix; arguments follow ``post_select``.
-
-        The event probability uses the source cutoff before cropping the output.
-        No Gaussian approximation or conversion is used.
-        """
-        if self.backend != 'fock' or self.basis:
-            raise NotImplementedError('_post_select_fock requires backend="fock", basis=False')
-        wires, herald, cutoff = self._prepare_herald(wires, herald_state, cutoff)
-        if cutoff > self.cutoff or any(h >= self.cutoff for h in herald):
-            raise ValueError('Output cutoff and herald counts must lie within the simulated Fock space')
-        selected = dict(zip(wires, herald, strict=True))
-        axes = tuple(selected.get(i, slice(None)) for i in range(self.nmode))
-        state = self._herald_state[(slice(None), *(axes * (2 if self.den_mat else 1)))]
-        batch = state.shape[0]
-        nremaining = self.nmode - len(wires)
-        if self.den_mat:
-            matrix = state.reshape(batch, self.cutoff**nremaining, self.cutoff**nremaining)
-            probability = matrix.diagonal(dim1=-2, dim2=-1).sum(-1).real
-        else:
-            probability = state.abs().square().reshape(batch, -1).sum(-1)
-        state = state[(slice(None), *([slice(cutoff)] * (state.ndim - 1)))]
-        return self._finish_herald(state, probability, wires, normalize, return_info, 'fock_slice')
-
-    def _post_select_gaussian(self, wires, herald_state, cutoff=None, *, normalize=False, return_info=False) -> tuple:
-        """Use Bargmann recurrences for Gaussian inputs; arguments follow ``post_select``.
-
-        Returns a Fock tensor, since PNR conditioning generally produces a
-        non-Gaussian state. The measured marginal determines the event probability.
-        """
-        if self.backend != 'gaussian':
-            raise NotImplementedError('_post_select_gaussian requires backend="gaussian"')
-        wires, herald, cutoff = self._prepare_herald(wires, herald_state, cutoff)
-        if self._herald_units != (dqp.hbar, dqp.kappa):
-            raise RuntimeError('Quadrature units changed after forward; recreate the circuit with consistent units')
-        cov, mean = self._herald_state
-        state, probability = conditional_fock(cov, mean, wires, herald, cutoff, den_mat=self.den_mat)
-        return self._finish_herald(state, probability, wires, normalize, return_info, 'bargmann')
-
-    def _post_select_bargmann(self, wires, herald_state, cutoff=None, *, normalize=False, return_info=False) -> tuple:
-        """Return a PNR conditional BargmannState without truncating retained modes.
-
-        Arguments follow ``post_select``. ``cutoff`` only sets the returned state's
-        default Fock readout dimension. The source state is unchanged. Output wires
-        are numbered locally from zero; ``info['remaining_wires']`` records source labels.
-        ``probability`` is the output squared norm or trace before normalization.
-        For unnormalized inputs this is an event weight, not a conditional probability.
-        With ``return_info``, input_weight and conditional_probability make this explicit;
-        probability_in_cutoff and retained_fraction are None because no Fock readout occurs.
-        """
-        if self.backend != 'bargmann':
-            raise NotImplementedError('_post_select_bargmann requires backend="bargmann"')
-        wires, herald, cutoff = self._prepare_herald(wires, herald_state, cutoff)
-        source = self._herald_state
-        positions = tuple(source._positions(list(wires)))
-        state = source._project_pnr(positions, herald)
-        state.cutoff = cutoff
-        probability = state.norm()
-        tolerance = 100 * torch.finfo(probability.dtype).eps
-        if bool((probability < -tolerance).any()) or not bool(torch.isfinite(probability).all()):
-            raise ValueError('Invalid herald probability; check the input state or use higher precision')
-        probability = probability.clamp_min(0)
-        if normalize:
-            if bool((probability <= 0).any()):
-                raise ValueError('Cannot normalize a zero-probability herald event')
-            denominator = probability if self.den_mat else probability.sqrt()
-            scaled = state.coeff_c / denominator.reshape(-1, *([1] * (state.coeff_c.ndim - 1)))
-            state = state._new(PolyExpAnsatz(state.mat_a, state.vec_b, scaled, state.n_cv))
-        if not return_info:
-            return state, probability
-        input_weight = source.norm()
-        safe_weight = torch.where(input_weight > 0, input_weight, torch.ones_like(input_weight))
-        conditional = torch.where(
-            input_weight > 0, probability / safe_weight, torch.full_like(input_weight, float('nan'))
-        )
-        info = {
-            'remaining_wires': tuple(w for w in source.wires if w not in wires),
-            'representation': state.representation,
-            'probability_in_cutoff': None,
-            'retained_fraction': None,
-            'source_cutoff': None,
-            'method': 'bargmann_projection',
-            'input_weight': input_weight,
-            'conditional_probability': conditional,
-        }
+        if native:
+            input_weight = self._get_output_state().norm()
+            safe_weight = torch.where(input_weight > 0, input_weight, torch.ones_like(input_weight))
+            info['input_weight'] = input_weight
+            info['conditional_probability'] = torch.where(
+                input_weight > 0, probability / safe_weight, torch.full_like(input_weight, float('nan'))
+            )
         return state, probability, info
 
     def _forward_fock(
@@ -714,7 +626,7 @@ class QumodeCircuit(Operation):
                         data, state, is_prob
                     )
             else:
-                self.state = self._forward_helper_tensor(data, state, False)
+                self.state = self._forward_helper_tensor(data, state)
                 if not self.mps and self.state.ndim == self.nmode:
                     self.state = self.state.unsqueeze(0)
         else:
@@ -738,21 +650,21 @@ class QumodeCircuit(Operation):
                 if self.mps:
                     assert state[0].ndim in (3, 4)
                     if state[0].ndim == 3:
-                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, None, None), randomness=randomness)(
-                            data, state, False
+                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, None), randomness=randomness)(
+                            data, state
                         )
                     elif state[0].ndim == 4:
-                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, 0, None), randomness=randomness)(
-                            data, state, False
+                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, 0), randomness=randomness)(
+                            data, state
                         )
                 else:
                     if state.shape[0] == 1:
-                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, None, None), randomness=randomness)(
-                            data, state, False
+                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, None), randomness=randomness)(
+                            data, state
                         )
                     else:
-                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, 0, None), randomness=randomness)(
-                            data, state, False
+                        self.state = vmap(self._forward_helper_tensor, in_dims=(0, 0), randomness=randomness)(
+                            data, state
                         )
             # for plotting the last data
             self.encode(data[-1])
@@ -763,8 +675,8 @@ class QumodeCircuit(Operation):
             leading = self.state.shape[:-rank] if getattr(self, 'factorized', False) else (-1,)
             self.state = self.state.reshape(*leading, *([self.cutoff] * rank))
             leading = self.state.shape[:-rank]
-            self._herald_state = self.state
             if is_prob:
+                self._state_raw = self.state
                 if self.den_mat:
                     matrix = self.state.reshape(*leading, self.cutoff**self.nmode, self.cutoff**self.nmode)
                     self.state = (
@@ -816,7 +728,6 @@ class QumodeCircuit(Operation):
         self,
         data: torch.Tensor | None = None,
         state: torch.Tensor | list[torch.Tensor] | None = None,
-        is_prob: bool | None = None,
     ) -> torch.Tensor | list[torch.Tensor]:
         """Perform a forward pass for one sample if the input is a Fock state tensor."""
         self.encode(data)
@@ -842,12 +753,6 @@ class QumodeCircuit(Operation):
                 if self.hardware_model is not None
                 else self.operators(state)
             ).squeeze(0)
-            if is_prob:
-                if self.den_mat:
-                    x = x.reshape(-1, self.cutoff**self.nmode, self.cutoff**self.nmode).diagonal(dim1=-2, dim2=-1)
-                    x = abs(x).reshape([-1] + [self.cutoff] * self.nmode).squeeze(0)
-                else:
-                    x = abs(x) ** 2
             return x
 
     def _forward_cv(
@@ -909,8 +814,9 @@ class QumodeCircuit(Operation):
                 )
             self.encode(data[-1])
         if self.backend == 'gaussian' and not self._with_delay:
-            self._herald_state = (cov, mean)
-            self._herald_units = (dqp.hbar, dqp.kappa)
+            if is_prob:
+                self._state_raw = (cov, mean)
+            self._state_units = (dqp.hbar, dqp.kappa)
         if is_prob:
             self.state = [cov, mean]  # for checking purity
             self.state = self._forward_cv_prob(cov, mean, weight, detector)
@@ -994,13 +900,11 @@ class QumodeCircuit(Operation):
             outputs = []
             run = self.hardware_model._new_run(self.backend, self.wires) if self.hardware_model is not None else None
             for i in range(data.shape[0]):
-                sample = state if state.batch_size == 1 else state.select(i)
+                sample = state if state.batch_size == 1 else state._select_batch(i)
                 outputs.append(self._forward_helper_bargmann(data[i], sample, run))
-            result = BargmannState.cat(outputs)
-        # Forward results are caches, not circuit submodules or checkpoint contents.
-        for name in ('state', '_herald_state'):
-            self._modules.pop(name, None)
-            self.__dict__[name] = result
+            result = BargmannState._cat_batch(outputs)
+        # A forward result must not be registered as a circuit submodule.
+        self.__dict__['state'] = result
         return result
 
     def _forward_helper_bargmann(
@@ -2639,51 +2543,24 @@ class QumodeCircuit(Operation):
 
     def _post_select_spatial(
         self,
-        wires: int | list[int],
-        counts: int | list[int],
+        wires: tuple[int, ...],
+        counts: tuple[int, ...],
         keep: int | list[int] | None = None,
         submode: int | None = None,
         *,
         lo: Any = None,
-    ) -> tuple[FockState, torch.Tensor]:
-        """Return the normalized Fock density matrix and probability of a PNR event.
-
-        Requires a completed Fock state tensor forward pass (``basis=False``, ``mps=False``).
-        The circuit state is unchanged. Modes not retained are traced out.
-
-        Args:
-            wires: Spatial wires measured by photon-number-resolving detectors.
-            counts: One nonnegative integer per measured wire, summed over all its orthogonal basis modes.
-            keep: Unmeasured spatial wires to retain, in output order. Default: ``None`` (all unmeasured wires)
-            submode: Zero-based orthogonal-basis mode index to retain at every wire in ``keep``.
-                Default: ``None`` (all orthogonal basis modes when ``lo`` is also omitted)
-            lo: Complex coefficients in the common orthogonal basis, normalized per row.
-                A vector selects the same linear combination at every retained wire. Matrix rows correspond to ``keep``.
-                Retains one mode per wire and cannot be combined with ``submode``. Default: ``None``
-
-        Returns:
-            Conditional Fock density state and PNR-event probability, both with a leading batch dimension.
-            State axes follow ``keep``, then orthogonal-basis mode index when retaining all modes.
-            The Fock cutoff also applies after a change of orthogonal basis.
-
-        Raises:
-            ValueError: If the requested event has zero probability or the selection is invalid.
-        """
+    ) -> tuple[torch.Tensor, torch.Tensor, tuple[int, ...]]:
+        """Return unnormalized Fock density, event weight and retained spatial labels."""
         from .qmath import _pnr_condition
 
-        if self.backend != 'fock' or self.basis or self.mps:
-            raise NotImplementedError('post_select() requires Fock state tensors (basis=False).')
-        wires = self._convert_indices(wires)
-        if not wires:
-            raise ValueError('Measure at least one spatial wire.')
-        counts = [counts] if isinstance(counts, int) else list(counts)
-        if len(counts) != len(wires) or any(type(n) is not int or n < 0 for n in counts):
-            raise ValueError('Provide one nonnegative integer count per measured spatial wire.')
+        wires, counts = list(wires), list(counts)
         keep = [w for w in self.wires if w not in wires] if keep is None else self._convert_indices(keep)
-        if not keep or set(keep) & set(wires):
+        if not keep or len(set(keep)) != len(keep) or set(keep) & set(wires):
             raise ValueError('Retain at least one unmeasured spatial wire.')
         expanded = self._submode_circuit
         d = 1 if expanded is None else expanded.nsubmode
+        if any(n > d * (self.cutoff - 1) for n in counts):
+            raise ValueError('Photon counts must lie within the simulated Fock space')
         if lo is not None and submode is not None:
             raise ValueError('Specify either submode or lo for the retained state.')
         if submode is not None and (type(submode) is not int or not 0 <= submode < d):
@@ -2702,20 +2579,18 @@ class QumodeCircuit(Operation):
 
             density, probability = _post_select_spatial(expanded.result(), self.cutoff, wires, counts, keep, retained)
         else:
-            state = self.state if expanded is None else expanded.state
+            state = self._get_output_state() if expanded is None else expanded.state
             if not isinstance(state, torch.Tensor) or not state.is_complex():
                 raise ValueError('Run the circuit to obtain a Fock state tensor before post-selection.')
             density, probability = _pnr_condition(
-                state, self.nmode * d, self.cutoff, self.den_mat, measured, counts, selected
+                state, self.nmode * d, self.cutoff, self.den_mat, measured, counts, selected, normalize=False
             )
         if lo is not None:
             from .submode import SubmodeResult, _lo_view
 
             result = SubmodeResult(density, len(keep), len(retained), 'fock', True, False)
             density = _lo_view(result, self.cutoff, list(range(len(keep))), coefficients[:, retained]).state
-            selected = keep
-        result = FockState(density, len(selected), self.cutoff, basis=False, den_mat=True)
-        return result, probability
+        return density, probability, tuple(keep)
 
     def measure_homodyne(
         self, shots: int = 10, wires: int | list[int] | None = None, *, lo: Any = None, phi: Any = None
@@ -2938,11 +2813,14 @@ class QumodeCircuit(Operation):
         self, wires: int | list[int], nbar: Any = None, *, purity: Any = None, requires_grad: bool = False
     ) -> None:
         """Prepare thermal inputs. See :class:`~deepquantum.photonic.source.ThermalSource`."""
+        if self.backend == 'bargmann':
+            raise NotImplementedError('Thermal source preparation is not supported by the Bargmann backend')
         if self.mps or self.backend == 'fock' and (self.basis or not self.den_mat):
             raise NotImplementedError('Thermal inputs require Gaussian, Bosonic or Fock density states.')
         source = ThermalSource(nbar, purity=purity, requires_grad=requires_grad)
         for wire in self._convert_indices(wires):
             self.sources[str(wire)] = source
+        self._invalidate_state()
 
     def single_photon(
         self,
@@ -2969,6 +2847,7 @@ class QumodeCircuit(Operation):
                 if torch.count_nonzero(initial.narrow(wire + 1, 1, self.cutoff - 1)):
                     raise ValueError('Pure input preparation requires vacuum on the selected input wire.')
             self.sources[str(wire)] = source
+        self._invalidate_state()
 
     def _prepare_sources(self):
         """Build the declared input state before optical evolution."""
@@ -3048,7 +2927,7 @@ class QumodeCircuit(Operation):
         Raises:
             AssertionError: If the input arguments are invalid or incompatible with the quantum circuit.
         """
-        self._herald_state = None
+        self._invalidate_state()
         assert isinstance(op, Operation)
         if self.backend == 'fock':
             operations = op.gates if isinstance(op, Delay) else [op]

@@ -14,12 +14,12 @@ from ..communication import comm_get_rank, comm_get_world_size
 from ..qmath import is_power, list_to_decimal, multi_kron
 from ..utils import apply_complex_fix
 from .bargmann import (
-    PolyExpAnsatz,
-    _apply_bargmann_kernel,
-    _project_pnr_ansatz,
-    fock_to_ansatz,
+    BargmannPolyExp,
+    _apply_bargmann,
+    _project_pnr,
+    fock_to_bargmann,
     gaussian_to_bargmann,
-    vacuum_ansatz,
+    vacuum_bargmann,
 )
 from .draw import GaussianGraphVisualizer
 from .qmath import cv_to_wigner, dirac_rep, fock_to_wigner, xpxp_to_xxpp, xxpp_to_xpxp
@@ -284,8 +284,8 @@ class GaussianState(nn.Module):
 class BargmannState(nn.Module):
     r"""A photonic state in the Bargmann (stellar) representation.
 
-    The state is stored as a :class:`PolyExpAnsatz` ``(A, b, c)``. A ket on ``M`` modes has ``M``
-    CV variables, one per mode in the order of :attr:`wires`. A density matrix has ``2M`` CV
+    The state is stored as a :class:`BargmannPolyExp` ``(A, b, c)``. A ket on ``M`` modes has ``M``
+    free variables, one per mode in local mode order. A density matrix has ``2M`` free
     variables: all ket variables followed by all bra variables, so that
 
     .. math::
@@ -293,15 +293,15 @@ class BargmannState(nn.Module):
         K_\psi(z)=\sum_n\psi_n\frac{z^n}{\sqrt{n!}},\qquad
         K_\rho(z,w)=\sum_{n,m}\rho_{n,m}\frac{z^nw^m}{\sqrt{n!m!}}.
 
-    Gaussian states have no derived variables; Fock states and heralded states carry
-    derived variables. The state is not normalized automatically.
+    Gaussian states have no auxiliary variables. Non-Gaussian states use auxiliary
+    derivative variables. The state is not normalized automatically.
 
     Args:
         state: The state. It can be ``'vac'``/``'zeros'``; a Gaussian state ``[cov, mean]`` (xxpp,
             current ``hbar``/``kappa``) or a ``GaussianState``; a Fock basis state such as ``[1, 0, 2]``;
             a Fock superposition ``[(amp, [n0, n1, ...]), ...]``; a ``FockState``; a batched Fock tensor
             (ket ``(B, C, ..., C)`` or density matrix ``(B, ket axes..., bra axes...)``); or a
-            :class:`PolyExpAnsatz`. Default: ``'vac'``
+            :class:`BargmannPolyExp`. Default: ``'vac'``
         nmode: The number of modes. Default: ``None``
         cutoff: The default Fock dimension for readout only; it does not affect evolution. Default: ``None``
         den_mat: Whether to use the density-matrix representation. Default: ``False``
@@ -315,30 +315,29 @@ class BargmannState(nn.Module):
     def __init__(self, state: Any = 'vac', nmode: int | None = None, cutoff: int | None = None, den_mat: bool = False):
         super().__init__()
         self.den_mat = den_mat
-        ansatz, nmode = self._to_ansatz(state, nmode, den_mat)
+        polyexp, nmode = self._to_polyexp(state, nmode, den_mat)
         self.nmode = nmode
-        self.wires = tuple(range(nmode))
         self.cutoff = 5 if cutoff is None else int(cutoff)
-        self._set_ansatz(ansatz)
+        for name in ('mat_a', 'vec_b', 'coeff_c'):
+            self.register_buffer(name, getattr(polyexp, name))
 
-    # ------------------------------------------------------------------ construction
     @staticmethod
-    def _to_ansatz(state: Any, nmode: int | None, den_mat: bool) -> tuple[PolyExpAnsatz, int]:
+    def _to_polyexp(state: Any, nmode: int | None, den_mat: bool) -> tuple[BargmannPolyExp, int]:
         if isinstance(state, BargmannState):
             if state.den_mat != den_mat:
                 raise ValueError('den_mat does not match the representation of the given BargmannState')
-            return state.ansatz, state.nmode
-        if isinstance(state, PolyExpAnsatz):
+            return state.polyexp, state.nmode
+        if isinstance(state, BargmannPolyExp):
             if nmode is None:
-                nmode = state.n_cv // 2 if den_mat else state.n_cv
-            if state.n_cv != (2 * nmode if den_mat else nmode):
-                raise ValueError('The ansatz must have one CV variable per mode (two for density matrices)')
+                nmode = state.nfree // 2 if den_mat else state.nfree
+            if state.nfree != (2 * nmode if den_mat else nmode):
+                raise ValueError('The representation must have one free variable per mode (two for density matrices)')
             return state, nmode
         if isinstance(state, str):
             if state not in ('vac', 'zeros'):
                 raise ValueError(f'Unknown state {state!r}')
             nmode = 1 if nmode is None else nmode
-            return vacuum_ansatz(2 * nmode if den_mat else nmode), nmode
+            return vacuum_bargmann(2 * nmode if den_mat else nmode), nmode
         if isinstance(state, GaussianState) or (
             isinstance(state, list) and len(state) == 2 and all(isinstance(s, torch.Tensor) for s in state)
         ):
@@ -362,9 +361,12 @@ class BargmannState(nn.Module):
             tensor = state
             if tensor.ndim == nmode:
                 tensor = tensor.unsqueeze(0)
-            if tensor.ndim == 2 * nmode and den_mat:
+                is_dm = False
+            elif tensor.ndim == 2 * nmode and den_mat:
                 tensor = tensor.unsqueeze(0)
-            is_dm = tensor.ndim == 2 * nmode + 1
+                is_dm = True
+            else:
+                is_dm = tensor.ndim == 2 * nmode + 1
         else:
             raise ValueError(f'Unsupported state type {type(state).__name__}')
         if not tensor.is_complex():
@@ -378,64 +380,24 @@ class BargmannState(nn.Module):
         nvar = 2 * nmode if den_mat else nmode
         if tensor.ndim != nvar + 1:
             raise ValueError('The Fock tensor shape does not match nmode')
-        return fock_to_ansatz(tensor, nvar), nmode
+        return fock_to_bargmann(tensor, nvar), nmode
 
     @staticmethod
-    def _from_fock_basis(pattern: list[int], den_mat: bool) -> PolyExpAnsatz:
+    def _from_fock_basis(pattern: list[int], den_mat: bool) -> BargmannPolyExp:
         if any(n < 0 for n in pattern):
             raise ValueError('Photon numbers must be nonnegative')
+        pattern = pattern * (2 if den_mat else 1)
         tensor = torch.zeros(1, *[n + 1 for n in pattern], dtype=torch.cfloat)
         tensor[(0, *pattern)] = 1
-        if den_mat:
-            tensor = torch.zeros(1, *[n + 1 for n in pattern * 2], dtype=torch.cfloat)
-            tensor[(0, *(pattern * 2))] = 1
-        return fock_to_ansatz(tensor, tensor.ndim - 1)
+        return fock_to_bargmann(tensor, tensor.ndim - 1)
 
     @staticmethod
-    def _from_moments(cov: torch.Tensor, mean: torch.Tensor, den_mat: bool) -> PolyExpAnsatz:
-        a, b, c = gaussian_to_bargmann(cov, mean)
-        nmode = cov.shape[-1] // 2
-        batch = a.shape[0]
-        if not den_mat:
-            tol = 100 * torch.finfo(cov.dtype).eps
-            if not bool((a[:, :nmode, nmode:].detach().abs() <= tol).all()):
-                raise ValueError('A ket requires a pure Gaussian input; set den_mat=True for mixed inputs')
-            # c_rho = |c_psi|^2; sqrt(c) fixes the unobservable global phase by c_psi > 0.
-            a, b, c = a[:, :nmode, :nmode], b[:, :nmode], c.sqrt()
-        nvar = a.shape[-1]
-        return PolyExpAnsatz(a.reshape(batch, 1, nvar, nvar), b.reshape(batch, 1, nvar), c.to(a.dtype)[:, None], nvar)
-
-    @classmethod
-    def from_ansatz(
-        cls, ansatz: PolyExpAnsatz, den_mat: bool, cutoff: int | None = None, wires: tuple[int, ...] | None = None
-    ) -> 'BargmannState':
-        """Wrap an ansatz whose CV variables follow the layout of this class."""
-        state = cls(ansatz, den_mat=den_mat, cutoff=cutoff)
-        if wires is not None:
-            if len(wires) != state.nmode:
-                raise ValueError('wires must label every mode of the state')
-            state.wires = tuple(wires)
-        return state
-
-    def _set_ansatz(self, ansatz: PolyExpAnsatz) -> None:
-        self.register_buffer('mat_a', ansatz.mat_a)
-        self.register_buffer('vec_b', ansatz.vec_b)
-        self.register_buffer('coeff_c', ansatz.coeff_c)
-        self.n_cv = ansatz.n_cv
-
-    def _load_from_state_dict(
-        self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
-    ):
-        # Accept checkpoints written before the Abc buffer names were clarified.
-        for old, new in (('a', 'mat_a'), ('b', 'vec_b'), ('c', 'coeff_c')):
-            legacy = f'{prefix}{old}'
-            current = f'{prefix}{new}'
-            if legacy in state_dict:
-                if current not in state_dict:
-                    state_dict[current] = state_dict[legacy]
-                del state_dict[legacy]
-        return super()._load_from_state_dict(
-            state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
+    def _from_moments(cov: torch.Tensor, mean: torch.Tensor, den_mat: bool) -> BargmannPolyExp:
+        mat_a, vec_b, coeff_c = gaussian_to_bargmann(cov, mean, den_mat=den_mat)
+        batch = mat_a.shape[0]
+        nvar = mat_a.shape[-1]
+        return BargmannPolyExp._from_tensors(
+            mat_a.reshape(batch, 1, nvar, nvar), vec_b.reshape(batch, 1, nvar), coeff_c.to(mat_a.dtype)[:, None]
         )
 
     def _apply(self, fn: Any) -> 'BargmannState':
@@ -445,15 +407,19 @@ class BargmannState(nn.Module):
             self.register_buffer(name, value)
         return self
 
-    def _new(self, ansatz: PolyExpAnsatz, den_mat: bool | None = None) -> 'BargmannState':
+    def _new(self, polyexp: BargmannPolyExp, den_mat: bool | None = None) -> 'BargmannState':
         den_mat = self.den_mat if den_mat is None else den_mat
-        return BargmannState.from_ansatz(ansatz, den_mat=den_mat, cutoff=self.cutoff, wires=self.wires)
+        return BargmannState(polyexp, den_mat=den_mat, cutoff=self.cutoff)
 
-    # ------------------------------------------------------------------ properties
     @property
-    def ansatz(self) -> PolyExpAnsatz:
-        """The underlying :class:`PolyExpAnsatz`."""
-        return PolyExpAnsatz(self.mat_a, self.vec_b, self.coeff_c, self.n_cv)
+    def polyexp(self) -> BargmannPolyExp:
+        """The underlying :class:`BargmannPolyExp`."""
+        return BargmannPolyExp._from_tensors(self.mat_a, self.vec_b, self.coeff_c)
+
+    @property
+    def nfree(self) -> int:
+        """Number of Bargmann variables labeling the physical state."""
+        return self.nmode * (2 if self.den_mat else 1)
 
     @property
     def representation(self) -> str:
@@ -465,59 +431,53 @@ class BargmannState(nn.Module):
         """Size of the batch axis."""
         return self.mat_a.shape[0]
 
-    def select(self, index: int) -> 'BargmannState':
+    def _select_batch(self, index: int) -> 'BargmannState':
         """Return the batch element ``index`` as a state with batch size 1."""
         sl = slice(index, index + 1)
-        return self._new(PolyExpAnsatz(self.mat_a[sl], self.vec_b[sl], self.coeff_c[sl], self.n_cv))
+        return self._new(BargmannPolyExp._from_tensors(self.mat_a[sl], self.vec_b[sl], self.coeff_c[sl]))
 
     @staticmethod
-    def cat(states: list['BargmannState']) -> 'BargmannState':
+    def _cat_batch(states: list['BargmannState']) -> 'BargmannState':
         """Concatenate states with identical structure along the batch axis."""
         first = states[0]
-        a = torch.cat([s.mat_a for s in states])
-        b = torch.cat([s.vec_b for s in states])
-        c = torch.cat([s.coeff_c for s in states])
-        ansatz = PolyExpAnsatz(a, b, c, first.n_cv)
-        return first._new(ansatz)
+        mat_a = torch.cat([s.mat_a for s in states])
+        vec_b = torch.cat([s.vec_b for s in states])
+        coeff_c = torch.cat([s.coeff_c for s in states])
+        polyexp = BargmannPolyExp._from_tensors(mat_a, vec_b, coeff_c)
+        return first._new(polyexp)
 
-    # ------------------------------------------------------------------ evolution
-    def _positions(self, wires: list[int]) -> list[int]:
-        if len(set(wires)) != len(wires):
-            raise ValueError('Repeated wires')
-        try:
-            return [self.wires.index(w) for w in wires]
-        except ValueError as exc:
-            raise ValueError(f'Wires {list(wires)} are not all present in the state {self.wires}') from exc
-
-    def apply_unitary(self, kernel: PolyExpAnsatz, wires: list[int]) -> 'BargmannState':
+    def apply_unitary(self, kernel: BargmannPolyExp, wires: list[int]) -> 'BargmannState':
         r"""Apply a unitary kernel: :math:`U|\psi\rangle` or :math:`U\rho U^\dagger`."""
-        pos = self._positions(list(wires))
-        ansatz = _apply_bargmann_kernel(self.ansatz, kernel, pos)
+        pos = list(wires)
+        if len(set(pos)) != len(pos) or any(w < 0 or w >= self.nmode for w in pos):
+            raise ValueError('wires must contain distinct local mode indices')
+        polyexp = _apply_bargmann(self.polyexp, kernel, pos)
         if self.den_mat:
-            ansatz = _apply_bargmann_kernel(ansatz, kernel.conj(), [p + self.nmode for p in pos])
-        return self._new(ansatz)
+            polyexp = _apply_bargmann(polyexp, kernel.conj(), [p + self.nmode for p in pos])
+        return self._new(polyexp)
 
-    def apply_channel(self, kernel: PolyExpAnsatz, wires: list[int]) -> 'BargmannState':
+    def apply_channel(self, kernel: BargmannPolyExp, wires: list[int]) -> 'BargmannState':
         """Apply a channel kernel with variables ``(z_out, w_out, u_in, v_in)``; requires a density matrix."""
         if not self.den_mat:
             raise ValueError('Channels require the density-matrix representation; use den_mat=True')
-        pos = self._positions(list(wires))
-        ansatz = _apply_bargmann_kernel(self.ansatz, kernel, pos + [p + self.nmode for p in pos])
-        return self._new(ansatz)
+        pos = list(wires)
+        if len(set(pos)) != len(pos) or any(w < 0 or w >= self.nmode for w in pos):
+            raise ValueError('wires must contain distinct local mode indices')
+        polyexp = _apply_bargmann(self.polyexp, kernel, pos + [p + self.nmode for p in pos])
+        return self._new(polyexp)
 
     def to_dm(self) -> 'BargmannState':
         r"""Return :math:`|\psi\rangle\langle\psi|`; a density matrix is returned unchanged."""
         if self.den_mat:
             return self
-        ansatz = self.ansatz
-        return self._new(ansatz.tensor_product(ansatz.conj()), den_mat=True)
+        polyexp = self.polyexp
+        return self._new(polyexp.tensor_product(polyexp.conj()), den_mat=True)
 
     def _project_pnr(self, positions: tuple[int, ...], photons: tuple[int, ...]) -> 'BargmannState':
         """Project validated modes onto Fock outcomes, returning locally numbered remaining modes."""
-        ansatz = _project_pnr_ansatz(self.ansatz, self.nmode, self.den_mat, positions, photons)
-        return BargmannState.from_ansatz(ansatz, den_mat=self.den_mat, cutoff=self.cutoff)
+        polyexp = _project_pnr(self.polyexp, self.nmode, self.den_mat, positions, photons)
+        return self._new(polyexp)
 
-    # ------------------------------------------------------------------ readout
     def norm(self) -> torch.Tensor:
         r"""Squared norm :math:`\langle\psi|\psi\rangle` of a ket or trace of a density matrix, shape ``(B,)``.
 
@@ -525,10 +485,10 @@ class BargmannState(nn.Module):
         Nonfinite results or imaginary parts exceeding 100 dtype eps times
         ``1 + abs(real part)`` raise ``ValueError``; roundoff imaginary parts are discarded.
         """
-        ansatz = self.ansatz
+        polyexp = self.polyexp
         if not self.den_mat:
-            ansatz = ansatz.tensor_product(ansatz.conj())
-        value = ansatz.contract([(j, j + self.nmode) for j in range(self.nmode)]).evaluate()
+            polyexp = polyexp.tensor_product(polyexp.conj())
+        value = polyexp.contract([(j, j + self.nmode) for j in range(self.nmode)]).evaluate()
         if not bool(torch.isfinite(value).all()):
             raise ValueError('State norm or trace must be finite')
         tolerance = 100 * torch.finfo(value.real.dtype).eps * (1 + value.real.abs())
@@ -536,18 +496,24 @@ class BargmannState(nn.Module):
             raise ValueError('State norm or trace has a significant imaginary component')
         return value.real
 
+    def _normalize(self, probability: torch.Tensor) -> 'BargmannState':
+        """Normalize using an already validated positive squared norm or trace."""
+        denominator = probability if self.den_mat else probability.sqrt()
+        coeff_c = self.coeff_c / denominator.reshape(-1, *([1] * (self.coeff_c.ndim - 1)))
+        return self._new(BargmannPolyExp._from_tensors(self.mat_a, self.vec_b, coeff_c))
+
     def to_fock(self, cutoff: int | None = None) -> torch.Tensor:
         """Fock amplitudes ``(B, C, ..., C)`` or density matrix ``(B, ket axes..., bra axes...)``.
 
-        Axes follow :attr:`wires`. ``cutoff=C`` keeps photon numbers ``0, ..., C - 1``.
+        Axes follow local mode order. ``cutoff=C`` keeps photon numbers ``0, ..., C - 1``.
         """
         cutoff = self.cutoff if cutoff is None else int(cutoff)
-        return self.ansatz.to_fock((cutoff,) * self.n_cv)
+        return self.polyexp.to_fock((cutoff,) * self.nfree)
 
     def __repr__(self) -> str:
         return (
-            f'BargmannState(nmode={self.nmode}, wires={self.wires}, representation={self.representation!r}, '
-            f'batch={self.batch_size}, derived_shape={tuple(self.coeff_c.shape[2:])}, dtype={self.mat_a.dtype})'
+            f'BargmannState(nmode={self.nmode}, representation={self.representation!r}, '
+            f'batch={self.batch_size}, aux_shape={tuple(self.coeff_c.shape[2:])}, dtype={self.mat_a.dtype})'
         )
 
 
