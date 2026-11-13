@@ -282,47 +282,55 @@ class GaussianState(nn.Module):
 
 
 class BargmannState(nn.Module):
-    r"""A photonic state in the Bargmann (stellar) representation.
+    r"""A Bargmann state of n modes, represented by a polynomial-exponential function.
 
-    The state is stored as a :class:`BargmannPolyExp` ``(A, b, c)``. A ket on ``M`` modes has ``M``
-    free variables, one per mode in local mode order. A density matrix has ``2M`` free
-    variables: all ket variables followed by all bra variables, so that
+    The buffers ``mat_a``, ``vec_b`` and ``coeff_c`` store the coefficients of a
+    :class:`BargmannPolyExp`. A ket on ``M`` modes has ``M`` free variables in local mode order.
+    A density matrix has ``2M`` free variables, with ket variables followed by bra variables:
 
     .. math::
 
-        K_\psi(z)=\sum_n\psi_n\frac{z^n}{\sqrt{n!}},\qquad
-        K_\rho(z,w)=\sum_{n,m}\rho_{n,m}\frac{z^nw^m}{\sqrt{n!m!}}.
+        \begin{aligned}
+            K_\psi(z) &= \sum_n \psi_n \frac{z^n}{\sqrt{n!}}, \\[6pt]
+            K_\rho(z,w) &= \sum_{n,m} \rho_{n,m} \frac{z^n w^m}{\sqrt{n!m!}}.
+        \end{aligned}
 
     Gaussian states have no auxiliary variables. Non-Gaussian states use auxiliary
     derivative variables. The state is not normalized automatically.
 
     Args:
-        state: The state. It can be ``'vac'``/``'zeros'``; a Gaussian state ``[cov, mean]`` (xxpp,
-            current ``hbar``/``kappa``) or a ``GaussianState``; a Fock basis state such as ``[1, 0, 2]``;
-            a Fock superposition ``[(amp, [n0, n1, ...]), ...]``; a ``FockState``; a batched Fock tensor
-            (ket ``(B, C, ..., C)`` or density matrix ``(B, ket axes..., bra axes...)``); or a
-            :class:`BargmannPolyExp`. Default: ``'vac'``
-        nmode: The number of modes. Default: ``None``
-        cutoff: The default Fock dimension for readout only; it does not affect evolution. Default: ``None``
-        den_mat: Whether to use the density-matrix representation. Default: ``False``
+        state: The Bargmann state. It can be a vacuum state with ``'vac'`` or ``'zeros'``,
+            a ``BargmannState`` or a ``BargmannPolyExp``.
+            Gaussian inputs can be a ``GaussianState`` or ``[cov, mean]`` in ``xxpp`` order,
+            using the current ``hbar`` and ``kappa``.
+            Fock inputs can be a ``FockState``, a basis state such as ``[1, 0, 2]``, a superposition
+            ``[(amp, [n0, n1, ...]), ...]`` or a tensor with an optional leading batch axis.
+            Density tensors place all ket axes before all bra axes. Default: ``'vac'``
+        nmode: The number of modes in the state. Required for Fock tensor inputs. Default: ``None``
+        cutoff: The Fock space truncation for readout. It does not truncate Bargmann evolution.
+            Default: ``None`` (which means 5)
+        den_mat: Whether to use density matrix representation. Default: ``False``
 
     Note:
-        Gaussian moments are converted with their own precision. Pass float64 moments for
-        double-precision results; a later ``.to(torch.float64)`` cannot recover lost digits.
-        A ket built from moments uses the gauge in which the vacuum amplitude is real and positive.
+        Gaussian moments are converted at their input precision. Use float64 moments for
+        double-precision conversion. A Gaussian ket requires pure input and fixes the vacuum
+        amplitude to be real and positive.
     """
 
-    def __init__(self, state: Any = 'vac', nmode: int | None = None, cutoff: int | None = None, den_mat: bool = False):
+    def __init__(
+        self, state: Any = 'vac', nmode: int | None = None, cutoff: int | None = None, den_mat: bool = False
+    ) -> None:
         super().__init__()
         self.den_mat = den_mat
-        polyexp, nmode = self._to_polyexp(state, nmode, den_mat)
+        polyexp, nmode = self._to_polyexp(state, nmode)
         self.nmode = nmode
         self.cutoff = 5 if cutoff is None else int(cutoff)
         for name in ('mat_a', 'vec_b', 'coeff_c'):
             self.register_buffer(name, getattr(polyexp, name))
 
-    @staticmethod
-    def _to_polyexp(state: Any, nmode: int | None, den_mat: bool) -> tuple[BargmannPolyExp, int]:
+    def _to_polyexp(self, state: Any, nmode: int | None) -> tuple[BargmannPolyExp, int]:
+        """Convert the initial state to the requested ket or density representation."""
+        den_mat = self.den_mat
         if isinstance(state, BargmannState):
             if state.den_mat != den_mat:
                 raise ValueError('den_mat does not match the representation of the given BargmannState')
@@ -343,17 +351,21 @@ class BargmannState(nn.Module):
         ):
             if not isinstance(state, GaussianState):
                 state = GaussianState(state, nmode=nmode)
-            return BargmannState._from_moments(state.cov, state.mean, den_mat), state.nmode
+            mat_a, vec_b, coeff_c = gaussian_to_bargmann(state.cov, state.mean, den_mat=den_mat)
+            polyexp = BargmannPolyExp._from_tensors(
+                mat_a.unsqueeze(1), vec_b.unsqueeze(1), coeff_c.to(mat_a.dtype).unsqueeze(1)
+            )
+            return polyexp, state.nmode
         if isinstance(state, list):
             if all(isinstance(s, int) for s in state):
-                return BargmannState._from_fock_basis(state, den_mat), len(state)
+                return self._from_fock_basis(state), len(state)
             state = FockState(state, nmode=nmode, basis=False, den_mat=False)
         if isinstance(state, FockState):
             if state.basis:
                 pattern = state.state.reshape(-1).tolist()
                 if state.state.ndim != 1:
                     raise ValueError('Batched Fock basis states are not supported; use a Fock tensor')
-                return BargmannState._from_fock_basis(pattern, den_mat), state.nmode
+                return self._from_fock_basis(pattern), state.nmode
             tensor, is_dm, nmode = state.state, state.den_mat, state.nmode
         elif isinstance(state, torch.Tensor):
             if nmode is None:
@@ -382,23 +394,14 @@ class BargmannState(nn.Module):
             raise ValueError('The Fock tensor shape does not match nmode')
         return fock_to_bargmann(tensor, nvar), nmode
 
-    @staticmethod
-    def _from_fock_basis(pattern: list[int], den_mat: bool) -> BargmannPolyExp:
+    def _from_fock_basis(self, pattern: list[int]) -> BargmannPolyExp:
+        """Construct a Fock basis ket or density matrix in Bargmann form."""
         if any(n < 0 for n in pattern):
             raise ValueError('Photon numbers must be nonnegative')
-        pattern = pattern * (2 if den_mat else 1)
+        pattern = pattern * (2 if self.den_mat else 1)
         tensor = torch.zeros(1, *[n + 1 for n in pattern], dtype=torch.cfloat)
         tensor[(0, *pattern)] = 1
         return fock_to_bargmann(tensor, tensor.ndim - 1)
-
-    @staticmethod
-    def _from_moments(cov: torch.Tensor, mean: torch.Tensor, den_mat: bool) -> BargmannPolyExp:
-        mat_a, vec_b, coeff_c = gaussian_to_bargmann(cov, mean, den_mat=den_mat)
-        batch = mat_a.shape[0]
-        nvar = mat_a.shape[-1]
-        return BargmannPolyExp._from_tensors(
-            mat_a.reshape(batch, 1, nvar, nvar), vec_b.reshape(batch, 1, nvar), coeff_c.to(mat_a.dtype)[:, None]
-        )
 
     def _apply(self, fn: Any) -> 'BargmannState':
         tensors = {name: self._buffers.pop(name) for name in ('mat_a', 'vec_b', 'coeff_c')}
@@ -408,28 +411,14 @@ class BargmannState(nn.Module):
         return self
 
     def _new(self, polyexp: BargmannPolyExp, den_mat: bool | None = None) -> 'BargmannState':
+        """Wrap an evolution result with the same default readout cutoff."""
         den_mat = self.den_mat if den_mat is None else den_mat
         return BargmannState(polyexp, den_mat=den_mat, cutoff=self.cutoff)
 
     @property
     def polyexp(self) -> BargmannPolyExp:
-        """The underlying :class:`BargmannPolyExp`."""
+        """Get the :class:`BargmannPolyExp` view of the current coefficient buffers."""
         return BargmannPolyExp._from_tensors(self.mat_a, self.vec_b, self.coeff_c)
-
-    @property
-    def nfree(self) -> int:
-        """Number of Bargmann variables labeling the physical state."""
-        return self.nmode * (2 if self.den_mat else 1)
-
-    @property
-    def representation(self) -> str:
-        """``'dm'`` for density matrices, otherwise ``'ket'``."""
-        return 'dm' if self.den_mat else 'ket'
-
-    @property
-    def batch_size(self) -> int:
-        """Size of the batch axis."""
-        return self.mat_a.shape[0]
 
     def _select_batch(self, index: int) -> 'BargmannState':
         """Return the batch element ``index`` as a state with batch size 1."""
@@ -447,7 +436,12 @@ class BargmannState(nn.Module):
         return first._new(polyexp)
 
     def apply_unitary(self, kernel: BargmannPolyExp, wires: list[int]) -> 'BargmannState':
-        r"""Apply a unitary kernel: :math:`U|\psi\rangle` or :math:`U\rho U^\dagger`."""
+        r"""Apply a unitary operation as :math:`U|\psi\rangle` or :math:`U\rho U^\dagger`.
+
+        Args:
+            kernel: The Bargmann representation of the gate, with output variables before input variables.
+            wires: The indices of the modes that the quantum operation acts on.
+        """
         pos = list(wires)
         if len(set(pos)) != len(pos) or any(w < 0 or w >= self.nmode for w in pos):
             raise ValueError('wires must contain distinct local mode indices')
@@ -457,7 +451,13 @@ class BargmannState(nn.Module):
         return self._new(polyexp)
 
     def apply_channel(self, kernel: BargmannPolyExp, wires: list[int]) -> 'BargmannState':
-        """Apply a channel kernel with variables ``(z_out, w_out, u_in, v_in)``; requires a density matrix."""
+        """Apply a quantum channel to a density matrix.
+
+        Args:
+            kernel: The Bargmann representation of the channel, ordered as ket output, bra output,
+                ket input and bra input.
+            wires: The indices of the modes that the quantum operation acts on.
+        """
         if not self.den_mat:
             raise ValueError('Channels require the density-matrix representation; use den_mat=True')
         pos = list(wires)
@@ -467,7 +467,7 @@ class BargmannState(nn.Module):
         return self._new(polyexp)
 
     def to_dm(self) -> 'BargmannState':
-        r"""Return :math:`|\psi\rangle\langle\psi|`; a density matrix is returned unchanged."""
+        r"""Convert a ket to :math:`|\psi\rangle\langle\psi|`, returning a density matrix unchanged."""
         if self.den_mat:
             return self
         polyexp = self.polyexp
@@ -479,11 +479,14 @@ class BargmannState(nn.Module):
         return self._new(polyexp)
 
     def norm(self) -> torch.Tensor:
-        r"""Squared norm :math:`\langle\psi|\psi\rangle` of a ket or trace of a density matrix, shape ``(B,)``.
+        r"""Get the squared norm :math:`\langle\psi|\psi\rangle` of a ket or the trace of a density matrix.
 
         Computed by Gaussian integration, independently of any Fock cutoff.
         Nonfinite results or imaginary parts exceeding 100 dtype eps times
-        ``1 + abs(real part)`` raise ``ValueError``; roundoff imaginary parts are discarded.
+        ``1 + abs(real part)`` raise ``ValueError``. Roundoff imaginary parts are discarded.
+
+        Returns:
+            The squared norm or trace, with shape ``(batch,)``.
         """
         polyexp = self.polyexp
         if not self.den_mat:
@@ -503,17 +506,26 @@ class BargmannState(nn.Module):
         return self._new(BargmannPolyExp._from_tensors(self.mat_a, self.vec_b, coeff_c))
 
     def to_fock(self, cutoff: int | None = None) -> torch.Tensor:
-        """Fock amplitudes ``(B, C, ..., C)`` or density matrix ``(B, ket axes..., bra axes...)``.
+        """Get the Fock state tensor.
 
         Axes follow local mode order. ``cutoff=C`` keeps photon numbers ``0, ..., C - 1``.
+
+        Args:
+            cutoff: The Fock space truncation for readout. Default: ``None`` (which means ``self.cutoff``)
+
+        Returns:
+            Fock amplitudes with shape ``(batch, C, ..., C)`` or a density matrix with shape
+            ``(batch, ket axes..., bra axes...)``.
         """
         cutoff = self.cutoff if cutoff is None else int(cutoff)
-        return self.polyexp.to_fock((cutoff,) * self.nfree)
+        polyexp = self.polyexp
+        return polyexp.to_fock((cutoff,) * polyexp.nfree)
 
     def __repr__(self) -> str:
+        """Return a string representation of the ``BargmannState``."""
         return (
-            f'BargmannState(nmode={self.nmode}, representation={self.representation!r}, '
-            f'batch={self.batch_size}, aux_shape={tuple(self.coeff_c.shape[2:])}, dtype={self.mat_a.dtype})'
+            f'BargmannState(nmode={self.nmode}, den_mat={self.den_mat}, '
+            f'batch={self.mat_a.shape[0]}, aux_shape={tuple(self.coeff_c.shape[2:])}, dtype={self.mat_a.dtype})'
         )
 
 

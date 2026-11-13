@@ -1,11 +1,11 @@
 r"""Bargmann mathematical representations and numerical helpers.
 
-Quantum states live in :mod:`deepquantum.photonic.state`; this module supplies
-poly-exponential algebra, Fock readout, Gaussian conversion and conditional projection.
+Quantum states live in :mod:`deepquantum.photonic.state`. This module supplies
+polynomial-exponential algebra, Fock readout, Gaussian conversion and conditional projection.
 Concrete gate and channel representations live with their operation classes.
 
 Variables use free axes followed by auxiliary axes. Density kernels use ket variables
-before bra variables; operator kernels use output variables before input variables.
+before bra variables. Operator kernels use output variables before input variables.
 """
 
 import math
@@ -18,166 +18,8 @@ import deepquantum.photonic as dqp
 
 from .qmath import quadrature_to_ladder
 
-
-def gaussian_contract(
-    mat_a: torch.Tensor, vec_b: torch.Tensor, pairs: list[tuple[int, int]]
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, list[int]]:
-    r"""Integrate pairs of variables of a batched Gaussian kernel ``exp(x.T A x / 2 + b.T x)``.
-
-    Split the variables into the kept set :math:`o` and the integrated set
-    :math:`i=(u_1,\dots,u_p,v_1,\dots,v_p)`. With
-    :math:`\Omega=\left(\begin{smallmatrix}0&I_p\\I_p&0\end{smallmatrix}\right)` and
-    :math:`M=\Omega-A_{ii}`:
-
-    .. math::
-
-        A'=A_{oo}+A_{oi}M^{-1}A_{io},\qquad
-        b'=b_o+A_{oi}M^{-1}b_i,\qquad
-        f=\frac{\exp(b_i^TM^{-1}b_i/2)}{\sqrt{\det(I-\Omega A_{ii})}}.
-
-    The scalar ``f`` multiplies the coefficient tensor of the kernel. Integrate pairs
-    one at a time so each square root follows the analytic branch; taking the principal
-    square root of the combined complex determinant can introduce a sign error.
-    Auxiliary variables are never integrated; they are simply kept, so delayed
-    derivatives commute with the integral.
-
-    Args:
-        mat_a: Complex symmetric tensor of shape ``(K, N, N)``.
-        vec_b: Complex tensor of shape ``(K, N)``.
-        pairs: Pairs of distinct variable indices to integrate.
-
-    Returns:
-        ``(a', b', f, keep)`` where ``a'`` has shape ``(K, n, n)``, ``b'`` has shape
-        ``(K, n)``, ``f`` has shape ``(K,)`` and ``keep`` lists the original indices of the
-        kept variables, in their original order.
-    """
-    nvar = mat_a.shape[-1]
-    first = [int(i) for i, _ in pairs]
-    second = [int(j) for _, j in pairs]
-    integrated = first + second
-    if len(set(integrated)) != len(integrated) or any(i < 0 or i >= nvar for i in integrated):
-        raise ValueError('Integrated variable pairs must use distinct valid indices')
-    remaining = list(range(nvar))
-    factor = mat_a.new_ones(mat_a.shape[0])
-    omega = mat_a.new_tensor([[0, 1], [1, 0]])
-    eye = torch.eye(2, dtype=mat_a.dtype, device=mat_a.device)
-    for first, second in pairs:
-        pair_idx = [remaining.index(first), remaining.index(second)]
-        keep_positions = [k for k in range(len(remaining)) if k not in pair_idx]
-        idx = torch.tensor(pair_idx, dtype=torch.long, device=mat_a.device)
-        keep_idx = torch.tensor(keep_positions, dtype=torch.long, device=mat_a.device)
-        mat_a_ii = mat_a[:, idx][:, :, idx]
-        mat_a_oi = mat_a[:, keep_idx][:, :, idx]
-        mat_a_oo = mat_a[:, keep_idx][:, :, keep_idx]
-        vec_b_i = vec_b[:, idx]
-        vec_b_o = vec_b[:, keep_idx]
-        rhs = torch.cat([mat_a_oi.mT, vec_b_i.unsqueeze(-1)], dim=-1)
-        try:
-            sol = torch.linalg.solve(omega - mat_a_ii, rhs)
-        except RuntimeError as exc:
-            if 'singular' not in str(exc).lower():
-                raise
-            raise ValueError('Singular Gaussian integral; the kernel is not integrable over these variables') from exc
-        mat_a = mat_a_oo + mat_a_oi @ sol[..., :-1]
-        mat_a = (mat_a + mat_a.mT) / 2
-        vec_b = vec_b_o + (mat_a_oi @ sol[..., -1:]).squeeze(-1)
-        det = torch.linalg.det(eye - omega @ mat_a_ii)
-        factor = factor * torch.exp((vec_b_i * sol[..., -1]).sum(-1) / 2) / torch.sqrt(det)
-        remaining = [remaining[k] for k in keep_positions]
-    return mat_a, vec_b, factor, remaining
-
-
-# Bounds include recurrence indices and intermediates, not only the output.
+# Working-set bound for recurrence indices, coefficients and intermediates.
 _max_work_bytes = 256 * 1024**2
-
-
-def _check_work(bounds: tuple[int, ...], batch: int, element_size: int, polynomial_size: int = 1) -> None:
-    size = math.prod(bounds)
-    # Conservative working-set estimate; autograd/framework overhead may add more.
-    estimate = size * (80 * max(len(bounds), 1) + 4 * batch * element_size * polynomial_size)
-    if estimate > _max_work_bytes:
-        raise MemoryError('Bargmann recurrence exceeds the working-set limit; reduce cutoff or herald photon numbers')
-
-
-@lru_cache(maxsize=4)
-def _recurrence_plan(bounds: tuple[int, ...]) -> tuple:
-    """Cache only discrete CPU indices and constant weights, never an autograd graph.
-
-    See https://arxiv.org/pdf/2504.10455v3 Section A.3.1, Eq. (57).
-    """
-    ranges = [torch.arange(bound, device='cpu') for bound in bounds]
-    states = torch.cartesian_prod(*ranges).reshape(-1, len(bounds))
-    strides = torch.tensor([math.prod(bounds[i + 1 :]) for i in range(len(bounds))], device='cpu')
-    totals = states.sum(-1)
-    layers = []
-    for degree in range(1, int(totals.max()) + 1):
-        ids = torch.where(totals == degree)[0]
-        selected = states[ids]
-        mode = (selected > 0).long().argmax(-1)
-        row = torch.arange(len(ids), device='cpu')
-        # Eq. (57), with one pivot i per target; Eq. (58) averages over all pivots.
-        # Target t = selected, i = mode, k = t - e_i; dependencies have lower total degree.
-        previous = selected.clone()
-        previous[row, mode] -= 1
-        previous_ids = (previous * strides).sum(-1)
-        valid = previous > 0
-        lower = (previous_ids[:, None] - strides).clamp_min(0)
-        number = selected[row, mode].double()
-        # weights_j = sqrt((t_j - delta_ij) / t_i); negative-index terms have zero weight.
-        weights = (previous / number[:, None]).sqrt() * valid
-        layers.append((ids, mode, previous_ids, lower, weights, number.rsqrt()))
-    return tuple(layers)
-
-
-def _device_layers(bounds: tuple[int, ...], mat_a: torch.Tensor):
-    """Place the cached recurrence indices and weights on the coefficient device."""
-    for layer in _recurrence_plan(bounds):
-        yield tuple(
-            t.to(device=mat_a.device, dtype=mat_a.real.dtype if t.is_floating_point() else t.dtype) for t in layer
-        )
-
-
-def _fock_coefficients(
-    mat_a: torch.Tensor, vec_b: torch.Tensor, coeff_c: torch.Tensor, bounds: tuple[int, ...]
-) -> torch.Tensor:
-    r"""Evaluate normalized Taylor coefficients on a rectangular index set.
-
-    Uses Eqs. (54)-(55) for coefficient normalization and Eq. (57) for recursion.
-
-    For multi-indices :math:`k`, with :math:`k!=\prod_j k_j!`, use
-
-    .. math::
-
-        G(\xi)=c e^{\xi^T A\xi/2+b^T\xi}
-        =\sum_k g_k\frac{\xi^k}{\sqrt{k!}},\qquad
-        \partial_iG=(b_i+\sum_j A_{ij}\xi_j)G.
-
-    Matching powers gives Eq. (57) of the paper:
-
-    .. math::
-
-        g_{k+e_i}=\frac{b_i g_k+\sum_j A_{ij}\sqrt{k_j}\,g_{k-e_j}}
-        {\sqrt{k_i+1}},\qquad g_0=c.
-
-    Negative-index coefficients are zero. In code, the target is :math:`t=k+e_i`:
-    ``inverse_sqrt`` is :math:`1/\sqrt{t_i}` and ``weights`` contains
-    :math:`\sqrt{(t_j-\delta_{ij})/t_i}`. Thus ``terms`` implements the two summands.
-    For a pure-state kernel :math:`g_n=\psi_n`; for a density kernel :math:`g_{(n,m)}=\rho_{n,m}`.
-    These are Fock coefficients, not ordinary Taylor coefficients :math:`g_k/\sqrt{k!}`;
-    no further factorial division or state normalization is needed here.
-
-    See https://arxiv.org/pdf/2504.10455v3 Section A.3.1, Eqs. (54)-(55) and (57).
-    """
-    batch = mat_a.shape[0]
-    if not bounds:
-        return coeff_c.to(mat_a.dtype)
-    _check_work(bounds, batch, mat_a.element_size())
-    values = torch.cat((coeff_c.to(mat_a.dtype)[:, None], mat_a.new_zeros(batch, math.prod(bounds) - 1)), dim=-1)
-    for ids, mode, previous, lower, weights, inverse_sqrt in _device_layers(bounds, mat_a):
-        terms = (mat_a[:, mode, :] * weights * values[:, lower]).sum(-1)
-        terms = terms + vec_b[:, mode] * inverse_sqrt * values[:, previous]
-        values = values.index_copy(1, ids, terms)
-    return values.reshape(batch, *bounds)
 
 
 class BargmannPolyExp:
@@ -187,18 +29,28 @@ class BargmannPolyExp:
 
     .. math::
 
-        F(z)=\sum_{l}\exp\!\left(\tfrac12 z^TA^{(l)}_{zz}z+b^{(l)T}_z z\right)
-        \sum_k c^{(l)}_k\,G_k\!\left(A^{(l)}_{yy},\,b^{(l)}_y+A^{(l)}_{yz}z\right),
+        \begin{aligned}
+            F(z) &= \sum_l P_l(z)\,
+                \exp\!\left(\frac12 z^T A^{(l)}_{zz}z + b^{(l)T}_z z\right), \\[6pt]
+            P_l(z) &= \sum_k c^{(l)}_k\,
+                G_k\!\left(A^{(l)}_{yy},\,b^{(l)}_y + A^{(l)}_{yz}z\right).
+        \end{aligned}
 
-    where :math:`z` are the ``nfree`` free complex variables and :math:`y` are auxiliary
-    variables that are differentiated at :math:`y=0`. :math:`G_k` is the renormalized Hermite
-    tensor :math:`\exp(\tfrac12y^TAy+\beta^Ty)=\sum_kG_k(A,\beta)\,y^k/\sqrt{k!}`, so that
-    ``coeff_c`` pairs directly with Fock coefficients. A Gaussian kernel is the special case with
-    no auxiliary variables.
+    Here :math:`z` are the ``nfree`` free complex variables and :math:`y` are auxiliary
+    variables that are differentiated at :math:`y=0`. The renormalized Hermite tensor
+    :math:`G_k` is defined by
+
+    .. math::
+
+        \exp\!\left(\frac12 y^T A y + \beta^T y\right)
+        = \sum_k G_k(A,\beta)\,\frac{y^k}{\sqrt{k!}}.
+
+    Thus ``coeff_c`` pairs directly with Fock coefficients. A Gaussian kernel is the special
+    case with no auxiliary variables.
 
     Conventions:
 
-    * ``A`` is complex symmetric; quadratic forms use the transpose, not the adjoint.
+    * ``A`` is complex symmetric. Quadratic forms use the transpose, not the adjoint.
     * Variables are ordered as all free variables followed by all auxiliary variables.
     * Axis layout: ``mat_a (B, L, N, N)``, ``vec_b (B, L, N)``, ``coeff_c (B, L, *aux_shape)``, where ``B`` is
       the batch axis and ``L`` the axis of a coherent linear superposition (summed over).
@@ -338,8 +190,8 @@ class BargmannPolyExp:
     def tensor_product(self, other: 'BargmannPolyExp') -> 'BargmannPolyExp':
         """Tensor product ``F(x) G(y)``.
 
-        Free variables of ``self`` come first, then those of ``other``; auxiliary variables follow
-        in the same order. Batches broadcast; superposition axes form an outer product.
+        Free variables of ``self`` come first, then those of ``other``. Auxiliary variables follow
+        in the same order. Batches broadcast and superposition axes form an outer product.
         """
         if self.dtype != other.dtype or self.device != other.device:
             raise ValueError('Tensor product requires a common dtype and device')
@@ -424,11 +276,19 @@ class BargmannPolyExp:
         )
 
 
+# State and gate conversions
+
+
 def fock_to_bargmann(tensor: torch.Tensor, nvar: int) -> BargmannPolyExp:
     r"""Represent a batched Fock tensor with ``nvar`` axes exactly.
 
-    Uses :math:`A=\left(\begin{smallmatrix}0&I\\I&0\end{smallmatrix}\right)`, :math:`b=0` and
-    ``c`` equal to the tensor, so that :math:`F(z)=\sum_n c_n z^n/\sqrt{n!}`.
+    Use ``coeff_c`` equal to the Fock tensor and
+
+    .. math::
+
+        A = \begin{pmatrix} 0 & I \\ I & 0 \end{pmatrix},
+        \qquad b = 0,
+        \qquad F(z) = \sum_n c_n\frac{z^n}{\sqrt{n!}}.
 
     Args:
         tensor: Complex tensor of shape ``(B, d_1, ..., d_nvar)``.
@@ -447,8 +307,16 @@ def fock_to_bargmann(tensor: torch.Tensor, nvar: int) -> BargmannPolyExp:
     return BargmannPolyExp._from_tensors(mat_a, vec_b, tensor.unsqueeze(1))
 
 
-def vacuum_bargmann(nvar: int, dtype: torch.dtype = torch.cfloat, device: torch.device | str | None = None):
-    """Vacuum kernel ``F = 1`` on ``nvar`` free variables (a ket on ``nvar`` modes or a DM on ``nvar / 2``)."""
+def vacuum_bargmann(
+    nvar: int, dtype: torch.dtype = torch.cfloat, device: torch.device | str | None = None
+) -> BargmannPolyExp:
+    """Get the vacuum kernel ``F = 1`` on ``nvar`` free variables.
+
+    Args:
+        nvar: The number of free variables, one per mode for a ket or two per mode for a density matrix.
+        dtype: The complex dtype of the coefficients. Default: ``torch.cfloat``
+        device: The device of the coefficients. Default: ``None``
+    """
     mat_a = torch.zeros(1, 1, nvar, nvar, dtype=dtype, device=device)
     vec_b = torch.zeros(1, 1, nvar, dtype=dtype, device=device)
     coeff_c = torch.ones(1, 1, dtype=dtype, device=device)
@@ -458,51 +326,63 @@ def vacuum_bargmann(nvar: int, dtype: torch.dtype = torch.cfloat, device: torch.
 def gaussian_to_bargmann(
     cov: torch.Tensor, mean: torch.Tensor, den_mat: bool = True
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    r"""Convert Gaussian moments to a ket or density kernel ``c exp(z.T A z / 2 + b.T z)``.
+    r"""Convert Gaussian moments to a Bargmann ket or density kernel.
 
     Implements the Gaussian moment conversion with the unit and variable conventions below.
 
     With :math:`s=2\kappa^2/\hbar`, :math:`V=\mathrm{cov}` and :math:`d=\mathrm{mean}`, define
-    :math:`W=2^{-1/2}\left(\begin{smallmatrix}I&iI\\I&-iI\end{smallmatrix}\right)`
-    and :math:`J=\left(\begin{smallmatrix}0&I\\I&0\end{smallmatrix}\right)`:
 
     .. math::
 
-        \Gamma=sV+I/2,\qquad Q=W\Gamma W^\dagger,\qquad \beta=\sqrt{s}Wd,
+        W = \frac{1}{\sqrt{2}}\begin{pmatrix} I & iI \\ I & -iI \end{pmatrix},
+        \qquad J = \begin{pmatrix} 0 & I \\ I & 0 \end{pmatrix}.
 
     .. math::
 
-        A=(I-Q^{-1})J,\qquad b=Q^{-1}\beta,\qquad
-        c=\frac{\exp(-\beta^\dagger Q^{-1}\beta/2)}{\sqrt{\det\Gamma}}.
+        \begin{aligned}
+            \Gamma &= sV + I/2, \\[4pt]
+            Q &= W\Gamma W^\dagger, \\[4pt]
+            \beta &= \sqrt{s}\,Wd.
+        \end{aligned}
+
+    The Bargmann coefficients are
+
+    .. math::
+
+        \begin{aligned}
+            A &= (I-Q^{-1})J, \\[4pt]
+            b &= Q^{-1}\beta, \\[4pt]
+            c &= \frac{\exp\!\left(-\beta^\dagger Q^{-1}\beta/2\right)}{\sqrt{\det\Gamma}}.
+        \end{aligned}
 
     Here :math:`Q` is the Husimi covariance matrix, not the scalar Husimi Q function.
     For formal variables :math:`\xi=(z,w)`, the kernel is
 
     .. math::
 
-        K_\rho(z,w)=c\exp(\xi^T A\xi/2+b^T\xi)
-        =\sum_{n,m}\rho_{n,m}\frac{z^n w^m}{\sqrt{n!m!}}.
+        K_\rho(z,w) = c\,\exp\!\left(\frac12 \xi^T A\xi + b^T\xi\right)
+        = \sum_{n,m}\rho_{n,m}\frac{z^n w^m}{\sqrt{n!m!}}.
 
     On the coherent-state diagonal, :math:`z=\alpha^*` and :math:`w=\alpha`.
-    Eq. (45) of the paper orders variables as :math:`(w,z)`; here they are :math:`(z,w)`.
+    Eq.(45) of the paper orders variables as :math:`(w,z)`. Here they are :math:`(z,w)`.
     Thus :math:`A=J A_{\mathrm{paper}}J` and :math:`b=J b_{\mathrm{paper}}`.
     Use :math:`\hbar_{\mathrm{paper}}=\hbar/(2\kappa^2)` with the same moments.
     This explains the right-hand :math:`J` in :math:`A` and its absence in :math:`b`.
-    The kernel form is Eq. (51) of the paper.
+    The kernel form is Eq.(51) of the paper.
 
     See https://arxiv.org/pdf/2504.10455v3 Sections A.1, A.2 and A.4.1,
-    Eqs. (45), (51) and (68)-(71).
+    Eqs.(45), (51) and (68)-(71).
 
     Args:
         cov: Real covariance tensor of shape ``(batch, 2M, 2M)`` in xxpp order.
         mean: Real mean tensor of shape ``(batch, 2M, 1)`` in the same units.
-        den_mat: Return the density kernel. False requires pure inputs and fixes
-            the ket's vacuum amplitude to be positive. Default: ``True``
+        den_mat: Whether to use density matrix representation. A ket requires pure inputs and fixes
+            the vacuum amplitude to be positive. Default: ``True``
 
     Returns:
         Complex symmetric ``A`` and complex ``b`` with shapes ``(batch, 2M, 2M)``
         and ``(batch, 2M)``, and real vacuum probabilities ``c`` of shape ``(batch,)``.
-        The first M variables label ket indices; the last M label bra indices.
+        The first M variables label ket indices and the last M label bra indices.
         For a ket, only the first M variables are retained and c is the vacuum amplitude.
     """
     if cov.ndim != 3 or cov.shape[-1] != cov.shape[-2] or cov.shape[-1] % 2 or cov.shape[-1] == 0:
@@ -553,7 +433,18 @@ def _gaussian_bargmann(mat_a: torch.Tensor, vec_b: torch.Tensor, coeff_c: torch.
 
 
 def passive_bargmann(unitary: torch.Tensor) -> BargmannPolyExp:
-    r"""Passive linear-optical gate with :math:`Ua^\dagger U^\dagger=u^Ta^\dagger`: :math:`K=\exp(z^Tu\,w)`."""
+    r"""Get the Bargmann representation of a passive linear-optical gate.
+
+    With the mode unitary :math:`u` defined by :math:`Ua^\dagger U^\dagger = u^T a^\dagger`,
+    the kernel is
+
+    .. math::
+
+        K(z,w) = \exp\!\left(z^T u\,w\right).
+
+    Args:
+        unitary: The local unitary matrix acting on creation operators.
+    """
     if unitary.ndim != 2 or unitary.shape[0] != unitary.shape[1]:
         raise ValueError('A passive mode transformation must be a square matrix')
     unitary = unitary + 0j
@@ -561,6 +452,9 @@ def passive_bargmann(unitary: torch.Tensor) -> BargmannPolyExp:
     zero = unitary.new_zeros(nmode, nmode)
     mat_a = torch.cat([torch.cat([zero, unitary], -1), torch.cat([unitary.mT, zero], -1)], -2)
     return _gaussian_bargmann(mat_a, unitary.new_zeros(2 * nmode), unitary.new_ones(()))
+
+
+# Evolution and PNR projection
 
 
 def _apply_bargmann(state: BargmannPolyExp, kernel: BargmannPolyExp, positions: list[int]) -> BargmannPolyExp:
@@ -585,7 +479,7 @@ def _project_pnr(
     """Project validated modes onto Fock outcomes by converting free variables to auxiliary variables.
 
     Existing auxiliary axes precede the new measured axes. Density matrices project
-    both ket and bra variables; retained variables keep their original order.
+    both ket and bra variables. Retained variables keep their original order.
     No Fock expansion or normalization of retained modes is performed.
     """
     measured = list(positions)
@@ -606,6 +500,84 @@ def _project_pnr(
     return polyexp
 
 
+# Conditional Fock readout for Gaussian states
+
+
+def conditional_fock(
+    cov: torch.Tensor,
+    mean: torch.Tensor,
+    wires: tuple[int, ...],
+    herald: tuple[int, ...],
+    cutoff: int,
+    den_mat: bool = False,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    r"""Return an unnormalized PNR conditional tensor and its marginal event probability.
+
+    PNR projection follows Eqs.(22), (25) and (28). For density matrices,
+    apply it on both sides as in Eq.(8).
+
+    With measured modes :math:`H`, retained modes :math:`R` and photon pattern :math:`h`, projection gives
+
+    .. math::
+
+        \begin{aligned}
+            \widetilde\psi_n &= \psi_{(h,n)}, \\[4pt]
+            \widetilde\rho_{n,m} &= \rho_{(h,n),(h,m)}, \\[4pt]
+            p_h &= \langle h|\operatorname{Tr}_R(\rho)|h\rangle.
+        \end{aligned}
+
+    The tuples above illustrate an H,R reordering. Returned axes retain their
+    original mode order. Gaussian marginal moments are obtained by selecting
+    the measured xxpp rows/columns, then converting that marginal afresh.
+    Selecting a subblock of the full Bargmann A would instead project the other
+    modes onto vacuum, and would not compute a partial trace.
+
+    See https://arxiv.org/pdf/2504.10455v3 Sections 2.1 and 3.1, Eqs.(8), (22), (25) and (28).
+    See https://the-walrus.readthedocs.io/en/latest/gbs.html for Gaussian marginals.
+
+    Args:
+        cov: Batched xxpp covariances, shape ``(batch, 2M, 2M)``.
+        mean: Batched xxpp means, shape ``(batch, 2M, 1)``.
+        wires: Validated, unique measured mode indices, in herald order.
+        herald: Nonnegative integer photon numbers, one for each measured mode.
+        cutoff: The Fock space truncation for readout.
+        den_mat: Whether to use density matrix representation. A ket requires every Gaussian input
+            in the batch to be pure. Default: ``False``
+
+    Returns:
+        Conditional Fock tensor (batch first, ket axes before bra axes), event
+        probabilities of shape ``(batch,)``.
+        Probabilities are computed from measured marginal moments and do not
+        depend on the output cutoff. No normalization is applied.
+    """
+    mat_a, vec_b, coeff_c = gaussian_to_bargmann(cov, mean, den_mat=den_mat)
+    nmode = cov.shape[-1] // 2
+    selected = dict(zip(wires, herald, strict=True))
+    bounds = tuple(selected[i] + 1 if i in selected else cutoff for i in range(nmode))
+    indices = tuple(selected.get(i, slice(None)) for i in range(nmode))
+    if not den_mat:
+        values = _fock_coefficients(mat_a, vec_b, coeff_c, bounds)
+        state = values[(slice(None), *indices)]
+    elif nmode - len(wires) == 1:
+        state = _single_mode_density(mat_a, vec_b, coeff_c, wires, herald, cutoff)
+    else:
+        values = _fock_coefficients(mat_a, vec_b, coeff_c, bounds * 2)
+        state = values[(slice(None), *indices, *indices)]
+    if not wires:
+        probability = torch.ones_like(coeff_c)
+    else:
+        # p_h = (rho_H)_{h,h} sums over all retained occupations, independent of output cutoff.
+        marginal = list(wires) + [i + nmode for i in wires]
+        mat_a_marginal, vec_b_marginal, coeff_c_marginal = gaussian_to_bargmann(
+            cov[:, marginal][:, :, marginal], mean[:, marginal]
+        )
+        coefficients = _fock_coefficients(
+            mat_a_marginal, vec_b_marginal, coeff_c_marginal, tuple(h + 1 for h in herald) * 2
+        )
+        probability = coefficients[(slice(None), *herald, *herald)].real
+    return state, probability
+
+
 def _single_mode_density(
     mat_a: torch.Tensor,
     vec_b: torch.Tensor,
@@ -621,24 +593,27 @@ def _single_mode_density(
 
     .. math::
 
-        K_\rho(x,y)=G(x)e^{y^TKy/2+(b_H+Lx)^Ty}
-        =G(x)\sum_q P_q(x)\frac{y^q}{\sqrt{q!}}.
+        \begin{aligned}
+            K_\rho(x,y) &= G(x)\,\exp\!\left(\frac12 y^T K y + (b_H+Lx)^T y\right) \\[6pt]
+                &= G(x)\sum_q P_q(x)\frac{y^q}{\sqrt{q!}}.
+        \end{aligned}
 
     The recurrence above, now with polynomial-valued linear terms, yields
 
     .. math::
 
-        P_{q+e_i}(x)=\frac{[b_{H,i}+(Lx)_i]P_q(x)
-        +\sum_j K_{ij}\sqrt{q_j}P_{q-e_j}(x)}{\sqrt{q_i+1}},\qquad P_0=1.
+        P_{q+e_i}(x) = \frac{[b_{H,i}+(Lx)_i]P_q(x)
+            + \sum_j K_{ij}\sqrt{q_j}\,P_{q-e_j}(x)}{\sqrt{q_i+1}},
+        \qquad P_0 = 1.
 
     PNR projection selects :math:`q=(h,h)`, so the conditional kernel is :math:`G(x)P_{(h,h)}(x)`.
     The polynomial has total degree at most :math:`D=2\sum_j h_j`.
-    Derived by replacing the linear term in Eq. (57) of the paper, with a polynomial.
-    Projection follows Eq. (25) on each density-kernel side. The polynomial
+    Derived by replacing the linear term in Eq.(57) of the paper, with a polynomial.
+    Projection follows Eq.(25) on each density-kernel side. The polynomial
     recurrence and factorial convolution are local derivations, not numbered
     equations quoted from the paper.
 
-    See https://arxiv.org/pdf/2504.10455v3 Sections 3.1 and A.3.1, Eqs. (25) and (57).
+    See https://arxiv.org/pdf/2504.10455v3 Sections 3.1 and A.3.1, Eqs.(25) and (57).
     """
     nmode = mat_a.shape[-1] // 2
     keep = next(i for i in range(nmode) if i not in wires)
@@ -692,74 +667,175 @@ def _single_mode_density(
     return result
 
 
-def conditional_fock(
-    cov: torch.Tensor,
-    mean: torch.Tensor,
-    wires: tuple[int, ...],
-    herald: tuple[int, ...],
-    cutoff: int,
-    den_mat: bool = False,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    r"""Return an unnormalized PNR conditional tensor and its marginal event probability.
+# Gaussian integration
 
-    PNR projection follows Eqs. (22), (25) and (28); for density matrices
-    apply it on both sides, as in Eq. (8).
 
-    With measured modes :math:`H`, retained modes :math:`R` and photon pattern :math:`h`, projection gives
+def gaussian_contract(
+    mat_a: torch.Tensor, vec_b: torch.Tensor, pairs: list[tuple[int, int]]
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, list[int]]:
+    r"""Integrate pairs of variables of a batched Gaussian kernel.
+
+    Split the variables into the kept set :math:`o` and the integrated set
+    :math:`i=(u_1,\dots,u_p,v_1,\dots,v_p)`. For the kernel
+    :math:`\exp(x^T A x / 2 + b^T x)`, define
 
     .. math::
 
-        \widetilde\psi_n=\psi_{(h,n)},\qquad
-        \widetilde\rho_{n,m}=\rho_{(h,n),(h,m)},\qquad
-        p_h=\langle h|\operatorname{Tr}_R(\rho)|h\rangle.
+        \Omega = \begin{pmatrix} 0 & I_p \\ I_p & 0 \end{pmatrix},
+        \qquad M = \Omega - A_{ii}.
 
-    The tuples above illustrate an H,R reordering; returned axes retain their
-    original mode order. Gaussian marginal moments are obtained by selecting
-    the measured xxpp rows/columns, then converting that marginal afresh.
-    Selecting a subblock of the full Bargmann A would instead project the other
-    modes onto vacuum, and would not compute a partial trace.
+    The integrated kernel has coefficients
 
-    See https://arxiv.org/pdf/2504.10455v3 Sections 2.1 and 3.1, Eqs. (8), (22), (25) and (28).
-    See https://the-walrus.readthedocs.io/en/latest/gbs.html for Gaussian marginals.
+    .. math::
+
+        \begin{aligned}
+            A' &= A_{oo} + A_{oi} M^{-1} A_{io}, \\[4pt]
+            b' &= b_o + A_{oi} M^{-1} b_i, \\[4pt]
+            f &= \frac{\exp\!\left(b_i^T M^{-1} b_i / 2\right)}
+                {\sqrt{\det(I - \Omega A_{ii})}}.
+        \end{aligned}
+
+    The scalar ``f`` multiplies the coefficient tensor of the kernel. Integrate pairs
+    one at a time so each square root follows the analytic branch. Taking the principal
+    square root of the combined complex determinant can introduce a sign error.
+    Auxiliary variables are kept, so delayed derivatives commute with the integral.
 
     Args:
-        cov: Batched xxpp covariances, shape ``(batch, 2M, 2M)``.
-        mean: Batched xxpp means, shape ``(batch, 2M, 1)``.
-        wires: Validated, unique measured mode indices, in herald order.
-        herald: Nonnegative integer photon numbers, one for each measured mode.
-        cutoff: Positive output dimension of each remaining mode.
-        den_mat: Return a density matrix when True, otherwise a ket.
-            A ket requires every Gaussian input in the batch to be pure.
+        mat_a: Complex symmetric tensor of shape ``(K, N, N)``.
+        vec_b: Complex tensor of shape ``(K, N)``.
+        pairs: Pairs of distinct variable indices to integrate.
 
     Returns:
-        Conditional Fock tensor (batch first, ket axes before bra axes), event
-        probabilities of shape ``(batch,)``.
-        Probabilities are computed from measured marginal moments and do not
-        depend on the output cutoff. No normalization is applied.
+        ``(mat_a, vec_b, factor, keep)`` where ``mat_a`` has shape ``(K, n, n)``, ``vec_b`` has shape
+        ``(K, n)``, ``factor`` has shape ``(K,)`` and ``keep`` lists the original indices of the
+        kept variables, in their original order.
     """
-    mat_a, vec_b, coeff_c = gaussian_to_bargmann(cov, mean, den_mat=den_mat)
-    nmode = cov.shape[-1] // 2
-    selected = dict(zip(wires, herald, strict=True))
-    bounds = tuple(selected[i] + 1 if i in selected else cutoff for i in range(nmode))
-    indices = tuple(selected.get(i, slice(None)) for i in range(nmode))
-    if not den_mat:
-        values = _fock_coefficients(mat_a, vec_b, coeff_c, bounds)
-        state = values[(slice(None), *indices)]
-    elif nmode - len(wires) == 1:
-        state = _single_mode_density(mat_a, vec_b, coeff_c, wires, herald, cutoff)
-    else:
-        values = _fock_coefficients(mat_a, vec_b, coeff_c, bounds * 2)
-        state = values[(slice(None), *indices, *indices)]
-    if not wires:
-        probability = torch.ones_like(coeff_c)
-    else:
-        # p_h = (rho_H)_{h,h} sums over all retained occupations, independent of output cutoff.
-        marginal = list(wires) + [i + nmode for i in wires]
-        mat_a_marginal, vec_b_marginal, coeff_c_marginal = gaussian_to_bargmann(
-            cov[:, marginal][:, :, marginal], mean[:, marginal]
+    nvar = mat_a.shape[-1]
+    first = [int(i) for i, _ in pairs]
+    second = [int(j) for _, j in pairs]
+    integrated = first + second
+    if len(set(integrated)) != len(integrated) or any(i < 0 or i >= nvar for i in integrated):
+        raise ValueError('Integrated variable pairs must use distinct valid indices')
+    remaining = list(range(nvar))
+    factor = mat_a.new_ones(mat_a.shape[0])
+    omega = mat_a.new_tensor([[0, 1], [1, 0]])
+    eye = torch.eye(2, dtype=mat_a.dtype, device=mat_a.device)
+    for first, second in pairs:
+        pair_idx = [remaining.index(first), remaining.index(second)]
+        keep_positions = [k for k in range(len(remaining)) if k not in pair_idx]
+        idx = torch.tensor(pair_idx, dtype=torch.long, device=mat_a.device)
+        keep_idx = torch.tensor(keep_positions, dtype=torch.long, device=mat_a.device)
+        mat_a_ii = mat_a[:, idx][:, :, idx]
+        mat_a_oi = mat_a[:, keep_idx][:, :, idx]
+        mat_a_oo = mat_a[:, keep_idx][:, :, keep_idx]
+        vec_b_i = vec_b[:, idx]
+        vec_b_o = vec_b[:, keep_idx]
+        rhs = torch.cat([mat_a_oi.mT, vec_b_i.unsqueeze(-1)], dim=-1)
+        try:
+            sol = torch.linalg.solve(omega - mat_a_ii, rhs)
+        except RuntimeError as exc:
+            if 'singular' not in str(exc).lower():
+                raise
+            raise ValueError('Singular Gaussian integral; the kernel is not integrable over these variables') from exc
+        mat_a = mat_a_oo + mat_a_oi @ sol[..., :-1]
+        mat_a = (mat_a + mat_a.mT) / 2
+        vec_b = vec_b_o + (mat_a_oi @ sol[..., -1:]).squeeze(-1)
+        det = torch.linalg.det(eye - omega @ mat_a_ii)
+        factor = factor * torch.exp((vec_b_i * sol[..., -1]).sum(-1) / 2) / torch.sqrt(det)
+        remaining = [remaining[k] for k in keep_positions]
+    return mat_a, vec_b, factor, remaining
+
+
+# Fock coefficient recurrence
+
+
+def _fock_coefficients(
+    mat_a: torch.Tensor, vec_b: torch.Tensor, coeff_c: torch.Tensor, bounds: tuple[int, ...]
+) -> torch.Tensor:
+    r"""Evaluate normalized Taylor coefficients on a rectangular index set.
+
+    Uses Eqs.(54)-(55) for coefficient normalization and Eq.(57) for recursion.
+
+    For multi-indices :math:`k`, with :math:`k!=\prod_j k_j!`, use
+
+    .. math::
+
+        \begin{aligned}
+            G(\xi) &= c\, e^{\xi^T A \xi / 2 + b^T \xi}
+                = \sum_k g_k \frac{\xi^k}{\sqrt{k!}}, \\[6pt]
+            \partial_i G &= \left(b_i + \sum_j A_{ij} \xi_j\right)G.
+        \end{aligned}
+
+    Matching powers gives Eq.(57) of the paper:
+
+    .. math::
+
+        g_{k+e_i} = \frac{b_i g_k + \sum_j A_{ij}\sqrt{k_j}\,g_{k-e_j}}
+            {\sqrt{k_i+1}},
+        \qquad g_0 = c.
+
+    Negative-index coefficients are zero. In code, the target is :math:`t=k+e_i`:
+    ``inverse_sqrt`` is :math:`1/\sqrt{t_i}` and ``weights`` contains
+    :math:`\sqrt{(t_j-\delta_{ij})/t_i}`. Thus ``terms`` implements the two summands.
+    For a pure-state kernel :math:`g_n=\psi_n`. For a density kernel :math:`g_{(n,m)}=\rho_{n,m}`.
+    These are Fock coefficients, not ordinary Taylor coefficients :math:`g_k/\sqrt{k!}`.
+    No further factorial division or state normalization is needed here.
+
+    See https://arxiv.org/pdf/2504.10455v3 Section A.3.1, Eqs.(54)-(55) and (57).
+    """
+    batch = mat_a.shape[0]
+    if not bounds:
+        return coeff_c.to(mat_a.dtype)
+    _check_work(bounds, batch, mat_a.element_size())
+    values = torch.cat((coeff_c.to(mat_a.dtype)[:, None], mat_a.new_zeros(batch, math.prod(bounds) - 1)), dim=-1)
+    for ids, mode, previous, lower, weights, inverse_sqrt in _device_layers(bounds, mat_a):
+        terms = (mat_a[:, mode, :] * weights * values[:, lower]).sum(-1)
+        terms = terms + vec_b[:, mode] * inverse_sqrt * values[:, previous]
+        values = values.index_copy(1, ids, terms)
+    return values.reshape(batch, *bounds)
+
+
+def _check_work(bounds: tuple[int, ...], batch: int, element_size: int, polynomial_size: int = 1) -> None:
+    size = math.prod(bounds)
+    # Autograd and framework overhead may exceed this working-set estimate.
+    estimate = size * (80 * max(len(bounds), 1) + 4 * batch * element_size * polynomial_size)
+    if estimate > _max_work_bytes:
+        raise MemoryError('Bargmann recurrence exceeds the working-set limit; reduce cutoff or herald photon numbers')
+
+
+@lru_cache(maxsize=4)
+def _recurrence_plan(bounds: tuple[int, ...]) -> tuple:
+    """Cache only discrete CPU indices and constant weights, never an autograd graph.
+
+    See https://arxiv.org/pdf/2504.10455v3 Section A.3.1, Eq.(57).
+    """
+    ranges = [torch.arange(bound, device='cpu') for bound in bounds]
+    states = torch.cartesian_prod(*ranges).reshape(-1, len(bounds))
+    strides = torch.tensor([math.prod(bounds[i + 1 :]) for i in range(len(bounds))], device='cpu')
+    totals = states.sum(-1)
+    layers = []
+    for degree in range(1, int(totals.max()) + 1):
+        ids = torch.where(totals == degree)[0]
+        selected = states[ids]
+        mode = (selected > 0).long().argmax(-1)
+        row = torch.arange(len(ids), device='cpu')
+        # Eq.(57) uses one pivot i per target. Eq.(58) averages over all pivots.
+        # Target t = selected, i = mode, k = t - e_i. Dependencies have lower total degree.
+        previous = selected.clone()
+        previous[row, mode] -= 1
+        previous_ids = (previous * strides).sum(-1)
+        valid = previous > 0
+        lower = (previous_ids[:, None] - strides).clamp_min(0)
+        number = selected[row, mode].double()
+        # weights_j = sqrt((t_j - delta_ij) / t_i). Negative-index terms have zero weight.
+        weights = (previous / number[:, None]).sqrt() * valid
+        layers.append((ids, mode, previous_ids, lower, weights, number.rsqrt()))
+    return tuple(layers)
+
+
+def _device_layers(bounds: tuple[int, ...], mat_a: torch.Tensor):
+    """Place the cached recurrence indices and weights on the coefficient device."""
+    for layer in _recurrence_plan(bounds):
+        yield tuple(
+            t.to(device=mat_a.device, dtype=mat_a.real.dtype if t.is_floating_point() else t.dtype) for t in layer
         )
-        coefficients = _fock_coefficients(
-            mat_a_marginal, vec_b_marginal, coeff_c_marginal, tuple(h + 1 for h in herald) * 2
-        )
-        probability = coefficients[(slice(None), *herald, *herald)].real
-    return state, probability

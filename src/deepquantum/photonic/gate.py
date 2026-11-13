@@ -185,6 +185,10 @@ class PhaseShift(SingleGate):
         self.vector_xp = vector_xp.detach()
         return matrix_xp, vector_xp
 
+    def get_bargmann(self) -> BargmannPolyExp:
+        """Get the Bargmann representation from the local mode unitary matrix."""
+        return passive_bargmann(self.update_matrix())
+
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
         theta = self.inputs_to_tensor(inputs)
@@ -198,10 +202,6 @@ class PhaseShift(SingleGate):
     def extra_repr(self) -> str:
         theta = -self.theta if self.inv_mode else self.theta
         return f'wires={self.wires}, theta={theta.item()}'
-
-    def get_bargmann(self) -> BargmannPolyExp:
-        """Return the passive optical kernel from the live mode matrix."""
-        return passive_bargmann(self.update_matrix())
 
 
 class BeamSplitter(DoubleGate):
@@ -350,6 +350,10 @@ class BeamSplitter(DoubleGate):
         self.vector_xp = vector_xp.detach()
         return matrix_xp, vector_xp
 
+    def get_bargmann(self) -> BargmannPolyExp:
+        """Get the Bargmann representation from the local mode unitary matrix."""
+        return passive_bargmann(self.update_matrix())
+
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
         theta, phi = self.inputs_to_tensor(inputs)
@@ -364,10 +368,6 @@ class BeamSplitter(DoubleGate):
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, theta={self.theta.item()}, phi={self.phi.item()}'
-
-    def get_bargmann(self) -> BargmannPolyExp:
-        """Return the passive optical kernel from the live mode matrix."""
-        return passive_bargmann(self.update_matrix())
 
 
 class MZI(BeamSplitter):
@@ -876,7 +876,7 @@ class UAnyGate(Gate):
         return matrix_xp, vector_xp
 
     def get_bargmann(self) -> BargmannPolyExp:
-        """Return the passive optical kernel from the live mode matrix."""
+        """Get the Bargmann representation from the local mode unitary matrix."""
         return passive_bargmann(self.update_matrix())
 
 
@@ -1009,6 +1009,27 @@ class Squeezing(SingleGate):
         self.vector_xp = vector_xp.detach()
         return matrix_xp, vector_xp
 
+    def get_bargmann(self) -> BargmannPolyExp:
+        r"""Get the Bargmann representation of the gate.
+
+        The output variable ``z`` precedes the input variable ``w``:
+
+        .. math::
+
+            K(z,w) = \frac{1}{\sqrt{\cosh r}}\,
+                \exp\!\left[
+                    -\frac{e^{i\theta}\tanh r}{2}\,z^2
+                    + \operatorname{sech}r\,zw
+                    + \frac{e^{-i\theta}\tanh r}{2}\,w^2
+                \right].
+        """
+        r, theta = self.inputs_to_tensor([self.r, self.theta])
+        phase = torch.exp(1j * theta)
+        tanh = torch.tanh(r) + 0j
+        sech = 1 / torch.cosh(r) + 0j
+        mat_a = torch.stack([-phase * tanh, sech, sech, tanh / phase]).reshape(2, 2)
+        return _gaussian_bargmann(mat_a, mat_a.new_zeros(2), torch.cosh(r) ** -0.5)
+
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
         r, theta = self.inputs_to_tensor(inputs)
@@ -1023,21 +1044,6 @@ class Squeezing(SingleGate):
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, r={self.r.item()}, theta={self.theta.item()}'
-
-    def get_bargmann(self) -> BargmannPolyExp:
-        r"""Return the Bargmann representation, with output variable before input.
-
-        .. math::
-
-            K(z,w)=\frac{\exp[-e^{i\theta}\tanh(r)z^2/2+\operatorname{sech}(r)zw
-            +e^{-i\theta}\tanh(r)w^2/2]}{\sqrt{\cosh(r)}}.
-        """
-        r, theta = self.inputs_to_tensor([self.r, self.theta])
-        phase = torch.exp(1j * theta)
-        tanh = torch.tanh(r) + 0j
-        sech = 1 / torch.cosh(r) + 0j
-        mat_a = torch.stack([-phase * tanh, sech, sech, tanh / phase]).reshape(2, 2)
-        return _gaussian_bargmann(mat_a, mat_a.new_zeros(2), torch.cosh(r) ** -0.5)
 
 
 class Squeezing2(DoubleGate):
@@ -1188,28 +1194,19 @@ class Squeezing2(DoubleGate):
         self.vector_xp = vector_xp.detach()
         return matrix_xp, vector_xp
 
-    def init_para(self, inputs: Any = None) -> None:
-        """Initialize the parameters."""
-        r, theta = self.inputs_to_tensor(inputs)
-        if self.requires_grad:
-            self.r = nn.Parameter(r)
-            self.theta = nn.Parameter(theta)
-        else:
-            self.register_buffer('r', r)
-            self.register_buffer('theta', theta)
-        self.update_matrix()
-        self.update_transform_xp()
-
-    def extra_repr(self) -> str:
-        return f'wires={self.wires}, r={self.r.item()}, theta={self.theta.item()}'
-
     def get_bargmann(self) -> BargmannPolyExp:
-        r"""Return the Bargmann representation in order ``(z1, z2, w1, w2)``.
+        r"""Get the Bargmann representation of the gate.
+
+        Output variables precede input variables, in order ``(z1, z2, w1, w2)``:
 
         .. math::
 
-            K=\operatorname{sech}(r)\exp[e^{i\theta}\tanh(r)z_1z_2
-            +\operatorname{sech}(r)(z_1w_1+z_2w_2)-e^{-i\theta}\tanh(r)w_1w_2].
+            K = \operatorname{sech}r\,
+                \exp\!\left[
+                    e^{i\theta}\tanh r\,z_1 z_2
+                    + \operatorname{sech}r\,(z_1 w_1 + z_2 w_2)
+                    - e^{-i\theta}\tanh r\,w_1 w_2
+                \right].
         """
         r, theta = self.inputs_to_tensor([self.r, self.theta])
         phase = torch.exp(1j * theta)
@@ -1238,6 +1235,21 @@ class Squeezing2(DoubleGate):
             ]
         ).reshape(4, 4)
         return _gaussian_bargmann(mat_a, mat_a.new_zeros(4), sech)
+
+    def init_para(self, inputs: Any = None) -> None:
+        """Initialize the parameters."""
+        r, theta = self.inputs_to_tensor(inputs)
+        if self.requires_grad:
+            self.r = nn.Parameter(r)
+            self.theta = nn.Parameter(theta)
+        else:
+            self.register_buffer('r', r)
+            self.register_buffer('theta', theta)
+        self.update_matrix()
+        self.update_transform_xp()
+
+    def extra_repr(self) -> str:
+        return f'wires={self.wires}, r={self.r.item()}, theta={self.theta.item()}'
 
 
 class Displacement(SingleGate):
@@ -1360,6 +1372,26 @@ class Displacement(SingleGate):
         self.vector_xp = vector_xp.detach()
         return matrix_xp, vector_xp
 
+    def get_bargmann(self) -> BargmannPolyExp:
+        r"""Get the Bargmann representation of the gate.
+
+        The displacement is :math:`\alpha = r e^{i\theta}`.
+        The output variable ``z`` precedes the input variable ``w``:
+
+        .. math::
+
+            K(z,w) = e^{-|\alpha|^2/2}\,
+                \exp\!\left(\alpha z - \bar\alpha w + zw\right).
+        """
+        r, theta = self.inputs_to_tensor([self.r, self.theta])
+        alpha = r * torch.exp(1j * theta)
+        zero, one = torch.zeros_like(alpha), torch.ones_like(alpha)
+        mat_a = torch.stack([zero, one, one, zero]).reshape(2, 2)
+        vec_b = torch.stack([alpha, -alpha.conj()])
+        # A smooth squared modulus retains the displacement derivative at the vacuum.
+        coeff_c = torch.exp(-(alpha.real**2 + alpha.imag**2) / 2)
+        return _gaussian_bargmann(mat_a, vec_b, coeff_c)
+
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
         r, theta = self.inputs_to_tensor(inputs)
@@ -1374,20 +1406,6 @@ class Displacement(SingleGate):
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, r={self.r.item()}, theta={self.theta.item()}'
-
-    def get_bargmann(self) -> BargmannPolyExp:
-        r"""Return :math:`K(z,w)=e^{-|\alpha|^2/2}\exp(\alpha z-\bar\alpha w+zw)`.
-
-        The displacement is :math:`\alpha=re^{i\theta}` and output precedes input.
-        """
-        r, theta = self.inputs_to_tensor([self.r, self.theta])
-        alpha = r * torch.exp(1j * theta)
-        zero, one = torch.zeros_like(alpha), torch.ones_like(alpha)
-        mat_a = torch.stack([zero, one, one, zero]).reshape(2, 2)
-        vec_b = torch.stack([alpha, -alpha.conj()])
-        # A smooth squared modulus retains the displacement derivative at the vacuum.
-        coeff_c = torch.exp(-(alpha.real**2 + alpha.imag**2) / 2)
-        return _gaussian_bargmann(mat_a, vec_b, coeff_c)
 
 
 class DisplacementPosition(Displacement):
@@ -2380,9 +2398,9 @@ class Barrier(Gate):
         """Perform a forward pass."""
         return x
 
-    def extra_repr(self) -> str:
-        return f'wires={self.wires}'
-
     def get_bargmann(self) -> None:
         """Return None because a barrier does not change the state."""
         return None
+
+    def extra_repr(self) -> str:
+        return f'wires={self.wires}'

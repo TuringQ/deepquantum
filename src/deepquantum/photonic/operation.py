@@ -74,10 +74,11 @@ class Operation(nn.Module):
         assert -1 < minmax[0] <= minmax[1] < self.nmode
 
     def get_bargmann(self) -> BargmannPolyExp | None:
-        """Return the live Bargmann kernel, or None for an operation without effect.
+        """Get the Bargmann representation of the quantum operation.
 
         Unitary kernels order outputs before inputs. Channel kernels order ket output,
-        bra output, ket input, then bra input. Unsupported operations raise explicitly.
+        bra output, ket input and bra input. An operation without effect returns None.
+        Unsupported operations raise NotImplementedError.
         """
         raise NotImplementedError(f'{self.name} is not supported by the Bargmann backend')
 

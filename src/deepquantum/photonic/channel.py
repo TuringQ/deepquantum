@@ -365,6 +365,14 @@ class PhotonLoss(Channel):
         """Photon loss in dB."""
         return -10 * torch.log10(self.t)
 
+    def init_para(self, inputs: Any = None) -> None:
+        """Initialize the parameters."""
+        self.gate.init_para(self._inputs_to_theta(inputs))
+
+    def _inputs_to_theta(self, inputs: Any = None) -> torch.Tensor | None:
+        """Convert inputs under the chosen convention to the internal loss theta."""
+        return _loss_to_theta(inputs, self.convention)
+
     @staticmethod
     def _apply_unitary(
         unitary: torch.Tensor | None, matrix: torch.Tensor, wires: Sequence[int], nmode: int
@@ -393,14 +401,6 @@ class PhotonLoss(Channel):
         matrix = self.gate.get_matrix_state(self.gate.get_matrix(theta))
         return matrix[..., 0].permute([1, 0, 2])
 
-    def init_para(self, inputs: Any = None) -> None:
-        """Initialize the parameters."""
-        self.gate.init_para(self._inputs_to_theta(inputs))
-
-    def _inputs_to_theta(self, inputs: Any = None) -> torch.Tensor | None:
-        """Convert inputs under the chosen convention to the internal loss theta."""
-        return _loss_to_theta(inputs, self.convention)
-
     def update_transform_xy(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Update the local transformation matrices X and Y acting on Gaussian states.
 
@@ -416,15 +416,14 @@ class PhotonLoss(Channel):
         self.matrix_y = matrix_y.detach()
         return matrix_x, matrix_y
 
-    def extra_repr(self) -> str:
-        return f'wires={self.wires}, transmittance={self.t.item()}'
-
     def get_bargmann(self) -> BargmannPolyExp:
-        r"""Return the pure-loss Bargmann representation at power transmittance :math:`T`.
+        r"""Get the Bargmann representation of the photon loss channel.
+
+        With power transmittance :math:`T`, the kernel is
 
         .. math::
 
-            K(z,w,u,v)=\exp[\sqrt{T}(zu+wv)+(1-T)uv].
+            K(z,w,u,v) = \exp\!\left[\sqrt{T}\,(zu + wv) + (1-T)\,uv\right].
 
         Variables are ordered as ket output, bra output, ket input, bra input.
         """
@@ -456,3 +455,6 @@ class PhotonLoss(Channel):
             ]
         ).reshape(4, 4)
         return _gaussian_bargmann(mat_a, mat_a.new_zeros(4), mat_a.new_ones(()))
+
+    def extra_repr(self) -> str:
+        return f'wires={self.wires}, transmittance={self.t.item()}'
