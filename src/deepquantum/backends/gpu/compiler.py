@@ -1,4 +1,4 @@
-"""DeepQuantum Gate -> vendor-neutral compiled statevector plan."""
+"""Compile DeepQuantum gates into ixquantum execution plans."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ OP_PERMUTATION = 3
 GRAD_NONE = 0
 GRAD_PAULI_GENERATOR = 1
 GRAD_PHASE = 2
-# The values intentionally match custatevecPauli_t: X=1, Y=2, Z=3.
+# Pauli labels match custatevecPauli_t: X=1, Y=2, Z=3.
 _PAULI = {
     'Rx': (1,),
     'Ry': (2,),

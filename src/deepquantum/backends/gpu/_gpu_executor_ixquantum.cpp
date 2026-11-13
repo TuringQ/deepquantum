@@ -15,7 +15,7 @@
 #include <utility>
 #include <vector>
 
-// Implemented in adjoint_kernels.cu; the executor keeps all gate application in ixquantum.
+// Adjoint kernels defined in adjoint_kernels.cu.
 extern "C" void dq_pauli_action(const void*, void*, uint64_t, uint64_t, uint64_t, int, const float*, cudaStream_t);
 extern "C" void dq_pauli_contract(const void*, const void*, float*, uint64_t, uint64_t, uint64_t, int, uint64_t,
                                   cudaStream_t);
@@ -94,8 +94,7 @@ struct Op {
 };
 
 class GPUCircuitExecutor {
-  // The PyTorch allocator reuses released scratch on its owning stream. Each
-  // invocation owns its lease; separate streams never share live scratch.
+  // Lease scratch from the PyTorch allocator for the current stream.
   struct WorkspaceLease {
     c10::cuda::CUDAGuard guard;
     GPUCircuitExecutor& owner;

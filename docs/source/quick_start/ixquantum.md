@@ -96,7 +96,6 @@ These direct gradient methods consume the final state and do not construct a hig
 - Runtime data encoding, batches, density matrices, noise channels, mid-circuit measurement, conditional operations, differentiable initial states, and differentiation of the returned statevector are unsupported.
   Whole-circuit `inverse()` and circuit addition with `+` are also unsupported; individual inverse gates are supported.
   Barriers are ignored during compilation.
-  Unsupported operations raise errors rather than silently changing execution backends.
 
 The compiler selects ixquantum APIs automatically: generalized permutations for permutation/diagonal gates,
 Pauli rotations for supported rotations, and dense matrices for other supported gates.
@@ -104,7 +103,6 @@ Adjoint gradients combine generator action with the inner-product reduction in `
 Phase gradients use the projector onto the active target/control sector directly.
 These kernels avoid allocating an additional full statevector for intermediate generator results.
 They also accumulate weighted Pauli observables when preparing the adjoint state.
-Gate execution uses ixquantum; the custom kernels are limited to adjoint calculations.
 
 | Operation | Implementation |
 |---|---|
@@ -116,7 +114,7 @@ Gate execution uses ixquantum; the custom kernels are limited to adjoint calcula
 | Rotation and phase gradients | Fused generator contraction |
 
 Fixed generalized permutations are recognized before GPU upload.
-API selection follows gate structure; it does not guarantee the fastest kernel for every size and bit position.
+API selection follows gate structure.
 
 Adding gates or observables, resetting the circuit, and loading a state dictionary automatically invalidate the compiled plan.
 Call `invalidate()` after directly changing gate structure, fixed parameters, or fixed matrices.

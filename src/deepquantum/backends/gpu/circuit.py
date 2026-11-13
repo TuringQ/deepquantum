@@ -84,7 +84,7 @@ class QubitCircuitGPU(QubitCircuit):
         return result
 
     def multirz(self, wires: list[int], inputs: Any = None, controls: int | list[int] | None = None) -> None:
-        """Add a compiled-only multi-qubit Z Pauli rotation without a dense matrix."""
+        """Add a multi-qubit Z Pauli rotation."""
         wire_list = list(wires)
         if not wire_list:
             raise ValueError('MultiRZ requires at least one target wire')
@@ -154,7 +154,7 @@ class QubitCircuitGPU(QubitCircuit):
                 self.invalidate()
 
     def memory_report(self) -> dict[str, Any]:
-        """Report state requirements and current native allocations without compiling."""
+        """Report statevector requirements and current native allocations."""
         result = {'one_state_bytes': 8 * (1 << self.nqubit)}
         if self._executor is not None:
             result.update(dict(self._executor.memory_report()))
@@ -167,9 +167,8 @@ class QubitCircuitGPU(QubitCircuit):
     def observable_matrix(self, matrix: torch.Tensor, wires: int | list[int]) -> None:
         """Register one fixed Hermitian matrix observable for exact expectation.
 
-        This interface is non-differentiable and cannot be mixed with the
-        inherited Pauli ``observable()`` entries.  Validation happens in
-        ``compile()`` so it uses the same wire/bit mapping as gate matrices.
+        Matrix expectations are non-differentiable and cannot be combined with
+        Pauli ``observable()`` entries.
         """
         if self.observables:
             raise ValueError('observable_matrix() cannot be mixed with Pauli observable()')
@@ -243,10 +242,10 @@ class QubitCircuitGPU(QubitCircuit):
         return self._executor.expectation()
 
     def expectation_from_state(self, state: torch.Tensor, observables: list[Any]) -> torch.Tensor:
-        """Evaluate Pauli observables on a borrowed single-GPU final state.
+        """Evaluate Pauli observables on an existing CUDA state.
 
-        The state is never copied or retained. This exact numerical API is
-        intentionally non-differentiable and does not execute or compile gates.
+        This non-differentiable readout borrows the state for the duration of the
+        call. Gate compilation and execution are skipped.
         """
         if not isinstance(state, torch.Tensor):
             raise TypeError('state must be a torch.Tensor')
@@ -275,7 +274,7 @@ class QubitCircuitGPU(QubitCircuit):
             )
 
     def adjoint_vjp(self, parameters: torch.Tensor | None, coefficients: torch.Tensor) -> torch.Tensor:
-        """Compute a weighted adjoint VJP without materializing expectations."""
+        """Compute the adjoint gradient of a weighted Pauli expectation."""
         if self.diff_method != 'adjoint':
             raise ValueError('adjoint_vjp requires diff_method="adjoint"')
         self._ensure_compiled()
@@ -297,7 +296,7 @@ class QubitCircuitGPU(QubitCircuit):
         return self._executor.value_and_grad(values.detach(), weights, float(constant))
 
     def _ensure_executor_resources(self) -> None:
-        """Create the native handle without compiling or changing circuit state."""
+        """Create the native executor on first use."""
         if self._executor is None:
             module = load_ixquantum_executor()
             self._executor = module.GPUCircuitExecutor(self.nqubit, self.gpu_device.index or 0)
@@ -351,7 +350,7 @@ class QubitCircuitGPU(QubitCircuit):
 
 
 class _GPUAdjointExpectation(torch.autograd.Function):
-    """Bridge the native adjoint result back into the original DQ parameters."""
+    """Bridge native adjoint gradients to PyTorch autograd."""
 
     @staticmethod
     def forward(ctx: Any, parameters: torch.Tensor, circuit: QubitCircuitGPU) -> torch.Tensor:
@@ -383,7 +382,7 @@ class _GPUAdjointExpectation(torch.autograd.Function):
 
 
 class _ZeroState(nn.Module):
-    """Describe the zero state without allocating a host statevector."""
+    """Store zero-state metadata until GPU allocation."""
 
     _compiled_zero_state = True
 
@@ -394,7 +393,7 @@ class _ZeroState(nn.Module):
 
 
 class MultiRZ(Gate):
-    """GPU-only exp(-i theta Z...Z / 2) descriptor without a dense matrix."""
+    """Describe exp(-i theta Z...Z / 2) by its angle and wires."""
 
     def __init__(
         self, *, inputs: Any, nqubit: int, wires: list[int], controls: int | list[int] | None, requires_grad: bool

@@ -1,7 +1,6 @@
 // Adjoint-state accumulation and gradient contractions.
 // Fuse generator action with reduction to avoid a full temporary statevector.
 // Masks use physical LSB indexing.
-// These kernels do not implement forward gates or qubit placement.
 #include <cuComplex.h>
 #include <cuda_runtime.h>
 #include <stdint.h>

@@ -33,7 +33,6 @@ def load_ixquantum_executor() -> ModuleType:
     """Build on first use and reuse PyTorch's extension cache thereafter.
 
     The CoreX PyTorch builder configures the host/device compilers, architecture, and ABI.
-    No vendor library or compiler is loaded when importing DeepQuantum.
     """
     import torch
 
