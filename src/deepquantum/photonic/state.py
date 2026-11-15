@@ -479,15 +479,17 @@ class BargmannState(nn.Module):
         polyexp = self.polyexp
         return self._new(polyexp.tensor_product(polyexp.conj()), den_mat=True)
 
-    def _project_pnr(self, positions: tuple[int, ...], photons: tuple[int, ...]) -> 'BargmannState':
-        """Project validated modes onto Fock outcomes, returning locally numbered remaining modes."""
-        polyexp = _project_pnr(self.polyexp, self.nmode, self.den_mat, positions, photons)
-        return self._new(polyexp)
-
-    def _project_threshold(self, positions: tuple[int, ...], clicks: tuple[int, ...]) -> 'BargmannState':
-        """Condition on threshold outcomes, returning a density matrix on the remaining modes."""
-        polyexp = _project_threshold(self.to_dm().polyexp, self.nmode, positions, clicks)
-        return self._new(polyexp, den_mat=True)
+    def _post_select(
+        self, positions: tuple[int, ...], photons: tuple[int, ...], detector: str = 'pnrd'
+    ) -> 'BargmannState':
+        """Condition on validated photon-counting outcomes, locally numbering the remaining modes."""
+        if detector == 'pnrd':
+            polyexp = _project_pnr(self.polyexp, self.nmode, self.den_mat, positions, photons)
+            return self._new(polyexp)
+        elif detector == 'threshold':
+            polyexp = _project_threshold(self.to_dm().polyexp, self.nmode, positions, photons)
+            return self._new(polyexp, den_mat=True)
+        raise NotImplementedError(f'Bargmann post-selection does not support detector={detector!r}')
 
     def norm(self) -> torch.Tensor:
         r"""Get the squared norm :math:`\langle\psi|\psi\rangle` of a ket or the trace of a density matrix.

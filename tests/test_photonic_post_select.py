@@ -114,8 +114,18 @@ def test_threshold_impossible_events_and_validation(backend):
     assert torch.count_nonzero(actual) == 0 and probability.item() == 0
     with pytest.raises(ValueError, match='0 or 1'):
         cir.post_select(0, 2, detector='threshold')
-    with pytest.raises(ValueError, match='detector'):
+    with pytest.raises(NotImplementedError, match='Click-counting'):
         cir.post_select(0, 1, detector='click')
+    with pytest.raises(ValueError, match='detector'):
+        cir.post_select(0, 1, detector='unknown')
+    positional, positional_probability = cir.post_select(0, 0, None, 'threshold')
+    keyword, keyword_probability = cir.post_select(0, 0, detector='threshold')
+    positional = (
+        positional.to_fock() if backend == 'bargmann' else positional.state if backend == 'fock' else positional
+    )
+    keyword = keyword.to_fock() if backend == 'bargmann' else keyword.state if backend == 'fock' else keyword
+    torch.testing.assert_close(positional, keyword)
+    torch.testing.assert_close(positional_probability, keyword_probability)
 
 
 @pytest.mark.parametrize('den_mat', [False, True])

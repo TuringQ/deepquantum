@@ -9,6 +9,7 @@ before bra variables. Operator kernels use output variables before input variabl
 """
 
 import math
+from collections.abc import Iterator
 from functools import lru_cache
 
 import torch
@@ -47,6 +48,11 @@ class BargmannPolyExp:
 
     Thus ``coeff_c`` pairs directly with Fock coefficients. A Gaussian kernel is the special
     case with no auxiliary variables.
+
+    Each auxiliary axis of ``coeff_c`` specifies the derivative order for one variable.
+    Entry ``coeff_c[batch, term, k0, k1, ...]`` multiplies
+    :math:`\prod_j \partial_{y_j}^{k_j}/\sqrt{k_j!}`, evaluated at :math:`y=0`.
+    Variable :math:`y_j` occupies index ``nfree + j`` in ``mat_a`` and ``vec_b``.
 
     Conventions:
 
@@ -886,7 +892,7 @@ def _check_work(bounds: tuple[int, ...], batch: int, element_size: int, polynomi
 
 
 @lru_cache(maxsize=4)
-def _recurrence_plan(bounds: tuple[int, ...]) -> tuple:
+def _recurrence_plan(bounds: tuple[int, ...]) -> tuple[tuple[torch.Tensor, ...], ...]:
     """Cache only discrete CPU indices and constant weights, never an autograd graph.
 
     See https://arxiv.org/pdf/2504.10455v3 Section A.3.1, Eq.(57).
@@ -915,7 +921,7 @@ def _recurrence_plan(bounds: tuple[int, ...]) -> tuple:
     return tuple(layers)
 
 
-def _device_layers(bounds: tuple[int, ...], mat_a: torch.Tensor):
+def _device_layers(bounds: tuple[int, ...], mat_a: torch.Tensor) -> Iterator[tuple[torch.Tensor, ...]]:
     """Place the cached recurrence indices and weights on the coefficient device."""
     for layer in _recurrence_plan(bounds):
         yield tuple(
