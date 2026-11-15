@@ -108,8 +108,21 @@ register_pytree_node(
 )
 
 
-def _post_select_spatial(result, cutoff, wires, photons, keep, retained_submodes):
-    """Convolve independent PNR conditional operators, tracing unretained orthogonal basis modes first."""
+def _post_select_spatial(
+    result: SubmodeResult,
+    cutoff: int,
+    wires: list[int],
+    photons: list[int],
+    keep: list[int],
+    detector: str = 'pnrd',
+    *,
+    retained_submodes: list[int],
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Combine conditional operators, tracing unretained orthogonal basis modes first."""
+    if detector == 'threshold':
+        return _post_select_threshold(result, cutoff, wires, photons, keep, retained_submodes)
+    if detector != 'pnrd':
+        raise NotImplementedError(f'Spatial post-selection does not support detector={detector!r}')
     accumulated, labels = None, []
     factors = sorted(result._factors(), key=lambda item: bool(set(retained_submodes).intersection(item[0])))
     for block, state in factors:
@@ -117,7 +130,7 @@ def _post_select_spatial(result, cutoff, wires, photons, keep, retained_submodes
         retained = [(w, k) for w in keep for k in block if k in retained_submodes]
         selected = [w * size + block.index(k) for w, k in retained]
         measured = [w * size + k for w in wires for k in range(size)]
-        values = _fock_conditional_blocks(state, result.nmode * size, cutoff, result.den_mat, measured, selected)
+        values = _fock_conditional_blocks(state, result.nmode * size, cutoff, measured, selected, result.den_mat)
         if size == 1:
             values = values[(slice(None),) + tuple(slice(0, n + 1) for n in photons)]
         else:
@@ -133,6 +146,29 @@ def _post_select_spatial(result, cutoff, wires, photons, keep, retained_submodes
     order = [labels.index((w, k)) for w in keep for k in retained_submodes]
     density = density.reshape([-1] + [cutoff] * (2 * len(labels)))
     return density.permute([0] + [i + 1 for i in order] + [i + len(labels) + 1 for i in order]), probability
+
+
+def _post_select_threshold(
+    result: SubmodeResult,
+    cutoff: int,
+    wires: list[int],
+    photons: list[int],
+    keep: list[int],
+    retained_submodes: list[int],
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Expand spatial click events into vacuum projections on independent blocks."""
+    vacuum = [wire for wire, click in zip(wires, photons, strict=True) if click == 0]
+    clicked = [wire for wire, click in zip(wires, photons, strict=True) if click == 1]
+    density, probability = 0, 0
+    for mask in range(1 << len(clicked)):
+        selected = vacuum + [wire for i, wire in enumerate(clicked) if mask & (1 << i)]
+        term, weight = _post_select_spatial(
+            result, cutoff, selected, [0] * len(selected), keep, retained_submodes=retained_submodes
+        )
+        sign = (-1) ** mask.bit_count()
+        density = density + sign * term
+        probability = probability + sign * weight
+    return density, probability
 
 
 def _join_states(states, blocks, nmode, nsubmode, backend, den_mat):
@@ -257,7 +293,7 @@ def _lo_view(result, cutoff, wires, lo=None):
         for block, state in factors:
             kept = [k for k in block if k in active]
             selected = [w * len(block) + block.index(k) for w in wires for k in kept]
-            density = _fock_conditional_blocks(state, result.nmode * len(block), cutoff, result.den_mat, [], selected)
+            density = _fock_conditional_blocks(state, result.nmode * len(block), cutoff, [], selected, result.den_mat)
             if kept:
                 reduced.append(density.reshape([-1] + [cutoff] * (2 * len(selected))))
                 blocks.append(tuple(active.index(k) for k in kept))
@@ -273,7 +309,7 @@ def _lo_view(result, cutoff, wires, lo=None):
                     matrix.mH.resolve_conj(), n, [i * len(active) + k for k in local], cutoff=cutoff, den_mat=True
                 )
                 data = gate(data)
-        data = _fock_conditional_blocks(data, n, cutoff, True, [], [i * len(active) for i in range(len(wires))])
+        data = _fock_conditional_blocks(data, n, cutoff, [], [i * len(active) for i in range(len(wires))], den_mat=True)
         data = data.reshape([-1] + [cutoff] * (2 * len(wires)))
     view = QumodeCircuit(len(wires), 'vac', cutoff=cutoff, backend=result.backend, basis=False, den_mat=True)
     view.state = data

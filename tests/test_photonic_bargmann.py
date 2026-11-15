@@ -420,8 +420,6 @@ def test_batched_encoding_matches_single_samples():
         ('get_prob', ([1],)),
         ('get_amplitude', ([1],)),
         ('measure', ()),
-        ('photon_number_mean_var', ()),
-        ('quadrature_mean', ()),
         ('measure_homodyne', ()),
     ],
 )

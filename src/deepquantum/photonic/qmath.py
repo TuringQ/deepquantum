@@ -270,8 +270,19 @@ def group_probabilities(probabilities: dict | torch.Tensor, groups: list[list[in
     return result
 
 
-def _pnr_condition(state, nmode, cutoff, den_mat, measured, photons, keep, *, normalize=True):
-    """Project unresolved PNR counts and trace all unretained modes without a dense POVM.
+def _photon_count_condition(
+    state: torch.Tensor,
+    nmode: int,
+    cutoff: int,
+    measured: list[list[int]],
+    photons: list[int],
+    keep: list[int],
+    detector: str = 'pnrd',
+    den_mat: bool = False,
+    *,
+    normalize: bool = True,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Condition on photon counts or threshold outcomes and trace all unretained modes.
 
     See https://arxiv.org/pdf/1902.02323v2 Eq.(24) and Eq.(109) for PNR projection and probability.
     Here each unresolved event sums resolved projectors, with unretained modes traced out.
@@ -279,33 +290,43 @@ def _pnr_condition(state, nmode, cutoff, den_mat, measured, photons, keep, *, no
     rest = [wire for wire in range(nmode) if wire not in keep]
     order = keep + rest
     positions = [[rest.index(wire) for wire in group] for group in measured]
-    mask = torch.tensor(
+    counts = torch.tensor(
         [
-            all(sum(pattern[i] for i in group) == n for group, n in zip(positions, photons, strict=True))
+            [sum(pattern[i] for i in group) for group in positions]
             for pattern in itertools.product(range(cutoff), repeat=len(rest))
         ],
         device=state.device,
     )
+    outcomes = torch.tensor(photons, device=state.device)
+    if detector == 'pnrd':
+        weights = (counts == outcomes).all(-1)
+    elif detector == 'threshold':
+        weights = ((counts > 0) == outcomes).all(-1)
+    else:
+        raise NotImplementedError(f'Fock post-selection does not support detector={detector!r}')
     nkeep, nrest = cutoff ** len(keep), cutoff ** len(rest)
     state = state.reshape([-1] + [cutoff] * nmode * (2 if den_mat else 1))
     axes = [0] + [w + 1 for w in order]
+    # Apply each diagonal POVM weight once before tracing the measured modes.
     if den_mat:
         axes += [w + nmode + 1 for w in order]
         state = state.permute(axes).reshape(-1, nkeep, nrest, nkeep, nrest)
-        density = (state.diagonal(dim1=2, dim2=4) * mask).sum(-1)
+        density = (state.diagonal(dim1=2, dim2=4) * weights).sum(-1)
     else:
         state = state.permute(axes).reshape(-1, nkeep, nrest)
-        selected = state * mask
+        selected = state * weights
         density = selected @ selected.mH
     probability = density.diagonal(dim1=-2, dim2=-1).sum(-1).real
     if normalize:
         if (probability <= 0).any():
-            raise ValueError('Cannot normalize a zero-probability PNR event.')
+            raise ValueError('Cannot normalize a zero-probability event.')
         density = density / probability[:, None, None]
     return density.reshape([-1] + [cutoff] * (2 * len(keep))), probability
 
 
-def _fock_conditional_blocks(state, nmode, cutoff, den_mat, measured, keep):
+def _fock_conditional_blocks(
+    state: torch.Tensor, nmode: int, cutoff: int, measured: list[int], keep: list[int], den_mat: bool = False
+) -> torch.Tensor:
     """Return unnormalized retained density blocks for every resolved PNR outcome.
 
     Output axes are (batch, measured photon counts..., retained ket, retained bra).
@@ -331,10 +352,17 @@ def _fock_conditional_blocks(state, nmode, cutoff, den_mat, measured, keep):
     return density.reshape([-1] + [cutoff] * len(measured) + [k, k])
 
 
-def _group_count_axes(values, groups, limits=None, operators=False):
+def _group_count_axes(
+    values: torch.Tensor,
+    groups: list[list[int]],
+    limits: list[int] | None = None,
+    operators: bool = False,
+) -> torch.Tensor:
     """Sum resolved count axes per spatial port, preserving optional retained operators."""
     end = -2 if operators else None
     sizes = values.shape[1:end]
+    if not sizes:
+        return values
     shape = [1 + sum(sizes[k] - 1 for k in group) for group in groups]
     if limits is not None:
         shape = [min(size, count + 1) for size, count in zip(shape, limits, strict=True)]
@@ -351,7 +379,12 @@ def _group_count_axes(values, groups, limits=None, operators=False):
     return result.reshape([values.shape[0]] + shape + (list(values.shape[-2:]) if operators else []))
 
 
-def _convolve_counts(left, right, limits=None, operators=False):
+def _convolve_counts(
+    left: torch.Tensor,
+    right: torch.Tensor,
+    limits: list[int] | None = None,
+    operators: bool = False,
+) -> torch.Tensor:
     """Convolve count distributions, optionally tensoring their retained operators.
 
     A leading batch axis is followed by one count axis per detector. With
@@ -365,6 +398,11 @@ def _convolve_counts(left, right, limits=None, operators=False):
     """
     end = -2 if operators else None
     a, b = left.shape[1:end], right.shape[1:end]
+    if not a and not b:
+        if not operators:
+            return left * right
+        size = left.shape[-1] * right.shape[-1]
+        return torch.einsum('bij,bkl->bikjl', left, right).reshape(-1, size, size)
     shape = [x + y - 1 for x, y in zip(a, b, strict=True)]
     if limits is not None:
         shape = [min(size, n + 1) for size, n in zip(shape, limits, strict=True)]
@@ -622,6 +660,71 @@ def ladder_to_quadrature(tensor: torch.Tensor, symplectic: bool = False) -> torc
             return (omega @ tensor @ omega.mH).real * dqp.hbar / (4 * dqp.kappa**2)
     elif tensor.shape[-1] == 1:
         return (omega @ tensor).real * dqp.hbar**0.5 / (2 * dqp.kappa)
+
+
+def _quadrature_moments_ladder(
+    alpha: torch.Tensor, normal: torch.Tensor, anomalous: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
+    r"""Convert normalized ladder moments to xxpp covariance and mean.
+
+    ``alpha`` stores :math:`\langle a_i\rangle`, ``normal`` stores
+    :math:`\langle a_i^\dagger a_j\rangle` and ``anomalous`` stores
+    :math:`\langle a_i a_j\rangle`. The last two axes of the latter tensors
+    follow the mode order of ``alpha``. A leading batch axis is preserved.
+
+    See https://arxiv.org/pdf/2209.06069v5 Eqs.(4), (11) and (12).
+    Here :math:`\hbar_{\mathrm{paper}}=\hbar/(2\kappa^2)`.
+    """
+    scale = dqp.hbar / (4 * dqp.kappa**2)
+    eye = torch.eye(alpha.shape[-1], dtype=alpha.real.dtype, device=alpha.device)
+    xx = scale * (2 * (anomalous.real + normal.real) + eye)
+    pp = scale * (2 * (normal.real - anomalous.real) + eye)
+    xp = 2 * scale * (anomalous.imag + normal.imag)
+    second = torch.cat([torch.cat([xx, xp], dim=-1), torch.cat([xp.mT, pp], dim=-1)], dim=-2)
+    mean = 2 * scale**0.5 * torch.cat([alpha.real, alpha.imag], dim=-1).unsqueeze(-1)
+    return second - mean @ mean.mT, mean
+
+
+def quadrature_moments_fock(
+    state: torch.Tensor, nmode: int, cutoff: int, wires: list[int], den_mat: bool = False
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Get normalized xxpp covariance and mean from a Fock state tensor.
+
+    Normally ordered ladder moments retain the vacuum commutator at the cutoff
+    boundary. Pure inputs are evaluated without constructing a density matrix.
+    """
+    state = state.reshape([-1] + [cutoff] * nmode * (2 if den_mat else 1))
+    factors = torch.arange(1, cutoff, dtype=state.real.dtype, device=state.device).sqrt()
+
+    def lower(tensor: torch.Tensor, axis: int) -> torch.Tensor:
+        shape = [1] * tensor.ndim
+        shape[axis] = cutoff - 1
+        value = tensor.narrow(axis, 1, cutoff - 1) * factors.reshape(shape)
+        return torch.cat([value, torch.zeros_like(tensor.narrow(axis, 0, 1))], dim=axis)
+
+    def expectation(tensor: torch.Tensor) -> torch.Tensor:
+        if den_mat:
+            return tensor.reshape(-1, cutoff**nmode, cutoff**nmode).diagonal(dim1=-2, dim2=-1).sum(-1)
+        return (state.conj() * tensor).flatten(1).sum(-1)
+
+    weight = expectation(state).real
+    if not bool(torch.isfinite(weight).all()) or bool((weight <= 0).any()):
+        raise ValueError('Moments require a finite positive state weight')
+    lowered = [lower(state, wire + 1) for wire in wires]
+    alpha = torch.stack([expectation(value) for value in lowered], dim=-1) / weight[:, None]
+    normal, anomalous = [], []
+    for i, wire in enumerate(wires):
+        row = []
+        for value in lowered:
+            if den_mat:
+                row.append(expectation(lower(value, wire + nmode + 1)))
+            else:
+                row.append((lowered[i].conj() * value).flatten(1).sum(-1))
+        normal.append(torch.stack(row, dim=-1))
+        anomalous.append(torch.stack([expectation(lower(value, wire + 1)) for value in lowered], dim=-1))
+    normal = torch.stack(normal, dim=-2) / weight[:, None, None]
+    anomalous = torch.stack(anomalous, dim=-2) / weight[:, None, None]
+    return _quadrature_moments_ladder(alpha, normal, anomalous)
 
 
 def _photon_number_mean_var_gaussian(cov: torch.Tensor, mean: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -890,7 +993,7 @@ def sample_homodyne_fock(
     Common normalization constants cancel in the discrete sampling weights.
     """
     coef = 2 * dqp.kappa**2 / dqp.hbar
-    reduced_dm = _fock_conditional_blocks(state, nmode, cutoff, den_mat, [], [wire])
+    reduced_dm = _fock_conditional_blocks(state, nmode, cutoff, [], [wire], den_mat)
     xs = torch.linspace(-x_range, x_range, nbin, dtype=state.real.dtype, device=state.device)  # (nbin)
     scaled_x = coef**0.5 * xs
     # Normalized Hermite functions include the Gaussian envelope, avoiding large H_n and n!.

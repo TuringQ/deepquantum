@@ -1,5 +1,6 @@
 """Quantum states"""
 
+from operator import index as operator_index
 from typing import Any
 
 import matplotlib.pyplot as plt
@@ -16,13 +17,16 @@ from ..utils import apply_complex_fix
 from .bargmann import (
     BargmannPolyExp,
     _apply_bargmann,
+    _bargmann_derivative,
+    _moment_generating,
     _project_pnr,
+    _project_threshold,
     fock_to_bargmann,
     gaussian_to_bargmann,
     vacuum_bargmann,
 )
 from .draw import GaussianGraphVisualizer
-from .qmath import cv_to_wigner, dirac_rep, fock_to_wigner, xpxp_to_xxpp, xxpp_to_xpxp
+from .qmath import _quadrature_moments_ladder, cv_to_wigner, dirac_rep, fock_to_wigner, xpxp_to_xxpp, xxpp_to_xpxp
 
 
 class FockState(nn.Module):
@@ -295,8 +299,8 @@ class BargmannState(nn.Module):
             K_\rho(z,w) &= \sum_{n,m} \rho_{n,m} \frac{z^n w^m}{\sqrt{n!m!}}.
         \end{aligned}
 
-    Gaussian states have no auxiliary variables. Non-Gaussian states use auxiliary
-    derivative variables. The state is not normalized automatically.
+    Gaussian states have no auxiliary variables. Non-Gaussian states can use auxiliary
+    derivative variables or sums of exponential terms. The state is not normalized automatically.
 
     Args:
         state: The Bargmann state. It can be a vacuum state with ``'vac'`` or ``'zeros'``,
@@ -475,10 +479,17 @@ class BargmannState(nn.Module):
         polyexp = self.polyexp
         return self._new(polyexp.tensor_product(polyexp.conj()), den_mat=True)
 
-    def _project_pnr(self, positions: tuple[int, ...], photons: tuple[int, ...]) -> 'BargmannState':
-        """Project validated modes onto Fock outcomes, returning locally numbered remaining modes."""
-        polyexp = _project_pnr(self.polyexp, self.nmode, self.den_mat, positions, photons)
-        return self._new(polyexp)
+    def _post_select(
+        self, positions: tuple[int, ...], photons: tuple[int, ...], detector: str = 'pnrd'
+    ) -> 'BargmannState':
+        """Condition on validated photon-counting outcomes, locally numbering the remaining modes."""
+        if detector == 'pnrd':
+            polyexp = _project_pnr(self.polyexp, self.nmode, self.den_mat, positions, photons)
+            return self._new(polyexp)
+        elif detector == 'threshold':
+            polyexp = _project_threshold(self.to_dm().polyexp, self.nmode, positions, photons)
+            return self._new(polyexp, den_mat=True)
+        raise NotImplementedError(f'Bargmann post-selection does not support detector={detector!r}')
 
     def norm(self) -> torch.Tensor:
         r"""Get the squared norm :math:`\langle\psi|\psi\rangle` of a ket or the trace of a density matrix.
@@ -506,6 +517,97 @@ class BargmannState(nn.Module):
         denominator = probability if self.den_mat else probability.sqrt()
         coeff_c = self.coeff_c / denominator.reshape(-1, *([1] * (self.coeff_c.ndim - 1)))
         return self._new(BargmannPolyExp._from_tensors(self.mat_a, self.vec_b, coeff_c))
+
+    def _prepare_moments(self, wires: int | list[int] | None) -> tuple[BargmannPolyExp, torch.Tensor]:
+        """Validate selected modes and construct normalized-moment readout data."""
+        if wires is None:
+            wires = list(range(self.nmode))
+        elif not isinstance(wires, (list, tuple)):
+            wires = [wires]
+        if any(isinstance(wire, bool) for wire in wires):
+            raise ValueError('wires must contain integer mode indices')
+        try:
+            wires = [operator_index(wire) for wire in wires]
+        except TypeError as exc:
+            raise ValueError('wires must contain integer mode indices') from exc
+        if not wires or len(set(wires)) != len(wires) or any(wire < 0 or wire >= self.nmode for wire in wires):
+            raise ValueError('wires must contain distinct valid mode indices')
+        density = self.to_dm()
+        weight = density.norm()
+        if bool((weight <= 0).any()):
+            raise ValueError('Moments require a positive state weight')
+        return _moment_generating(density.polyexp, wires), weight
+
+    def quadrature_mean(self, wires: int | list[int] | None = None, phi: Any = None) -> torch.Tensor:
+        r"""Get the normalized expectation of :math:`\hat{x}\cos\phi+\hat{p}\sin\phi` without Fock truncation.
+
+        Args:
+            wires: The indices of the modes to measure, in output order. Default: ``None`` (all modes)
+            phi: The quadrature angle in radians, shared or one per selected mode. Default: ``None`` (zero)
+
+        Returns:
+            Real tensor of shape ``(batch, len(wires), 1)`` in the current ``hbar`` and ``kappa`` units.
+            The state weight must be positive.
+        """
+        generating, weight = self._prepare_moments(wires)
+        nwire = generating.nfree // 2
+        alpha = torch.stack([_bargmann_derivative(generating, (i + nwire,)) for i in range(nwire)], dim=-1)
+        phi = torch.as_tensor(0.0 if phi is None else phi, dtype=weight.dtype, device=weight.device)
+        if phi.numel() not in (1, nwire):
+            raise ValueError('phi must be shared or have one angle per selected mode')
+        value = (alpha * torch.exp(-1j * phi.reshape(1, -1))).real / weight[:, None]
+        return (dqp.hbar**0.5 / dqp.kappa * value).unsqueeze(-1)
+
+    def quadrature_moments(self, wires: int | list[int] | None = None) -> tuple[torch.Tensor, torch.Tensor]:
+        r"""Get normalized xxpp covariance and mean without Fock truncation.
+
+        The covariance is :math:`V_{ij}=\langle\{\Delta r_i,\Delta r_j\}\rangle/2`.
+        These are the moments of the complete state, including non-Gaussian terms.
+
+        Args:
+            wires: The indices of the modes to measure, in output order. Default: ``None`` (all modes)
+
+        Returns:
+            ``(cov, mean)`` with shapes ``(batch, 2K, 2K)`` and ``(batch, 2K, 1)``,
+            where ``K=len(wires)``. Units follow the current ``hbar`` and ``kappa``.
+            The state weight must be positive.
+        """
+        generating, weight = self._prepare_moments(wires)
+        nwire = generating.nfree // 2
+        alpha = torch.stack([_bargmann_derivative(generating, (i + nwire,)) for i in range(nwire)], dim=-1)
+        normal, anomalous = [], []
+        for i in range(nwire):
+            normal.append(torch.stack([_bargmann_derivative(generating, (i, j + nwire)) for j in range(nwire)], -1))
+            anomalous.append(
+                torch.stack([_bargmann_derivative(generating, (i + nwire, j + nwire)) for j in range(nwire)], -1)
+            )
+        alpha = alpha / weight[:, None]
+        normal = torch.stack(normal, dim=-2) / weight[:, None, None]
+        anomalous = torch.stack(anomalous, dim=-2) / weight[:, None, None]
+        return _quadrature_moments_ladder(alpha, normal, anomalous)
+
+    def photon_number_mean_var(self, wires: int | list[int] | None = None) -> tuple[torch.Tensor, torch.Tensor]:
+        r"""Get normalized photon-number expectation and variance without Fock truncation.
+
+        The variance uses :math:`n^2=(a^\dagger)^2a^2+n`, so non-Gaussian fourth
+        moments are evaluated explicitly.
+
+        Args:
+            wires: The indices of the modes to measure, in output order. Default: ``None`` (all modes)
+
+        Returns:
+            ``(mean, var)``, each with shape ``(batch, len(wires))``.
+            The state weight must be positive.
+        """
+        generating, weight = self._prepare_moments(wires)
+        nwire = generating.nfree // 2
+        mean, factorial = [], []
+        for i in range(nwire):
+            mean.append(_bargmann_derivative(generating, (i, i + nwire)))
+            factorial.append(_bargmann_derivative(generating, (i, i, i + nwire, i + nwire)))
+        mean = torch.stack(mean, dim=-1).real / weight[:, None]
+        factorial = torch.stack(factorial, dim=-1).real / weight[:, None]
+        return mean, factorial + mean - mean.square()
 
     def to_fock(self, cutoff: int | None = None) -> torch.Tensor:
         """Get the Fock state tensor.

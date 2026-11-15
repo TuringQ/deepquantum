@@ -66,6 +66,7 @@ Photonic circuits:
 - Bargmann backend:
   - Use `backend='bargmann'`; forward returns a `BargmannState`. Its `polyexp` is a `dqp.BargmannPolyExp(mat_a, vec_b, coeff_c)` with inferred free and auxiliary variable counts.
   - Supported Gaussian gates and photon loss act through `get_bargmann()` representations. Loss requires `den_mat=True`. `state.to_fock(cutoff)` performs explicit finite-cutoff readout; the cutoff does not truncate Bargmann evolution.
+  - `quadrature_mean`, `quadrature_moments` and `photon_number_mean_var` read normalized moments directly from Bargmann states without Fock truncation. `quadrature_moments` returns `(cov, mean)` in xxpp order, including correlations between modes.
   - Thermal source preparation, submodes, TDM and circuit-level sampling are not supported.
 - Clements and GBS:
   - `dq.Clements`, `dq.UnitaryDecomposer`, `dq.GaussianBosonSampling`, and `dqp.GraphGBS` are documented through tutorials/examples.
@@ -94,7 +95,7 @@ Photonic measurement and probabilities:
 - `QumodeCircuit.measure(shots=1024, with_prob=False, wires=None, detector=None, mcmc=False)` returns Fock-state keyed dictionaries, or a list for batched state/data.
 - Gaussian `measure(..., mcmc=True)` and Fock `measure(..., mcmc=True)` are documented for sampling when full probabilities are expensive.
 - `measure_homodyne(shots=..., wires=...)` returns quadrature samples and stores collapsed states in `state_measured` when measurement operations were added with `homodyne`, `homodyne_x`, or `homodyne_p`. Use `lo` to select a local-oscillator mode and `phi` for an additional quadrature angle.
-- `post_select(wires, photons, ..., normalize=True, return_info=False)` returns the conditional state and event weight from the latest forward pass. Fock (`basis=False`) returns a density `FockState`, Gaussian a Fock tensor, and Bargmann a native `BargmannState` for continued evolution. For Fock, photon numbers sum over orthogonal basis modes, `keep` selects retained spatial modes, and `submode` or `lo` selects one basis mode or combination (omit both to retain all). Use `normalize=False` to preserve joint event weights through repeated conditioning. `return_info=True` only adds diagnostics.
+- `post_select(wires, photons, keep=None, detector=None, ..., normalize=True, return_info=False)` returns the conditional state and event weight from the latest forward pass. The detector defaults to `cir.detector` and can be overridden per call. Use `detector='threshold'` with 0/1 outcomes for vacuum/click conditioning, which always returns a density matrix. Fock (`basis=False`) returns a density `FockState`, Gaussian a Fock tensor, and Bargmann a native `BargmannState` for continued evolution. For Fock, photon numbers sum over orthogonal basis modes, `keep` selects retained spatial modes, and `submode` or `lo` selects one basis mode or combination (omit both to retain all). Use `normalize=False` to preserve joint event weights through repeated conditioning. `return_info=True` only adds diagnostics.
 
 MBQC:
 

@@ -1,4 +1,4 @@
-"""PNR conditioning, cutoff diagnostics and continued evolution across photonic backends."""
+"""Photon-counting conditioning, cutoff diagnostics and continued evolution across photonic backends."""
 
 import math
 
@@ -27,6 +27,128 @@ def moments_coherent(alphas):
     cov = torch.eye(2 * len(alphas), dtype=torch.float64)[None] * dqp.hbar / (4 * dqp.kappa**2)
     mean = torch.cat((alphas.real, alphas.imag)).reshape(1, -1, 1) * dqp.hbar**0.5 / dqp.kappa
     return cov, mean
+
+
+@pytest.mark.parametrize('backend', ['fock', 'gaussian', 'bargmann'])
+@pytest.mark.parametrize('dtype', [torch.float32, torch.float64])
+def test_threshold_two_mode_squeezing(backend, dtype):
+    r = torch.tensor(0.37, dtype=dtype)
+    cir = dq.QumodeCircuit(2, 'vac', cutoff=10, backend=backend, basis=False)
+    cir.s2([0, 1], r, 0.2)
+    cir.to(dtype)
+    output = cir()
+    q = r.tanh().square()
+    for click in (0, 1):
+        selected, probability, info = cir.post_select(0, click, cutoff=5, detector='threshold', return_info=True)
+        if backend == 'bargmann':
+            assert selected.den_mat
+            density = selected.to_fock()
+            torch.testing.assert_close(selected.norm(), torch.ones_like(probability))
+            number, variance = selected.photon_number_mean_var()
+            expected_number = 1 / (1 - q) if click else q.new_zeros(())
+            expected_variance = q / (1 - q).square() if click else q.new_zeros(())
+            torch.testing.assert_close(number, expected_number.reshape(1, 1), atol=2e-5, rtol=2e-5)
+            torch.testing.assert_close(variance, expected_variance.reshape(1, 1), atol=2e-5, rtol=2e-5)
+        else:
+            density = selected.state if backend == 'fock' else selected
+        expected = torch.zeros(5, dtype=dtype)
+        if click:
+            expected[1:] = (1 - q) * q ** torch.arange(4, dtype=dtype)
+        else:
+            expected[0] = 1
+        torch.testing.assert_close(density[0], torch.diag(expected).to(density.dtype), atol=2e-6, rtol=2e-6)
+        torch.testing.assert_close(probability, (q if click else 1 - q).reshape(1), atol=2e-7, rtol=2e-6)
+        assert info['representation'] == 'dm' and info['remaining_wires'] == (1,)
+        assert cir.state is output
+
+
+@pytest.mark.parametrize('backend', ['fock', 'gaussian', 'bargmann'])
+def test_post_select_circuit_detector_and_override(backend):
+    r = torch.tensor(0.37, dtype=torch.float64)
+    cir = dq.QumodeCircuit(2, 'vac', cutoff=10, backend=backend, basis=False, detector='threshold')
+    cir.s2([0, 1], r)
+    cir.double()
+    cir()
+    q = r.tanh().square().reshape(1)
+    for options in ({}, {'detector': None}):
+        _, probability, info = cir.post_select(0, 1, return_info=True, **options)
+        torch.testing.assert_close(probability, q, atol=2e-8, rtol=2e-7)
+        assert info['representation'] == 'dm'
+    _, probability = cir.post_select(0, 1, detector='PNRD')
+    torch.testing.assert_close(probability, (1 - q) * q, atol=2e-8, rtol=2e-7)
+    assert cir.detector == 'threshold'
+    cir.detector = 'click'
+    with pytest.raises(NotImplementedError, match='Click-counting'):
+        cir.post_select(0, 1)
+    _, probability = cir.post_select(0, 1, detector='threshold')
+    torch.testing.assert_close(probability, q, atol=2e-8, rtol=2e-7)
+    assert cir.detector == 'click'
+
+
+@pytest.mark.parametrize('backend', ['fock', 'bargmann'])
+@pytest.mark.parametrize('den_mat', [False, True])
+def test_threshold_multimode_against_explicit_fock_sum(backend, den_mat):
+    torch.manual_seed(37)
+    ket = torch.randn(2, 3, 3, 3, dtype=torch.complex128)
+    ket = ket / ket.flatten(1).norm(dim=-1)[:, None, None, None]
+    vector = ket.flatten(1)
+    density = vector[:, :, None] * vector[:, None, :].conj()
+    if den_mat:
+        density = 0.65 * density + 0.35 * density.flip((-1, -2))
+    density = density.reshape(2, *([3] * 6))
+    cir = dq.QumodeCircuit(3, density if den_mat else ket, cutoff=3, backend=backend, basis=False, den_mat=den_mat)
+    cir()
+    for clicks in ([1, 0], [1, 1]):
+        selected, probability = cir.post_select([2, 0], clicks, detector='threshold', normalize=False)
+        actual = selected.to_fock() if backend == 'bargmann' else selected.state
+        expected = torch.zeros(2, 3, 3, dtype=torch.complex128)
+        for first in [0] if clicks[1] == 0 else [1, 2]:
+            for last in (1, 2):
+                expected += density[:, first, :, last, first, :, last]
+        torch.testing.assert_close(actual, expected)
+        torch.testing.assert_close(probability, expected.diagonal(dim1=-2, dim2=-1).sum(-1).real)
+
+
+@pytest.mark.parametrize('normalize', [False, True])
+def test_bargmann_sequential_threshold_weights(normalize):
+    cir = dq.QumodeCircuit(3, 'vac', cutoff=5, backend='bargmann')
+    cir.s2([0, 1], 0.31, 0.2)
+    cir.s(2, 0.22, -0.3)
+    cir.bs([1, 2], [0.4, 0.1])
+    cir.double()
+    cir()
+    joint, joint_prob = cir.post_select([2, 0], [1, 1], detector='threshold', normalize=normalize)
+    first, first_prob = cir.post_select(2, 1, detector='threshold', normalize=normalize)
+    continued = dq.QumodeCircuit(2, first)
+    continued()
+    second, second_prob = continued.post_select(0, 1, detector='threshold', normalize=normalize)
+    torch.testing.assert_close(second.to_fock(), joint.to_fock())
+    torch.testing.assert_close(first_prob * second_prob if normalize else second_prob, joint_prob)
+
+
+@pytest.mark.parametrize('backend', ['fock', 'gaussian', 'bargmann'])
+def test_threshold_impossible_events_and_validation(backend):
+    cir = dq.QumodeCircuit(2, 'vac', cutoff=2, backend=backend, basis=False)
+    cir()
+    with pytest.raises(ValueError, match='zero-probability'):
+        cir.post_select(0, 1, detector='threshold')
+    selected, probability = cir.post_select(0, 1, detector='threshold', normalize=False)
+    actual = selected.to_fock() if backend == 'bargmann' else selected.state if backend == 'fock' else selected
+    assert torch.count_nonzero(actual) == 0 and probability.item() == 0
+    with pytest.raises(ValueError, match='0 or 1'):
+        cir.post_select(0, 2, detector='threshold')
+    with pytest.raises(NotImplementedError, match='Click-counting'):
+        cir.post_select(0, 1, detector='click')
+    with pytest.raises(ValueError, match='detector'):
+        cir.post_select(0, 1, detector='unknown')
+    positional, positional_probability = cir.post_select(0, 0, None, 'threshold')
+    keyword, keyword_probability = cir.post_select(0, 0, detector='threshold')
+    positional = (
+        positional.to_fock() if backend == 'bargmann' else positional.state if backend == 'fock' else positional
+    )
+    keyword = keyword.to_fock() if backend == 'bargmann' else keyword.state if backend == 'fock' else keyword
+    torch.testing.assert_close(positional, keyword)
+    torch.testing.assert_close(positional_probability, keyword_probability)
 
 
 @pytest.mark.parametrize('den_mat', [False, True])
@@ -135,13 +257,14 @@ def optical_circuit(backend, cutoff, loss=False):
 
 
 @pytest.mark.parametrize('loss', [False, True])
-def test_gaussian_against_fock_evolution(loss):
+@pytest.mark.parametrize('detector', ['pnrd', 'threshold'])
+def test_gaussian_against_fock_evolution(loss, detector):
     gaussian = optical_circuit('gaussian', 3, loss)
     fock = optical_circuit('fock', 12, loss)
     gaussian()
     fock()
-    gs, gp = post_select_tensor(gaussian, 0, 1, cutoff=5, normalize=False)
-    fs, fp = post_select_tensor(fock, 0, 1, cutoff=5, normalize=False)
+    gs, gp = post_select_tensor(gaussian, 0, 1, cutoff=5, normalize=False, detector=detector)
+    fs, fp = post_select_tensor(fock, 0, 1, cutoff=5, normalize=False, detector=detector)
     torch.testing.assert_close(gs, fs, atol=2e-8, rtol=2e-6)
     torch.testing.assert_close(gp, fp, atol=2e-8, rtol=2e-6)
     torch.testing.assert_close(gs, gs.mH, atol=1e-12, rtol=1e-10)
@@ -149,16 +272,17 @@ def test_gaussian_against_fock_evolution(loss):
 
 
 @pytest.mark.parametrize('backend,density', [('gaussian', False), ('fock', False), ('fock', True)])
-def test_forward_probability_cache_and_invalidation(backend, density):
+@pytest.mark.parametrize('detector', ['pnrd', 'threshold'])
+def test_forward_probability_cache_and_invalidation(backend, density, detector):
     cir = dq.QumodeCircuit(2, 'vac', cutoff=4, backend=backend, basis=False, den_mat=density)
     cir.s2([0, 1], 0.2)
     cir.to(torch.float64)
     with pytest.raises(RuntimeError, match='forward'):
         post_select_tensor(cir, 0, 1, normalize=False)
     cir()
-    expected = post_select_tensor(cir, 0, 1, normalize=False)
+    expected = post_select_tensor(cir, 0, 1, normalize=False, detector=detector)
     probabilities = cir(is_prob=True)
-    actual = post_select_tensor(cir, 0, 1, normalize=False)
+    actual = post_select_tensor(cir, 0, 1, normalize=False, detector=detector)
     for a, b in zip(actual, expected, strict=True):
         torch.testing.assert_close(a, b)
     assert cir.state is probabilities
