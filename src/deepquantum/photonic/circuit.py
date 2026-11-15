@@ -103,8 +103,10 @@ class QumodeCircuit(Operation):
         basis: Whether to use the representation of Fock basis state for the initial state. Default: ``True``
         den_mat: Whether to use density matrix representation. It applies to Fock and Bargmann states
             and Gaussian conditional outputs. Gaussian evolution uses covariance and mean. Default: ``False``
-        detector: For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector or
-            ``'threshold'`` for the threshold detector, or ``'click'`` for the click-counting detector.
+        detector: The default detector for Gaussian probabilities and sampling, and for photon-counting
+            post-selection on Fock, Gaussian and Bargmann backends. Use ``'pnrd'`` for the
+            photon-number-resolving detector, ``'threshold'`` for the threshold detector,
+            or ``'click'`` for the click-counting detector. Click-counting post-selection is not implemented.
             Default: ``'pnrd'``
             For ``'click'``, ``cutoff`` is the number of single-mode click-count outcomes, so the
             number of internal threshold detectors is ``cutoff - 1``.
@@ -2419,7 +2421,7 @@ class QumodeCircuit(Operation):
         wires: int | list[int] | tuple[int, ...] | torch.Tensor,
         photons: int | list[int] | tuple[int, ...] | torch.Tensor,
         keep: int | list[int] | None = None,
-        detector: str = 'pnrd',
+        detector: str | None = None,
         *,
         cutoff: int | None = None,
         normalize: bool = True,
@@ -2450,8 +2452,9 @@ class QumodeCircuit(Operation):
                 Other unmeasured modes are traced out. Default: ``None`` (all unmeasured modes)
             detector: Use ``'pnrd'`` for photon-number-resolving detection, ``'threshold'`` for ideal
                 on/off detection, or ``'click'`` for multiplexed click-counting detection.
-                Click-counting post-selection is not implemented. This is independent of the
-                circuit sampling detector. Default: ``'pnrd'``
+                An explicit value overrides the circuit detector for this readout.
+                Click-counting post-selection is not implemented.
+                Default: ``None`` (which means ``self.detector``)
             cutoff: The Fock space truncation for readout. Fock outputs cannot exceed the simulated cutoff.
                 For Bargmann, it sets the default cutoff of the returned state without truncating it.
                 Default: ``None`` (which means ``self.cutoff``)
@@ -2480,7 +2483,7 @@ class QumodeCircuit(Operation):
         """
         if self.backend not in ('fock', 'gaussian', 'bargmann'):
             raise NotImplementedError('post_select supports Fock, Gaussian and Bargmann backends')
-        detector = detector.lower()
+        detector = self.detector if detector is None else detector.lower()
         if self.backend == 'fock' and self.basis:
             raise NotImplementedError('Fock post_select requires basis=False')
         if self.backend != 'fock' and (keep is not None or submode is not None or lo is not None):

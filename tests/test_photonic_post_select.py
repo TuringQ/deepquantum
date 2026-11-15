@@ -62,6 +62,29 @@ def test_threshold_two_mode_squeezing(backend, dtype):
         assert cir.state is output
 
 
+@pytest.mark.parametrize('backend', ['fock', 'gaussian', 'bargmann'])
+def test_post_select_circuit_detector_and_override(backend):
+    r = torch.tensor(0.37, dtype=torch.float64)
+    cir = dq.QumodeCircuit(2, 'vac', cutoff=10, backend=backend, basis=False, detector='threshold')
+    cir.s2([0, 1], r)
+    cir.double()
+    cir()
+    q = r.tanh().square().reshape(1)
+    for options in ({}, {'detector': None}):
+        _, probability, info = cir.post_select(0, 1, return_info=True, **options)
+        torch.testing.assert_close(probability, q, atol=2e-8, rtol=2e-7)
+        assert info['representation'] == 'dm'
+    _, probability = cir.post_select(0, 1, detector='PNRD')
+    torch.testing.assert_close(probability, (1 - q) * q, atol=2e-8, rtol=2e-7)
+    assert cir.detector == 'threshold'
+    cir.detector = 'click'
+    with pytest.raises(NotImplementedError, match='Click-counting'):
+        cir.post_select(0, 1)
+    _, probability = cir.post_select(0, 1, detector='threshold')
+    torch.testing.assert_close(probability, q, atol=2e-8, rtol=2e-7)
+    assert cir.detector == 'click'
+
+
 @pytest.mark.parametrize('backend', ['fock', 'bargmann'])
 @pytest.mark.parametrize('den_mat', [False, True])
 def test_threshold_multimode_against_explicit_fock_sum(backend, den_mat):

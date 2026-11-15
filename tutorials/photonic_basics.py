@@ -1832,7 +1832,7 @@ print(rho_bargmann.diagonal(dim1=-2, dim2=-1).real.sum(-1))  # 截断内的迹�
 # ### 阈值后选择与低阶矩
 #
 # `post_select(wires, photons, detector='threshold')` 按未点击（0）或点击（1，至少一个光子）进行条件读出。
-# 默认 `detector='pnrd'` 保持光子数分辨的含义，不跟随线路的采样探测器设置。
+# 默认 `detector=None` 沿用 `cir.detector`，显式传入探测器类型只覆盖本次后选择，不改变线路设置。
 # 探测器命名统一使用 `pnrd`、`threshold` 和 `click`，其中 `click` 表示多路阈值探测器的点击计数，当前尚不支持它的后选择。
 # 参数顺序是 `wires, photons, keep, detector`，其余选项使用关键字指定。
 # 阈值条件态统一描述密度算符：Fock 和 Gaussian 后端返回 Fock 基底的矩阵元，Bargmann 后端仍返回可继续演化的解析密度核 `BargmannState`。
