@@ -108,8 +108,19 @@ register_pytree_node(
 )
 
 
-def _post_select_spatial(result, cutoff, wires, photons, keep, retained_submodes):
-    """Convolve independent PNR conditional operators, tracing unretained orthogonal basis modes first."""
+def _post_select_spatial(result, cutoff, wires, photons, keep, retained_submodes, *, detector='pnrd'):
+    """Combine conditional operators, tracing unretained orthogonal basis modes first."""
+    if detector == 'threshold':
+        vacuum = [wire for wire, click in zip(wires, photons, strict=True) if click == 0]
+        clicked = [wire for wire, click in zip(wires, photons, strict=True) if click == 1]
+        density, probability = 0, 0
+        for mask in range(1 << len(clicked)):
+            selected = vacuum + [wire for i, wire in enumerate(clicked) if mask & (1 << i)]
+            term, weight = _post_select_spatial(result, cutoff, selected, [0] * len(selected), keep, retained_submodes)
+            sign = (-1) ** mask.bit_count()
+            density = density + sign * term
+            probability = probability + sign * weight
+        return density, probability
     accumulated, labels = None, []
     factors = sorted(result._factors(), key=lambda item: bool(set(retained_submodes).intersection(item[0])))
     for block, state in factors:

@@ -454,7 +454,7 @@ def passive_bargmann(unitary: torch.Tensor) -> BargmannPolyExp:
     return _gaussian_bargmann(mat_a, unitary.new_zeros(2 * nmode), unitary.new_ones(()))
 
 
-# Evolution and PNR projection
+# Evolution and conditional projection
 
 
 def _apply_bargmann(state: BargmannPolyExp, kernel: BargmannPolyExp, positions: list[int]) -> BargmannPolyExp:
@@ -497,6 +497,89 @@ def _project_pnr(
     coeff_c = source.coeff_c.reshape(*source.coeff_c.shape, *([1] * len(photons))) * selector
     polyexp = BargmannPolyExp._from_tensors(source.mat_a[..., idx, :][..., idx], source.vec_b[..., idx], coeff_c)
     return polyexp
+
+
+def _project_threshold(
+    polyexp: BargmannPolyExp, nmode: int, positions: tuple[int, ...], clicks: tuple[int, ...]
+) -> BargmannPolyExp:
+    r"""Condition a density kernel on ideal threshold outcomes and discard measured modes.
+
+    A no-click event projects onto vacuum. A click applies the difference between
+    a partial trace and a vacuum projection, since :math:`\Pi_1=I-|0\rangle\langle0|`.
+    The result is an unnormalized density kernel with at most ``2**sum(clicks)``
+    times as many terms. Auxiliary derivatives are retained throughout.
+
+    See https://arxiv.org/pdf/2202.04600v2 Eqs.(1)-(4) for the threshold POVM.
+    Here the same expansion retains the conditional density operator instead
+    of tracing every mode to obtain only its probability.
+    """
+    vacuum = tuple(wire for wire, click in zip(positions, clicks, strict=True) if click == 0)
+    polyexp = _project_pnr(polyexp, nmode, True, vacuum, (0,) * len(vacuum))
+    remaining = [wire for wire in range(nmode) if wire not in vacuum]
+    for wire, click in zip(positions, clicks, strict=True):
+        if not click:
+            continue
+        pos = remaining.index(wire)
+        nmode = len(remaining)
+        traced = polyexp.contract([(pos, pos + nmode)])
+        projected = _project_pnr(polyexp, nmode, True, (pos,), (0,))
+        size = traced.mat_a.numel() + traced.vec_b.numel() + traced.coeff_c.numel()
+        if 2 * size * traced.mat_a.element_size() > _max_work_bytes:
+            raise ValueError('Threshold conditioning exceeds the Bargmann working-set limit')
+        polyexp = BargmannPolyExp._from_tensors(
+            torch.cat([traced.mat_a, projected.mat_a], dim=1),
+            torch.cat([traced.vec_b, projected.vec_b], dim=1),
+            torch.cat([traced.coeff_c, -projected.coeff_c], dim=1),
+        )
+        remaining.remove(wire)
+    return polyexp
+
+
+# Moment readout
+
+
+def _moment_generating(polyexp: BargmannPolyExp, positions: list[int]) -> BargmannPolyExp:
+    r"""Get the normally ordered moment generating function of a density kernel.
+
+    Sources are ordered as creation variables ``s`` followed by annihilation
+    variables ``t`` for the selected modes. The generating function is
+
+    .. math::
+
+        \begin{aligned}
+            G(s,t) &= \operatorname{Tr}\!\left[\rho e^{s^T a^\dagger}e^{t^T a}\right] \\
+                   &= \operatorname{Tr}\!\left[e^{t^T a}\rho e^{s^T a^\dagger}\right] \\
+                   &= \int d\mu(\alpha)\,K_\rho(\alpha^*+t,\alpha+s).
+        \end{aligned}
+
+    The last equality follows here because left annihilation differentiates
+    ket variables and right creation differentiates bra variables. Exponentiating
+    these derivatives translates the kernel, including its auxiliary-variable
+    couplings. No Fock cutoff is introduced.
+    """
+    nmode, nwire = polyexp.nfree // 2, len(positions)
+    nsource = 2 * nwire
+    mat_a = functional.pad(polyexp.mat_a, (nsource, 0, nsource, 0))
+    selected = [p + nmode for p in positions] + positions
+    mat_a[..., :nsource, :nsource] = polyexp.mat_a[..., selected, :][..., selected]
+    mat_a[..., :nsource, nsource:] = polyexp.mat_a[..., selected, :]
+    mat_a[..., nsource:, :nsource] = polyexp.mat_a[..., selected]
+    vec_b = torch.cat([polyexp.vec_b[..., selected], polyexp.vec_b], dim=-1)
+    joint = BargmannPolyExp._from_tensors(mat_a, vec_b, polyexp.coeff_c)
+    return joint.contract([(nsource + p, nsource + p + nmode) for p in range(nmode)])
+
+
+def _bargmann_derivative(polyexp: BargmannPolyExp, positions: tuple[int, ...]) -> torch.Tensor:
+    """Evaluate a selected derivative at zero, retaining all auxiliary derivatives."""
+    selected = sorted(set(positions))
+    orders = tuple(positions.count(p) for p in selected)
+    indices = selected + list(range(polyexp.nfree, polyexp.nvar))
+    reduced = BargmannPolyExp._from_tensors(
+        polyexp.mat_a[..., indices, :][..., indices], polyexp.vec_b[..., indices], polyexp.coeff_c
+    )
+    values = reduced.to_fock(tuple(order + 1 for order in orders))
+    factor = math.sqrt(math.prod(math.factorial(order) for order in orders))
+    return values[(slice(None), *orders)] * factor
 
 
 # Conditional Fock readout for Gaussian states

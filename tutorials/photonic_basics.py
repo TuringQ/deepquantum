@@ -1829,7 +1829,35 @@ print(rho_bargmann.shape)  # (1, 8, 8)
 print(rho_bargmann.diagonal(dim1=-2, dim2=-1).real.sum(-1))  # 截断内的迹，接近 1
 
 # %% [markdown]
+# ### 阈值后选择与低阶矩
+#
+# `post_select(wires, photons, detector='threshold')` 按未点击（0）或点击（1，至少一个光子）进行条件读出。
+# 默认 `detector='pnrd'` 保持光子数分辨的含义，不跟随线路的采样探测器设置。
+# 阈值条件态统一采用密度矩阵表示，Bargmann 后端仍返回可继续演化的 `BargmannState`。
+# Bargmann 用部分迹减去真空投影表示点击，每个点击最多将表示项数加倍。
+# 低概率事件容易受到相减误差影响，建议在演化前使用 `cir.double()`，并检查数值精度。
+#
+# `quadrature_moments(wires=None)` 返回完整的 `(cov, mean)`，使用 xxpp 顺序，并保留 batch 轴。
+# 这些矩描述原有非高斯态，不将其转换成高斯态。
+# `quadrature_mean(wires=None, phi=None)` 读取指定角度的正交分量均值，`photon_number_mean_var(wires=None)` 读取各模光子数均值和方差。
+# Bargmann 线路和返回的 `BargmannState` 都支持这三个方法，结果按态的权重归一化，不依赖 Fock cutoff。
+#
+
+# %%
+clicked_bargmann, click_probability = cir_bargmann.post_select(0, 1, detector='threshold')
+cov_clicked, mean_clicked = clicked_bargmann.quadrature_moments()
+photon_mean_clicked, photon_var_clicked = clicked_bargmann.photon_number_mean_var()
+print(click_probability)  # 约 0.0849
+print(clicked_bargmann.den_mat)  # True
+print(cov_clicked.shape, mean_clicked.shape)  # (1, 2, 2), (1, 2, 1)
+print(photon_mean_clicked, photon_var_clicked)  # 约 1.0927 和 0.1013
+
+cov_bargmann, mean_bargmann = cir_bargmann.quadrature_moments()
+x_bargmann = cir_bargmann.quadrature_mean(wires=1, phi=0.0)
+print(cov_bargmann.shape, mean_bargmann.shape, x_bargmann.shape)  # (1, 4, 4), (1, 4, 1), (1, 1, 1)
+
+# %% [markdown]
 # 当前支持相移、分束器、MZI、任意无源酉变换、单模／双模压缩、位移和光损耗，也支持 `HardwareModel` 中相应的控制噪声与光路损耗。
-# 直接输入 Fock 态或进行 PNR 后选择可以得到非高斯态，Kerr 和三次相位等非高斯门尚未实现。
-# Bargmann 的阈值后选择、homodyne、线路级采样和矩读出、TDM、正交基模及 `thermal()` 光源制备尚未支持。
-# PNR 后选择的 `keep`、`submode` 和 `lo` 目前仅用于 Fock 后端。
+# 直接输入 Fock 态或进行光子计数后选择可以得到非高斯态，Kerr 和三次相位等非高斯门尚未实现。
+# Bargmann 的 homodyne、线路级采样、TDM、正交基模及 `thermal()` 光源制备尚未支持。
+# 后选择的 `keep`、`submode` 和 `lo` 目前仅用于 Fock 后端。

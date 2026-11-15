@@ -60,6 +60,7 @@ from .qmath import (
     photon_number_mean_var_fock,
     product_factorial,
     quadrature_mean_fock,
+    quadrature_moments_fock,
     quadrature_to_ladder,
     sample_homodyne_fock,
     sample_reject_bosonic,
@@ -2211,7 +2212,6 @@ class QumodeCircuit(Operation):
             wires: The wires to measure. It can be an integer or a list of integers specifying
                 the indices of the wires. Default: ``None`` (which means all wires are measured)
         """
-        self._reject_unsupported_bargmann_readout('photon_number_mean_var()')
         if self._submode_circuit is not None:
             return self._submode_circuit.spatial_photon_number_mean_var(wires)
 
@@ -2222,6 +2222,9 @@ class QumodeCircuit(Operation):
         wires = sorted(self._convert_indices(wires))
         if self._with_delay:
             wires = [self._unroll_dict[wire][-1] for wire in wires]
+        if self.backend == 'bargmann':
+            exp, var = self._get_output_state().photon_number_mean_var(wires)
+            return exp.squeeze(), var.squeeze()
         if self.backend == 'fock':
             assert not self.basis
             exp, var = photon_number_mean_var_fock(self.state, self.nmode, self.cutoff, wires, self.den_mat)
@@ -2261,7 +2264,7 @@ class QumodeCircuit(Operation):
     def quadrature_mean(
         self, wires: int | list[int] | None = None, phi: Any | None = None, *, lo: Any = None
     ) -> torch.Tensor:
-        r"""Get the expectation value of the quadratuere operator :math:`\hat{X}\cos\phi + \hat{P}\sin\phi`.
+        r"""Get the expectation value of the quadrature operator :math:`\hat{X}\cos\phi + \hat{P}\sin\phi`.
 
         If ``self.measurements`` is empty, this method directly computes the quadrature expectation values
         for the specified ``wires`` and ``phi``. If ``self.measurements`` is specified via ``self.homodyne``,
@@ -2275,7 +2278,6 @@ class QumodeCircuit(Operation):
             lo: Local-oscillator coefficients in the common orthogonal basis, normalized per spatial mode.
                 Default: ``None`` (the first orthogonal basis mode)
         """
-        self._reject_unsupported_bargmann_readout('quadrature_mean()')
         if self._submode_circuit is not None:
             from .submode import _lo_view
 
@@ -2307,6 +2309,8 @@ class QumodeCircuit(Operation):
             phi = torch.cat(phi)
         wires = self._convert_indices(wires)
         assert len(wires) == len(phi), f'phi length {len(phi)} must match wires length {len(wires)}'
+        if self.backend == 'bargmann':
+            return self._get_output_state().quadrature_mean(wires, phi)
         if self.backend == 'fock':
             assert not self.basis
             state = self.state
@@ -2331,6 +2335,48 @@ class QumodeCircuit(Operation):
                 weight = self.state[2].unsqueeze(-1).unsqueeze(-2)
                 mean = torch.sum(weight * mean, dim=1)
         return mean
+
+    def quadrature_moments(self, wires: int | list[int] | None = None) -> tuple[torch.Tensor, torch.Tensor]:
+        """Get the normalized quadrature covariance and mean in xxpp order.
+
+        Supports Fock state tensors, Gaussian, Bosonic and Bargmann states from
+        the latest forward pass. Bargmann moments do not use a Fock cutoff.
+        Measurement instructions do not change the selected quadratures.
+        MPS, TDM and orthogonal basis modes are not supported.
+
+        Args:
+            wires: The indices of the modes to measure, in output order. Default: ``None`` (all modes)
+
+        Returns:
+            ``(cov, mean)`` with shapes ``(batch, 2K, 2K)`` and ``(batch, 2K, 1)``,
+            where ``K=len(wires)``. Units follow the current ``hbar`` and ``kappa``.
+        """
+        if self.mps or self._with_delay or self._submode_circuit is not None:
+            raise NotImplementedError('quadrature_moments does not support MPS, TDM or orthogonal basis modes')
+        if self.backend == 'fock' and self.basis:
+            raise NotImplementedError('Fock quadrature moments require basis=False')
+        wires = self.wires if wires is None else self._convert_indices(wires)
+        if not wires or len(set(wires)) != len(wires):
+            raise ValueError('wires must contain distinct valid mode indices')
+        state = self._get_output_state()
+        if self.backend == 'bargmann':
+            return state.quadrature_moments(wires)
+        if self.backend == 'fock':
+            return quadrature_moments_fock(state, self.nmode, self.cutoff, wires, self.den_mat)
+        indices = wires + [wire + self.nmode for wire in wires]
+        cov, mean = state[:2]
+        cov, mean = cov[..., indices, :][..., indices], mean[..., indices, :]
+        if self.backend == 'bosonic':
+            weight = state[2]
+            total = weight.sum(-1, keepdim=True)
+            if not bool(torch.isfinite(total).all()) or bool((total.real <= 0).any()):
+                raise ValueError('Moments require a finite positive state weight')
+            weight = (weight / total)[..., None, None]
+            second = ((cov + mean @ mean.mT) * weight).sum(1)
+            mean = (mean * weight).sum(1)
+            cov = second - mean @ mean.mT
+            cov, mean = cov.real, mean.real
+        return cov, mean
 
     def _get_local_covs_means(
         self, cov: torch.Tensor, mean: torch.Tensor, wires: list[int]
@@ -2379,12 +2425,14 @@ class QumodeCircuit(Operation):
         cutoff: int | None = None,
         normalize: bool = True,
         return_info: bool = False,
+        detector: str = 'pnrd',
     ) -> tuple:
-        """Return the PNR conditional state and event weight from the latest forward pass.
+        """Return a photon-counting conditional state and event weight from the latest forward pass.
 
         Fock returns a density-matrix ``FockState``. Gaussian returns a conditional
         Fock tensor, with ``den_mat`` selecting a ket or density matrix. Bargmann
         returns a ``BargmannState`` that can continue evolving without Fock truncation.
+        Threshold detection always returns a density matrix, including for pure inputs.
         The circuit state is unchanged and gates are not rerun, including after
         a Fock or Gaussian ``forward(is_prob=True)``.
 
@@ -2392,6 +2440,7 @@ class QumodeCircuit(Operation):
             wires: Measured spatial modes, in the same order as ``photons``.
             photons: The selected photon numbers, one nonnegative integer per measured spatial mode.
                 On Fock circuits with submodes, each number sums over all orthogonal basis modes.
+                With ``detector='threshold'``, use 0 for vacuum and 1 for one or more photons.
             keep: Unmeasured Fock spatial modes to retain, in output order.
                 Other unmeasured modes are traced out. Default: ``None`` (all unmeasured modes)
             submode: Orthogonal-basis mode to retain at each selected Fock wire.
@@ -2406,6 +2455,8 @@ class QumodeCircuit(Operation):
                 Zero-weight events cannot be normalized. Default: ``True``
             return_info: Also return remaining mode labels and cutoff diagnostics.
                 This does not change the conditional state or its representation. Default: ``False``
+            detector: Use ``'pnrd'`` for photon-number-resolving detection or ``'threshold'`` for ideal
+                on/off detection. This is independent of the circuit sampling detector. Default: ``'pnrd'``
 
         Returns:
             ``(state, probability)`` or ``(state, probability, info)``, with a leading
@@ -2422,33 +2473,51 @@ class QumodeCircuit(Operation):
         """
         if self.backend not in ('fock', 'gaussian', 'bargmann'):
             raise NotImplementedError('post_select supports Fock, Gaussian and Bargmann backends')
+        detector = detector.lower()
+        if detector not in ('pnrd', 'threshold'):
+            raise ValueError('post_select detector must be pnrd or threshold')
         if self.backend == 'fock' and self.basis:
             raise NotImplementedError('Fock post_select requires basis=False')
         if self.backend != 'fock' and (keep is not None or submode is not None or lo is not None):
             raise NotImplementedError('keep, submode and lo require the Fock backend')
         wires, photons, cutoff = self._prepare_post_select(wires, photons, cutoff)
+        if detector == 'threshold' and any(n not in (0, 1) for n in photons):
+            raise ValueError('Threshold outcomes must be 0 or 1')
         remaining = tuple(w for w in range(self.nmode) if w not in wires)
         if self.backend == 'fock':
             if cutoff > self.cutoff:
                 raise ValueError('Output cutoff must lie within the simulated Fock space')
-            state, probability, remaining = self._post_select_spatial(wires, photons, keep, submode, lo=lo)
+            state, probability, remaining = self._post_select_spatial(
+                wires, photons, keep, submode, lo=lo, detector=detector
+            )
             state = state[(slice(None), *([slice(cutoff)] * (state.ndim - 1)))]
         elif self.backend == 'gaussian':
             if self._state_units != (dqp.hbar, dqp.kappa):
                 raise RuntimeError('Quadrature units changed after forward; recreate the circuit with consistent units')
             cov, mean = self._get_output_state()
-            state, probability = conditional_fock(cov, mean, wires, photons, cutoff, den_mat=self.den_mat)
+            if detector == 'threshold':
+                state = BargmannState([cov, mean], den_mat=True)._project_threshold(wires, photons)
+                probability = state.norm()
+                state = state.to_fock(cutoff)
+            else:
+                state, probability = conditional_fock(cov, mean, wires, photons, cutoff, den_mat=self.den_mat)
         else:
-            state = self._get_output_state()._project_pnr(wires, photons)
+            source = self._get_output_state()
+            state = (
+                source._project_threshold(wires, photons)
+                if detector == 'threshold'
+                else source._project_pnr(wires, photons)
+            )
             state.cutoff = cutoff
             probability = state.norm()
-        return self._finish_post_select(state, probability, remaining, normalize, return_info)
+        den_mat = self.backend == 'fock' or self.den_mat or detector == 'threshold'
+        return self._finish_post_select(state, probability, remaining, normalize, return_info, den_mat)
 
     def _get_output_state(self):
         """Get the quantum state retained by the latest forward pass."""
         state = self.state if self._state_raw is None else self._state_raw
         if state is None:
-            raise RuntimeError('Run the circuit forward before post-selection')
+            raise RuntimeError('Run the circuit forward before reading out the state')
         return state
 
     def _prepare_post_select(
@@ -2495,14 +2564,13 @@ class QumodeCircuit(Operation):
             raise ValueError('cutoff must be a positive integer')
         return wires, photons, cutoff
 
-    def _finish_post_select(self, state, probability, remaining, normalize, return_info) -> tuple:
+    def _finish_post_select(self, state, probability, remaining, normalize, return_info, den_mat) -> tuple:
         """Normalize the conditional output and attach optional readout diagnostics."""
         tolerance = 100 * torch.finfo(probability.dtype).eps
         if bool((probability < -tolerance).any()) or not bool(torch.isfinite(probability).all()):
             raise ValueError('Invalid post-selection probability; check the input state or use higher precision')
         probability = probability.clamp_min(0)
         native = isinstance(state, BargmannState)
-        den_mat = self.backend == 'fock' or self.den_mat
         mass = None
         if return_info and not native:
             if den_mat:
@@ -2512,7 +2580,7 @@ class QumodeCircuit(Operation):
                 mass = state.abs().square().flatten(1).sum(-1)
         if normalize:
             if bool((probability <= 0).any()):
-                raise ValueError('Cannot normalize a zero-probability PNR event')
+                raise ValueError('Cannot normalize a zero-probability event')
             if native:
                 state = state._normalize(probability)
             else:
@@ -2552,9 +2620,10 @@ class QumodeCircuit(Operation):
         submode: int | None = None,
         *,
         lo: Any = None,
+        detector: str = 'pnrd',
     ) -> tuple[torch.Tensor, torch.Tensor, tuple[int, ...]]:
         """Return unnormalized Fock density, event weight and retained spatial labels."""
-        from .qmath import _pnr_condition
+        from .qmath import _photon_count_condition
 
         wires, photons = list(wires), list(photons)
         keep = [w for w in self.wires if w not in wires] if keep is None else self._convert_indices(keep)
@@ -2562,7 +2631,7 @@ class QumodeCircuit(Operation):
             raise ValueError('Retain at least one unmeasured spatial wire.')
         expanded = self._submode_circuit
         d = 1 if expanded is None else expanded.nsubmode
-        if any(n > d * (self.cutoff - 1) for n in photons):
+        if detector == 'pnrd' and any(n > d * (self.cutoff - 1) for n in photons):
             raise ValueError('Photon numbers must lie within the simulated Fock space')
         if lo is not None and submode is not None:
             raise ValueError('Specify either submode or lo for the retained state.')
@@ -2580,13 +2649,23 @@ class QumodeCircuit(Operation):
         if expanded is not None and expanded.factorized:
             from .submode import _post_select_spatial
 
-            density, probability = _post_select_spatial(expanded.result(), self.cutoff, wires, photons, keep, retained)
+            density, probability = _post_select_spatial(
+                expanded.result(), self.cutoff, wires, photons, keep, retained, detector=detector
+            )
         else:
             state = self._get_output_state() if expanded is None else expanded.state
             if not isinstance(state, torch.Tensor) or not state.is_complex():
                 raise ValueError('Run the circuit to obtain a Fock state tensor before post-selection.')
-            density, probability = _pnr_condition(
-                state, self.nmode * d, self.cutoff, self.den_mat, measured, photons, selected, normalize=False
+            density, probability = _photon_count_condition(
+                state,
+                self.nmode * d,
+                self.cutoff,
+                self.den_mat,
+                measured,
+                photons,
+                selected,
+                normalize=False,
+                detector=detector,
             )
         if lo is not None:
             from .submode import SubmodeResult, _lo_view

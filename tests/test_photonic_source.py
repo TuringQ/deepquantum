@@ -193,9 +193,9 @@ def test_unresolved_herald_traces_auxiliary_without_losing_its_weight(den_mat):
     components = [(math.sqrt(a * b), [i, j, i, j]) for i, a in enumerate([0.7, 0.3]) for j, b in enumerate([0.8, 0.2])]
     explicit = dqp.QumodeCircuit(4, components, cutoff=2, basis=False, den_mat=den_mat)
     state = explicit.to(torch.double)()
-    from deepquantum.photonic.qmath import _pnr_condition
+    from deepquantum.photonic.qmath import _photon_count_condition
 
-    density, probability = _pnr_condition(state, 4, 2, den_mat, [[2, 3]], [1], [0])
+    density, probability = _photon_count_condition(state, 4, 2, den_mat, [[2, 3]], [1], [0])
     torch.testing.assert_close(probability, torch.tensor([0.3 * 0.8 + 0.7 * 0.2]))
     expected = torch.diag(torch.tensor([0.7 * 0.2, 0.3 * 0.8]) / 0.38).to(density)
     torch.testing.assert_close(density[0], expected)
@@ -540,11 +540,12 @@ def test_partial_blocks_match_joint_state_conditioning_and_gradients(backend, de
     lo = torch.tensor([0.6, 0.6j, 0.2])
     torch.testing.assert_close(partial.quadrature_mean(0, phi=0.4, lo=lo), joint.quadrature_mean(0, phi=0.4, lo=lo))
     if backend == 'fock':
-        for selection in ({'submode': 0}, {}, {'lo': lo}):
-            rho, probability = partial.post_select(1, 1, keep=0, **selection)
-            reference, p_ref = joint.post_select(1, 1, keep=0, **selection)
-            torch.testing.assert_close(rho.state, reference.state)
-            torch.testing.assert_close(probability, p_ref)
+        for detector in ('pnrd', 'threshold'):
+            for selection in ({'submode': 0}, {}, {'lo': lo}):
+                rho, probability = partial.post_select(1, 1, keep=0, detector=detector, **selection)
+                reference, p_ref = joint.post_select(1, 1, keep=0, detector=detector, **selection)
+                torch.testing.assert_close(rho.state, reference.state)
+                torch.testing.assert_close(probability, p_ref)
         value, ref = probability + rho.state.flatten()[0].real, p_ref + reference.state.flatten()[0].real
     else:
         value, ref = partial.get_prob([1, 1]), joint.get_prob([1, 1])
