@@ -8,7 +8,7 @@ from torch import nn, vmap
 
 from ..qmath import evolve_den_mat, evolve_state, state_to_tensors
 from ..state import MatrixProductState
-from .bargmann import PolyExpAnsatz
+from .bargmann import BargmannPolyExp
 from .distributed import dist_gate
 from .state import BargmannState, DistributedFockState
 
@@ -73,11 +73,12 @@ class Operation(nn.Module):
         assert all(isinstance(i, int) for i in minmax)
         assert -1 < minmax[0] <= minmax[1] < self.nmode
 
-    def get_bargmann_kernel(self) -> PolyExpAnsatz | None:
-        """Return the live Bargmann kernel, or None for an operation without effect.
+    def get_bargmann(self) -> BargmannPolyExp | None:
+        """Get the Bargmann representation of the quantum operation.
 
         Unitary kernels order outputs before inputs. Channel kernels order ket output,
-        bra output, ket input, then bra input. Unsupported operations raise explicitly.
+        bra output, ket input and bra input. An operation without effect returns None.
+        Unsupported operations raise NotImplementedError.
         """
         raise NotImplementedError(f'{self.name} is not supported by the Bargmann backend')
 
@@ -254,7 +255,7 @@ class Gate(Operation):
         if x is None:
             return self.update_matrix()
         elif isinstance(x, BargmannState):
-            kernel = self.get_bargmann_kernel()
+            kernel = self.get_bargmann()
             return x if kernel is None else x.apply_unitary(kernel, self.wires)
         elif isinstance(x, DistributedFockState):
             return self.op_dist_state(x)
@@ -351,7 +352,7 @@ class Channel(Operation):
     ) -> BargmannState | torch.Tensor | list[torch.Tensor]:
         """Perform a forward pass."""
         if isinstance(x, BargmannState):
-            return x.apply_channel(self.get_bargmann_kernel(), self.wires)
+            return x.apply_channel(self.get_bargmann(), self.wires)
         elif isinstance(x, torch.Tensor):
             return self.op_den_mat(x)
         elif isinstance(x, list):

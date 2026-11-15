@@ -733,7 +733,8 @@ print(cov.shape, mean.shape)
 # 优化器更新的是内部 ``theta``，不是初始化时传入的 ``t/db``，因此有限实数角度对应的透射率始终在 $[0,1]$ 内。
 # 绑定模型后，通过 ``cir.parameters()`` 将这些参数交给优化器。
 #
-# 损耗支持 Gaussian、Bosonic、Fock 基矢和 Fock 密度矩阵（``basis=False, den_mat=True``）表示，暂不支持 Fock 纯态张量、MPS 和分布式纯态。
+# 损耗支持 Gaussian、Bosonic、Fock 基矢，以及 Fock 和 Bargmann 密度矩阵表示（``den_mat=True``，Fock 还需 ``basis=False``）。
+# 暂不支持 Fock 纯态张量、MPS 和分布式纯态。
 # ``cir.set_hardware_model(None)`` 可移除模型，但会保留手动插入的通道。
 
 # %% [markdown]
@@ -883,7 +884,7 @@ print(cir_photon.get_prob([1, 1]))
 # `lo` 默认选择第一个正交基模，`phi` 是额外的 quadrature 测量角度。
 
 # %%
-rho_source, probability_source = cir_photon.post_select(wires=1, counts=1, keep=0, lo=coefficients_source[0])
+rho_source, probability_source = cir_photon.post_select(wires=1, photons=1, keep=0, lo=coefficients_source[0])
 readout_source = dq.QumodeCircuit(1, rho_source)
 readout_source()
 samples_source = readout_source.measure_homodyne(shots=5, phi=0.0)
@@ -1774,3 +1775,61 @@ bs = dq.BosonicState(bs_lst2, nmode=2)
 # 可视化验证
 marginal_q = bs.marginal(wire=1, qrange=5, npoints=500)
 marginal_p = bs.marginal(wire=1, phi=np.pi / 2, qrange=10, npoints=500)
+
+# %% [markdown]
+# ## 基于Bargmann后端构建光量子线路
+#
+# Bargmann 后端用多项式乘指数的形式表示高斯态和非高斯态，前向演化返回 `dq.BargmannState`。
+# 初态可以是真空态、Fock 基矢态或叠加态、`FockState`、`GaussianState`、`[cov, mean]`，也可以是已有的 `BargmannState`。
+# `state.polyexp` 是 `dqp.BargmannPolyExp`，其中 `mat_a`、`vec_b`、`coeff_c` 保存表示系数，自由变量数 `nfree` 和辅助求导变量数 `naux` 由张量形状确定。
+#
+# `cutoff` 只设置 Fock 读出的默认截断，不截断 Bargmann 演化。
+# 下面制备双模压缩真空态，再通过 `to_fock()` 获取保留 batch 轴的 Fock 振幅张量。
+
+# %%
+cir_bargmann = dq.QumodeCircuit(2, 'vac', cutoff=8, backend='bargmann')
+cir_bargmann.s2([0, 1], r=0.3, theta=0.2)
+cir_bargmann.double()
+state_bargmann = cir_bargmann()
+print(state_bargmann)
+print(state_bargmann.to_fock().shape)  # (1, 8, 8)
+
+# %% [markdown]
+# ### PNR 后选择与继续演化
+#
+# `post_select(wires, photons)` 使用最近一次前向演化的末态，返回条件态和事件概率，不改变线路保存的末态。
+# `photons` 按 `wires` 的顺序给出各被测模式的光子数，单个模式也可以直接传入整数。
+# `normalize=True` 为默认值，`return_info=True` 只增加诊断信息，不改变条件态的类型。
+# Fock 后端（`basis=False`）返回密度矩阵 `FockState`，Gaussian 后端返回 Fock 张量，Bargmann 后端返回可以继续演化的 `BargmannState`。
+#
+# 下面在原模式 0 探测到一个光子，保留原模式 1。
+# 返回态的模式从 0 重新编号，`remaining_wires` 记录它对应的原模式。
+
+# %%
+heralded_bargmann, probability_bargmann, info_bargmann = cir_bargmann.post_select(wires=0, photons=1, return_info=True)
+print(probability_bargmann)  # 约 0.0777
+print(heralded_bargmann.norm())  # (1,) 中的值为 1
+print(info_bargmann['remaining_wires'])  # (1,)
+
+# %% [markdown]
+# 使用 `normalize=False` 可保留未归一化条件态，连续后选择时返回的事件权重包含前面各次事件的权重。
+# Gaussian 和 Bargmann 的事件概率不依赖输出 `cutoff`，有限截断的读出张量仍可能缺少高光子数部分，不能据此重新解释事件概率。
+#
+# 在 Bargmann 后端中，光损耗需要密度矩阵表示。
+# 下面将条件态转换为密度矩阵，进行位移和损耗演化，最后读取 Fock 密度矩阵。
+
+# %%
+cir_bargmann_readout = dq.QumodeCircuit(1, heralded_bargmann.to_dm(), backend='bargmann')
+cir_bargmann_readout.d(0, r=0.1, theta=0.2)
+cir_bargmann_readout.loss_t(0, 0.8)
+cir_bargmann_readout.double()
+state_bargmann_readout = cir_bargmann_readout()
+rho_bargmann = state_bargmann_readout.to_fock(8)
+print(rho_bargmann.shape)  # (1, 8, 8)
+print(rho_bargmann.diagonal(dim1=-2, dim2=-1).real.sum(-1))  # 截断内的迹，接近 1
+
+# %% [markdown]
+# 当前支持相移、分束器、MZI、任意无源酉变换、单模／双模压缩、位移和光损耗，也支持 `HardwareModel` 中相应的控制噪声与光路损耗。
+# 直接输入 Fock 态或进行 PNR 后选择可以得到非高斯态，Kerr 和三次相位等非高斯门尚未实现。
+# Bargmann 的阈值后选择、homodyne、线路级采样和矩读出、TDM、正交基模及 `thermal()` 光源制备尚未支持。
+# PNR 后选择的 `keep`、`submode` 和 `lo` 目前仅用于 Fock 后端。

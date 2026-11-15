@@ -9,7 +9,7 @@ from torch import nn
 
 import deepquantum.photonic as dqp
 
-from .bargmann import PolyExpAnsatz, loss_kernel
+from .bargmann import BargmannPolyExp, _gaussian_bargmann
 from .gate import BeamSplitterSingle, Displacement
 from .operation import Channel
 
@@ -311,7 +311,9 @@ class PhotonLoss(Channel):
 
     .. math::
 
-       \hat{a}_{\text{out}} = \sqrt{T}\hat{a}_{\text{in}} + \sqrt{1-T}\hat{b}_{\text{vac}}
+       \hat{a}_{\text{out}} = \cos(\theta/2)\hat{a}_{\text{in}} + \sin(\theta/2)\hat{b}_{\text{vac}}
+
+    The power transmittance is :math:`T=\cos^2(\theta/2)`.
 
     Args:
         inputs: The parameter of the channel. Default: ``None``
@@ -337,8 +339,11 @@ class PhotonLoss(Channel):
         assert convention in ('theta', 't', 'db'), 'Invalid convention'
         self.convention = convention
         self.requires_grad = requires_grad
+        theta = self._inputs_to_theta(inputs)
+        if convention == 't' and theta is not None and (theta.is_complex() or not bool(torch.isfinite(theta).all())):
+            raise ValueError('Loss transmittance must be real, finite and lie in [0, 1]')
         self.gate = BeamSplitterSingle(
-            inputs=self._inputs_to_theta(inputs),
+            inputs=theta,
             nmode=self.nmode + 1,
             wires=self.wires + [self.nmode],
             cutoff=cutoff,
@@ -361,6 +366,14 @@ class PhotonLoss(Channel):
     def db(self):
         """Photon loss in dB."""
         return -10 * torch.log10(self.t)
+
+    def init_para(self, inputs: Any = None) -> None:
+        """Initialize the parameters."""
+        self.gate.init_para(self._inputs_to_theta(inputs))
+
+    def _inputs_to_theta(self, inputs: Any = None) -> torch.Tensor | None:
+        """Convert inputs under the chosen convention to the internal loss theta."""
+        return _loss_to_theta(inputs, self.convention)
 
     @staticmethod
     def _apply_unitary(
@@ -390,14 +403,6 @@ class PhotonLoss(Channel):
         matrix = self.gate.get_matrix_state(self.gate.get_matrix(theta))
         return matrix[..., 0].permute([1, 0, 2])
 
-    def init_para(self, inputs: Any = None) -> None:
-        """Initialize the parameters."""
-        self.gate.init_para(self._inputs_to_theta(inputs))
-
-    def _inputs_to_theta(self, inputs: Any = None) -> torch.Tensor | None:
-        """Convert inputs under the chosen convention to the internal loss theta."""
-        return _loss_to_theta(inputs, self.convention)
-
     def update_transform_xy(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Update the local transformation matrices X and Y acting on Gaussian states.
 
@@ -413,11 +418,45 @@ class PhotonLoss(Channel):
         self.matrix_y = matrix_y.detach()
         return matrix_x, matrix_y
 
-    def extra_repr(self) -> str:
-        return f'wires={self.wires}, transmittance={self.t.item()}'
+    def get_bargmann(self) -> BargmannPolyExp:
+        r"""Get the Bargmann representation of the photon loss channel.
 
-    def get_bargmann_kernel(self) -> PolyExpAnsatz:
-        """Return the pure-loss density kernel from the live transmittance."""
+        With field transmittance :math:`t=\cos(\theta/2)` and power transmittance :math:`T=t^2`, the kernel is
+
+        .. math::
+
+            K(z,w,u,v) = \exp\!\left[t\,(zu + wv) + (1-T)\,uv\right].
+
+        Variables are ordered as ket output, bra output, ket input, bra input.
+        """
         if len(self.wires) != 1:
             raise NotImplementedError('PhotonLoss acts on a single mode')
-        return loss_kernel(self.t)
+        transmittance = self.t
+        amplitude = torch.cos(self.theta / 2) + 0j
+        transmittance = transmittance + 0j
+        zero = torch.zeros_like(transmittance)
+        loss = 1 - transmittance
+        mat_a = torch.stack(
+            [
+                zero,
+                zero,
+                amplitude,
+                zero,
+                zero,
+                zero,
+                zero,
+                amplitude,
+                amplitude,
+                zero,
+                zero,
+                loss,
+                zero,
+                amplitude,
+                loss,
+                zero,
+            ]
+        ).reshape(4, 4)
+        return _gaussian_bargmann(mat_a, mat_a.new_zeros(4), mat_a.new_ones(()))
+
+    def extra_repr(self) -> str:
+        return f'wires={self.wires}, transmittance={self.t.item()}'

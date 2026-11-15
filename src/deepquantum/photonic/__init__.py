@@ -21,7 +21,7 @@ from . import (
     utils,
 )
 from .ansatz import Clements, GaussianBosonSampling, GraphGBS
-from .bargmann import PolyExpAnsatz
+from .bargmann import BargmannPolyExp
 from .channel import DisplacementChannel, OPA, PhotonLoss
 from .circuit import DistributedQumodeCircuit, QumodeCircuit
 from .decompose import UnitaryDecomposer
