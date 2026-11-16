@@ -12,11 +12,11 @@ from torch import nn
 from ...circuit import QubitCircuit
 from ...operation import Gate
 from .compiler import CompiledCircuitPlan, compile_circuit, compile_pauli_observables
-from .loader import load_ixquantum_executor
+from .loader import load_gpu_executor, resolve_backend
 
 
 class QubitCircuitGPU(QubitCircuit):
-    """Compile a pure statevector circuit for one Iluvatar GPU.
+    """Compile a pure statevector circuit for one NVIDIA or Iluvatar GPU.
 
     Gate construction follows :class:`QubitCircuit`. The native executor owns the
     returned state storage; call ``clone()`` to retain a state across executions.
@@ -31,6 +31,7 @@ class QubitCircuitGPU(QubitCircuit):
         device: Fixed CUDA-compatible execution device. Defaults to the current device.
         dtype: Statevector precision. Only ``torch.complex64`` is supported.
         diff_method: ``'none'`` or ``'adjoint'``.
+        backend: ``'auto'``, ``'cuquantum'``, or ``'ixquantum'``; selected from the PyTorch build in auto mode.
     """
 
     def __init__(
@@ -43,6 +44,7 @@ class QubitCircuitGPU(QubitCircuit):
         device: str | torch.device | None = None,
         dtype: torch.dtype = torch.complex64,
         diff_method: str = 'none',
+        backend: str = 'auto',
     ) -> None:
         if not isinstance(nqubit, int) or isinstance(nqubit, bool) or (not 1 <= nqubit <= 30):
             raise ValueError('nqubit must be an integer in [1, 30]')
@@ -52,14 +54,16 @@ class QubitCircuitGPU(QubitCircuit):
             raise ValueError('diff_method must be "none" or "adjoint"')
         selected = torch.device('cuda' if device is None else device)
         if selected.type != 'cuda':
-            raise ValueError('QubitCircuitGPU requires a CUDA-compatible Iluvatar device')
-        if not getattr(torch, 'corex', False) or not torch.cuda.is_available():
-            raise RuntimeError('QubitCircuitGPU requires CoreX-enabled PyTorch and an Iluvatar GPU')
+            raise ValueError('QubitCircuitGPU requires a CUDA-compatible device')
+        gpu_backend = resolve_backend(backend)
+        if not torch.cuda.is_available():
+            raise RuntimeError(f'QubitCircuitGPU requires an available GPU for {gpu_backend}')
         index = torch.cuda.current_device() if selected.index is None else selected.index
         if index >= torch.cuda.device_count():
             raise ValueError(f'CUDA device {index} is not visible')
         super().__init__(nqubit=nqubit, init_state=init_state, name=name, shots=shots)
         self.gpu_device = torch.device('cuda', index)
+        self.gpu_backend = gpu_backend
         self.diff_method = diff_method
         self._compiled_plan: CompiledCircuitPlan | None = None
         self._executor: Any = None
@@ -202,7 +206,7 @@ class QubitCircuitGPU(QubitCircuit):
         wires: int | list[int] | None = None,
         block_size: int = 2**24,
     ) -> dict[str, int] | None:
-        """Sample the terminal state with ixquantum without state collapse."""
+        """Sample the terminal state without state collapse."""
         del block_size
         if with_prob:
             raise ValueError('QubitCircuitGPU sampling supports with_prob=False only')
@@ -298,7 +302,7 @@ class QubitCircuitGPU(QubitCircuit):
     def _ensure_executor_resources(self) -> None:
         """Create the native executor on first use."""
         if self._executor is None:
-            module = load_ixquantum_executor()
+            module = load_gpu_executor(self.gpu_backend)
             self._executor = module.GPUCircuitExecutor(self.nqubit, self.gpu_device.index or 0)
 
     def _ensure_compiled(self) -> None:

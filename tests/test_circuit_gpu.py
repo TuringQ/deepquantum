@@ -1,6 +1,7 @@
-"""Numerical comparisons for the optional single-GPU ixquantum executor."""
+"""Numerical comparisons for the optional single-GPU cuStateVec executor."""
 
 import math
+import os
 
 import pytest
 import torch
@@ -8,17 +9,18 @@ import torch
 import deepquantum as dq
 
 pytestmark = pytest.mark.skipif(
-    not getattr(torch, 'corex', False) or not torch.cuda.is_available(),
-    reason='requires CoreX PyTorch and an Iluvatar GPU',
+    not torch.cuda.is_available(),
+    reason='requires CUDA/CoreX PyTorch and an available GPU',
 )
 
 
 @pytest.fixture
 def gpu():
+    torch.cuda.set_device(os.environ.get('DQ_GPU_DEVICE', 'cuda:0'))
     circuits = []
 
     def create(nqubit, **kwargs):
-        circuit = dq.QubitCircuitGPU(nqubit, **kwargs)
+        circuit = dq.QubitCircuitGPU(nqubit, backend=os.environ.get('DQ_GPU_BACKEND', 'auto'), **kwargs)
         circuits.append(circuit)
         return circuit
 

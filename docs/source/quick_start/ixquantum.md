@@ -1,9 +1,35 @@
-# Single-GPU execution with ixquantum
+# Single-GPU execution with ixquantum or cuQuantum
 
-`deepquantum.QubitCircuitGPU` compiles a circuit into a native executor for one Iluvatar CoreX (天数智芯) GPU.
+`deepquantum.QubitCircuitGPU` compiles a circuit into a shared native executor for one Iluvatar CoreX (天数智芯) or NVIDIA GPU.
 It reuses DeepQuantum's gate construction API and supports statevector execution, exact expectations, terminal sampling, and first-order adjoint gradients.
 
 ## Installation
+
+### NVIDIA cuQuantum
+
+Use NVIDIA CUDA-enabled PyTorch, a matching CUDA development toolkit containing
+`nvcc` (CUDA runtime wheels alone are insufficient), and a C++17 compiler.
+Install with `python -m pip install 'deepquantum[cuquantum]'`, or
+`python -m pip install -e '.[cuquantum]'` from this checkout.
+Set `CUDA_HOME` to the matching toolkit. The loader finds `custatevec-cu12`
+headers and versioned libraries in the active Python environment, or use
+`CUQUANTUM_ROOT` for an explicit SDK with `include/` and `lib/` or `lib64/`.
+It links the resolved library path directly, including versioned linker names.
+
+```python
+circuit = dq.QubitCircuitGPU(3, backend='cuquantum', device='cuda:0')
+```
+
+`backend='auto'` selects ixquantum for CoreX PyTorch and cuQuantum for NVIDIA
+CUDA PyTorch. Explicit mismatches and missing SDKs raise errors without fallback.
+Selection happens before executor construction; gate execution is shared.
+The explicit `backend='ixquantum'` remains available on CoreX.
+
+Both builds retain the original inverse-matrix, observable-ordering and sampling
+synchronization handling. Numerical validation on each vendor remains necessary;
+availability of an SDK alone does not validate its gradients.
+
+### Iluvatar ixquantum
 
 Request the matching GPU driver, **CoreX development toolkit**, **CoreX-compatible PyTorch**, and **ixquantum headers and shared library** from **Iluvatar CoreX (天数智芯)**.
 The ixquantum files needed by this backend are `custatevec.h` and `libcustatevec.so.1.8.0`.

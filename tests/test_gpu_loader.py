@@ -8,7 +8,7 @@ import torch
 
 import deepquantum as dq
 from deepquantum.backends.gpu.compiler import compile_circuit
-from deepquantum.backends.gpu.loader import load_ixquantum_executor, resolve_sdk
+from deepquantum.backends.gpu.loader import load_gpu_executor, load_ixquantum_executor, resolve_backend, resolve_sdk
 
 
 @pytest.mark.parametrize('layout', ['flat', 'lib', 'lib64'])
@@ -29,6 +29,58 @@ def test_missing_sdk(tmp_path, monkeypatch):
         resolve_sdk()
 
 
+@pytest.mark.parametrize('layout', ['lib', 'lib64'])
+def test_nvidia_sdk_versioned_library(tmp_path, monkeypatch, layout):
+    include = tmp_path / 'include'
+    include.mkdir()
+    library = tmp_path / layout
+    library.mkdir()
+    (include / 'custatevec.h').touch()
+    target = library / 'libcustatevec.so.1'
+    target.touch()
+    monkeypatch.setenv('CUQUANTUM_ROOT', str(tmp_path))
+    assert resolve_sdk('cuquantum') == (include, target)
+
+
+def test_backend_selection(monkeypatch):
+    monkeypatch.setattr(torch, 'corex', True, raising=False)
+    assert resolve_backend() == 'ixquantum'
+    with pytest.raises(RuntimeError, match='NVIDIA CUDA'):
+        resolve_backend('cuquantum')
+    monkeypatch.setattr(torch, 'corex', False)
+    monkeypatch.setattr(torch.version, 'cuda', '12.6')
+    assert resolve_backend() == 'cuquantum'
+    with pytest.raises(RuntimeError, match='CoreX'):
+        resolve_backend('ixquantum')
+    monkeypatch.setattr(torch.version, 'cuda', None)
+    with pytest.raises(RuntimeError, match='NVIDIA CUDA'):
+        resolve_backend()
+    with pytest.raises(ValueError, match='backend'):
+        resolve_backend('unknown')
+
+
+@pytest.mark.parametrize('backend', ['ixquantum', 'cuquantum'])
+def test_backend_build_configuration(tmp_path, monkeypatch, backend):
+    import deepquantum.backends.gpu.loader as loader
+    import torch.utils.cpp_extension as extension
+
+    monkeypatch.setattr(torch, 'corex', backend == 'ixquantum', raising=False)
+    monkeypatch.setattr(torch.version, 'cuda', '12.6')
+    monkeypatch.setattr(loader, 'resolve_sdk', lambda selected: (tmp_path, tmp_path / 'libcustatevec.so.1'))
+    calls = []
+    monkeypatch.setattr(extension, 'load', lambda **kwargs: calls.append(kwargs) or SimpleNamespace())
+    load_gpu_executor(backend)
+    assert calls[0]['name'] == f'deepquantum_gpu_executor_{backend}'
+    assert ('ivcore' in calls[0]['extra_cuda_cflags']) == (backend == 'ixquantum')
+    assert calls[0]['extra_ldflags'][0] == str(tmp_path / 'libcustatevec.so.1')
+
+
+def test_missing_nvidia_sdk_is_explicit(tmp_path, monkeypatch):
+    monkeypatch.setenv('CUQUANTUM_ROOT', str(tmp_path))
+    with pytest.raises(RuntimeError, match='CUQUANTUM_ROOT'):
+        resolve_sdk('cuquantum')
+
+
 def test_corex_optional(monkeypatch):
     monkeypatch.setattr(torch, 'corex', False, raising=False)
     monkeypatch.setattr(torch.cuda, 'is_available', lambda: False)
@@ -38,7 +90,7 @@ def test_corex_optional(monkeypatch):
     circuit.cnot(0, 1)
     state = circuit().reshape(-1)
     torch.testing.assert_close(state.abs().square(), torch.tensor([0.5, 0.0, 0.0, 0.5]))
-    with pytest.raises(RuntimeError, match='CoreX'):
+    with pytest.raises(RuntimeError, match='available GPU|NVIDIA CUDA'):
         dq.QubitCircuitGPU(2)
     with pytest.raises(RuntimeError, match='CoreX'):
         load_ixquantum_executor()

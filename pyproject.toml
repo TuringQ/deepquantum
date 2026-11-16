@@ -48,6 +48,7 @@ classifiers = [
 
 [project.optional-dependencies]
 ixquantum = ['ninja', 'setuptools', 'packaging']
+cuquantum = ['ninja', 'setuptools', 'packaging', 'custatevec-cu12']
 dev = [
     'graphix==0.3.1',
     'jupytext',

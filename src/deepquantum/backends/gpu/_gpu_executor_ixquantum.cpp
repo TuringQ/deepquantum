@@ -30,7 +30,7 @@ void check_cuda(cudaError_t status, const char* operation) {
 void check_custatevec(custatevecStatus_t status, const char* operation) {
   if (status != CUSTATEVEC_STATUS_SUCCESS)
     // ixquantum 1.8.0 does not implement custatevecGetErrorString reliably.
-    throw std::runtime_error(std::string(operation) + ": ixquantum status " + std::to_string(static_cast<int>(status)));
+    throw std::runtime_error(std::string(operation) + ": cuStateVec status " + std::to_string(static_cast<int>(status)));
 }
 
 // Own native resources independently of executor construction and tensor allocation.
