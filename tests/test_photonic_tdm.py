@@ -73,6 +73,84 @@ def test_encoded_tdm_substate_matches_global_circuit():
     torch.testing.assert_close(single_mean, actual_mean[:1])
 
 
+@pytest.mark.parametrize('encoded', [False, True])
+@pytest.mark.parametrize('hardware', [False, True])
+def test_tdm_stream_windows_and_gradients_match_global_circuit(encoded, hardware):
+    cir = dq.QumodeCircuit(2, 'vac', backend='gaussian')
+    strength = torch.tensor(0.24, dtype=torch.double, requires_grad=True)
+    cir.s(0, r=strength)
+    cir.d(1, 0.1, 0.3)
+    cir.bs([0, 1], [0.4, 0.1])
+    cir.delay(0, ntau=2, inputs=[0.3, -0.2], encode=encoded)
+    cir.delay(1, ntau=3, inputs=[0.6, 0.2])
+    if hardware:
+        model = dqp.HardwareModel()
+        model.input(0).loss(t=0.91)
+        model.bs().theta.gaussian(mu=0.02, sigma=0.0)
+        model.output(1).loss(t=0.84)
+        cir.set_hardware_model(model)
+    cir.double()
+    nstep = 5
+    data = None
+    if encoded:
+        data = torch.linspace(0.1, 0.6, 2 * nstep * cir.ndata, dtype=torch.double).reshape(2, nstep, cir.ndata)
+        data.requires_grad_()
+    initial = {name: value.clone() for name, value in cir.state_dict().items()}
+    outputs = []
+    for output in cir.tdm_stream(nstep, data=data, wires=[1, 0], window=2):
+        outputs.append(output)
+        for name, value in cir.state_dict().items():
+            torch.testing.assert_close(value, initial[name])
+    unrolled = cir.global_circuit(nstep)
+    unrolled.double()
+    cov, mean = unrolled(None if data is None else data.flatten(1))
+    references = []
+    for step, output in enumerate(outputs):
+        wires = cir.tdm_output_wires(nstep)[max(0, step - 1) : step + 1, [1, 0]].flatten()
+        indices = torch.cat([wires, wires + unrolled.nmode])
+        expected = [cov[:, indices[:, None], indices], mean[:, indices]]
+        torch.testing.assert_close(output, expected)
+        references.append(expected)
+    variables = (strength,) if data is None else (strength, data)
+    actual_grad = torch.autograd.grad(sum(value.square().sum() for output in outputs for value in output), variables)
+    expected_grad = torch.autograd.grad(
+        sum(value.square().sum() for output in references for value in output), variables
+    )
+    torch.testing.assert_close(actual_grad, expected_grad)
+
+
+def test_tdm_stream_pause_close_and_restart():
+    cir = dq.QumodeCircuit(1, 'vac', backend='gaussian')
+    cir.s(0, encode=True)
+    cir.delay(0, ntau=2, inputs=[0.4, 0.2])
+    cir.double()
+    data = torch.tensor([[0.2, 0.1], [0.3, -0.2], [0.1, 0.4]], dtype=torch.double)
+    stream = cir.tdm_stream(3, data)
+    first = next(stream)
+    torch.testing.assert_close(first, cir.tdm_substate(1, [0], data=data[:1].flatten()))
+    second = next(stream)
+    torch.testing.assert_close(second, cir.tdm_substate(2, [1], data=data[:2].flatten()))
+    stream.close()
+    torch.testing.assert_close(next(cir.tdm_stream(3, data)), first)
+
+
+def test_tdm_stream_hardware_noise_matches_substate():
+    cir = dq.QumodeCircuit(1, 'vac', backend='gaussian')
+    cir.s(0, 0.25)
+    cir.ps(0, encode=True)
+    cir.delay(0, ntau=2, inputs=[0.4, 0.2])
+    model = dqp.HardwareModel()
+    model.ps().theta.gaussian(sigma=0.04)
+    cir.set_hardware_model(model)
+    cir.double()
+    data = torch.linspace(0.1, 0.7, 8, dtype=torch.double).reshape(2, 4, 1)
+    model.manual_seed(21)
+    output = list(cir.tdm_stream(4, data, window=2))[-1]
+    model.manual_seed(21)
+    expected = cir.tdm_substate(4, [2, 3], data=data.flatten(1))
+    torch.testing.assert_close(output, expected)
+
+
 @pytest.mark.parametrize('query', ['get_unitary', 'get_symplectic', 'get_displacement'])
 def test_tdm_queries_refresh_after_edits(query):
     circuit = dq.QumodeCircuit(2, init_state='vac', backend='gaussian')

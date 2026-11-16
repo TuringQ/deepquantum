@@ -66,7 +66,7 @@ Photonic circuits:
 - Bargmann backend:
   - Use `backend='bargmann'`; forward returns a `BargmannState`. Its `polyexp` is a `dqp.BargmannPolyExp(mat_a, vec_b, coeff_c)` with inferred free and auxiliary variable counts.
   - Supported Gaussian gates and photon loss act through `get_bargmann()` representations. Loss requires `den_mat=True`. `state.to_fock(cutoff)` performs explicit finite-cutoff readout; the cutoff does not truncate Bargmann evolution.
-  - `quadrature_mean`, `quadrature_moments` and `photon_number_mean_var` read normalized moments directly from Bargmann states without Fock truncation. `quadrature_moments` returns `(cov, mean)` in xxpp order, including correlations between modes.
+  - `quadrature_mean`, `quadrature_moments` and `photon_number_mean_var` read moments directly from Bargmann states without Fock truncation. By default, `quadrature_moments` returns normalized `(cov, mean)` in xxpp order, including correlations between modes. Set `centered=False, normalize=False` on an unnormalized conditional state to obtain event-weighted raw moments, including zero contributions for impossible events.
   - Thermal source preparation, submodes, TDM and circuit-level sampling are not supported.
 - Clements and GBS:
   - `dq.Clements`, `dq.UnitaryDecomposer`, `dq.GaussianBosonSampling`, and `dqp.GraphGBS` are documented through tutorials/examples.
@@ -88,6 +88,7 @@ Photonic hardware models:
 Photonic TDM:
 
 - `global_circuit(nstep)` unrolls delay loops and remaps the attached hardware model. `tdm_substate(nstep, time_steps, wires=..., data=...)` computes selected Gaussian outputs without building the full unrolled circuit.
+- `tdm_stream(nstep, data=None, wires=None, window=1)` yields consecutive Gaussian output windows in one traversal, preserving correlations within the window and with the delay modes. Encoded data has shape `(nstep, ndata)` or `(batch, nstep, ndata)`. Inputs and delay modes start in vacuum. Each new iterator restarts, and a paused iterator can continue. Readout does not condition the circulating memory. Use `torch.no_grad()` for bounded-memory inference. Source preparations and submodes are not supported.
 - `QumodeCircuitTDM` supports stepwise Gaussian/Bosonic evolution with homodyne measurements.
 
 Photonic measurement and probabilities:

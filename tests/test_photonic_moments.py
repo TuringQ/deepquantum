@@ -32,6 +32,9 @@ def test_gaussian_moments_and_mode_order(backend, units, monkeypatch):
     expected = cov[:, indices, :][:, :, indices], mean[:, indices, :]
     for result, target in zip(actual.quadrature_moments([1, 0]), expected, strict=True):
         torch.testing.assert_close(result, target, atol=2e-8, rtol=2e-7)
+    second, first = actual.quadrature_moments([1, 0], centered=False, normalize=False)
+    torch.testing.assert_close(second, expected[0] + expected[1] @ expected[1].mT, atol=2e-8, rtol=2e-7)
+    torch.testing.assert_close(first, expected[1], atol=2e-8, rtol=2e-7)
     if backend == 'bargmann':
         torch.testing.assert_close(
             actual.quadrature_mean([1, 0], [0.2, -0.3]), reference.quadrature_mean([1, 0], [0.2, -0.3])
@@ -81,6 +84,13 @@ def test_non_gaussian_moments_against_operator_matrices(backend, den_mat):
         dim=-2,
     )
     torch.testing.assert_close(cir.quadrature_moments(), (second - mean @ mean.mT, mean))
+    for centered, normalize in ((False, True), (True, False), (False, False)):
+        expected_second = second - mean @ mean.mT if centered else second
+        scale = 1 if normalize else 0.2
+        torch.testing.assert_close(
+            cir.quadrature_moments(centered=centered, normalize=normalize),
+            (scale * expected_second, scale * mean),
+        )
     if backend == 'bargmann':
         number = annihilation.mH @ annihilation
         numbers = [torch.kron(number, eye), torch.kron(eye, number)]
@@ -94,12 +104,57 @@ def test_non_gaussian_moments_against_operator_matrices(backend, den_mat):
 def test_bosonic_moments_include_between_component_covariance():
     cov = torch.eye(2, dtype=torch.double).expand(1, 2, 2, 2).clone()
     mean = torch.tensor([[[[1.0], [0.0]], [[-2.0], [0.0]]]], dtype=torch.double)
-    weight = torch.tensor([[0.3, 0.7]], dtype=torch.double)
+    weight = torch.tensor([[0.03, 0.07]], dtype=torch.double)
     cir = dq.QumodeCircuit(1, [cov, mean, weight], backend='bosonic')
     cir(stepwise=True)
     expected_mean = torch.tensor([[[-1.1], [0.0]]], dtype=torch.double)
     expected_cov = torch.tensor([[[2.89, 0.0], [0.0, 1.0]]], dtype=torch.double)
     torch.testing.assert_close(cir.quadrature_moments(), (expected_cov, expected_mean))
+    second, first = cir.quadrature_moments(centered=False, normalize=False)
+    torch.testing.assert_close(second, 0.1 * (expected_cov + expected_mean @ expected_mean.mT))
+    torch.testing.assert_close(first, 0.1 * expected_mean)
+
+
+@pytest.mark.parametrize('backend', ['fock', 'bargmann'])
+def test_threshold_weighted_moments_add_over_events(backend):
+    cir = dq.QumodeCircuit(2, 'vac', cutoff=7, backend=backend, basis=False)
+    cir.s2([0, 1], encode=True)
+    cir.d(1, 0.2, 0.4)
+    cir.double()
+    data = torch.tensor([[0.0, 0.0], [0.3, 0.2]], dtype=torch.double, requires_grad=True)
+    cir(data)
+    expected = cir.quadrature_moments(1, centered=False, normalize=False)
+    contributions = []
+    for click in (0, 1):
+        state, probability = cir.post_select(0, click, detector='threshold', normalize=False)
+        readout = dq.QumodeCircuit(1, state)
+        readout()
+        contributions.append(readout.quadrature_moments(centered=False, normalize=False))
+        if click:
+            assert probability[0] == 0
+            for centered in (False, True):
+                moments = readout.quadrature_moments(centered=centered, normalize=False)
+                assert all(torch.count_nonzero(value[0]) == 0 for value in moments)
+            with pytest.raises(ValueError, match='positive'):
+                readout.quadrature_moments()
+    actual = tuple(left + right for left, right in zip(*contributions, strict=True))
+    torch.testing.assert_close(actual, expected)
+    actual_grad = torch.autograd.grad(sum(value.sum() for value in actual), data, retain_graph=True)[0]
+    expected_grad = torch.autograd.grad(sum(value.sum() for value in expected), data)[0]
+    torch.testing.assert_close(actual_grad, expected_grad)
+
+
+@pytest.mark.parametrize('backend', ['fock', 'bargmann'])
+def test_moment_centering_at_small_state_weight(backend):
+    ket = torch.ones(1, 2, dtype=torch.complex128) * (1e-100 / math.sqrt(2))
+    cir = dq.QumodeCircuit(1, ket, backend=backend, cutoff=2, basis=False)
+    cir()
+    cov, mean = cir.quadrature_moments()
+    torch.testing.assert_close(cov[0], torch.diag(torch.tensor([1.0, 2.0], dtype=torch.double)))
+    torch.testing.assert_close(mean[0], torch.tensor([[1.0], [0.0]], dtype=torch.double))
+    weighted_cov, weighted_mean = cir.quadrature_moments(normalize=False)
+    torch.testing.assert_close(weighted_cov / 1e-200, cov)
+    torch.testing.assert_close(weighted_mean / 1e-200, mean)
 
 
 def test_threshold_moments_gradients_without_fock_readout(monkeypatch):
