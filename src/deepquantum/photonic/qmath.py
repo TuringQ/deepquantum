@@ -662,14 +662,6 @@ def ladder_to_quadrature(tensor: torch.Tensor, symplectic: bool = False) -> torc
         return (omega @ tensor).real * dqp.hbar**0.5 / (2 * dqp.kappa)
 
 
-def _validate_moment_weight(weight: torch.Tensor, *, positive: bool = True) -> None:
-    """Require finite state weights and positive weights for normalized moments."""
-    if not bool(torch.isfinite(weight).all()):
-        raise ValueError('Moments require a finite state weight')
-    if positive and bool((weight.real <= 0).any()):
-        raise ValueError('Normalized moments require a positive state weight')
-
-
 def _quadrature_moments_from_raw(
     second: torch.Tensor,
     first: torch.Tensor,
@@ -679,11 +671,15 @@ def _quadrature_moments_from_raw(
     normalize: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Center and normalize weighted quadrature moments independently."""
-    _validate_moment_weight(weight, positive=normalize)
+    if not bool(torch.isfinite(weight).all()):
+        raise ValueError('Moments require a finite state weight')
+    if normalize and bool((weight.real <= 0).any()):
+        raise ValueError('Normalized moments require a positive state weight')
     weight = weight.real[..., None, None]
     if centered:
         # A zero-probability event contributes zero to unnormalized centered moments.
         denominator = torch.where(weight == 0, torch.ones_like(weight), weight)
+        # Divide before multiplying to avoid underflow for small event weights.
         second = second - first @ (first / denominator).mT
     if normalize:
         second, first = second / weight, first / weight
@@ -837,10 +833,18 @@ def photon_number_mean_var_fock(
 
 
 def quadrature_mean_fock(
-    state: torch.Tensor, nmode: int, cutoff: int, wires: list[int], den_mat: bool = False
+    state: torch.Tensor,
+    nmode: int,
+    cutoff: int,
+    wires: list[int],
+    den_mat: bool = False,
+    *,
+    phi: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    """Get the quadrature x expectation for Fock state tensors.
+    """Get the rotated quadrature expectation for Fock state tensors.
 
+    ``phi`` is shared or gives one angle per selected mode, with zero as the default.
+    Only adjacent Fock coherences contribute, so no state rotation is needed.
     The result has shape ``(batch, len(wires), 1)`` and retains the state weight.
     """
     coef = 2 * dqp.kappa**2 / dqp.hbar
@@ -852,8 +856,8 @@ def quadrature_mean_fock(
             trace_lst = [i for i in range(nmode) if i != wire]
             reduced_dm = partial_trace(state, nmode, trace_lst, cutoff)  # (batch, cutoff, cutoff)
             reduced_dm = reduced_dm.reshape(-1, cutoff, cutoff)
-            off_diag = reduced_dm.diagonal(offset=1, dim1=1, dim2=2)  # rho_{n, n+1}
-            term = factor * 2 * off_diag.real  # only with real part contribution
+            off_diag = reduced_dm.diagonal(offset=-1, dim1=1, dim2=2)  # rho_{n+1, n}
+            term = factor * off_diag
             mean.append(term.sum(dim=1))
     else:
         if state.ndim == nmode:
@@ -866,9 +870,11 @@ def quadrature_mean_fock(
             state_i = state.permute(pm_shape)
             cn = state_i[:, :-1, ...]  # n
             cn1 = state_i[:, 1:, ...]  # n+1
-            term = factor * 2 * (cn.conj() * cn1).real
+            term = factor * (cn.conj() * cn1)
             mean.append(term.sum(dim=tuple(range(1, nmode + 1))))
-    return coef ** (-0.5) * torch.stack(mean, dim=-1).unsqueeze(-1)
+    phi = torch.as_tensor(0.0 if phi is None else phi, dtype=state.real.dtype, device=state.device)
+    mean = (torch.stack(mean, dim=-1) * torch.exp(-1j * phi)).real
+    return (2 * coef ** (-0.5) * mean).unsqueeze(-1)
 
 
 def takagi(a: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

@@ -130,13 +130,14 @@ def test_scalar_readouts_preserve_batch_and_mode_axes(backend, batch):
 
 @pytest.mark.parametrize('den_mat', [False, True])
 @pytest.mark.parametrize('dtype', [torch.float32, torch.float64])
-def test_fock_single_mode_moments_keep_batch_weight_and_phase_gradient(den_mat, dtype):
+@pytest.mark.parametrize('angle', [0.0, 0.4])
+def test_fock_single_mode_moments_keep_batch_weight_and_phase_gradient(den_mat, dtype, angle):
     occupation = torch.tensor([0.1, 0.4, 0.8], dtype=dtype, requires_grad=True)
     weight = torch.tensor([0.2, 0.6, 0.1], dtype=dtype, requires_grad=True)
     ket = torch.stack([(1 - occupation).sqrt(), 1j * occupation.sqrt()], -1) * weight.sqrt()[:, None]
     source = ket[:, :, None] * ket[:, None, :].conj() if den_mat else ket
     cir = dq.QumodeCircuit(1, source, cutoff=2, basis=False, den_mat=den_mat)
-    phi = torch.tensor(0.0, dtype=dtype, requires_grad=True)
+    phi = torch.tensor(angle, dtype=dtype, requires_grad=True)
     first = weight * occupation
     expected_number = first[:, None], (first - first.square())[:, None]
     expected_quadrature = weight * dqp.hbar**0.5 / dqp.kappa * (occupation * (1 - occupation)).sqrt() * phi.sin()
@@ -145,9 +146,9 @@ def test_fock_single_mode_moments_keep_batch_weight_and_phase_gradient(den_mat, 
         torch.testing.assert_close(cir.photon_number_mean_var(), expected_number)
         actual = cir.quadrature_mean(phi=phi)
         torch.testing.assert_close(actual, expected_quadrature[:, None, None])
-        actual_grad = torch.autograd.grad(actual.sum(), phi, retain_graph=True)[0]
-        expected_grad = torch.autograd.grad(expected_quadrature.sum(), phi, retain_graph=True)[0]
-        torch.testing.assert_close(actual_grad, expected_grad)
+    actual_grad = torch.autograd.grad(actual.sum(), phi, retain_graph=True)[0]
+    expected_grad = torch.autograd.grad(expected_quadrature.sum(), phi)[0]
+    torch.testing.assert_close(actual_grad, expected_grad)
     number = cir.photon_number_mean_var()[0].sum()
     grad = torch.autograd.grad(number, (occupation, weight))
     torch.testing.assert_close(grad[0], weight)

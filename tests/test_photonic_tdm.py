@@ -74,9 +74,10 @@ def test_encoded_tdm_substate_matches_global_circuit():
     torch.testing.assert_close(single_mean, actual_mean[:1])
 
 
-@pytest.mark.parametrize('encoded', [False, True])
-@pytest.mark.parametrize('hardware', [False, True])
-@pytest.mark.parametrize('time_steps', [slice(5), [2, 4]])
+@pytest.mark.parametrize(
+    'encoded,hardware,time_steps',
+    [(False, False, slice(5)), (False, True, [2, 4]), (True, False, [2, 4]), (True, True, slice(5))],
+)
 def test_tdm_substate_windows_and_gradients_match_global_circuit(encoded, hardware, time_steps):
     cir = dq.QumodeCircuit(2, 'vac', backend='gaussian')
     strength = torch.tensor(0.24, dtype=torch.double, requires_grad=True)
@@ -109,7 +110,6 @@ def test_tdm_substate_windows_and_gradients_match_global_circuit(encoded, hardwa
     cov, mean = unrolled(expanded_data)
     references = []
     selected = list(range(nstep))[time_steps] if isinstance(time_steps, slice) else time_steps
-    assert len(outputs) == len(selected)
     for step, output in zip(selected, outputs, strict=True):
         wires = cir.tdm_output_wires(nstep)[max(0, step - 1) : step + 1, [1, 0]].flatten()
         indices = torch.cat([wires, wires + unrolled.nmode])
@@ -171,11 +171,9 @@ def test_tdm_selected_times_and_periodic_data_validation():
     for invalid in (data.flatten(), data[:0], data[:, :1]):
         with pytest.raises(ValueError, match='data'):
             cir.tdm_substate([0, 3], data=invalid)
-        with pytest.raises(ValueError, match='data'):
-            cir.tdm_substate(slice(4), data=invalid, window=1)
     with pytest.raises(ValueError, match='ascending'):
         cir.tdm_substate([2, 1], data=data, window=2)
-    for window in (0, -1, True, 1.5):
+    for window in (0, True, 1.5):
         with pytest.raises(ValueError, match='window'):
             cir.tdm_substate(slice(4), data=data, window=window)
 

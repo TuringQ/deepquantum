@@ -1555,7 +1555,7 @@ cir_global.draw(unroll=True)  # draw global circuit
 # 例如 `time_steps=slice(4), window=2` 依次返回时间点 `[0]`、`[0,1]`、`[1,2]`、`[2,3]` 的联合态。
 # `time_steps=[2,5], window=2` 则只返回 `[1,2]` 和 `[4,5]`，窗口按实际连续时间步计数。
 # 每个窗口与直接查询相同时间点的子态一致，迭代过程复用之前的演化。
-# 普通查询和窗口迭代共用逐步演化内核，从真空输入和真空环路开始，输入光场通过线路中的门制备。
+# 输入模式和环路从真空开始，输入光场通过线路中的门制备。
 # 编码数据形状为 `(ntimes, ndata)` 或 `(batch, ntimes, ndata)`。
 # `ntimes` 是输入序列长度，第 `t` 步读取 `data[t % ntimes]`，所以短序列可以重复使用。
 #
@@ -1563,7 +1563,8 @@ cir_global.draw(unroll=True)  # draw global circuit
 # 下面只有一个空间模式，窗口填满后依次保留前一步和当前步，`cov[0, 0, 1]` 是这两步 x 分量的协方差。
 # 新迭代器重新开始，保留同一迭代器可以暂停后继续。
 # 流式输出保留环路与窗口的相关性，读出结果不会用于条件更新环路。
-# 关闭梯度并及时处理输出时，传播态大小由环路和窗口决定；启用 autograd 会保留反向传播所需的历史。
+# 关闭梯度并及时处理输出时，传播态大小由环路和窗口决定。
+# 启用 autograd 会保留反向传播所需的历史。
 # 当前仅支持 Gaussian 演化，尚未接入光源制备和正交基模。
 #
 
@@ -1876,11 +1877,10 @@ print(rho_bargmann.diagonal(dim1=-2, dim2=-1).real.sum(-1))  # 截断内的迹�
 # `quadrature_moments(wires=None)` 返回完整的 `(cov, mean)`，使用 xxpp 顺序，并保留 batch 轴。
 # 这些矩描述原有非高斯态，不将其转换成高斯态。
 # `quadrature_mean(wires=None, phi=None)` 读取指定角度的正交分量均值，`photon_number_mean_var(wires=None)` 读取各模光子数均值和方差。
-# Bargmann 线路和返回的 `BargmannState` 都支持这三个方法，结果按态的权重归一化，不依赖 Fock cutoff。
+# Bargmann 线路和返回的 `BargmannState` 都支持这三个方法，默认按态的权重归一化，不依赖 Fock cutoff。
 # `quadrature_mean` 返回 `(batch, K, 1)`，`photon_number_mean_var` 的两项均为 `(batch, K)`，其中 `K` 是选中模式数。
 # Fock 的这两个旧接口保留截断态权重，不自动归一化，光子数方差仍按二阶原始矩减去一阶原始矩的平方计算。
 # `quadrature_moments` 则通过 `normalize` 显式控制归一化，其默认值为 `True`。
-# `photon_number_mean_var` 也适用于未分辨正交基模的空间光子数。
 # Fock 读出使用有限 cutoff 内保留的态，归一化不会补回截断之外的贡献。
 #
 
@@ -1900,14 +1900,16 @@ print(cov_bargmann.shape, mean_bargmann.shape, x_bargmann.shape)  # (1, 4, 4), (
 # %% [markdown]
 # `quadrature_moments(wires=None, centered=True, normalize=True)` 将中心化和归一化分开控制。
 # 归一化决定分母：将态的迹或范数平方作为权重 `w`，除以它得到条件平均。
-# 中心化决定是否去掉均值贡献：协方差 `cov` 等于未中心化二阶矩减去 `mean @ mean.mT`。
+# 中心化决定是否去掉均值贡献：对于归一化矩，协方差 `cov` 等于未中心化二阶矩减去 `mean @ mean.mT`。
 # `centered` 只影响第一个返回量，第二个返回量始终保留一阶矩信息。
 #
-# 默认返回 `(cov, mean)`；仅关闭中心化时返回 `(cov + mean @ mean.mT, mean)`。
+# 默认返回 `(cov, mean)`。
+# 仅关闭中心化时返回 `(cov + mean @ mean.mT, mean)`。
 # 关闭归一化时，两项保留权重 `w`，所以仅设置 `normalize=False` 得到的是加权协方差和加权均值。
 # 同时设置 `centered=False, normalize=False` 才得到加权原始矩，可对不同事件直接求和，再统一归一化和中心化。
 # 例如重复同一个实验 1000 次，其中 100 次点击，点击时的条件均值为 2、条件方差为 1。
-# 只统计点击样本，均值为 2、二阶矩为 5；把未点击样本的贡献记为零，再对全部 1000 次平均，则分别为 0.2 和 0.5。
+# 只统计点击样本，均值为 2、二阶矩为 5。
+# 把未点击样本的贡献记为零，再对全部 1000 次平均，则分别为 0.2 和 0.5。
 # 后一种读出同时保留事件频率和条件态信息，可用作带事件标记的特征，也可用于合并互斥事件。
 # 合并事件时，协方差还包含事件间均值的变化：两个等概率事件的均值为 +2 和 -2、方差均为 1，总方差为 5，而加权条件方差之和只有 1。
 #

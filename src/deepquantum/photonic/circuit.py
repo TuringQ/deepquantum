@@ -1078,12 +1078,11 @@ class QumodeCircuit(Operation):
         without source preparations or orthogonal basis modes is supported.
 
         Window iteration retains the delay modes and recent outputs with their
-        cross correlations, tracing out earlier outputs. It computes unconditional
-        states without sampling or conditioning the circulating memory. Each new
-        iterator starts from vacuum, while a paused iterator continues from its
-        current step. Circuit structure and parameters must stay fixed during
-        iteration. Use ``torch.no_grad()`` when gradients are not needed, since
-        autograd retains the history required for backward.
+        cross correlations. Readout does not condition the circulating memory.
+        Each new iterator restarts, while a paused iterator continues from its
+        current step. Keep circuit structure and parameters fixed during iteration.
+        Use ``torch.no_grad()`` when gradients are not needed, since autograd
+        retains the history required for backward.
 
         Args:
             time_steps: The distinct nonnegative time steps, in output order.
@@ -2467,17 +2466,7 @@ class QumodeCircuit(Operation):
             return state.quadrature_mean(wires, phi)
         if self.backend == 'fock':
             assert not self.basis
-            phi = phi.to(state.real)
-            if self.den_mat:
-                state = state.reshape([-1] + [self.cutoff] * 2 * self.nmode)
-            for i in range(len(wires)):
-                if phi.requires_grad or phi[i] != 0:
-                    r = PhaseShift(
-                        inputs=-phi[i], nmode=self.nmode, wires=wires[i], cutoff=self.cutoff, den_mat=self.den_mat
-                    )
-                    state = r(state)
-            mean = quadrature_mean_fock(state, self.nmode, self.cutoff, wires, self.den_mat)
-            return mean
+            return quadrature_mean_fock(state, self.nmode, self.cutoff, wires, self.den_mat, phi=phi)
         elif self.backend in ('gaussian', 'bosonic'):
             wires = torch.tensor(wires)
             idx = torch.cat([wires, wires + self.nmode])  # xxpp order
