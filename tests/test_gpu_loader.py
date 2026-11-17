@@ -1,6 +1,7 @@
 """SDK discovery and CPU-only compiler/import contracts."""
 
 import importlib
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -20,13 +21,13 @@ def test_resolve_sdk(tmp_path, monkeypatch, layout):
     (include / 'custatevec.h').touch()
     (library / 'libcustatevec.so.1.8.0').touch()
     monkeypatch.setenv('IXQUANTUM_ROOT', str(tmp_path))
-    assert resolve_sdk() == (include, library / 'libcustatevec.so.1.8.0')
+    assert resolve_sdk('ixquantum') == (include, library / 'libcustatevec.so.1.8.0')
 
 
 def test_missing_sdk(tmp_path, monkeypatch):
     monkeypatch.setenv('IXQUANTUM_ROOT', str(tmp_path))
     with pytest.raises(RuntimeError, match='IXQUANTUM_ROOT'):
-        resolve_sdk()
+        resolve_sdk('ixquantum')
 
 
 @pytest.mark.parametrize('layout', ['lib', 'lib64'])
@@ -61,8 +62,9 @@ def test_backend_selection(monkeypatch):
 
 @pytest.mark.parametrize('backend', ['ixquantum', 'cuquantum'])
 def test_backend_build_configuration(tmp_path, monkeypatch, backend):
-    import deepquantum.backends.gpu.loader as loader
     import torch.utils.cpp_extension as extension
+
+    import deepquantum.backends.gpu.loader as loader
 
     monkeypatch.setattr(torch, 'corex', backend == 'ixquantum', raising=False)
     monkeypatch.setattr(torch.version, 'cuda', '12.6')
@@ -71,6 +73,7 @@ def test_backend_build_configuration(tmp_path, monkeypatch, backend):
     monkeypatch.setattr(extension, 'load', lambda **kwargs: calls.append(kwargs) or SimpleNamespace())
     load_gpu_executor(backend)
     assert calls[0]['name'] == f'deepquantum_gpu_executor_{backend}'
+    assert [Path(p).name for p in calls[0]['sources']] == ['_gpu_executor.cpp', 'adjoint_kernels.cu']
     assert ('ivcore' in calls[0]['extra_cuda_cflags']) == (backend == 'ixquantum')
     assert calls[0]['extra_ldflags'][0] == str(tmp_path / 'libcustatevec.so.1')
 
@@ -105,7 +108,6 @@ def test_compiler_order_and_shared_parameters():
     circuit.add(gate, wires=2)
     circuit.add(gate.inverse())
     circuit.observable([0, 3], 'xy')
-    circuit.diff_method = 'adjoint'
     plan = compile_circuit(circuit)
     assert plan.targets[:2] == ((3,), (0,))
     assert plan.controls[1] == (3,)
@@ -128,7 +130,7 @@ def test_compiler_rejects_invalid_observable():
         compile_pauli_observables(2, [SimpleNamespace(wires=[0, 0], basis='zz')])
 
 
-def test_specialized_vendor_dispatch():
+def test_specialized_api_dispatch():
     from deepquantum.backends.gpu.compiler import (
         GRAD_PAULI_GENERATOR,
         GRAD_PHASE,

@@ -26,16 +26,17 @@ Selection happens before executor construction; gate execution is shared.
 The explicit `backend='ixquantum'` remains available on CoreX.
 
 Both builds retain the original inverse-matrix, observable-ordering and sampling
-synchronization handling. Numerical validation on each vendor remains necessary;
+synchronization handling. Numerical validation on each backend remains necessary;
 availability of an SDK alone does not validate its gradients.
 
 ### Iluvatar ixquantum
 
 Request the matching GPU driver, **CoreX development toolkit**, **CoreX-compatible PyTorch**, and **ixquantum headers and shared library** from **Iluvatar CoreX (天数智芯)**.
+Visit the [Iluvatar CoreX developer downloads page](https://developer.iluvatar.com/downloads), Iluvatar's website; contact information is available at the bottom of the page.
 The ixquantum files needed by this backend are `custatevec.h` and `libcustatevec.so.1.8.0`.
 
 The validated configuration is Linux **x86_64**, an Iluvatar BI-V150 GPU, **CoreX 5.0.0**, **CoreX PyTorch 2.10.0**, and **ixquantum 1.8.0**.
-Install the vendor packages and activate the Python environment containing CoreX-compatible PyTorch.
+Install the Iluvatar packages and activate the Python environment containing CoreX-compatible PyTorch.
 The native build also needs a C++17 host compiler and Python development headers.
 
 If CoreX is installed under `/usr/local/corex`, configure the compiler and runtime paths as follows.
@@ -48,12 +49,12 @@ export IXQUANTUM_ROOT=/path/to/ixquantum
 python -m pip install 'deepquantum[ixquantum]'
 ```
 
-For example, use `export IXQUANTUM_ROOT=/root` if both vendor files are stored directly in `/root`.
+For example, use `export IXQUANTUM_ROOT=/root` if both SDK files are stored directly in `/root`.
 An SDK layout with `include/custatevec.h` and the library under `lib` or `lib64` is also accepted.
 If `IXQUANTUM_ROOT` is unset, the SDK search defaults to `/usr/local/corex`.
 For a source checkout, use `python -m pip install -e '.[ixquantum]'`.
 
-The `[ixquantum]` extra installs Python build tools (`ninja`, `setuptools`, and `packaging`); the vendor packages come from 天数智芯.
+The `[ixquantum]` extra installs Python build tools (`ninja`, `setuptools`, and `packaging`); the CoreX and ixquantum packages come from 天数智芯.
 The extension compiles on first GPU use through `torch.utils.cpp_extension.load` and reuses the build cache thereafter.
 `TORCH_EXTENSIONS_DIR` selects the cache directory and `MAX_JOBS` limits build parallelism.
 Normal DeepQuantum installation and import do not require the GPU SDK or compile an extension.
@@ -86,7 +87,7 @@ Parameter dtype conversions and moving parameters to that same GPU remain suppor
 import torch
 import deepquantum as dq
 
-circuit = dq.QubitCircuitGPU(2, diff_method='adjoint', device='cuda:0')
+circuit = dq.QubitCircuitGPU(2, device='cuda:0')
 circuit.ry(0)                      # trainable gate parameter
 circuit.cnot(0, 1)
 circuit.observable(1, 'z')
@@ -99,7 +100,10 @@ for _ in range(10):
 circuit.close()
 ```
 
-In adjoint mode, `expectation()` performs the forward pass itself.
+When gradients are enabled and parameters require gradients, `expectation()` automatically performs the forward pass and uses adjoint differentiation.
+For inference, call `circuit()` followed by `circuit.expectation()` inside `torch.no_grad()` to read the existing state without another forward pass.
+Explicit `expectation(parameters=...)` always evaluates the supplied parameters with a fresh forward pass, even inside `torch.no_grad()`.
+Matrix observables support non-differentiable readout only; requesting their gradients raises an error.
 The reverse pass reuses that final state, so complete `backward()` before executing, recompiling, or closing the same circuit again.
 Trainable scalar parameters shared between gates accumulate their contributions into one gradient.
 For a packed CUDA float32 parameter vector and observable coefficients, `value_and_grad(parameters, coefficients)` returns a weighted value and its gradient directly.
@@ -122,7 +126,7 @@ These direct gradient methods consume the final state and do not construct a hig
   Whole-circuit `inverse()` and circuit addition with `+` are also unsupported; individual inverse gates are supported.
   Barriers are ignored during compilation.
 
-The compiler selects ixquantum APIs automatically: generalized permutations for permutation/diagonal gates,
+The compiler selects cuStateVec APIs for either backend: generalized permutations for permutation/diagonal gates,
 Pauli rotations for supported rotations, and dense matrices for other supported gates.
 Adjoint gradients combine generator action with the inner-product reduction in `adjoint_kernels.cu`.
 Phase gradients use the projector onto the active target/control sector directly.

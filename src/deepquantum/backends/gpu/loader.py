@@ -7,7 +7,7 @@ from types import ModuleType
 
 
 def resolve_backend(backend: str = 'auto') -> str:
-    """Select a vendor once from the installed PyTorch build, without SDK fallback."""
+    """Select a backend once from the installed PyTorch build, without SDK fallback."""
     import torch
 
     if backend not in ('auto', 'cuquantum', 'ixquantum'):
@@ -21,11 +21,12 @@ def resolve_backend(backend: str = 'auto') -> str:
     return selected
 
 
-def resolve_sdk(backend: str = 'ixquantum') -> tuple[Path, Path]:
-    """Find the ixquantum header and versioned library below ``IXQUANTUM_ROOT``.
+def resolve_sdk(backend: str) -> tuple[Path, Path]:
+    """Find the cuStateVec header and shared library for the selected backend.
 
-    A flat directory containing the two vendor files and conventional SDK layouts
-    with ``include`` and ``lib``/``lib64`` directories are supported.
+    cuQuantum uses ``CUQUANTUM_ROOT`` or the installed cuStateVec wheel.
+    ixquantum uses ``IXQUANTUM_ROOT`` (default ``/usr/local/corex``), accepting
+    either a flat SDK or conventional ``include`` and ``lib``/``lib64`` directories.
     """
     if backend == 'cuquantum':
         roots = (
@@ -71,10 +72,9 @@ def resolve_sdk(backend: str = 'ixquantum') -> tuple[Path, Path]:
 def load_gpu_executor(backend: str = 'auto') -> ModuleType:
     """Build on first use and reuse PyTorch's extension cache thereafter.
 
-    The CoreX PyTorch builder configures the host/device compilers, architecture, and ABI.
+    PyTorch's extension builder configures the compilers, architecture, and ABI.
+    CoreX-specific device compiler flags are applied only for ixquantum.
     """
-    import torch
-
     backend = resolve_backend(backend)
     include, library = resolve_sdk(backend)
     try:
@@ -85,7 +85,7 @@ def load_gpu_executor(backend: str = 'auto') -> ModuleType:
     try:
         return load(
             name=f'deepquantum_gpu_executor_{backend}',
-            sources=[str(source / '_gpu_executor_ixquantum.cpp'), str(source / 'adjoint_kernels.cu')],
+            sources=[str(source / '_gpu_executor.cpp'), str(source / 'adjoint_kernels.cu')],
             extra_include_paths=[str(include)],
             extra_cflags=['-O3', '-std=c++17'],
             extra_cuda_cflags=['-O3', '-std=c++17'] + (['-x', 'ivcore'] if backend == 'ixquantum' else []),

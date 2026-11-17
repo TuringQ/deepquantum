@@ -1,3 +1,4 @@
+// Shared cuStateVec API executor for cuQuantum and ixquantum.
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/cuda/CUDAStream.h>
 #include <cuComplex.h>
@@ -50,8 +51,8 @@ struct NativeResources {
   void initialize() {
     const c10::cuda::CUDAGuard guard(device);
     check_custatevec(custatevecCreate(&handle), "custatevecCreate");
-    check_cuda(cudaEventCreateWithFlags(&torch_to_vendor, cudaEventDisableTiming), "create torch-to-vendor event");
-    check_cuda(cudaEventCreateWithFlags(&vendor_to_torch, cudaEventDisableTiming), "create vendor-to-torch event");
+    check_cuda(cudaEventCreateWithFlags(&torch_to_custatevec, cudaEventDisableTiming), "create torch-to-cuStateVec event");
+    check_cuda(cudaEventCreateWithFlags(&custatevec_to_torch, cudaEventDisableTiming), "create cuStateVec-to-torch event");
   }
 
   void close() {
@@ -59,19 +60,19 @@ struct NativeResources {
     const auto sampler_status =
         sampler ? custatevecSamplerDestroy(std::exchange(sampler, nullptr)) : CUSTATEVEC_STATUS_SUCCESS;
     const auto handle_status = handle ? custatevecDestroy(std::exchange(handle, nullptr)) : CUSTATEVEC_STATUS_SUCCESS;
-    const auto input_status = torch_to_vendor ? cudaEventDestroy(std::exchange(torch_to_vendor, nullptr)) : cudaSuccess;
+    const auto input_status = torch_to_custatevec ? cudaEventDestroy(std::exchange(torch_to_custatevec, nullptr)) : cudaSuccess;
     const auto output_status =
-        vendor_to_torch ? cudaEventDestroy(std::exchange(vendor_to_torch, nullptr)) : cudaSuccess;
+        custatevec_to_torch ? cudaEventDestroy(std::exchange(custatevec_to_torch, nullptr)) : cudaSuccess;
     check_custatevec(sampler_status, "custatevecSamplerDestroy");
     check_custatevec(handle_status, "custatevecDestroy");
-    check_cuda(input_status, "destroy torch-to-vendor event");
-    check_cuda(output_status, "destroy vendor-to-torch event");
+    check_cuda(input_status, "destroy torch-to-cuStateVec event");
+    check_cuda(output_status, "destroy cuStateVec-to-torch event");
   }
 
   int device;
   custatevecHandle_t handle{nullptr};
   custatevecSamplerDescriptor_t sampler{nullptr};
-  cudaEvent_t torch_to_vendor{nullptr}, vendor_to_torch{nullptr};
+  cudaEvent_t torch_to_custatevec{nullptr}, custatevec_to_torch{nullptr};
 };
 
 // Values match the plan constants in compiler.py.
@@ -298,14 +299,14 @@ class GPUCircuitExecutor {
     if (observable_matrix_.defined()) {
       cuDoubleComplex output = make_cuDoubleComplex(0.0, 0.0);
       double residual = 0.0;
-      torch_to_vendor();
+      torch_to_custatevec();
       check_custatevec(custatevecComputeExpectation(
                            resources_.handle, state_.data_ptr(), CUDA_C_32F, nqubit_, &output, CUDA_C_64F, &residual,
                            observable_matrix_.data_ptr(), CUDA_C_32F, CUSTATEVEC_MATRIX_LAYOUT_ROW,
                            observable_matrix_bits_.data(), observable_matrix_bits_.size(), CUSTATEVEC_COMPUTE_32F,
                            workspace_bytes_ ? workspace_.data_ptr() : nullptr, workspace_bytes_),
                        "custatevecComputeExpectation");
-      vendor_to_torch();
+      custatevec_to_torch();
       check_cuda(cudaDeviceSynchronize(), "synchronize matrix expectation");
       if (std::abs(output.y) > 1e-5)
         throw std::runtime_error("Hermitian expectation has non-negligible imaginary part");
@@ -340,7 +341,7 @@ class GPUCircuitExecutor {
       bits.push_back(bit);
     }
     bind_current_stream();
-    torch_to_vendor();
+    torch_to_custatevec();
     ensure_sampler(static_cast<uint32_t>(shots));
     check_custatevec(custatevecSamplerPreprocess(resources_.handle, resources_.sampler,
                                                  sampler_workspace_.defined() ? sampler_workspace_.data_ptr() : nullptr,
@@ -348,7 +349,7 @@ class GPUCircuitExecutor {
                      "custatevecSamplerPreprocess");
     // ixquantum 1.8.0 sampling reads preprocessing results on the host.
     // Non-default streams need an explicit completion before that API call.
-    check_cuda(cudaStreamSynchronize(vendor_uses_current_stream_ ? current_stream_ : nullptr),
+    check_cuda(cudaStreamSynchronize(custatevec_uses_current_stream_ ? current_stream_ : nullptr),
                "synchronize sampler preprocessing");
     auto output = torch::empty({shots}, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
     check_custatevec(custatevecSamplerSample(resources_.handle, resources_.sampler,
@@ -356,7 +357,7 @@ class GPUCircuitExecutor {
                                              bits.data(), bits.size(), randnums.data_ptr<double>(), shots,
                                              CUSTATEVEC_SAMPLER_OUTPUT_RANDNUM_ORDER),
                      "custatevecSamplerSample");
-    vendor_to_torch();
+    custatevec_to_torch();
     check_cuda(cudaDeviceSynchronize(), "synchronize sampler");
     return output;
   }
@@ -440,23 +441,23 @@ class GPUCircuitExecutor {
     if (!set_stream_known_unsupported_) {
       const auto status = custatevecSetStream(resources_.handle, current_stream_);
       if (status == CUSTATEVEC_STATUS_SUCCESS) {
-        vendor_uses_current_stream_ = true;
+        custatevec_uses_current_stream_ = true;
         return;
       }
       if (status != CUSTATEVEC_STATUS_NOT_SUPPORTED) check_custatevec(status, "set stream");
       set_stream_known_unsupported_ = true;
     }
-    vendor_uses_current_stream_ = false;
+    custatevec_uses_current_stream_ = false;
   }
-  void torch_to_vendor() {
-    if (vendor_uses_current_stream_ || current_stream_ == nullptr) return;
-    check_cuda(cudaEventRecord(resources_.torch_to_vendor, current_stream_), "record torch-to-vendor event");
-    check_cuda(cudaStreamWaitEvent(nullptr, resources_.torch_to_vendor, 0), "wait torch-to-vendor event");
+  void torch_to_custatevec() {
+    if (custatevec_uses_current_stream_ || current_stream_ == nullptr) return;
+    check_cuda(cudaEventRecord(resources_.torch_to_custatevec, current_stream_), "record torch-to-cuStateVec event");
+    check_cuda(cudaStreamWaitEvent(nullptr, resources_.torch_to_custatevec, 0), "wait torch-to-cuStateVec event");
   }
-  void vendor_to_torch() {
-    if (vendor_uses_current_stream_ || current_stream_ == nullptr) return;
-    check_cuda(cudaEventRecord(resources_.vendor_to_torch, nullptr), "record vendor-to-torch event");
-    check_cuda(cudaStreamWaitEvent(current_stream_, resources_.vendor_to_torch, 0), "wait vendor-to-torch event");
+  void custatevec_to_torch() {
+    if (custatevec_uses_current_stream_ || current_stream_ == nullptr) return;
+    check_cuda(cudaEventRecord(resources_.custatevec_to_torch, nullptr), "record cuStateVec-to-torch event");
+    check_cuda(cudaStreamWaitEvent(current_stream_, resources_.custatevec_to_torch, 0), "wait cuStateVec-to-torch event");
   }
   void validate_parameters(const torch::Tensor& parameters) const {
     if (!parameters.is_cuda() || parameters.get_device() != device_ || parameters.scalar_type() != torch::kFloat ||
@@ -505,12 +506,12 @@ class GPUCircuitExecutor {
       lengths.push_back(bits[i].size());
     }
     bind_current_stream();
-    torch_to_vendor();
+    torch_to_custatevec();
     check_custatevec(custatevecComputeExpectationsOnPauliBasis(resources_.handle, state.data_ptr(), CUDA_C_32F, nqubit_,
                                                                output.data(), pauli_ptrs.data(), output.size(),
                                                                bit_ptrs.data(), lengths.data()),
                      "custatevecComputeExpectationsOnPauliBasis");
-    vendor_to_torch();
+    custatevec_to_torch();
     check_cuda(cudaDeviceSynchronize(), "synchronize Pauli expectation");
     return torch::from_blob(output.data(), {static_cast<int64_t>(output.size())},
                             torch::TensorOptions().dtype(torch::kFloat64))
@@ -577,7 +578,7 @@ class GPUCircuitExecutor {
   }
   void apply_matrix(torch::Tensor& state, const Op& op, bool adjoint) {
     if (op.opcode == OpCode::Permutation) {
-      torch_to_vendor();
+      torch_to_custatevec();
       auto& permutation = op.permutations[adjoint ? 1 : 0];
       check_custatevec(custatevecApplyGeneralizedPermutationMatrix(
                            resources_.handle, state.data_ptr(), CUDA_C_32F, nqubit_,
@@ -587,11 +588,11 @@ class GPUCircuitExecutor {
                            op.values.empty() ? nullptr : op.values.data(), op.controls.size(),
                            workspace_bytes_ ? workspace_.data_ptr() : nullptr, workspace_bytes_),
                        "structured matrix");
-      vendor_to_torch();
+      custatevec_to_torch();
       return;
     }
 
-    torch_to_vendor();
+    torch_to_custatevec();
 
     const auto& matrix = adjoint ? op.inverse_matrix : op.matrix;
     check_custatevec(custatevecApplyMatrix(resources_.handle, state.data_ptr(), CUDA_C_32F, nqubit_, matrix.data_ptr(),
@@ -601,22 +602,22 @@ class GPUCircuitExecutor {
                                            CUSTATEVEC_COMPUTE_32F, workspace_bytes_ ? workspace_.data_ptr() : nullptr,
                                            workspace_bytes_),
                      "custatevecApplyMatrix");
-    vendor_to_torch();
+    custatevec_to_torch();
   }
   void apply_phase(torch::Tensor& state, const Op& op, double angle) {
     c10::complex<float> diagonal[2] = {{1, 0}, {float(std::cos(angle)), float(std::sin(angle))}};
 
-    torch_to_vendor();
+    torch_to_custatevec();
     check_custatevec(custatevecApplyGeneralizedPermutationMatrix(
                          resources_.handle, state.data_ptr(), CUDA_C_32F, nqubit_, nullptr, diagonal, CUDA_C_32F, 0,
                          op.targets.data(), 1, op.controls.empty() ? nullptr : op.controls.data(),
                          op.values.empty() ? nullptr : op.values.data(), op.controls.size(),
                          workspace_bytes_ ? workspace_.data_ptr() : nullptr, workspace_bytes_),
                      "phase diagonal");
-    vendor_to_torch();
+    custatevec_to_torch();
   }
   void apply_rotation(torch::Tensor& state, const Op& op, double angle) {
-    torch_to_vendor();
+    torch_to_custatevec();
     std::vector<custatevecPauli_t> paulis;
     for (int pauli : op.paulis) paulis.push_back(static_cast<custatevecPauli_t>(pauli));
     check_custatevec(custatevecApplyPauliRotation(resources_.handle, state.data_ptr(), CUDA_C_32F, nqubit_, angle,
@@ -624,7 +625,7 @@ class GPUCircuitExecutor {
                                                   op.controls.empty() ? nullptr : op.controls.data(),
                                                   op.values.empty() ? nullptr : op.values.data(), op.controls.size()),
                      "custatevecApplyPauliRotation");
-    vendor_to_torch();
+    custatevec_to_torch();
   }
   void apply_inverse(torch::Tensor& state, const Op& op, double theta) {
     if (op.opcode == OpCode::Matrix || op.opcode == OpCode::Permutation)
@@ -706,7 +707,7 @@ class GPUCircuitExecutor {
   int nqubit_, device_;
   NativeResources resources_;
   cudaStream_t current_stream_{nullptr};
-  bool set_stream_known_unsupported_{false}, vendor_uses_current_stream_{false};
+  bool set_stream_known_unsupported_{false}, custatevec_uses_current_stream_{false};
   torch::Tensor state_, initial_state_, adjoint_state_, workspace_, sampler_workspace_, observable_matrix_;
   size_t workspace_bytes_{0}, sampler_workspace_bytes_{0};
   uint32_t sampler_max_shots_{0};

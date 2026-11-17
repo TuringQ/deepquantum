@@ -1,4 +1,4 @@
-"""Compile DeepQuantum gates into ixquantum execution plans."""
+"""Compile DeepQuantum gates into shared cuStateVec execution plans."""
 
 from __future__ import annotations
 
@@ -71,7 +71,7 @@ def _static_matrix(gate: Any, index: int) -> torch.Tensor:
     return matrix.detach().to(dtype=torch.complex64, device='cpu').contiguous()
 
 
-def _vendor_bits(nqubit: int, wires: tuple[int, ...]) -> tuple[int, ...]:
+def _custatevec_bits(nqubit: int, wires: tuple[int, ...]) -> tuple[int, ...]:
     # DQ wire 0 is tensor/MSB; custatevec bit 0 is LSB.  For a multi-target
     # matrix DQ's first wire is the matrix MSB axis, so reverse target axes too.
     return tuple(reversed([nqubit - wire - 1 for wire in wires]))
@@ -93,7 +93,7 @@ def _parameter_key(theta: torch.Tensor) -> tuple[Any, ...]:
 def compile_pauli_observables(
     nqubit: int, observables: list[Any] | tuple[Any, ...]
 ) -> tuple[tuple[tuple[int, ...], ...], tuple[tuple[int, ...], ...]]:
-    """Validate DQ Pauli observables and map wire-0-as-MSB to vendor bits."""
+    """Validate DQ Pauli observables and map wire-0-as-MSB to cuStateVec bits."""
     mapping = {'x': 1, 'y': 2, 'z': 3}
     paulis: list[tuple[int, ...]] = []
     bits: list[tuple[int, ...]] = []
@@ -144,7 +144,7 @@ def _compile_observables(
             axes = tuple(wires.index(wire) for wire in ordered_wires)
             matrix = matrix.reshape((2,) * (2 * count)).permute(axes + tuple(axis + count for axis in axes))
             matrix = matrix.reshape(dim, dim).contiguous()
-        return (), (), matrix, _vendor_bits(circuit.nqubit, ordered_wires)
+        return (), (), matrix, _custatevec_bits(circuit.nqubit, ordered_wires)
 
     if not circuit.observables:
         return (), (), None, ()
@@ -196,16 +196,16 @@ def compile_circuit(circuit: Any) -> CompiledCircuitPlan:
             raise _error(index, gate, 'controls must be unique circuit wires')
         if set(wires) & set(gate_controls):
             raise _error(index, gate, 'targets and controls must be disjoint')
-        vendor_targets = _vendor_bits(circuit.nqubit, wires)
-        vendor_controls = tuple(circuit.nqubit - wire - 1 for wire in gate_controls)
+        target_bits = _custatevec_bits(circuit.nqubit, wires)
+        control_bits = tuple(circuit.nqubit - wire - 1 for wire in gate_controls)
         name = type(gate).__name__
 
         if name == 'PhaseShift':
             theta = gate.theta
             scale = -1.0 if gate.inv_mode else 1.0
             opcodes.append(OP_PHASE)
-            targets.append(vendor_targets)
-            controls.append(vendor_controls)
+            targets.append(target_bits)
+            controls.append(control_bits)
             matrices.append(None)
             paulis.append(())
             parameter_scales.append(scale)
@@ -239,8 +239,8 @@ def compile_circuit(circuit: Any) -> CompiledCircuitPlan:
                 scale *= 0.5
             for labels in groups:
                 opcodes.append(OP_PAULI_ROTATION)
-                targets.append(vendor_targets)
-                controls.append(vendor_controls)
+                targets.append(target_bits)
+                controls.append(control_bits)
                 matrices.append(None)
                 if theta.requires_grad:
                     key = _parameter_key(theta)
@@ -264,9 +264,9 @@ def compile_circuit(circuit: Any) -> CompiledCircuitPlan:
             continue
         if name in ('CNOT', 'Toffoli', 'Fredkin'):
             control_count = 2 if name == 'Toffoli' else 1
-            vendor_controls = (*vendor_controls, *(circuit.nqubit - w - 1 for w in wires[:control_count]))
+            control_bits = (*control_bits, *(circuit.nqubit - w - 1 for w in wires[:control_count]))
             wires = wires[control_count:]
-            vendor_targets = _vendor_bits(circuit.nqubit, wires)
+            target_bits = _custatevec_bits(circuit.nqubit, wires)
             if name == 'Fredkin':
                 matrix = torch.eye(4, dtype=torch.complex64)[[0, 2, 1, 3]]
             else:
@@ -277,8 +277,8 @@ def compile_circuit(circuit: Any) -> CompiledCircuitPlan:
         if matrix.shape != (dim, dim):
             raise _error(index, gate, f'expected a {dim}x{dim} matrix, got {tuple(matrix.shape)}')
         opcodes.append(OP_MATRIX)
-        targets.append(vendor_targets)
-        controls.append(vendor_controls)
+        targets.append(target_bits)
+        controls.append(control_bits)
         matrices.append(matrix)
         angles.append(0.0)
         paulis.append(())
@@ -304,10 +304,6 @@ def compile_circuit(circuit: Any) -> CompiledCircuitPlan:
         diagonals.append(diagonal)
 
     observable_paulis, observable_bits, observable_matrix, observable_matrix_bits = _compile_observables(circuit)
-    if getattr(circuit, 'diff_method', 'none') == 'adjoint' and (
-        not observable_paulis or observable_matrix is not None
-    ):
-        raise ValueError('adjoint requires one or more terminal Pauli observables')
     return CompiledCircuitPlan(
         nqubit=circuit.nqubit,
         opcodes=np.asarray(opcodes, dtype=np.int32),

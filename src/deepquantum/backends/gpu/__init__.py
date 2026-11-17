@@ -1,4 +1,4 @@
-"""Compiled single-GPU statevector execution with ixquantum."""
+"""Compiled single-GPU statevector execution with cuQuantum or ixquantum."""
 
 from .circuit import QubitCircuitGPU
 

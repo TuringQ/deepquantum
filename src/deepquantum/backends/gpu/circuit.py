@@ -30,7 +30,6 @@ class QubitCircuitGPU(QubitCircuit):
         shots: Default number of terminal measurement samples.
         device: Fixed CUDA-compatible execution device. Defaults to the current device.
         dtype: Statevector precision. Only ``torch.complex64`` is supported.
-        diff_method: ``'none'`` or ``'adjoint'``.
         backend: ``'auto'``, ``'cuquantum'``, or ``'ixquantum'``; selected from the PyTorch build in auto mode.
     """
 
@@ -43,15 +42,12 @@ class QubitCircuitGPU(QubitCircuit):
         *,
         device: str | torch.device | None = None,
         dtype: torch.dtype = torch.complex64,
-        diff_method: str = 'none',
         backend: str = 'auto',
     ) -> None:
         if not isinstance(nqubit, int) or isinstance(nqubit, bool) or (not 1 <= nqubit <= 30):
             raise ValueError('nqubit must be an integer in [1, 30]')
         if dtype != torch.complex64:
             raise ValueError('QubitCircuitGPU supports torch.complex64 only')
-        if diff_method not in ('none', 'adjoint'):
-            raise ValueError('diff_method must be "none" or "adjoint"')
         selected = torch.device('cuda' if device is None else device)
         if selected.type != 'cuda':
             raise ValueError('QubitCircuitGPU requires a CUDA-compatible device')
@@ -64,7 +60,6 @@ class QubitCircuitGPU(QubitCircuit):
         super().__init__(nqubit=nqubit, init_state=init_state, name=name, shots=shots)
         self.gpu_device = torch.device('cuda', index)
         self.gpu_backend = gpu_backend
-        self.diff_method = diff_method
         self._compiled_plan: CompiledCircuitPlan | None = None
         self._executor: Any = None
         self._matrix_observable: tuple[torch.Tensor, tuple[int, ...]] | None = None
@@ -191,7 +186,7 @@ class QubitCircuitGPU(QubitCircuit):
         """Execute the circuit and return a borrowed ``(2**nqubit, 1)`` state tensor.
 
         Runtime data encoding and external forward states are unsupported. Use
-        ``expectation()`` with ``diff_method='adjoint'`` for differentiable results.
+        ``expectation()`` for differentiable results using adjoint gradients.
         """
         if data is not None or state is not None:
             raise ValueError('QubitCircuitGPU accepts neither runtime data nor an external forward state')
@@ -227,22 +222,27 @@ class QubitCircuitGPU(QubitCircuit):
         }
 
     def expectation(self, shots: int | None = None, *, parameters: torch.Tensor | None = None) -> torch.Tensor:
-        """Evaluate terminal observables, using an adjoint when requested.
+        """Evaluate terminal observables, automatically using adjoint gradients.
 
-        Adjoint mode runs a forward pass itself. Otherwise call the circuit first.
+        When gradients are enabled and parameters require gradients, run a forward
+        pass and attach the adjoint backward. Otherwise read the existing state.
         Explicit parameters are a packed CUDA float32 vector in first-use order,
-        with one entry per distinct trainable scalar; they require adjoint mode.
+        with one entry per distinct trainable scalar. Explicit parameters always
+        trigger a new forward pass, including inside ``torch.no_grad()``.
         """
         if shots is not None:
             raise ValueError('QubitCircuitGPU supports exact expectation only (shots=None)')
         self._ensure_compiled()
         if not self._compiled_plan.observable_paulis and self._compiled_plan.observable_matrix is None:
             raise ValueError('There is no compiled observable')
-        if self.diff_method == 'adjoint':
+        values = self._resolve_parameters(parameters)
+        if torch.is_grad_enabled() and values.requires_grad:
+            if not self._compiled_plan.observable_paulis or self._compiled_plan.observable_matrix is not None:
+                raise ValueError('adjoint requires one or more terminal Pauli observables')
             self.state = None
-            return _GPUAdjointExpectation.apply(self._resolve_parameters(parameters), self)
+            return _GPUAdjointExpectation.apply(values, self)
         if parameters is not None:
-            raise ValueError('explicit parameters require diff_method="adjoint"')
+            self.state = self._executor.execute(values.detach()).reshape(-1, 1)
         return self._executor.expectation()
 
     def expectation_from_state(self, state: torch.Tensor, observables: list[Any]) -> torch.Tensor:
@@ -279,9 +279,9 @@ class QubitCircuitGPU(QubitCircuit):
 
     def adjoint_vjp(self, parameters: torch.Tensor | None, coefficients: torch.Tensor) -> torch.Tensor:
         """Compute the adjoint gradient of a weighted Pauli expectation."""
-        if self.diff_method != 'adjoint':
-            raise ValueError('adjoint_vjp requires diff_method="adjoint"')
         self._ensure_compiled()
+        if not self._compiled_plan.observable_paulis:
+            raise ValueError('adjoint requires one or more terminal Pauli observables')
         values = self._resolve_parameters(parameters)
         weights = coefficients.to(self.gpu_device, torch.float32).reshape(-1).contiguous()
         self.state = None
@@ -291,9 +291,9 @@ class QubitCircuitGPU(QubitCircuit):
         self, parameters: torch.Tensor | None, coefficients: torch.Tensor, constant: float = 0.0
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute weighted expectation value and adjoint gradient with one forward."""
-        if self.diff_method != 'adjoint':
-            raise ValueError('value_and_grad requires diff_method="adjoint"')
         self._ensure_compiled()
+        if not self._compiled_plan.observable_paulis:
+            raise ValueError('adjoint requires one or more terminal Pauli observables')
         values = self._resolve_parameters(parameters)
         weights = coefficients.to(self.gpu_device, torch.float32).reshape(-1).contiguous()
         self.state = None
