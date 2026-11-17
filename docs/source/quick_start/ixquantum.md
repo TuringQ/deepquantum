@@ -1,46 +1,31 @@
-# Single-GPU execution with ixquantum or cuQuantum
+# Single-GPU simulation
 
-`deepquantum.QubitCircuitGPU` compiles a circuit into a shared native executor for one Iluvatar CoreX (天数智芯) or NVIDIA GPU.
-It reuses DeepQuantum's gate construction API and supports statevector execution, exact expectations, terminal sampling, and first-order adjoint gradients.
+`QubitCircuitGPU` runs quantum circuits on one NVIDIA GPU with cuQuantum or one Iluvatar GPU with ixquantum.
+It uses the same gate construction methods as `QubitCircuit` and supports statevector simulation, measurement sampling, and adjoint gradients.
 
 ## Installation
 
 ### NVIDIA cuQuantum
 
-Use NVIDIA CUDA-enabled PyTorch, a matching CUDA development toolkit containing
-`nvcc` (CUDA runtime wheels alone are insufficient), and a C++17 compiler.
-Install with `python -m pip install 'deepquantum[cuquantum]'`, or
-`python -m pip install -e '.[cuquantum]'` from this checkout.
-Set `CUDA_HOME` to the matching toolkit. The loader finds `custatevec-cu12`
-headers and versioned libraries in the active Python environment, or use
-`CUQUANTUM_ROOT` for an explicit SDK with `include/` and `lib/` or `lib64/`.
-It links the resolved library path directly, including versioned linker names.
+Install NVIDIA CUDA-enabled PyTorch, a matching CUDA toolkit with `nvcc`, and a C++17 compiler.
+The CUDA runtime alone is not sufficient to compile the extension.
 
-```python
-circuit = dq.QubitCircuitGPU(3, backend='cuquantum', device='cuda:0')
+```bash
+python -m pip install 'deepquantum[cuquantum]'
 ```
 
-`backend='auto'` selects ixquantum for CoreX PyTorch and cuQuantum for NVIDIA
-CUDA PyTorch. Explicit mismatches and missing SDKs raise errors without fallback.
-Selection happens before executor construction; gate execution is shared.
-The explicit `backend='ixquantum'` remains available on CoreX.
-
-Both builds retain the original inverse-matrix, observable-ordering and sampling
-synchronization handling. Numerical validation on each backend remains necessary;
-availability of an SDK alone does not validate its gradients.
+Set `CUDA_HOME` to the CUDA toolkit directory.
+The loader finds the cuStateVec SDK installed by `custatevec-cu12` in the active Python environment.
+For a separate SDK installation, set `CUQUANTUM_ROOT` to its root directory containing `include/` and `lib/` or `lib64/`.
 
 ### Iluvatar ixquantum
 
-Request the matching GPU driver, **CoreX development toolkit**, **CoreX-compatible PyTorch**, and **ixquantum headers and shared library** from **Iluvatar CoreX (天数智芯)**.
-Visit the [Iluvatar CoreX developer downloads page](https://developer.iluvatar.com/downloads), Iluvatar's website; contact information is available at the bottom of the page.
-The ixquantum files needed by this backend are `custatevec.h` and `libcustatevec.so.1.8.0`.
+Obtain the GPU driver, CoreX toolkit, CoreX-compatible PyTorch, and ixquantum SDK from Iluvatar (天数智芯).
+The [Iluvatar developer downloads page](https://developer.iluvatar.com/downloads) provides contact information at the bottom of the page.
+This backend has been tested on Linux x86_64 with a BI-V150 GPU, CoreX 5.0.0, CoreX PyTorch 2.10.0, and ixquantum 1.8.0.
+A C++17 compiler and Python development headers are also required.
 
-The validated configuration is Linux **x86_64**, an Iluvatar BI-V150 GPU, **CoreX 5.0.0**, **CoreX PyTorch 2.10.0**, and **ixquantum 1.8.0**.
-Install the Iluvatar packages and activate the Python environment containing CoreX-compatible PyTorch.
-The native build also needs a C++17 host compiler and Python development headers.
-
-If CoreX is installed under `/usr/local/corex`, configure the compiler and runtime paths as follows.
-Adjust the paths for your installation, and set `IXQUANTUM_ROOT` to the directory containing the two ixquantum files.
+For CoreX installed under `/usr/local/corex`, configure the environment as follows:
 
 ```bash
 export PATH="/usr/local/corex/bin:$PATH"
@@ -49,17 +34,19 @@ export IXQUANTUM_ROOT=/path/to/ixquantum
 python -m pip install 'deepquantum[ixquantum]'
 ```
 
-For example, use `export IXQUANTUM_ROOT=/root` if both SDK files are stored directly in `/root`.
-An SDK layout with `include/custatevec.h` and the library under `lib` or `lib64` is also accepted.
-If `IXQUANTUM_ROOT` is unset, the SDK search defaults to `/usr/local/corex`.
-For a source checkout, use `python -m pip install -e '.[ixquantum]'`.
+Set `IXQUANTUM_ROOT` to the directory containing `custatevec.h` and `libcustatevec.so.1.8.0`, or an SDK directory with `include/` and `lib/` or `lib64/`.
+If unset, it defaults to `/usr/local/corex`.
 
-The `[ixquantum]` extra installs Python build tools (`ninja`, `setuptools`, and `packaging`); the CoreX and ixquantum packages come from 天数智芯.
-The extension compiles on first GPU use through `torch.utils.cpp_extension.load` and reuses the build cache thereafter.
-`TORCH_EXTENSIONS_DIR` selects the cache directory and `MAX_JOBS` limits build parallelism.
-Normal DeepQuantum installation and import do not require the GPU SDK or compile an extension.
+For a source checkout, use `python -m pip install -e '.[cuquantum]'` or `python -m pip install -e '.[ixquantum]'`.
+The extension compiles on first use and is cached for subsequent runs.
 
-## Forward execution and sampling
+## Build and run a circuit
+
+Choose the GPU with `device` when constructing the circuit.
+By default, the backend is selected from the installed PyTorch build.
+You can also set `backend='cuquantum'` or `backend='ixquantum'` explicitly.
+
+The following example prepares a three-qubit GHZ state:
 
 ```python
 import deepquantum as dq
@@ -68,84 +55,62 @@ circuit = dq.QubitCircuitGPU(3, device='cuda:0')
 circuit.h(0)
 circuit.cnot(0, 1)
 circuit.cnot(1, 2)
-state = circuit()                  # complex64 CUDA tensor, shape (8, 1)
-counts = circuit.measure(shots=1024)
-print(state.shape)                # torch.Size([8, 1])
-print(counts)                     # approximately equal '000' and '111' counts
+
+state = circuit()
+print(state.shape)                 # torch.Size([8, 1])
+print(circuit.measure(shots=1024))  # approximately equal '000' and '111' counts
 circuit.close()
 ```
 
-Logical qubit 0 is the most significant statevector bit, matching `QubitCircuit`.
-The returned tensor borrows the executor's storage; use `state.clone()` before another execution if the previous result must be retained.
-`close()` releases native resources; a later execution recompiles the circuit.
-Choose the execution device in the constructor; moving a circuit to another device is unsupported.
-Parameter dtype conversions and moving parameters to that same GPU remain supported.
+The state is a `complex64` tensor, with qubit 0 as the most significant bit, matching `QubitCircuit`.
+Its storage is reused by later executions; use `state.clone()` to keep an independent copy.
+`close()` releases the circuit's GPU resources.
+To use a different GPU, construct a new circuit on that device.
 
-## Differentiation
+## Train a circuit
+
+Gates added without fixed inputs have trainable parameters.
+For Pauli observables, when gradients are enabled and parameters require gradients, `expectation()` computes the forward result and uses adjoint differentiation during `backward()`.
 
 ```python
 import torch
 import deepquantum as dq
 
 circuit = dq.QubitCircuitGPU(2, device='cuda:0')
-circuit.ry(0)                      # trainable gate parameter
+circuit.ry(0)
 circuit.cnot(0, 1)
 circuit.observable(1, 'z')
+
 optimizer = torch.optim.Adam(circuit.parameters(), lr=0.05)
 for _ in range(10):
     optimizer.zero_grad()
     loss = circuit.expectation().sum()
     loss.backward()
     optimizer.step()
+
+# Read the trained circuit without computing gradients.
+with torch.no_grad():
+    circuit()
+    value = circuit.expectation()
+
 circuit.close()
 ```
 
-When gradients are enabled and parameters require gradients, `expectation()` automatically performs the forward pass and uses adjoint differentiation.
-For inference, call `circuit()` followed by `circuit.expectation()` inside `torch.no_grad()` to read the existing state without another forward pass.
-Explicit `expectation(parameters=...)` always evaluates the supplied parameters with a fresh forward pass, even inside `torch.no_grad()`.
-Matrix observables support non-differentiable readout only; requesting their gradients raises an error.
-The reverse pass reuses that final state, so complete `backward()` before executing, recompiling, or closing the same circuit again.
-Trainable scalar parameters shared between gates accumulate their contributions into one gradient.
-For a packed CUDA float32 parameter vector and observable coefficients, `value_and_grad(parameters, coefficients)` returns a weighted value and its gradient directly.
-`adjoint_vjp(parameters, coefficients)` returns just the gradient.
-Parameter order is first occurrence in the compiled gate sequence, with one entry per distinct trainable scalar.
-These direct gradient methods consume the final state and do not construct a higher-order autograd graph.
+Complete `backward()` before running or modifying the same circuit again.
+For inference, call `circuit()` before `expectation()`, as shown above.
 
-## Supported behavior
+## Supported operations
 
-- One pure complex64 statevector, from 1 to 30 qubits subject to device memory, with a fixed initial state.
-- Fixed unitary matrix gates, controlled gates, Pauli rotations, and phase gates.
-  `multirz(wires)` supplies a multi-wire Z rotation without constructing its dense matrix.
-- Exact Pauli-string expectations and first-order gradients for supported scalar rotations and phase gates.
-  One fixed Hermitian matrix observable can be registered with `observable_matrix(matrix, wires)` without gradients.
-  It cannot be combined with the Pauli observables on the same circuit.
-- `expectation_from_state(state, observables)` evaluates DeepQuantum `Observable` Pauli strings on an existing CUDA state without running or compiling gates.
-  This readout is non-differentiable and does not copy or retain the input state.
-- Terminal sampling with `with_prob=False`; no state collapse.
-- Runtime data encoding, batches, density matrices, noise channels, mid-circuit measurement, conditional operations, differentiable initial states, and differentiation of the returned statevector are unsupported.
-  Whole-circuit `inverse()` and circuit addition with `+` are also unsupported; individual inverse gates are supported.
-  Barriers are ignored during compilation.
+Supported gates include fixed unitary matrices, controlled gates, Pauli rotations, and phase gates.
+Gradients are available for supported scalar rotations and phase gates with Pauli observables, to first order only.
+The returned statevector is not differentiable.
 
-The compiler selects cuStateVec APIs for either backend: generalized permutations for permutation/diagonal gates,
-Pauli rotations for supported rotations, and dense matrices for other supported gates.
-Adjoint gradients combine generator action with the inner-product reduction in `adjoint_kernels.cu`.
-Phase gradients use the projector onto the active target/control sector directly.
-These kernels avoid allocating an additional full statevector for intermediate generator results.
-They also accumulate weighted Pauli observables when preparing the adjoint state.
+`measure()` returns sampled bit-string counts without changing the final state.
+Use `observable()` for Pauli observables or `observable_matrix(matrix, wires)` for a general fixed Hermitian observable.
+Matrix observables currently support expectation values without gradients and must be used separately from Pauli observables.
 
-| Operation | Implementation |
-|---|---|
-| X/Y/Z, S/T and inverses, CX/CY/CZ, SWAP/iSWAP, Toffoli/Fredkin | `ApplyGeneralizedPermutationMatrix` |
-| PhaseShift/CP | `ApplyGeneralizedPermutationMatrix` with a diagonal |
-| Rx/Ry/Rz, Rxx/Ryy/Rzz, MultiRZ and controlled forms | `ApplyPauliRotation` |
-| Rxy | Two half-angle XX/YY rotations |
-| Other fixed matrices | `ApplyMatrix` |
-| Rotation and phase gradients | Fused generator contraction |
+Runtime data encoding, batches, density matrices, noise, mid-circuit measurements, and conditional operations are currently not supported.
+Individual inverse gates are supported; whole-circuit `inverse()` and circuit addition with `+` are not.
 
-Fixed generalized permutations are recognized before GPU upload.
-API selection follows gate structure.
-
-Adding gates or observables, resetting the circuit, and loading a state dictionary automatically invalidate the compiled plan.
-Call `invalidate()` after directly changing gate structure, fixed parameters, or fixed matrices.
-Updating existing trainable parameter values does not require recompilation.
-Compilation and first-use kernel initialization should be excluded from steady-state performance measurements and reported separately.
+Updating trainable parameter values does not require recompilation.
+After directly changing a fixed gate parameter or matrix, call `circuit.invalidate()` before the next execution.
