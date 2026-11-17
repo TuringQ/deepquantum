@@ -4,12 +4,12 @@ import itertools
 import math
 import warnings
 from collections import Counter, defaultdict
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from copy import copy, deepcopy
 from dataclasses import replace
 from operator import index as operator_index
-from typing import Any
+from typing import Any, overload
 
 import numpy as np
 import torch
@@ -1056,6 +1056,26 @@ class QumodeCircuit(Operation):
         ).reshape(nstep - 1, self.nmode)
         return torch.cat([first.unsqueeze(0), later], dim=0)
 
+    @overload
+    def tdm_substate(
+        self,
+        time_steps: int | slice | list[int] | torch.Tensor,
+        wires: int | list[int] | torch.Tensor | None = None,
+        data: torch.Tensor | None = None,
+        *,
+        window: None = None,
+    ) -> list[torch.Tensor]: ...
+
+    @overload
+    def tdm_substate(
+        self,
+        time_steps: int | slice | list[int] | torch.Tensor,
+        wires: int | list[int] | torch.Tensor | None = None,
+        data: torch.Tensor | None = None,
+        *,
+        window: int,
+    ) -> Generator[list[torch.Tensor], None, None]: ...
+
     def tdm_substate(
         self,
         time_steps: int | slice | list[int] | torch.Tensor,
@@ -1063,7 +1083,7 @@ class QumodeCircuit(Operation):
         data: torch.Tensor | None = None,
         *,
         window: int | None = None,
-    ) -> list[torch.Tensor] | Iterator[list[torch.Tensor]]:
+    ) -> list[torch.Tensor] | Generator[list[torch.Tensor], None, None]:
         """Get a joint Gaussian TDM substate or iterate over output windows.
 
         With ``window=None``, return the joint state in the supplied time and wire
@@ -1106,39 +1126,39 @@ class QumodeCircuit(Operation):
             step = 1 if time_steps.step is None else time_steps.step
             if time_steps.stop is None or start < 0 or time_steps.stop < 0 or step <= 0:
                 raise ValueError('time_steps slices require nonnegative bounds, an explicit stop and a positive step')
-            time_steps = range(start, time_steps.stop, step)
-            if len(time_steps) == 0:
+            time_indices = range(start, time_steps.stop, step)
+            if len(time_indices) == 0:
                 raise ValueError('time_steps must not be empty')
         else:
-            time_steps = torch.as_tensor(time_steps)
+            time_indices = torch.as_tensor(time_steps)
             if (
-                time_steps.ndim > 1
-                or time_steps.dtype == torch.bool
-                or time_steps.is_floating_point()
-                or time_steps.is_complex()
+                time_indices.ndim > 1
+                or time_indices.dtype == torch.bool
+                or time_indices.is_floating_point()
+                or time_indices.is_complex()
             ):
                 raise ValueError('time_steps must contain integers')
-            time_steps = time_steps.reshape(-1).to(dtype=torch.long, device='cpu')
-            if time_steps.numel() == 0 or bool((time_steps < 0).any()):
+            time_indices = time_indices.reshape(-1).to(dtype=torch.long, device='cpu')
+            if time_indices.numel() == 0 or bool((time_indices < 0).any()):
                 raise ValueError('time_steps must contain nonnegative indices')
-            if torch.unique(time_steps).numel() != time_steps.numel():
+            if torch.unique(time_indices).numel() != time_indices.numel():
                 raise ValueError('time_steps must be unique')
         if window is not None:
             if not isinstance(window, int) or isinstance(window, bool) or window < 1:
                 raise ValueError('window must be a positive integer')
-            if isinstance(time_steps, torch.Tensor) and bool((time_steps[1:] < time_steps[:-1]).any()):
+            if isinstance(time_indices, torch.Tensor) and bool((time_indices[1:] < time_indices[:-1]).any()):
                 raise ValueError('time_steps must be ascending for window iteration')
         wires, data = self._prepare_tdm_readout(wires, data)
         if window is not None:
-            return self._tdm_substate_stepwise(time_steps, wires, data, window)
+            return self._tdm_substate_stepwise(time_indices, wires, data, window)
 
-        time_steps = torch.as_tensor(time_steps, dtype=torch.long)
-        nstep = int(time_steps.max()) + 1
+        time_indices = torch.as_tensor(time_indices, dtype=torch.long)
+        nstep = int(time_indices.max()) + 1
         if data is None:
-            return [value.unsqueeze(0) for value in self._tdm_substate_gaussian(nstep, time_steps, wires)]
+            return [value.unsqueeze(0) for value in self._tdm_substate_gaussian(nstep, time_indices, wires)]
         with self._preserve_encoders():
             return vmap(self._tdm_substate_gaussian, in_dims=(None, None, None, 0), randomness='same')(
-                nstep, time_steps, wires, data
+                nstep, time_indices, wires, data
             )
 
     def _tdm_substate_stepwise(
@@ -1147,7 +1167,7 @@ class QumodeCircuit(Operation):
         wires: torch.Tensor,
         data: torch.Tensor | None,
         window: int,
-    ) -> Iterator[list[torch.Tensor]]:
+    ) -> Generator[list[torch.Tensor], None, None]:
         """Yield Gaussian windows at selected times while reusing preceding evolution."""
         loop_wire_map = self._tdm_loop_map()
         nloop = len(loop_wire_map)
@@ -1155,7 +1175,7 @@ class QumodeCircuit(Operation):
         batch = 1 if data is None else data.shape[0]
         cov = (torch.eye(2 * nloop, dtype=vac.dtype, device=vac.device) * vac).expand(batch, -1, -1)
         mean = cov.new_zeros(batch, 2 * nloop, 1)
-        bindings = self.hardware_model._bind(self.operators) if self.hardware_model is not None else None
+        bindings = self.hardware_model._bind(self.operators) if self.hardware_model is not None else {}
         selected_steps = time_steps if isinstance(time_steps, range) else set(time_steps.tolist())
         selected_wires = wires.tolist()
         for step in range(int(time_steps[-1]) + 1):
@@ -1243,7 +1263,7 @@ class QumodeCircuit(Operation):
         selected_wires = wires.tolist()
         nretained = 0
         model = self.hardware_model
-        bindings = model._bind(self.operators) if model is not None else None
+        bindings = model._bind(self.operators) if model is not None else {}
 
         for step in range(nstep):
             old_nmode = nloop + nretained
@@ -1272,7 +1292,7 @@ class QumodeCircuit(Operation):
         state: list[torch.Tensor],
         step: int,
         loop_wire_map: dict[int, int],
-        bindings: dict[Operation, list] | None,
+        bindings: dict[Operation, list],
         data: torch.Tensor | None = None,
     ) -> list[torch.Tensor]:
         """Append vacuum inputs and evolve one step while preserving retained output correlations."""
@@ -1402,7 +1422,7 @@ class QumodeCircuit(Operation):
         return [cov, mean]
 
     @contextmanager
-    def _preserve_encoders(self) -> Iterator[None]:
+    def _preserve_encoders(self) -> Generator[None, None, None]:
         """Restore encoded controls and cached matrices before returning from batched execution."""
         saved = [
             (op, {**op.__dict__, '_buffers': op._buffers.copy()})
