@@ -175,6 +175,16 @@ class OPA(Channel):
     The internal parameters are ``r``, ``theta`` and ``loss_theta``.
     See https://arxiv.org/abs/2606.02524v1 Eq.(16) and Methods, Internal Loss.
 
+    Gaussian and Bosonic states use X and Y directly. Bargmann density states
+    use the analytic channel kernel. Fock density states use its projected
+    superoperator, with four local axes of length ``cutoff``. Output weight
+    above the cutoff is discarded without renormalization.
+
+    ``HardwareModel.opa().submodes(relative_r=...)`` sets fixed orthogonal gain
+    modes with ``r_k = r * relative_r[k]``. The same distributed loss acts on
+    every basis mode, including zero-gain modes. This assumes mode-independent
+    attenuation and a fixed gain basis along the device.
+
     Args:
         inputs: The parameters of the channel (``r``, ``theta`` and loss).
             With ``convention='gain_db'``, use ``[gain_db, theta, loss_db]``, where gain is the net
@@ -295,9 +305,9 @@ class OPA(Channel):
         self.matrix_x, self.matrix_y = matrix_x.detach(), matrix_y.detach()
         return matrix_x, matrix_y
 
-    def update_matrix_state(self) -> torch.Tensor:
-        """Fock Kraus matrices are not implemented for OPA yet."""
-        raise NotImplementedError('OPA supports Gaussian and Bosonic states only; Fock support is not implemented.')
+    def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply the exact channel projected into the specified Fock cutoff."""
+        return self._op_den_mat_bargmann(x)
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, r={self.r.item()}, theta={self.theta.item()}, transmittance={self.t.item()}'

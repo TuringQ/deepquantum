@@ -291,17 +291,11 @@ def test_opa_rejects_invalid_loss(convention, loss):
         dqp.OPA([0.3, 0.2, loss], convention=convention)
 
 
-@pytest.mark.parametrize('basis, den_mat', [(True, False), (False, False), (False, True)])
-def test_opa_rejects_fock(basis, den_mat):
+@pytest.mark.parametrize('basis, den_mat', [(True, False), (False, False)])
+def test_opa_requires_fock_density(basis, den_mat):
     cir = dqp.QumodeCircuit(1, 'vac', basis=basis, den_mat=den_mat)
-    with pytest.raises(NotImplementedError, match='OPA supports Gaussian and Bosonic'):
+    with pytest.raises(NotImplementedError, match='OPA requires Fock state tensors'):
         cir.opa(0, r=0.3, theta=0, loss=0.2, convention='db')
-    op = dqp.OPA([0.3, 0, 0.2], convention='db')
-    with pytest.raises(NotImplementedError, match='OPA supports Gaussian and Bosonic'):
-        op(torch.ones(1, 2, 2))
-    cir.operators.append(op)
-    with pytest.raises(NotImplementedError, match='OPA'):
-        cir()
 
 
 @pytest.mark.parametrize('method', ['opa', 'opa_db'])

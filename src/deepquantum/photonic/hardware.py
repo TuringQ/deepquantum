@@ -493,7 +493,17 @@ class _SqueezingConfig(_AmplitudePhaseConfig):
         return super().submodes(modes, name=name)
 
 
-class _OPAConfig(_AmplitudePhaseConfig):
+class _OPAConfig(_SqueezingConfig):
+    def submodes(self, coefficients: Any = None, *, relative_r: Any = None, name: str | None = None) -> 'HardwareModel':
+        """Set fixed orthogonal gain modes with ``r_k = r * relative_r[k]``.
+
+        Ratios are normalized by the first entry. All basis modes experience the
+        same distributed loss, including modes with zero gain. This assumes
+        mode-independent attenuation along the device. Output photon numbers
+        alone do not calibrate these ratios in a lossy amplifier.
+        """
+        return super().submodes(coefficients, relative_r=relative_r, name=name)
+
     @property
     def loss_theta(self) -> _ParameterConfig:
         """Select the internal loss angle."""
@@ -763,9 +773,9 @@ class HardwareModel(nn.Module):
                 ):
                     raise ValueError('Orthogonal-basis coefficients apply to squeezing, displacement or OPA.')
                 elif len(binding.plugin.relative_r) > 1 and any(
-                    kind not in (Squeezing, Squeezing2) for kind in binding.op_types
+                    kind not in (Squeezing, Squeezing2, OPA) for kind in binding.op_types
                 ):
-                    raise ValueError('Multiple coefficient rows require squeezing or two-mode squeezing.')
+                    raise ValueError('Multiple coefficient rows require squeezing, two-mode squeezing or OPA.')
 
             if binding.bound_ops is not None and not binding.bound_ops <= operations:
                 raise ValueError(f'{name}: a bound operation was removed or replaced; rebuild the hardware binding.')

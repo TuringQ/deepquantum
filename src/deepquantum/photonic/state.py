@@ -486,6 +486,57 @@ class BargmannState(nn.Module):
         polyexp = self.polyexp
         return self._new(polyexp.tensor_product(polyexp.conj()), den_mat=True)
 
+    def tensor_product(self, other: 'BargmannState') -> 'BargmannState':
+        """Append independent modes, broadcasting batches and promoting kets when either state is mixed.
+
+        The result uses this state's default readout cutoff. Coefficients must
+        have the same dtype and device. State weights multiply.
+        """
+        first, second = self, other
+        if first.den_mat or second.den_mat:
+            first, second = first.to_dm(), second.to_dm()
+        polyexp = first.polyexp.tensor_product(second.polyexp)
+        if first.den_mat:
+            n, m = first.nmode, second.nmode
+            order = list(range(n)) + list(range(2 * n, 2 * n + m))
+            order += list(range(n, 2 * n)) + list(range(2 * n + m, 2 * (n + m)))
+            polyexp = polyexp.reorder(order)
+        return self._new(polyexp, den_mat=first.den_mat)
+
+    def reorder(self, wires: list[int]) -> 'BargmannState':
+        """Permute modes so new mode i is old mode wires[i], including both density axes."""
+        if sorted(wires) != list(range(self.nmode)):
+            raise ValueError('wires must be a permutation of all modes')
+        order = list(wires)
+        if self.den_mat:
+            order += [wire + self.nmode for wire in wires]
+        return self._new(self.polyexp.reorder(order))
+
+    def partial_trace(self, wires: int | list[int]) -> 'BargmannState':
+        """Trace out modes analytically, returning a density state without normalizing its weight.
+
+        Remaining modes retain their relative order and are numbered consecutively.
+        """
+        wires = [wires] if isinstance(wires, int) else list(wires)
+        if len(set(wires)) != len(wires) or any(w < 0 or w >= self.nmode for w in wires):
+            raise ValueError('wires must contain distinct valid mode indices')
+        density = self.to_dm()
+        polyexp = density.polyexp.contract([(wire, wire + self.nmode) for wire in wires])
+        return density._new(polyexp)
+
+    def _replace_modes(self, wires: list[int], replacement: 'BargmannState') -> 'BargmannState':
+        """Reset selected modes to an independent preparation, preserving the incoming weight."""
+        if replacement.nmode != len(wires):
+            raise ValueError('One replacement mode is required per selected wire')
+        if self.den_mat:
+            rest = self.partial_trace(wires)
+        else:
+            rest = self._post_select(tuple(wires), (0,) * len(wires))
+            if not torch.allclose(rest.norm(), self.norm(), atol=100 * torch.finfo(self.mat_a.real.dtype).eps, rtol=0):
+                raise ValueError('Pure input preparation requires vacuum on the selected input wires')
+        order = [w for w in range(self.nmode) if w not in wires] + list(wires)
+        return rest.tensor_product(replacement).reorder([order.index(w) for w in range(self.nmode)])
+
     def _post_select(
         self, positions: tuple[int, ...], photons: tuple[int, ...], detector: str = 'pnrd'
     ) -> 'BargmannState':

@@ -8,7 +8,9 @@ from torch import nn
 import deepquantum.photonic as dqp
 
 from ..qmath import partial_trace
+from .bargmann import _gaussian_bargmann
 from .qmath import _normalize_coefficients
+from .state import BargmannState
 
 if TYPE_CHECKING:
     from .hardware import _HardwareRun
@@ -166,6 +168,7 @@ class ThermalSource(nn.Module):
     ``HardwareModel.input().submodes()`` selects the occupied mode. Other basis modes remain vacuum.
     Fock preparation requires density matrices and retains the unnormalized cutoff projection,
     with trace ``1 - (nbar/(1+nbar))**cutoff`` per mode. The internal parameter is ``sqrt(nbar)``.
+    Bargmann preparation requires density matrices and uses the full thermal kernel without truncation.
     See https://arxiv.org/pdf/1110.3234v1 Eq.(27).
 
     Args:
@@ -216,6 +219,16 @@ class ThermalSource(nn.Module):
 
     def forward(self, state: Any, run: '_HardwareRun') -> Any:
         """Reset selected modes to independent thermal states."""
+        if run.backend == 'bargmann':
+            nbar = self.nbar.to(state.mat_a.real)
+            q = (nbar / (1 + nbar)).reshape(()) + 0j
+            zero = torch.zeros_like(q)
+            mat_a = torch.stack([zero, q, q, zero]).reshape(2, 2)
+            kernel = _gaussian_bargmann(mat_a, mat_a.new_zeros(2), (1 + nbar).reciprocal().to(q.dtype))
+            thermal = BargmannState(kernel, den_mat=True, cutoff=state.cutoff)
+            for wire in run.wires:
+                state = state._replace_modes([wire], thermal)
+            return state
         if run.backend in ('gaussian', 'bosonic'):
             cov, mean = state[:2]
             nmode = cov.shape[-1] // 2
@@ -240,6 +253,8 @@ class SinglePhotonSource(nn.Module):
 
     ``QumodeCircuit.single_photon`` prepares independent spatial inputs before all gates.
     Mixed inputs require Fock density matrices. Pure Fock state tensors require vacuum on the selected inputs.
+    Bargmann supports one basis mode per spatial input. Density states are reset
+    by partial trace, while ket preparations require vacuum on the selected inputs.
     Specify at most one of ``coefficients``, ``density_matrix`` and ``factor``.
     Trainable parameters are the real and imaginary components of the coefficients or factor.
     A supplied density matrix is first factorized.
@@ -320,6 +335,17 @@ class SinglePhotonSource(nn.Module):
 
     def forward(self, state: Any, run: '_HardwareRun') -> Any:
         """Prepare one photon in the specified state across the selected orthogonal basis modes."""
+        if run.backend == 'bargmann':
+            if self.components.shape[0] != 1:
+                raise NotImplementedError('Bargmann single-photon sources do not support submodes')
+            photon = BargmannState([1], den_mat=state.den_mat, cutoff=state.cutoff).to(
+                device=state.mat_a.device, dtype=state.mat_a.real.dtype
+            )
+            coefficient = self.density_matrix[0, 0] if state.den_mat else self.coefficients[0]
+            photon.coeff_c = photon.coeff_c * coefficient.to(photon.coeff_c)
+            for wire in run.wires:
+                state = state._replace_modes([wire], photon)
+            return state
         if run.backend != 'fock' or run.basis:
             raise NotImplementedError('SinglePhotonSource requires Fock density matrices (basis=False, den_mat=True).')
         density = self.density_matrix

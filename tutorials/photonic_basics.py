@@ -820,7 +820,11 @@ print(cov_opa_tdm.shape, mean_opa_tdm.shape)  # (1, 4, 4), (1, 4, 1)
 # `model.delay().opa(index=0)` 选择环内 OPA，`before/after.loss(...)` 设置完整器件前后的外部损耗。
 #
 # 支持 Gaussian、Bosonic、TDM 全局展开及带 Homodyne 测量的逐步演化；`tdm_substate()` 当前用于 Gaussian。
-# Fock 后端和 Bargmann 桥接尚未实现。
+# OPA 支持 Bargmann 密度核与 Fock 密度矩阵，Fock 线路设置 `basis=False, den_mat=True`。
+# Bargmann 演化不截断，Fock 路径在每个信道输出处保留指定 cutoff 内的矩阵元，不自动归一化。
+# `model.opa().submodes(relative_r=[1, 0.3])` 设置各正交基模的增益比例，也可传入正交系数行。
+# `relative_r` 只缩放增益，所有正交基模共享器件分布损耗，包括零增益模式。
+# 这对应固定增益基底和模式无关损耗；有损 OPA 的输出光子数不能直接使用理想压缩的 `relative_nbar` 换算。
 # 含显式信道的线路不能仅用 `get_symplectic()` 表示；需要局部信道矩阵时，调用 `OPA.update_transform_xy()`。
 #
 # 如需改变正交分量归一化，应先调用 `dqp.set_hbar(...)`、`dqp.set_kappa(...)`，再建立状态和线路。
@@ -1925,7 +1929,64 @@ print(event_probability)  # 约 0.0849
 print(second_event.shape, first_event.shape)  # (1, 2, 2)、(1, 2, 1)
 
 # %% [markdown]
-# 当前支持相移、分束器、MZI、任意无源酉变换、单模／双模压缩、位移和光损耗，也支持 `HardwareModel` 中相应的控制噪声与光路损耗。
+# 当前支持相移、分束器、MZI、任意无源酉变换、单模／双模压缩、位移、光损耗、OPA 和 DisplacementChannel，也支持 `HardwareModel` 中相应的控制噪声与光路损耗。
 # 直接输入 Fock 态或进行光子计数后选择可以得到非高斯态，Kerr 和三次相位等非高斯门尚未实现。
-# Bargmann 的 homodyne、线路级采样、TDM、正交基模及 `thermal()` 光源制备尚未支持。
+# Bargmann 的 homodyne、线路级采样和正交基模扩展尚未支持。
+# `thermal()`、`single_photon()` 和原生环路逐步演化的用法见下文。
 # 后选择的 `keep`、`submode` 和 `lo` 目前仅用于 Fock 后端。
+
+# %% [markdown]
+# ### 光源、信道与 Fock 读出
+#
+# `thermal(wires, nbar=...)` 在演化前制备完整的热态，需要 `den_mat=True`。
+# `single_photon(wires)` 为每个选中空间输入准备一个光子，Bargmann 路径目前每个空间输入只含一个正交基模。
+# 密度矩阵准备会迹掉输入的旧模式及其相关性，再插入独立的新态；纯态准备要求选中输入原为真空。
+#
+# OPA 和 DisplacementChannel 通过同一 Gaussian 信道转换得到 Bargmann 核。
+# `op.get_superoperator()` 返回 Fock 信道张量，轴顺序为输出 ket、输出 bra、输入 ket、输入 bra，每个模式轴长度为 `op.cutoff`。
+#
+
+# %%
+cir_native_source = dq.QumodeCircuit(2, 'vac', backend='bargmann', den_mat=True, cutoff=6)
+cir_native_source.thermal(0, nbar=0.1)
+cir_native_source.single_photon(1)
+cir_native_source.opa(0, r=0.3, theta=0.2, loss=0.5, convention='db')
+cir_native_source.d_channel(1, amplitude=0.2, phase=0.1, t=0.9)
+cir_native_source.double()
+source_output = cir_native_source()
+print(source_output.norm())  # tensor([1.], dtype=torch.float64)
+print(source_output.to_fock().shape)  # (1, 6, 6, 6, 6)
+
+# %% [markdown]
+# ### 原生环路与条件态回送
+#
+# `tdm_step(data=None, state=None)` 演化一个时间步，每次从 `init_state` 和声明的光源准备新输入。
+# `state` 只保存环内记忆，省略时从真空环路开始。
+# 输出态含环内槽位与本步空间输出，环内槽位已移位到下一步的顺序。
+# `post_select` 的 `wires` 仍使用空间输出编号；对所有空间输出做条件测量后，返回态正好可送入下一步。
+# 选择 `normalize=False` 时，返回的概率是到当前步为止整条事件序列的联合权重。
+# 下面选择第 1、3 步各探测到一个光子，第 2 步探测到真空。
+#
+
+# %%
+cir_native_loop = dq.QumodeCircuit(1, 'vac', backend='bargmann', den_mat=True, cutoff=5)
+cir_native_loop.thermal(0, nbar=0.02)
+cir_native_loop.opa(0, r=0.3, theta=0.0, loss=0.2, convention='db')
+cir_native_loop.delay(0, ntau=2, inputs=[0.4, 0.1])
+cir_native_loop.double()
+memory = None
+for photons in [1, 0, 1]:
+    joint = cir_native_loop.tdm_step(state=memory)
+    memory, event_weight = cir_native_loop.post_select(0, photons, normalize=False)
+    print(memory.nmode, event_weight)  # 2 个环内模式和累积事件权重
+print(memory.to_fock().shape)  # (1, 5, 5, 5, 5)
+
+# %% [markdown]
+# 阈值事件可用 `detector='threshold'`，其条件态为密度矩阵，后续环路应设置 `den_mat=True`。
+# 如果不按测量结果筛选，使用 `joint.partial_trace(cir_native_loop.tdm_output_wires(1)[0].tolist())` 迹掉本步输出，得到无条件环内记忆。
+# `partial_trace` 返回密度矩阵，因此无条件循环也使用 `den_mat=True`。
+#
+# `tensor_product` 拼接独立态，`reorder` 调整模式顺序，`partial_trace` 在 Bargmann 表示中完成部分迹，均不使用 Fock cutoff。
+# 测量部分空间输出时，条件态还保留未测输出；可根据 `return_info=True` 的 `remaining_wires`（并发槽位编号）定位并迹掉它们，再回送环内记忆。
+# 每次 PNR 会保留新的辅助求导变量，点击条件会增加指数项数，长事件序列的计算规模仍会增长。
+#

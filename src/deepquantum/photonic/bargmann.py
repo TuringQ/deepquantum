@@ -438,6 +438,65 @@ def _gaussian_bargmann(mat_a: torch.Tensor, vec_b: torch.Tensor, coeff_c: torch.
     )
 
 
+def gaussian_channel_to_bargmann(
+    matrix_x: torch.Tensor, matrix_y: torch.Tensor, displacement: torch.Tensor | None = None
+) -> BargmannPolyExp:
+    r"""Convert a local affine Gaussian channel to its Bargmann density kernel.
+
+    The channel maps ``cov -> X @ cov @ X.T + Y`` and ``mean -> X @ mean + d``.
+    All quadratures use xxpp order and the current ``hbar`` and ``kappa`` units.
+    Let ``s = 2*kappa**2/hbar``, ``Gamma = (I + X @ X.T)/2 + s*Y``,
+    ``Q = W @ Gamma @ W.H``, ``M = W @ X @ W.H`` and ``beta = sqrt(s)*W @ d``,
+    with W and J as in :func:`gaussian_to_bargmann`. Then
+
+    .. math::
+
+        A = \begin{pmatrix}(I-Q^{-1})J & Q^{-1}M \\
+            M^T Q^{-T} & J-M^T JQ^{-1}M\end{pmatrix},\qquad
+        b = \begin{pmatrix}Q^{-1}\beta\\-M^T JQ^{-1}\beta\end{pmatrix}.
+
+    The scalar is the vacuum output probability
+    ``exp(-beta.H @ inv(Q) @ beta / 2) / sqrt(det(Gamma))``.
+    These expressions follow by applying the channel to a coherent input and
+    matching its Gaussian output kernel. They are Eq.(87)-(89) reordered into
+    ket output, bra output, ket input, bra input, with
+    ``hbar_paper = hbar/(2*kappa**2)``.
+    See https://arxiv.org/pdf/2504.10455v3 Eq.(87)-(89).
+
+    Args:
+        matrix_x: Real local matrix of shape ``(2M, 2M)``.
+        matrix_y: Real noise covariance of the same shape, dtype and device.
+        displacement: Real output displacement of shape ``(2M, 1)``. Default: ``None`` (zero)
+
+    Returns:
+        A Gaussian ``BargmannPolyExp`` with 4M free variables. Differentiation
+        gives channel matrix elements, without a finite environment cutoff.
+    """
+    if matrix_x.ndim != 2 or matrix_x.shape[0] != matrix_x.shape[1] or matrix_x.shape[0] % 2:
+        raise ValueError('matrix_x must have shape (2M, 2M)')
+    if matrix_y.shape != matrix_x.shape:
+        raise ValueError('matrix_y must match matrix_x')
+    if displacement is None:
+        displacement = matrix_x.new_zeros(matrix_x.shape[0], 1)
+    if displacement.shape != (matrix_x.shape[0], 1):
+        raise ValueError('displacement must have shape (2M, 1)')
+    identity = torch.eye(matrix_x.shape[0], dtype=matrix_x.dtype, device=matrix_x.device)
+    gamma = (identity + matrix_x @ matrix_x.mT) / 2 + (2 * dqp.kappa**2 / dqp.hbar) * matrix_y
+    inverse = quadrature_to_ladder(torch.linalg.solve(gamma, identity), symplectic=True)
+    transform = quadrature_to_ladder(matrix_x, symplectic=True)
+    beta = quadrature_to_ladder(displacement)
+    exchange = identity.roll(matrix_x.shape[0] // 2, dims=0).to(inverse.dtype)
+    cross = inverse @ transform
+    output = (identity - inverse) @ exchange
+    input_ = exchange - transform.mT @ exchange @ cross
+    mat_a = torch.cat([torch.cat([output, cross], -1), torch.cat([cross.mT, input_], -1)], -2)
+    mat_a = (mat_a + mat_a.mT) / 2
+    solved = inverse @ beta
+    vec_b = torch.cat([solved, -transform.mT @ exchange @ solved], -2).squeeze(-1)
+    log_c = -(torch.linalg.slogdet(gamma)[1] + (beta.conj() * solved).sum().real) / 2
+    return _gaussian_bargmann(mat_a, vec_b, log_c.exp().to(mat_a.dtype))
+
+
 def passive_bargmann(unitary: torch.Tensor) -> BargmannPolyExp:
     r"""Get the Bargmann representation of a passive linear-optical gate.
 

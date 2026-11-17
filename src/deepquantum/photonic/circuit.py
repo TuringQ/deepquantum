@@ -361,7 +361,7 @@ class QumodeCircuit(Operation):
         if self.hardware_model is not None:
             self._validate_hardware_model(self.hardware_model)
         if self.sources:
-            if self._with_delay:
+            if self._with_delay and self.backend != 'bargmann':
                 raise NotImplementedError('Unroll source preparations with global_circuit() before execution.')
             if state is not None:
                 raise ValueError('Use either source preparations or a forward state override.')
@@ -369,7 +369,8 @@ class QumodeCircuit(Operation):
         if (
             self.hardware_model is not None
             and self.hardware_model._has_submodes
-            or any(isinstance(source, SinglePhotonSource) for source in self.sources.values())
+            or self.backend == 'fock'
+            and any(isinstance(source, SinglePhotonSource) for source in self.sources.values())
         ):
             from .submode import _expand_submodes
 
@@ -707,15 +708,20 @@ class QumodeCircuit(Operation):
                 'is_prob=True is not supported by the Bargmann backend; '
                 'run state = cir(), then convert with state.to_fock(cutoff) to calculate probabilities in Fock space'
             )
-        if self.mps or self._with_delay or isinstance(self, DistributedQumodeCircuit):
-            raise NotImplementedError('The Bargmann backend does not support MPS, delay or distributed circuits')
+        if self.mps or isinstance(self, DistributedQumodeCircuit):
+            raise NotImplementedError('The Bargmann backend does not support MPS or distributed circuits')
         if len(self.measurements) > 0:
             raise NotImplementedError('Homodyne measurements are not supported by the Bargmann backend')
         if state is None:
             state = self.init_state
         elif not isinstance(state, BargmannState):
             state = BargmannState(state, nmode=self.nmode, cutoff=self.cutoff, den_mat=self.den_mat)
-        if state.nmode != self.nmode:
+        if self._with_delay and state.nmode == self.nmode:
+            memory = BargmannState('vac', nmode=self._nmode_tdm - self.nmode, den_mat=self.den_mat).to(
+                device=state.mat_a.device, dtype=state.mat_a.real.dtype
+            )
+            state = self._join_bargmann_tdm(memory, state)
+        if state.nmode != (self._nmode_tdm if self._with_delay else self.nmode):
             raise ValueError('The number of modes of the state does not match the circuit')
         if state.den_mat != self.den_mat:
             if not self.den_mat:
@@ -731,11 +737,14 @@ class QumodeCircuit(Operation):
             if batch not in (1, data.shape[0]):
                 raise ValueError('The batch sizes of data and state do not match')
             outputs = []
-            run = self.hardware_model._new_run(self.backend, self.wires) if self.hardware_model is not None else None
+            wires = [self._unroll_dict[w][-1] for w in self.wires] if self._with_delay else self.wires
+            run = self.hardware_model._new_run(self.backend, wires) if self.hardware_model is not None else None
             for i in range(data.shape[0]):
                 sample = state if batch == 1 else state._select_batch(i)
                 outputs.append(self._forward_helper_bargmann(data[i], sample, run))
             result = BargmannState._cat_batch(outputs)
+        if self._with_delay:
+            result = self._shift_state(result)
         # A forward result must not be registered as a circuit submodule.
         self.__dict__['state'] = result
         return result
@@ -745,9 +754,56 @@ class QumodeCircuit(Operation):
     ) -> BargmannState:
         """Perform a forward pass for one sample with the Bargmann backend."""
         self.encode(data)
+        operators = self._unroll_operators()
         if self.hardware_model is not None:
-            return self.hardware_model(state, self.operators, self.backend, self.wires, _run=run)
-        return self.operators(state)
+            wires = [self._unroll_dict[w][-1] for w in self.wires] if self._with_delay else self.wires
+            return self.hardware_model(state, operators, self.backend, wires, self.operators, _run=run)
+        return operators(state)
+
+    def _join_bargmann_tdm(self, memory: BargmannState, inputs: BargmannState) -> BargmannState:
+        """Place chronological loop slots and fresh spatial inputs in the concurrent layout."""
+        spatial = [self._unroll_dict[w][-1] for w in self.wires]
+        loop = [w for w in range(self._nmode_tdm) if w not in spatial]
+        order = loop + spatial
+        return memory.tensor_product(inputs).reorder([order.index(w) for w in range(self._nmode_tdm)])
+
+    def tdm_step(self, data: torch.Tensor | None = None, state: BargmannState | None = None) -> BargmannState:
+        """Evolve Bargmann loop memory with a fresh set of spatial inputs for one time step.
+
+        Fresh inputs come from ``init_state`` and the declared sources on every call.
+        The returned state contains both loop slots and spatial outputs in the same
+        concurrent layout as a direct forward pass. Delay slots have already shifted
+        to the next time step. Evolution never uses a Fock cutoff.
+
+        Args:
+            data: Encoded controls for this step, with shape ``(ndata,)`` or
+                ``(batch, ndata)``. Default: ``None``
+            state: Loop memory only, ordered by increasing concurrent slot index.
+                Condition all spatial outputs with ``post_select`` to obtain this
+                state, or trace the output slots from the returned state with
+                ``partial_trace(cir.tdm_output_wires(1)[0].tolist())``.
+                Unnormalized memory retains the joint event weight.
+                Default: ``None`` (vacuum memory)
+
+        Returns:
+            The joint ``BargmannState`` of loop memory and current spatial outputs.
+        """
+        self._invalidate_state()
+        self._prepare_unroll_dict()
+        if self.backend != 'bargmann' or not self._with_delay:
+            raise NotImplementedError('tdm_step requires a Bargmann circuit with delay loops')
+        if self.hardware_model is not None:
+            self._validate_hardware_model(self.hardware_model)
+        inputs = self._prepare_sources() if self.sources else self.init_state
+        nloop = self._nmode_tdm - self.nmode
+        if state is None:
+            state = BargmannState('vac', nmode=nloop, den_mat=self.den_mat, cutoff=self.cutoff).to(
+                device=inputs.mat_a.device, dtype=inputs.mat_a.real.dtype
+            )
+        if not isinstance(state, BargmannState) or state.nmode != nloop:
+            raise ValueError(f'state must be a BargmannState containing the {nloop} loop modes only')
+        with self._preserve_encoders():
+            return self._forward_bargmann(data, self._join_bargmann_tdm(state, inputs))
 
     def _forward_cv_prob(
         self, cov: torch.Tensor, mean: torch.Tensor, weight: torch.Tensor | None = None, detector: str | None = None
@@ -1402,9 +1458,10 @@ class QumodeCircuit(Operation):
                 cir.sources[str(spatial_wires[int(wire)])] = preparation
         return cir
 
-    def _shift_state(self, state: list[torch.Tensor], nstep: int = 1, reverse: bool = False) -> list[torch.Tensor]:
+    def _shift_state(
+        self, state: list[torch.Tensor] | BargmannState, nstep: int = 1, reverse: bool = False
+    ) -> list[torch.Tensor] | BargmannState:
         """Shift the state according to ``nstep``, which is equivalent to shifting the TDM circuit."""
-        cov, mean = state
         idx_shift = []
         for wire in self._unroll_dict:
             for idx in self._unroll_dict[wire]:
@@ -1415,6 +1472,9 @@ class QumodeCircuit(Operation):
                         idx_shift.extend(shift_func(idx, -nstep))
                     else:
                         idx_shift.extend(shift_func(idx, nstep))
+        if isinstance(state, BargmannState):
+            return state.reorder(idx_shift)
+        cov, mean = state
         idx_shift = torch.tensor(idx_shift)
         idx_shift = torch.cat([idx_shift, idx_shift + self._nmode_tdm])
         cov = cov[..., idx_shift[:, None], idx_shift]
@@ -2483,6 +2543,8 @@ class QumodeCircuit(Operation):
         assert len(wires) == len(phi), f'phi length {len(phi)} must match wires length {len(wires)}'
         state = self._get_output_state()
         if self.backend == 'bargmann':
+            if self._with_delay:
+                wires = [self._unroll_dict[w][-1] for w in wires]
             return state.quadrature_mean(wires, phi)
         if self.backend == 'fock':
             assert not self.basis
@@ -2506,7 +2568,8 @@ class QumodeCircuit(Operation):
         Supports Fock state tensors, Gaussian, Bosonic and Bargmann states from
         the latest forward pass. Bargmann moments do not use a Fock cutoff.
         Measurement instructions do not change the selected quadratures.
-        MPS, TDM and orthogonal basis modes are not supported.
+        Bargmann delay circuits read the current spatial outputs.
+        MPS, Gaussian/Bosonic TDM and orthogonal basis modes are not supported.
 
         Args:
             wires: The indices of the modes to measure, in output order. Default: ``None`` (all modes)
@@ -2524,7 +2587,7 @@ class QumodeCircuit(Operation):
             contributions that can be summed over events, including zero-probability events.
             See ``BargmannState.quadrature_moments`` for the moment definitions.
         """
-        if self.mps or self._with_delay or self._submode_circuit is not None:
+        if self.mps or (self._with_delay and self.backend != 'bargmann') or self._submode_circuit is not None:
             raise NotImplementedError('quadrature_moments does not support MPS, TDM or orthogonal basis modes')
         if self.backend == 'fock' and self.basis:
             raise NotImplementedError('Fock quadrature moments require basis=False')
@@ -2533,6 +2596,8 @@ class QumodeCircuit(Operation):
             raise ValueError('wires must contain distinct valid mode indices')
         state = self._get_output_state()
         if self.backend == 'bargmann':
+            if self._with_delay:
+                wires = [self._unroll_dict[w][-1] for w in wires]
             return state.quadrature_moments(wires, centered=centered, normalize=normalize)
         if self.backend == 'fock':
             return quadrature_moments_fock(
@@ -2614,6 +2679,11 @@ class QumodeCircuit(Operation):
         The circuit state is unchanged and gates are not rerun, including after
         a Fock or Gaussian ``forward(is_prob=True)``.
 
+        On a Bargmann delay circuit, ``wires`` selects current spatial outputs.
+        Loop slots are retained in their shifted order. Conditioning all spatial
+        outputs returns the memory accepted by ``tdm_step(state=...)``.
+        ``remaining_wires`` then labels concurrent slots, as in the forward state.
+
         Args:
             wires: Measured spatial modes, in the same order as ``photons``.
             photons: The selected photon numbers, one nonnegative integer per measured spatial mode.
@@ -2660,7 +2730,10 @@ class QumodeCircuit(Operation):
         if self.backend != 'fock' and (keep is not None or submode is not None or lo is not None):
             raise NotImplementedError('keep, submode and lo require the Fock backend')
         wires, photons, cutoff = self._prepare_post_select(wires, photons, detector, cutoff)
-        remaining = tuple(w for w in range(self.nmode) if w not in wires)
+        if self._with_delay:
+            wires = tuple(self._unroll_dict[w][-1] for w in wires)
+        nmode = self._nmode_tdm if self._with_delay else self.nmode
+        remaining = tuple(w for w in range(nmode) if w not in wires)
         if self.backend == 'fock':
             if cutoff > self.cutoff:
                 raise ValueError('Output cutoff must lie within the simulated Fock space')
@@ -2708,7 +2781,7 @@ class QumodeCircuit(Operation):
             raise ValueError('detector must be pnrd, threshold or click')
         if detector == 'click':
             raise NotImplementedError('Click-counting post-selection is not implemented')
-        if self.mps or self._with_delay or isinstance(self, DistributedQumodeCircuit):
+        if self.mps or (self._with_delay and self.backend != 'bargmann') or isinstance(self, DistributedQumodeCircuit):
             raise NotImplementedError('post_select does not support MPS, delay or distributed circuits')
         self._get_output_state()
 
@@ -2733,7 +2806,7 @@ class QumodeCircuit(Operation):
             raise ValueError('Measured wires must be unique valid mode indices')
         if not wires:
             raise ValueError('post_select requires at least one measured mode')
-        if len(wires) == self.nmode:
+        if len(wires) == self.nmode and not self._with_delay:
             raise ValueError('post_select requires at least one remaining mode')
         if any(n < 0 for n in photons):
             raise ValueError('Photon numbers must be nonnegative')
@@ -3093,8 +3166,8 @@ class QumodeCircuit(Operation):
         self, wires: int | list[int], nbar: Any = None, *, purity: Any = None, requires_grad: bool = False
     ) -> None:
         """Prepare thermal inputs. See :class:`~deepquantum.photonic.source.ThermalSource`."""
-        if self.backend == 'bargmann':
-            raise NotImplementedError('Thermal source preparation is not supported by the Bargmann backend')
+        if self.backend == 'bargmann' and not self.den_mat:
+            raise NotImplementedError('Thermal Bargmann inputs require den_mat=True')
         if self.mps or self.backend == 'fock' and (self.basis or not self.den_mat):
             raise NotImplementedError('Thermal inputs require Gaussian, Bosonic or Fock density states.')
         source = ThermalSource(nbar, purity=purity, requires_grad=requires_grad)
@@ -3112,11 +3185,20 @@ class QumodeCircuit(Operation):
         requires_grad: bool = False,
     ) -> None:
         """Prepare single-photon inputs. See :class:`~deepquantum.photonic.source.SinglePhotonSource`."""
-        if self.backend != 'fock' or self.mps:
-            raise NotImplementedError('Single photons require the Fock backend without MPS.')
+        if self.backend not in ('fock', 'bargmann') or self.mps:
+            raise NotImplementedError('Single photons require the Fock or Bargmann backend without MPS.')
         source = SinglePhotonSource(
             density_matrix, coefficients=coefficients, factor=factor, requires_grad=requires_grad
         )
+        if self.backend == 'bargmann':
+            if source.components.shape[0] != 1:
+                raise NotImplementedError('Bargmann single-photon sources do not support submodes')
+            if not source.is_pure and not self.den_mat:
+                raise NotImplementedError('Mixed single-photon inputs require den_mat=True')
+            for wire in self._convert_indices(wires):
+                self.sources[str(wire)] = source
+            self._invalidate_state()
+            return
         if not source.is_pure and (self.basis or not self.den_mat):
             raise NotImplementedError('Mixed single photons require Fock density matrices (basis=False, den_mat=True).')
         if self.cutoff < 2:
@@ -3131,6 +3213,12 @@ class QumodeCircuit(Operation):
 
     def _prepare_sources(self):
         """Build the declared input state before optical evolution."""
+        if self.backend == 'bargmann':
+            state = self.init_state
+            run = _HardwareRun(self.backend, None, tuple(self.wires), self.nmode, False)
+            for wire, preparation in self.sources.items():
+                state = preparation(state, replace(run, wires=(int(wire),)))
+            return state
         source = copy(self.init_state)
         source._buffers = self.init_state._buffers.copy()
         if self.backend == 'bosonic' and self._bosonic_states is not None:
@@ -3215,10 +3303,10 @@ class QumodeCircuit(Operation):
                 self.basis or not self.den_mat or self.mps
             ):
                 raise NotImplementedError('d_channel requires Fock state tensors with den_mat=True.')
-            if any(isinstance(operation, OPA) for operation in operations):
-                raise NotImplementedError(
-                    'OPA supports Gaussian and Bosonic states only; Fock support is not implemented.'
-                )
+            if any(isinstance(operation, OPA) for operation in operations) and (
+                self.basis or not self.den_mat or self.mps
+            ):
+                raise NotImplementedError('OPA requires Fock state tensors with den_mat=True.')
         if wires is not None:
             assert isinstance(op, Gate)
             wires = self._convert_indices(wires)

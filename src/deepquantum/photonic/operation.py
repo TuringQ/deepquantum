@@ -8,7 +8,7 @@ from torch import nn, vmap
 
 from ..qmath import evolve_den_mat, evolve_state, state_to_tensors
 from ..state import MatrixProductState
-from .bargmann import BargmannPolyExp
+from .bargmann import BargmannPolyExp, gaussian_channel_to_bargmann
 from .distributed import dist_gate
 from .state import BargmannState, DistributedFockState
 
@@ -301,6 +301,25 @@ class Channel(Operation):
     def update_matrix_state(self) -> torch.Tensor:
         """Update the local Kraus matrices acting on Fock state density matrices."""
         raise NotImplementedError
+
+    def get_bargmann(self) -> BargmannPolyExp:
+        """Get the density kernel from the local Gaussian channel's X, Y and displacement."""
+        return gaussian_channel_to_bargmann(*self.update_transform_xyd())
+
+    def get_superoperator(self) -> torch.Tensor:
+        """Get Fock matrix elements ordered as ket output, bra output, ket input, bra input.
+
+        Each mode axis has length ``cutoff``. This is the cutoff projection of
+        the full channel, so trace lost to higher output occupations is retained.
+        """
+        return self.get_bargmann().to_fock((self.cutoff,) * (4 * len(self.wires)))[0]
+
+    def _op_den_mat_bargmann(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply the Bargmann-derived local superoperator to a Fock density tensor."""
+        size = self.cutoff ** (2 * len(self.wires))
+        matrix = self.get_superoperator().reshape(size, size)
+        wires = self.wires + [wire + self.nmode for wire in self.wires]
+        return evolve_state(x, matrix, 2 * self.nmode, wires, self.cutoff)
 
     def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass for density matrices."""
