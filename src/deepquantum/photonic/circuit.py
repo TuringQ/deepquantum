@@ -1058,55 +1058,60 @@ class QumodeCircuit(Operation):
 
     def tdm_substate(
         self,
-        nstep: int,
         time_steps: int | slice | list[int] | torch.Tensor,
         wires: int | list[int] | torch.Tensor | None = None,
         data: torch.Tensor | None = None,
     ) -> list[torch.Tensor]:
         """Get the Gaussian state of selected TDM outputs.
 
+        Evolution stops after the last selected time step. Encoded data repeat
+        cyclically when the selected outputs extend beyond the input sequence.
+
         Args:
-            nstep: The number of time steps.
-            time_steps: The selected time steps in ascending order.
+            time_steps: The nonnegative time steps in ascending order.
+                A slice must have an explicit stop and a positive step.
             wires: The selected spatial wires. Default: ``None``
-            data: Time-major encoded data with shape ``(nstep * ndata,)`` or
-                ``(batch, nstep * ndata)``. Default: ``None``
+            data: Encoded data with shape ``(ntimes, ndata)`` or
+                ``(batch, ntimes, ndata)``. Default: ``None``
 
         Returns:
             The covariance matrix and mean vector in time-major order, with shapes
             ``(batch, 2 * nselected, 2 * nselected)`` and ``(batch, 2 * nselected, 1)``.
         """
-        wires = self._prepare_tdm_readout(nstep, wires)
         if isinstance(time_steps, slice):
-            time_steps = torch.arange(nstep)[time_steps]
-        else:
-            time_steps = torch.as_tensor(time_steps, dtype=torch.long).reshape(-1)
-        assert time_steps.numel() > 0, 'time_steps must not be empty'
-        assert torch.all((time_steps >= 0) & (time_steps < nstep)), 'time_steps must lie in [0, nstep)'
-        assert time_steps.numel() == 1 or torch.all(time_steps[1:] > time_steps[:-1]), (
-            'time_steps must be unique and ascending'
-        )
+            start = 0 if time_steps.start is None else time_steps.start
+            step = 1 if time_steps.step is None else time_steps.step
+            if time_steps.stop is None or start < 0 or time_steps.stop < 0 or step <= 0:
+                raise ValueError('time_steps slices require nonnegative bounds, an explicit stop and a positive step')
+            time_steps = list(range(start, time_steps.stop, step))
+        time_steps = torch.as_tensor(time_steps)
+        if (
+            time_steps.ndim > 1
+            or time_steps.dtype == torch.bool
+            or time_steps.is_floating_point()
+            or time_steps.is_complex()
+        ):
+            raise ValueError('time_steps must contain integers')
+        time_steps = time_steps.reshape(-1).to(dtype=torch.long, device='cpu')
+        if time_steps.numel() == 0 or bool((time_steps < 0).any()):
+            raise ValueError('time_steps must contain nonnegative indices')
+        if bool((time_steps[1:] <= time_steps[:-1]).any()):
+            raise ValueError('time_steps must be unique and ascending')
+        nstep = int(time_steps[-1]) + 1
+        wires, data = self._prepare_tdm_readout(nstep, wires, data)
 
-        if self.ndata == 0:
-            assert data is None, 'data must be None when the circuit has no encoders'
+        if data is None:
             return [value.unsqueeze(0) for value in self._tdm_substate_gaussian(nstep, time_steps, wires)]
-        else:
-            assert isinstance(data, torch.Tensor), 'data is required when the circuit has encoders'
-            if data.ndim == 1:
-                data = data.unsqueeze(0)
-            assert data.ndim == 2 and data.shape[1] == nstep * self.ndata, (
-                f'data must have shape ({nstep * self.ndata},) or (batch, {nstep * self.ndata})'
+        with self._preserve_encoders():
+            return vmap(self._tdm_substate_gaussian, in_dims=(None, None, None, 0), randomness='same')(
+                nstep, time_steps, wires, data
             )
-            with self._preserve_encoders():
-                return vmap(self._tdm_substate_gaussian, in_dims=(None, None, None, 0), randomness='same')(
-                    nstep, time_steps, wires, data
-                )
 
-    def tdm_stream(
+    def tdm_substate_stepwise(
         self,
         nstep: int,
-        data: torch.Tensor | None = None,
         wires: int | list[int] | torch.Tensor | None = None,
+        data: torch.Tensor | None = None,
         *,
         window: int = 1,
     ) -> Iterator[list[torch.Tensor]]:
@@ -1125,10 +1130,11 @@ class QumodeCircuit(Operation):
         history required for backward even though the propagated state has bounded size.
 
         Args:
-            nstep: The number of time steps.
-            data: Encoded data with shape ``(nstep, ndata)`` or
-                ``(batch, nstep, ndata)``. Default: ``None``
+            nstep: The total number of time steps to evolve.
             wires: The selected spatial wires, in output order. Default: ``None`` (all wires)
+            data: Encoded data with shape ``(ntimes, ndata)`` or
+                ``(batch, ntimes, ndata)``, repeated cyclically when ``nstep > ntimes``.
+                Default: ``None``
             window: The maximum number of consecutive output steps to retain.
                 The first windows contain fewer steps. Default: 1
 
@@ -1138,19 +1144,9 @@ class QumodeCircuit(Operation):
             where ``K = min(t + 1, window) * len(wires)``. Only Gaussian evolution
             without source preparations or orthogonal basis modes is supported.
         """
-        wires = self._prepare_tdm_readout(nstep, wires)
+        wires, data = self._prepare_tdm_readout(nstep, wires, data)
         if not isinstance(window, int) or isinstance(window, bool) or window < 1:
             raise ValueError('window must be a positive integer')
-        if self.ndata == 0:
-            if data is not None:
-                raise ValueError('data must be None when the circuit has no encoders')
-        else:
-            if not isinstance(data, torch.Tensor):
-                raise ValueError('data is required when the circuit has encoders')
-            if data.ndim == 2:
-                data = data.unsqueeze(0)
-            if data.ndim != 3 or data.shape[1:] != (nstep, self.ndata):
-                raise ValueError(f'data must have shape ({nstep}, {self.ndata}) or (batch, {nstep}, {self.ndata})')
         loop_wire_map = self._tdm_loop_map()
         nloop = len(loop_wire_map)
         vac = self.init_state.cov.new_tensor(dqp.hbar / (4 * dqp.kappa**2))
@@ -1174,7 +1170,7 @@ class QumodeCircuit(Operation):
             else:
                 with self._preserve_encoders():
                     cov, mean = vmap(self._tdm_step_gaussian, in_dims=(0, None, None, None, 0), randomness='same')(
-                        [cov, mean], step, loop_wire_map, bindings, data[:, step]
+                        [cov, mean], step, loop_wire_map, bindings, data[:, step % data.shape[1]]
                     )
             keep = list(range(old_nmode))
             keep.extend(old_nmode + wire for wire in selected_wires)
@@ -1185,8 +1181,13 @@ class QumodeCircuit(Operation):
             indices = torch.cat([retained, retained + len(keep)])
             yield [cov[:, indices[:, None], indices], mean[:, indices]]
 
-    def _prepare_tdm_readout(self, nstep: int, wires: int | list[int] | torch.Tensor | None) -> torch.Tensor:
-        """Prepare the common wiring and spatial selection for Gaussian TDM readout."""
+    def _prepare_tdm_readout(
+        self,
+        nstep: int,
+        wires: int | list[int] | torch.Tensor | None,
+        data: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        """Prepare the wiring, spatial selection and encoded sequence for Gaussian TDM readout."""
         if self.sources or self.hardware_model is not None and self.hardware_model._has_submodes:
             raise NotImplementedError('Streaming submode/source preparation is not implemented; use global_circuit().')
         self._prepare_unroll_dict()
@@ -1200,7 +1201,19 @@ class QumodeCircuit(Operation):
         assert torch.all((wires >= 0) & (wires < self.nmode)), 'wires must lie in [0, nmode)'
         assert torch.unique(wires).numel() == wires.numel(), 'wires must be unique'
 
-        return wires
+        if self.ndata == 0:
+            if data is not None:
+                raise ValueError('data must be None when the circuit has no encoders')
+        else:
+            if not isinstance(data, torch.Tensor):
+                raise ValueError('data is required when the circuit has encoders')
+            if data.ndim == 2:
+                data = data.unsqueeze(0)
+            if data.ndim != 3 or data.shape[-1] != self.ndata or data.shape[0] == 0 or data.shape[1] == 0:
+                raise ValueError(
+                    f'data must have nonempty shape (ntimes, {self.ndata}) or (batch, ntimes, {self.ndata})'
+                )
+        return wires, data
 
     def _tdm_loop_map(self) -> dict[int, int]:
         """Map unrolled delay wires to the leading slots of the propagated state."""
@@ -1233,7 +1246,7 @@ class QumodeCircuit(Operation):
         for step in range(nstep):
             old_nmode = nloop + nretained
             step_nmode = old_nmode + self.nmode
-            data_step = None if data is None else data[step * self.ndata : (step + 1) * self.ndata]
+            data_step = None if data is None else data[step % data.shape[0]]
             cov_step, mean_step = self._tdm_step_gaussian([cov, mean], step, loop_wire_map, bindings, data_step)
 
             keep = list(range(old_nmode))
@@ -2329,9 +2342,16 @@ class QumodeCircuit(Operation):
     def photon_number_mean_var(self, wires: int | list[int] | None = None) -> tuple[torch.Tensor, torch.Tensor] | None:
         """Get the expectation value and variance of the photon number operator.
 
+        Fock readout uses the first and second moments without dividing by the
+        retained state weight, then computes variance as second minus first squared.
+        Bargmann readout divides by the state weight. The stored state is not modified.
+
         Args:
             wires: The wires to measure. It can be an integer or a list of integers specifying
                 the indices of the wires. Default: ``None`` (which means all wires are measured)
+
+        Returns:
+            Two tensors with shape ``(batch, len(wires))`` for the mean and variance.
         """
         if self._submode_circuit is not None:
             return self._submode_circuit.spatial_photon_number_mean_var(wires)
@@ -2343,17 +2363,17 @@ class QumodeCircuit(Operation):
         wires = sorted(self._convert_indices(wires))
         if self._with_delay:
             wires = [self._unroll_dict[wire][-1] for wire in wires]
+        state = self._get_output_state()
         if self.backend == 'bargmann':
-            exp, var = self._get_output_state().photon_number_mean_var(wires)
-            return exp.squeeze(), var.squeeze()
+            return state.photon_number_mean_var(wires)
         if self.backend == 'fock':
             assert not self.basis
-            exp, var = photon_number_mean_var_fock(self.state, self.nmode, self.cutoff, wires, self.den_mat)
+            exp, var = photon_number_mean_var_fock(state, self.nmode, self.cutoff, wires, self.den_mat)
         elif self.backend in ('gaussian', 'bosonic'):
             if self.backend == 'gaussian':
-                cov, mean = self.state
+                cov, mean = state
             elif self.backend == 'bosonic':
-                cov, mean, weight = self.state
+                cov, mean, weight = state
             shape_cov = cov.shape
             shape_mean = mean.shape
             batch = shape_cov[0]
@@ -2378,8 +2398,8 @@ class QumodeCircuit(Operation):
                 if means.shape[1] == 1:
                     means = means.expand(-1, ncomb, -1, -1)
             exp, var = photon_number_mean_var_cv(covs, means, weights)
-            exp = exp.reshape(batch, nwire).squeeze()
-            var = var.reshape(batch, nwire).squeeze()
+            exp = exp.reshape(batch, nwire)
+            var = var.reshape(batch, nwire)
         return exp, var
 
     def quadrature_mean(
@@ -2392,12 +2412,18 @@ class QumodeCircuit(Operation):
         the wires and corresponding homodyne angles are inferred from the stored measurement instructions,
         and the input arguments ``wires`` and ``phi`` are ignored.
 
+        Fock readout retains the state weight. Bargmann readout divides by the
+        state weight. Use ``quadrature_moments`` to select normalization explicitly.
+
         Args:
             wires: The wires to measure. It can be an integer or a list of integers specifying
                 the indices of the wires. Default: ``None`` (which means all wires are measured)
             phi: The phi angles for quadrature operator :math:`\hat{X}\cos\phi + \hat{P}\sin\phi`. Default: ``None``
             lo: Local-oscillator coefficients in the common orthogonal basis, normalized per spatial mode.
                 Default: ``None`` (the first orthogonal basis mode)
+
+        Returns:
+            A tensor with shape ``(batch, len(wires), 1)``.
         """
         if self._submode_circuit is not None:
             from .submode import _lo_view
@@ -2430,16 +2456,16 @@ class QumodeCircuit(Operation):
             phi = torch.cat(phi)
         wires = self._convert_indices(wires)
         assert len(wires) == len(phi), f'phi length {len(phi)} must match wires length {len(wires)}'
+        state = self._get_output_state()
         if self.backend == 'bargmann':
-            return self._get_output_state().quadrature_mean(wires, phi)
+            return state.quadrature_mean(wires, phi)
         if self.backend == 'fock':
             assert not self.basis
-            state = self.state
             phi = phi.to(state.real)
             if self.den_mat:
                 state = state.reshape([-1] + [self.cutoff] * 2 * self.nmode)
             for i in range(len(wires)):
-                if not torch.isclose(phi[i], phi.new_tensor(0.0)):
+                if phi.requires_grad or phi[i] != 0:
                     r = PhaseShift(
                         inputs=-phi[i], nmode=self.nmode, wires=wires[i], cutoff=self.cutoff, den_mat=self.den_mat
                     )
@@ -2449,11 +2475,11 @@ class QumodeCircuit(Operation):
         elif self.backend in ('gaussian', 'bosonic'):
             wires = torch.tensor(wires)
             idx = torch.cat([wires, wires + self.nmode])  # xxpp order
-            means = self.state[1][..., idx, :]
+            means = state[1][..., idx, :]
             phi = phi.reshape(-1, 1)
             mean = means[..., : len(wires), :] * torch.cos(phi) + means[..., len(wires) :, :] * torch.sin(phi)
             if self.backend == 'bosonic':
-                weight = self.state[2].unsqueeze(-1).unsqueeze(-2)
+                weight = state[2].unsqueeze(-1).unsqueeze(-2)
                 mean = torch.sum(weight * mean, dim=1)
         return mean
 

@@ -128,7 +128,7 @@ def test_displacement_channel_in_tdm_substate():
     selected = wires[[1, 3]]
     idx = torch.cat([selected, selected + full.nmode])
     expected = [cov[:, idx[:, None], idx], mean[:, idx]]
-    actual = cir.tdm_substate(4, [1, 3])
+    actual = cir.tdm_substate([1, 3])
     torch.testing.assert_close(actual, expected)
 
 

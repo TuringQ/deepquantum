@@ -263,7 +263,7 @@ def test_internal_mode_calibration_preserves_reference_squeezing():
     cir.s(0, r=r, theta=0.0)
     cir.set_hardware_model(dqp.HardwareModel().s(0).submodes(relative_nbar=nbar))
     cir.to(torch.double)()
-    torch.testing.assert_close(cir.photon_number_mean_var()[0], nbar.sum())
+    torch.testing.assert_close(cir.photon_number_mean_var()[0], nbar.sum().reshape(1, 1))
     torch.testing.assert_close(cir.operators[0].r, r)
     with pytest.raises(ValueError, match='not both'):
         dqp.HardwareModel().s(0).submodes(relative_r=[3, 2], relative_nbar=[0.6, 0.1])
@@ -467,7 +467,7 @@ def test_global_tdm_expansion_and_source_placement():
         indices = main + k
         torch.testing.assert_close(actual[0][:, indices[:, None], indices], expected[0])
     with pytest.raises(NotImplementedError, match='Streaming'):
-        cir.tdm_substate(3, [0, 2])
+        cir.tdm_substate([0, 2])
 
 
 @pytest.mark.parametrize(

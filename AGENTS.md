@@ -87,12 +87,13 @@ Photonic hardware models:
 
 Photonic TDM:
 
-- `global_circuit(nstep)` unrolls delay loops and remaps the attached hardware model. `tdm_substate(nstep, time_steps, wires=..., data=...)` computes selected Gaussian outputs without building the full unrolled circuit.
-- `tdm_stream(nstep, data=None, wires=None, window=1)` yields consecutive Gaussian output windows in one traversal, preserving correlations within the window and with the delay modes. Encoded data has shape `(nstep, ndata)` or `(batch, nstep, ndata)`. Inputs and delay modes start in vacuum. Each new iterator restarts, and a paused iterator can continue. Readout does not condition the circulating memory. Use `torch.no_grad()` for bounded-memory inference. Source preparations and submodes are not supported.
+- `global_circuit(nstep)` unrolls delay loops and remaps the attached hardware model. `tdm_substate(time_steps, wires=None, data=None)` computes selected Gaussian outputs through the last requested time step. Slices require an explicit stop.
+- `tdm_substate_stepwise(nstep, wires=None, data=None, window=1)` yields consecutive Gaussian output windows in one traversal, preserving correlations within the window and with the delay modes. Both substate interfaces accept `(ntimes, ndata)` or `(batch, ntimes, ndata)` and repeat short input sequences cyclically. Inputs and delay modes start in vacuum. Each new iterator restarts, and a paused iterator can continue. Readout does not condition the circulating memory. Use `torch.no_grad()` for bounded-memory inference. Source preparations and submodes are not supported.
 - `QumodeCircuitTDM` supports stepwise Gaussian/Bosonic evolution with homodyne measurements.
 
 Photonic measurement and probabilities:
 
+- Moment readouts preserve the batch axis: `quadrature_mean` returns `(batch, K, 1)`, and `photon_number_mean_var` returns two `(batch, K)` tensors. The two legacy Fock readouts retain the truncated state weight. `quadrature_moments` provides explicit normalization control.
 - `QumodeCircuit.measure(shots=1024, with_prob=False, wires=None, detector=None, mcmc=False)` returns Fock-state keyed dictionaries, or a list for batched state/data.
 - Gaussian `measure(..., mcmc=True)` and Fock `measure(..., mcmc=True)` are documented for sampling when full probabilities are expensive.
 - `measure_homodyne(shots=..., wires=...)` returns quadrature samples and stores collapsed states in `state_measured` when measurement operations were added with `homodyne`, `homodyne_x`, or `homodyne_p`. Use `lo` to select a local-oscillator mode and `phi` for an additional quadrature angle.

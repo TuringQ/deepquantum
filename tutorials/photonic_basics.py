@@ -811,8 +811,8 @@ cir_opa_tdm = dq.QumodeCircuit(1, 'vac', backend='gaussian')
 cir_opa_tdm.opa(0, convention='db', encode=True)
 cir_opa_tdm.delay(0, ntau=2, inputs=[0.3, 0.1], loop_gates=[dqp.OPA([0.1, 0.2, 0.2], convention='db')])
 cir_opa_tdm.double()
-data_opa_tdm = torch.tensor([0.3, 0.0, 0.5, 0.4, 0.1, 0.6, 0.5, 0.2, 0.7], dtype=torch.double)
-cov_opa_tdm, mean_opa_tdm = cir_opa_tdm.tdm_substate(3, [0, 2], data=data_opa_tdm)
+data_opa_tdm = torch.tensor([[0.3, 0.0, 0.5], [0.4, 0.1, 0.6], [0.5, 0.2, 0.7]], dtype=torch.double)
+cov_opa_tdm, mean_opa_tdm = cir_opa_tdm.tdm_substate([0, 2], data=data_opa_tdm)
 print(cov_opa_tdm.shape, mean_opa_tdm.shape)  # (1, 4, 4), (1, 4, 1)
 
 # %% [markdown]
@@ -1545,10 +1545,15 @@ state = cir_global(data=data)
 cir_global.draw(unroll=True)  # draw global circuit
 
 # %% [markdown]
-# `tdm_substate(nstep, time_steps, wires=None, data=None)` 一次返回指定时间点的联合 Gaussian 态，适合读取稀疏输出。
-# `tdm_stream(nstep, data=None, wires=None, window=1)` 在一次遍历中逐步返回最近 `window` 步的联合 Gaussian 态，适合连续读出和有限时间间隔的相关性分析。
+# `tdm_substate(time_steps, wires=None, data=None)` 一次返回指定时间点的联合 Gaussian 态，演化到最后一个选中时刻为止。
+# `time_steps` 使用非负索引，slice 必须给出终点。
+# `tdm_substate_stepwise(nstep, wires=None, data=None, window=1)` 在一次遍历中逐步返回最近 `window` 步的联合 Gaussian 态。
+# 例如 `nstep=4, window=2` 依次返回时间点 `[0]`、`[0,1]`、`[1,2]`、`[2,3]` 的联合态。
+# 每个窗口与显式指定相同 `time_steps` 的子态一致，逐步接口复用之前的演化，无需每次从初态重算。
 # 两者复用逐步演化内核，从真空输入和真空环路开始，输入光场通过线路中的门制备。
-# `tdm_stream` 的编码数据形状为 `(nstep, ndata)` 或 `(batch, nstep, ndata)`，`tdm_substate` 保留原有的展平时间轴格式。
+# 两个接口的编码数据形状均为 `(ntimes, ndata)` 或 `(batch, ntimes, ndata)`。
+# `ntimes` 是输入序列长度，第 `t` 步读取 `data[t % ntimes]`，所以短序列可以重复使用。
+# `tdm_substate` 从 `time_steps` 推断演化长度，`tdm_substate_stepwise` 使用显式的 `nstep`。
 #
 # 窗口内模式先按时间再按 `wires` 排列，正交分量仍按 xxpp 排列。
 # 下面只有一个空间模式，窗口填满后依次保留前一步和当前步，`cov[0, 0, 1]` 是这两步 x 分量的协方差。
@@ -1565,7 +1570,7 @@ cir_stream.delay(0, ntau=2, inputs=[0.4, 0.1])
 cir_stream.double()
 
 with torch.no_grad():
-    for step, (cov_window, mean_window) in enumerate(cir_stream.tdm_stream(4, window=2)):
+    for step, (cov_window, mean_window) in enumerate(cir_stream.tdm_substate_stepwise(4, window=2)):
         print(step, cov_window.shape, mean_window.shape)
         # 第一步为 (1, 2, 2)、(1, 2, 1)，之后为 (1, 4, 4)、(1, 4, 1)
 
@@ -1868,6 +1873,11 @@ print(rho_bargmann.diagonal(dim1=-2, dim2=-1).real.sum(-1))  # 截断内的迹�
 # 这些矩描述原有非高斯态，不将其转换成高斯态。
 # `quadrature_mean(wires=None, phi=None)` 读取指定角度的正交分量均值，`photon_number_mean_var(wires=None)` 读取各模光子数均值和方差。
 # Bargmann 线路和返回的 `BargmannState` 都支持这三个方法，结果按态的权重归一化，不依赖 Fock cutoff。
+# `quadrature_mean` 返回 `(batch, K, 1)`，`photon_number_mean_var` 的两项均为 `(batch, K)`，其中 `K` 是选中模式数。
+# Fock 的这两个旧接口保留截断态权重，不自动归一化，光子数方差仍按二阶原始矩减去一阶原始矩的平方计算。
+# `quadrature_moments` 则通过 `normalize` 显式控制归一化，其默认值为 `True`。
+# `photon_number_mean_var` 也适用于未分辨正交基模的空间光子数。
+# Fock 读出使用有限 cutoff 内保留的态，归一化不会补回截断之外的贡献。
 #
 
 # %%
@@ -1892,7 +1902,10 @@ print(cov_bargmann.shape, mean_bargmann.shape, x_bargmann.shape)  # (1, 4, 4), (
 # 默认返回 `(cov, mean)`；仅关闭中心化时返回 `(cov + mean @ mean.mT, mean)`。
 # 关闭归一化时，两项保留权重 `w`，所以仅设置 `normalize=False` 得到的是加权协方差和加权均值。
 # 同时设置 `centered=False, normalize=False` 才得到加权原始矩，可对不同事件直接求和，再统一归一化和中心化。
-# 例如事件概率为 0.1、条件均值为 2、条件方差为 1，则加权一阶矩为 0.2，加权二阶矩为 0.5，加权方差为 0.1。
+# 例如重复同一个实验 1000 次，其中 100 次点击，点击时的条件均值为 2、条件方差为 1。
+# 只统计点击样本，均值为 2、二阶矩为 5；把未点击样本的贡献记为零，再对全部 1000 次平均，则分别为 0.2 和 0.5。
+# 后一种读出同时保留事件频率和条件态信息，可用作带事件标记的特征，也可用于合并互斥事件。
+# 合并事件时，协方差还包含事件间均值的变化：两个等概率事件的均值为 +2 和 -2、方差均为 1，总方差为 5，而加权条件方差之和只有 1。
 #
 # 先用 `post_select(..., normalize=False)` 保留事件权重，再读取加权原始矩。
 # 这样零概率事件返回零贡献，普通归一化读出仍要求权重大于零。

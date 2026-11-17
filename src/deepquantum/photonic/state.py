@@ -26,7 +26,15 @@ from .bargmann import (
     vacuum_bargmann,
 )
 from .draw import GaussianGraphVisualizer
-from .qmath import _quadrature_moments_ladder, cv_to_wigner, dirac_rep, fock_to_wigner, xpxp_to_xxpp, xxpp_to_xpxp
+from .qmath import (
+    _quadrature_moments_ladder,
+    _validate_moment_weight,
+    cv_to_wigner,
+    dirac_rep,
+    fock_to_wigner,
+    xpxp_to_xxpp,
+    xxpp_to_xpxp,
+)
 
 
 class FockState(nn.Module):
@@ -536,8 +544,7 @@ class BargmannState(nn.Module):
             raise ValueError('wires must contain distinct valid mode indices')
         density = self.to_dm()
         weight = density.norm()
-        if require_positive and bool((weight <= 0).any()):
-            raise ValueError('Moments require a positive state weight')
+        _validate_moment_weight(weight, positive=require_positive)
         return _moment_generating(density.polyexp, wires), weight
 
     def quadrature_mean(self, wires: int | list[int] | None = None, phi: Any = None) -> torch.Tensor:

@@ -91,14 +91,93 @@ def test_non_gaussian_moments_against_operator_matrices(backend, den_mat):
             cir.quadrature_moments(centered=centered, normalize=normalize),
             (scale * expected_second, scale * mean),
         )
+    number = annihilation.mH @ annihilation
+    numbers = [torch.kron(number, eye), torch.kron(eye, number)]
+    expected_mean = torch.stack([expectation(operator) for operator in numbers], -1)
+    expected_var = torch.stack([expectation(operator @ operator) for operator in numbers], -1) - expected_mean.square()
     if backend == 'bargmann':
-        number = annihilation.mH @ annihilation
-        numbers = [torch.kron(number, eye), torch.kron(eye, number)]
-        expected_mean = torch.stack([expectation(operator) for operator in numbers], -1)
-        expected_var = (
-            torch.stack([expectation(operator @ operator) for operator in numbers], -1) - expected_mean.square()
-        )
         torch.testing.assert_close(state.photon_number_mean_var(), (expected_mean, expected_var))
+    else:
+        first = 0.2 * expected_mean
+        variance = 0.2 * (expected_var + expected_mean.square()) - first.square()
+        torch.testing.assert_close(cir.photon_number_mean_var(), (first, variance))
+        phi = torch.tensor([0.2, -0.4], dtype=torch.double)
+        expected_quadrature = mean[:, :2, 0] * phi.cos() + mean[:, 2:, 0] * phi.sin()
+        torch.testing.assert_close(cir.quadrature_mean(phi=phi), 0.2 * expected_quadrature.unsqueeze(-1))
+
+
+@pytest.mark.parametrize('backend', ['fock', 'gaussian', 'bosonic', 'bargmann'])
+@pytest.mark.parametrize('batch', [1, 3])
+def test_scalar_readouts_preserve_batch_and_mode_axes(backend, batch):
+    cir = dq.QumodeCircuit(2, 'vac', backend=backend, cutoff=4, basis=False, den_mat=True)
+    cir.d(0, encode=True)
+    cir.double()
+    data = torch.tensor([[0.12, 0.3]], dtype=torch.double).expand(batch, -1)
+    cir(data)
+    expected = []
+    for wires in ([0], [0, 1]):
+        mean = cir.quadrature_mean(wires, phi=0.2)
+        number, variance = cir.photon_number_mean_var(wires)
+        assert mean.shape == (batch, len(wires), 1)
+        assert number.shape == variance.shape == (batch, len(wires))
+        expected.append((mean, number, variance))
+    if backend in ('fock', 'gaussian'):
+        cir(data, is_prob=True)
+        for wires, values in zip(([0], [0, 1]), expected, strict=True):
+            actual = cir.quadrature_mean(wires, phi=0.2), *cir.photon_number_mean_var(wires)
+            torch.testing.assert_close(actual, values)
+
+
+@pytest.mark.parametrize('den_mat', [False, True])
+@pytest.mark.parametrize('dtype', [torch.float32, torch.float64])
+def test_fock_single_mode_moments_keep_batch_weight_and_phase_gradient(den_mat, dtype):
+    occupation = torch.tensor([0.1, 0.4, 0.8], dtype=dtype, requires_grad=True)
+    weight = torch.tensor([0.2, 0.6, 0.1], dtype=dtype, requires_grad=True)
+    ket = torch.stack([(1 - occupation).sqrt(), 1j * occupation.sqrt()], -1) * weight.sqrt()[:, None]
+    source = ket[:, :, None] * ket[:, None, :].conj() if den_mat else ket
+    cir = dq.QumodeCircuit(1, source, cutoff=2, basis=False, den_mat=den_mat)
+    phi = torch.tensor(0.0, dtype=dtype, requires_grad=True)
+    first = weight * occupation
+    expected_number = first[:, None], (first - first.square())[:, None]
+    expected_quadrature = weight * dqp.hbar**0.5 / dqp.kappa * (occupation * (1 - occupation)).sqrt() * phi.sin()
+    for is_prob in (False, True):
+        cir(is_prob=is_prob)
+        torch.testing.assert_close(cir.photon_number_mean_var(), expected_number)
+        actual = cir.quadrature_mean(phi=phi)
+        torch.testing.assert_close(actual, expected_quadrature[:, None, None])
+        actual_grad = torch.autograd.grad(actual.sum(), phi, retain_graph=True)[0]
+        expected_grad = torch.autograd.grad(expected_quadrature.sum(), phi, retain_graph=True)[0]
+        torch.testing.assert_close(actual_grad, expected_grad)
+    number = cir.photon_number_mean_var()[0].sum()
+    grad = torch.autograd.grad(number, (occupation, weight))
+    torch.testing.assert_close(grad[0], weight)
+    torch.testing.assert_close(grad[1], occupation)
+    cir(state=torch.zeros_like(source))
+    assert torch.count_nonzero(cir.quadrature_mean()) == 0
+    assert all(torch.count_nonzero(value) == 0 for value in cir.photon_number_mean_var())
+
+
+@pytest.mark.parametrize('den_mat', [False, True])
+@pytest.mark.parametrize('layout', ['independent', 'blocks', 'joint'])
+def test_fock_spatial_photon_moments_retain_probability_mass(den_mat, layout):
+    profiles = {
+        'independent': None,
+        'blocks': [[0.8, 0, 0.6j], [0, 1, 0], [0.6j, 0, 0.8]],
+        'joint': [[1, 1, 1], [1, complex(-0.5, 3**0.5 / 2), complex(-0.5, -(3**0.5) / 2)]],
+    }
+    ratios = [1, 0.5] if layout == 'joint' else [1, 0.5, 0.3]
+    cir = dq.QumodeCircuit(1, 'vac', cutoff=3, basis=False, den_mat=den_mat)
+    cir.s(0, encode=True)
+    cir.set_hardware_model(dqp.HardwareModel().s(0).submodes(profiles[layout], relative_r=ratios))
+    cir.double()
+    probabilities = cir(torch.tensor([[0.5, 0.2], [0.7, 0.1]], dtype=torch.double), is_prob=True)
+    probability = torch.stack(list(probabilities.values()))
+    weight = probability.sum(0)
+    assert (weight < 0.99).all()
+    numbers = torch.tensor([pattern.state.item() for pattern in probabilities], dtype=torch.double)[:, None]
+    mean = (numbers * probability).sum(0)
+    variance = (numbers.square() * probability).sum(0) - mean.square()
+    torch.testing.assert_close(cir.photon_number_mean_var(), (mean[:, None], variance[:, None]))
 
 
 def test_bosonic_moments_include_between_component_covariance():

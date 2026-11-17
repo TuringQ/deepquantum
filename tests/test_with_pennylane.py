@@ -8,8 +8,9 @@ import deepquantum as dq
 def test_number_operator_exp():
     nmode = 4
     cutoff = 4
-    sq = np.random.rand(nmode)
-    bs_angles = np.random.rand(nmode - 1, 2) * 2 * np.pi
+    rng = np.random.default_rng(12)
+    sq = rng.random(nmode)
+    bs_angles = rng.random((nmode - 1, 2)) * 2 * np.pi
 
     dev = qml.device('strawberryfields.fock', wires=nmode, cutoff_dim=cutoff)
 
@@ -34,20 +35,22 @@ def test_number_operator_exp():
             cir.bs(wires=[i, i + 1], inputs=bs_angles[i])
     cir()
     exp_dq, _ = cir.photon_number_mean_var()
-    assert (exp_dq.flatten().numpy() - exp_qml).sum() < 1e-6
+    np.testing.assert_allclose(exp_dq.flatten().numpy(), exp_qml, atol=1e-6, rtol=1e-6)
 
 
 def test_quadrature_operator_exp():
     nmode = 4
     cutoff = 4
-    sq = np.random.rand(nmode)
-    bs_angles = np.random.rand(nmode - 1, 2) * 2 * np.pi
-    phi = np.random.rand(nmode) * 2 * np.pi
+    rng = np.random.default_rng(13)
+    sq = rng.random(nmode)
+    bs_angles = rng.random((nmode - 1, 2)) * 2 * np.pi
+    phi = rng.random(nmode) * 2 * np.pi
 
     dev = qml.device('strawberryfields.fock', wires=nmode, cutoff_dim=cutoff)
 
     @qml.qnode(dev)
     def circuit():
+        qml.Displacement(0.2, 0.3, wires=0)
         for i in range(nmode):
             qml.Squeezing(sq[i], 0.0, wires=i)
             if i < nmode - 1:
@@ -55,11 +58,12 @@ def test_quadrature_operator_exp():
         exp = []
         for i in range(nmode):
             exp.append(qml.expval(qml.QuadOperator(phi=phi[i], wires=i)))  # Quadrature X, P
-            return exp
+        return exp
 
     exp_qml = circuit()
 
     cir = dq.QumodeCircuit(nmode=nmode, backend='fock', basis=False, cutoff=cutoff, init_state='vac', den_mat=True)
+    cir.d(0, r=0.2, theta=0.3)
     for i in range(nmode):
         cir.s(i, sq[i], encode=True)
         if i < nmode - 1:
@@ -67,4 +71,4 @@ def test_quadrature_operator_exp():
     cir.to(torch.double)
     cir()
     exp_dq = cir.quadrature_mean(wires=list(range(nmode)), phi=list(phi))
-    assert (exp_dq.flatten().numpy() - exp_qml).sum() < 1e-6
+    np.testing.assert_allclose(exp_dq.flatten().numpy(), exp_qml, atol=1e-6, rtol=1e-6)
