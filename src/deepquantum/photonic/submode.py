@@ -888,15 +888,15 @@ class _SubmodeCircuit(QumodeCircuit):
             results.append(counts)
         return results[0] if len(results) == 1 else results
 
-    def spatial_photon_number_mean_var(self, wires):
-        """Return the mean and variance of total photon counts at selected spatial outputs."""
+    def spatial_photon_number_mean_var(self, wires: int | list[int] | None) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return spatial photon-number mean and variance with shape ``(batch, len(wires))``."""
         selected = self.parent.wires if wires is None else self.parent._convert_indices(wires)
         if self.factorized:
             if self.backend == 'gaussian':
                 mean, variance = self.readout_view().photon_number_mean_var(selected)
                 batch = self.state[0].shape[0]
                 shape = (batch, self.nsubmode, len(selected))
-                return mean.reshape(shape).sum(1).squeeze(), variance.reshape(shape).sum(1).squeeze()
+                return mean.reshape(shape).sum(1), variance.reshape(shape).sum(1)
             prob = self._probabilities(selected)
             shape = [1] * prob.ndim
             mass = prob.flatten(2).sum(-1)
@@ -913,7 +913,7 @@ class _SubmodeCircuit(QumodeCircuit):
                 variance = (second - first.square()).sum(-1)
                 means.append(total_mass * mean)
                 variances.append(total_mass * (variance + mean.square()) - means[-1].square())
-            return torch.stack(means, -1).squeeze(), torch.stack(variances, -1).squeeze()
+            return torch.stack(means, -1), torch.stack(variances, -1)
         if self.backend == 'fock':
             probabilities = self.spatial_probabilities()
             exp, square = 0, 0
@@ -921,7 +921,7 @@ class _SubmodeCircuit(QumodeCircuit):
                 counts = pattern.state[selected].to(probability)
                 exp = exp + probability.reshape(-1, 1) * counts
                 square = square + probability.reshape(-1, 1) * counts.square()
-            return exp.squeeze(), (square - exp.square()).squeeze()
+            return exp, square - exp.square()
         cov, mean = self.state[:2]
         vacuum = dqp.hbar / (4 * dqp.kappa**2)
         exps, variances = [], []
@@ -939,7 +939,7 @@ class _SubmodeCircuit(QumodeCircuit):
                 var = second - exp.square()
             exps.append(exp.real)
             variances.append(var.real)
-        return torch.stack(exps, -1).squeeze(), torch.stack(variances, -1).squeeze()
+        return torch.stack(exps, -1), torch.stack(variances, -1)
 
 
 def _slice_profiles(modes, block):
@@ -1200,8 +1200,8 @@ class _SubmodeBlocks:
             )
         return output[0] if len(output) == 1 else output
 
-    def spatial_photon_number_mean_var(self, wires):
-        """Return the mean and variance of total photon counts at selected spatial outputs."""
+    def spatial_photon_number_mean_var(self, wires: int | list[int] | None) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return spatial photon-number mean and variance with shape ``(batch, len(wires))``."""
         selected = self.parent.wires if wires is None else self.parent._convert_indices(wires)
         if self.backend == 'gaussian':
             moments = [cir.spatial_photon_number_mean_var(selected) for cir in self.circuits]
@@ -1216,10 +1216,7 @@ class _SubmodeBlocks:
             mass = mass[:, None]
             safe = torch.where(mass > 0, mass, 1)
             first, var = cir.spatial_photon_number_mean_var(selected)
-            first, var = first.reshape(batch, -1), var.reshape(batch, -1)
             mean = mean + first / safe
             variance = variance + (var + first.square()) / safe - (first / safe).square()
             total_mass = total_mass * mass
-        return (total_mass * mean).squeeze(), (
-            total_mass * (variance + mean.square()) - (total_mass * mean).square()
-        ).squeeze()
+        return total_mass * mean, total_mass * (variance + mean.square()) - (total_mass * mean).square()

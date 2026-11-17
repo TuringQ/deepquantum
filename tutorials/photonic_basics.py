@@ -811,8 +811,8 @@ cir_opa_tdm = dq.QumodeCircuit(1, 'vac', backend='gaussian')
 cir_opa_tdm.opa(0, convention='db', encode=True)
 cir_opa_tdm.delay(0, ntau=2, inputs=[0.3, 0.1], loop_gates=[dqp.OPA([0.1, 0.2, 0.2], convention='db')])
 cir_opa_tdm.double()
-data_opa_tdm = torch.tensor([0.3, 0.0, 0.5, 0.4, 0.1, 0.6, 0.5, 0.2, 0.7], dtype=torch.double)
-cov_opa_tdm, mean_opa_tdm = cir_opa_tdm.tdm_substate(3, [0, 2], data=data_opa_tdm)
+data_opa_tdm = torch.tensor([[0.3, 0.0, 0.5], [0.4, 0.1, 0.6], [0.5, 0.2, 0.7]], dtype=torch.double)
+cov_opa_tdm, mean_opa_tdm = cir_opa_tdm.tdm_substate([0, 2], data=data_opa_tdm)
 print(cov_opa_tdm.shape, mean_opa_tdm.shape)  # (1, 4, 4), (1, 4, 1)
 
 # %% [markdown]
@@ -1545,6 +1545,41 @@ state = cir_global(data=data)
 cir_global.draw(unroll=True)  # draw global circuit
 
 # %% [markdown]
+# `tdm_substate(time_steps, wires=None, data=None, window=None)` 返回指定输出的联合 Gaussian 态，或逐步返回窗口态。
+# 默认 `window=None` 时，`time_steps` 和 `wires` 均可乱序，返回模式顺序与输入顺序一致。
+# 例如 `time_steps=[3,1], wires=[1,0]` 对应 `(3,1)`、`(3,0)`、`(1,1)`、`(1,0)` 四个时间与空间模式。
+# 索引必须非负且不重复，slice 必须给出终点并使用正步长。
+# 演化到 `max(time_steps)` 为止，不需要另行指定总步数。
+#
+# 设置 `window` 后，返回迭代器，`time_steps` 指定各窗口的结束时刻，必须升序。
+# 例如 `time_steps=slice(4), window=2` 依次返回时间点 `[0]`、`[0,1]`、`[1,2]`、`[2,3]` 的联合态。
+# `time_steps=[2,5], window=2` 则只返回 `[1,2]` 和 `[4,5]`，窗口按实际连续时间步计数。
+# 每个窗口与直接查询相同时间点的子态一致，迭代过程复用之前的演化。
+# 输入模式和环路从真空开始，输入光场通过线路中的门制备。
+# 编码数据形状为 `(ntimes, ndata)` 或 `(batch, ntimes, ndata)`。
+# `ntimes` 是输入序列长度，第 `t` 步读取 `data[t % ntimes]`，所以短序列可以重复使用。
+#
+# 窗口内模式先按时间再按 `wires` 排列，正交分量仍按 xxpp 排列。
+# 下面只有一个空间模式，窗口填满后依次保留前一步和当前步，`cov[0, 0, 1]` 是这两步 x 分量的协方差。
+# 新迭代器重新开始，保留同一迭代器可以暂停后继续。
+# 流式输出保留环路与窗口的相关性，读出结果不会用于条件更新环路。
+# 关闭梯度并及时处理输出时，传播态大小由环路和窗口决定。
+# 启用 autograd 会保留反向传播所需的历史。
+# 当前仅支持 Gaussian 演化，尚未接入光源制备和正交基模。
+#
+
+# %%
+cir_stream = dq.QumodeCircuit(1, 'vac', backend='gaussian')
+cir_stream.s(0, r=0.2)
+cir_stream.delay(0, ntau=2, inputs=[0.4, 0.1])
+cir_stream.double()
+
+with torch.no_grad():
+    for step, (cov_window, mean_window) in enumerate(cir_stream.tdm_substate(slice(4), window=2)):
+        print(step, cov_window.shape, mean_window.shape)
+        # 第一步为 (1, 2, 2)、(1, 2, 1)，之后为 (1, 4, 4)、(1, 4, 1)
+
+# %% [markdown]
 # 通过`dq.QumodeCircuitTDM`也可以构造带延时线圈线路，它继承自`dq.QumodeCircuit`，不同之处在于可以进行多个时间步的演化，所有空间模式上都要求做Homodyne测量。
 
 # %%
@@ -1842,7 +1877,11 @@ print(rho_bargmann.diagonal(dim1=-2, dim2=-1).real.sum(-1))  # 截断内的迹�
 # `quadrature_moments(wires=None)` 返回完整的 `(cov, mean)`，使用 xxpp 顺序，并保留 batch 轴。
 # 这些矩描述原有非高斯态，不将其转换成高斯态。
 # `quadrature_mean(wires=None, phi=None)` 读取指定角度的正交分量均值，`photon_number_mean_var(wires=None)` 读取各模光子数均值和方差。
-# Bargmann 线路和返回的 `BargmannState` 都支持这三个方法，结果按态的权重归一化，不依赖 Fock cutoff。
+# Bargmann 线路和返回的 `BargmannState` 都支持这三个方法，默认按态的权重归一化，不依赖 Fock cutoff。
+# `quadrature_mean` 返回 `(batch, K, 1)`，`photon_number_mean_var` 的两项均为 `(batch, K)`，其中 `K` 是选中模式数。
+# Fock 的这两个旧接口保留截断态权重，不自动归一化，光子数方差仍按二阶原始矩减去一阶原始矩的平方计算。
+# `quadrature_moments` 则通过 `normalize` 显式控制归一化，其默认值为 `True`。
+# Fock 读出使用有限 cutoff 内保留的态，归一化不会补回截断之外的贡献。
 #
 
 # %%
@@ -1857,6 +1896,33 @@ print(photon_mean_clicked, photon_var_clicked)  # 约 1.0927 和 0.1013
 cov_bargmann, mean_bargmann = cir_bargmann.quadrature_moments()
 x_bargmann = cir_bargmann.quadrature_mean(wires=1, phi=0.0)
 print(cov_bargmann.shape, mean_bargmann.shape, x_bargmann.shape)  # (1, 4, 4), (1, 4, 1), (1, 1, 1)
+
+# %% [markdown]
+# `quadrature_moments(wires=None, centered=True, normalize=True)` 将中心化和归一化分开控制。
+# 归一化决定分母：将态的迹或范数平方作为权重 `w`，除以它得到条件平均。
+# 中心化决定是否去掉均值贡献：对于归一化矩，协方差 `cov` 等于未中心化二阶矩减去 `mean @ mean.mT`。
+# `centered` 只影响第一个返回量，第二个返回量始终保留一阶矩信息。
+#
+# 默认返回 `(cov, mean)`。
+# 仅关闭中心化时返回 `(cov + mean @ mean.mT, mean)`。
+# 关闭归一化时，两项保留权重 `w`，所以仅设置 `normalize=False` 得到的是加权协方差和加权均值。
+# 同时设置 `centered=False, normalize=False` 才得到加权原始矩，可对不同事件直接求和，再统一归一化和中心化。
+# 例如重复同一个实验 1000 次，其中 100 次点击，点击时的条件均值为 2、条件方差为 1。
+# 只统计点击样本，均值为 2、二阶矩为 5。
+# 把未点击样本的贡献记为零，再对全部 1000 次平均，则分别为 0.2 和 0.5。
+# 后一种读出同时保留事件频率和条件态信息，可用作带事件标记的特征，也可用于合并互斥事件。
+# 合并事件时，协方差还包含事件间均值的变化：两个等概率事件的均值为 +2 和 -2、方差均为 1，总方差为 5，而加权条件方差之和只有 1。
+#
+# 先用 `post_select(..., normalize=False)` 保留事件权重，再读取加权原始矩。
+# 这样零概率事件返回零贡献，普通归一化读出仍要求权重大于零。
+# 读取这些矩不会改变条件态本身。
+#
+
+# %%
+event_state, event_probability = cir_bargmann.post_select(0, 1, detector='threshold', normalize=False)
+second_event, first_event = event_state.quadrature_moments(centered=False, normalize=False)
+print(event_probability)  # 约 0.0849
+print(second_event.shape, first_event.shape)  # (1, 2, 2)、(1, 2, 1)
 
 # %% [markdown]
 # 当前支持相移、分束器、MZI、任意无源酉变换、单模／双模压缩、位移和光损耗，也支持 `HardwareModel` 中相应的控制噪声与光路损耗。

@@ -111,7 +111,7 @@ sample = gbs.measure(mcmc=True)
 print('采样结果为：', sample)
 
 # 计算每个节点理论平均光子数
-photon_number = gbs.photon_number_mean_var()[0]
+photon_number = gbs.photon_number_mean_var()[0].squeeze(0)
 print('每个节点平均光子数为：', photon_number)
 
 # %% [markdown]
@@ -166,7 +166,7 @@ gbs = dq.photonic.GraphGBS(adj_mat=waw, cutoff=3, mean_photon_num=6)
 gbs()
 
 # 计算每个节点理论平均光子数
-photon_number = gbs.photon_number_mean_var()[0]
+photon_number = gbs.photon_number_mean_var()[0].squeeze(0)
 print('每个节点平均光子数为：', photon_number)
 
 # %% [markdown]
@@ -222,7 +222,7 @@ class VGBS(nn.Module):
 
         gbs = dq.photonic.GBS_Graph(adj_mat=waw, cutoff=5, mean_photon_num=6)
         gbs()
-        photon_number = gbs.photon_number_mean_var()[0]
+        photon_number = gbs.photon_number_mean_var()[0].squeeze(0)
         print('每个节点平均光子数为: ', photon_number)
         loss = self.target(photon_number)
 
@@ -320,7 +320,7 @@ class VGBS(nn.Module):
 
         gbs = dq.photonic.GBS_Graph(adj_mat=waw, cutoff=5, mean_photon_num=6)
         gbs()
-        photon_number = gbs.photon_number_mean_var()[0]
+        photon_number = gbs.photon_number_mean_var()[0].squeeze(0)
         print('每个节点平均光子数为: ', photon_number)
         loss = self.target_kl(photon_number)
 

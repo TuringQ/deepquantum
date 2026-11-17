@@ -26,10 +26,10 @@ def test_tdm_substate_matches_global_circuit():
     circuit.loss_db(0, 0.2)
     circuit.to(torch.double)
     nstep = 5
-    time_steps = torch.tensor([1, 3, 4])
+    time_steps = torch.tensor([4, 1, 3])
     wires = torch.tensor([1, 0])
 
-    actual_cov, actual_mean = circuit.tdm_substate(nstep, time_steps, wires)
+    actual_cov, actual_mean = circuit.tdm_substate(time_steps, wires)
     global_circuit = circuit.global_circuit(nstep)
     global_circuit.to(torch.double)
     expected_cov, expected_mean = global_circuit()
@@ -48,18 +48,19 @@ def test_encoded_tdm_substate_matches_global_circuit():
     circuit.delay(1, ntau=3, inputs=[0.5, -0.1], convention='mzi')
     circuit.to(torch.double)
     nstep = 4
-    time_steps = torch.tensor([1, 3])
+    time_steps = torch.tensor([3, 1])
     wires = torch.tensor([1, 0])
-    data = torch.linspace(-0.3, 0.6, 2 * nstep * circuit.ndata, dtype=torch.double).reshape(2, -1)
+    ntimes = 2
+    data = torch.linspace(-0.3, 0.6, 2 * ntimes * circuit.ndata, dtype=torch.double).reshape(2, ntimes, -1)
     data.requires_grad_()
     state_before = {name: value.clone() for name, value in circuit.state_dict().items()}
 
-    actual_cov, actual_mean = circuit.tdm_substate(nstep, time_steps, wires, data)
+    actual_cov, actual_mean = circuit.tdm_substate(time_steps, wires, data)
     for name, value in state_before.items():
         torch.testing.assert_close(circuit.state_dict()[name], value)
     global_circuit = circuit.global_circuit(nstep)
     global_circuit.to(torch.double)
-    expected_cov, expected_mean = global_circuit(data)
+    expected_cov, expected_mean = global_circuit(data[:, torch.arange(nstep) % ntimes].flatten(1))
     output_wires = circuit.tdm_output_wires(nstep)[time_steps][:, wires].reshape(-1)
     indices = torch.cat([output_wires, output_wires + global_circuit.nmode])
 
@@ -68,9 +69,113 @@ def test_encoded_tdm_substate_matches_global_circuit():
     actual_grad = torch.autograd.grad(actual_cov.square().sum(), data)[0]
     expected_grad = torch.autograd.grad(expected_cov[:, indices[:, None], indices].square().sum(), data)[0]
     torch.testing.assert_close(actual_grad, expected_grad)
-    single_cov, single_mean = circuit.tdm_substate(nstep, time_steps, wires, data[0])
+    single_cov, single_mean = circuit.tdm_substate(time_steps, wires, data[0])
     torch.testing.assert_close(single_cov, actual_cov[:1])
     torch.testing.assert_close(single_mean, actual_mean[:1])
+
+
+@pytest.mark.parametrize(
+    'encoded,hardware,time_steps',
+    [(False, False, slice(5)), (False, True, [2, 4]), (True, False, [2, 4]), (True, True, slice(5))],
+)
+def test_tdm_substate_windows_and_gradients_match_global_circuit(encoded, hardware, time_steps):
+    cir = dq.QumodeCircuit(2, 'vac', backend='gaussian')
+    strength = torch.tensor(0.24, dtype=torch.double, requires_grad=True)
+    cir.s(0, r=strength)
+    cir.d(1, 0.1, 0.3)
+    cir.bs([0, 1], [0.4, 0.1])
+    cir.delay(0, ntau=2, inputs=[0.3, -0.2], encode=encoded)
+    cir.delay(1, ntau=3, inputs=[0.6, 0.2])
+    if hardware:
+        model = dqp.HardwareModel()
+        model.input(0).loss(t=0.91)
+        model.bs().theta.gaussian(mu=0.02, sigma=0.0)
+        model.output(1).loss(t=0.84)
+        cir.set_hardware_model(model)
+    cir.double()
+    nstep = 5
+    data = None
+    if encoded:
+        data = torch.linspace(0.1, 0.6, 2 * 2 * cir.ndata, dtype=torch.double).reshape(2, 2, cir.ndata)
+        data.requires_grad_()
+    initial = {name: value.clone() for name, value in cir.state_dict().items()}
+    outputs = []
+    for output in cir.tdm_substate(time_steps, data=data, wires=[1, 0], window=2):
+        outputs.append(output)
+        for name, value in cir.state_dict().items():
+            torch.testing.assert_close(value, initial[name])
+    unrolled = cir.global_circuit(nstep)
+    unrolled.double()
+    expanded_data = None if data is None else data[:, torch.arange(nstep) % data.shape[1]].flatten(1)
+    cov, mean = unrolled(expanded_data)
+    references = []
+    selected = list(range(nstep))[time_steps] if isinstance(time_steps, slice) else time_steps
+    for step, output in zip(selected, outputs, strict=True):
+        wires = cir.tdm_output_wires(nstep)[max(0, step - 1) : step + 1, [1, 0]].flatten()
+        indices = torch.cat([wires, wires + unrolled.nmode])
+        expected = [cov[:, indices[:, None], indices], mean[:, indices]]
+        torch.testing.assert_close(output, expected)
+        references.append(expected)
+    variables = (strength,) if data is None else (strength, data)
+    actual_grad = torch.autograd.grad(sum(value.square().sum() for output in outputs for value in output), variables)
+    expected_grad = torch.autograd.grad(
+        sum(value.square().sum() for output in references for value in output), variables
+    )
+    torch.testing.assert_close(actual_grad, expected_grad)
+
+
+def test_tdm_substate_windows_pause_close_and_restart():
+    cir = dq.QumodeCircuit(1, 'vac', backend='gaussian')
+    cir.s(0, encode=True)
+    cir.delay(0, ntau=2, inputs=[0.4, 0.2])
+    cir.double()
+    data = torch.tensor([[0.2, 0.1], [0.3, -0.2], [0.1, 0.4]], dtype=torch.double)
+    stream = cir.tdm_substate(slice(3), data=data, window=1)
+    first = next(stream)
+    torch.testing.assert_close(first, cir.tdm_substate(0, data=data))
+    second = next(stream)
+    torch.testing.assert_close(second, cir.tdm_substate([1], data=data))
+    stream.close()
+    torch.testing.assert_close(next(cir.tdm_substate(slice(3), data=data, window=1)), first)
+    # A scalar time selects one window, rather than the number of iteration steps.
+    windows = list(cir.tdm_substate(1, data=data, window=3))
+    assert len(windows) == 1
+    torch.testing.assert_close(windows[0], cir.tdm_substate([0, 1], data=data))
+
+
+def test_tdm_substate_windows_hardware_noise_matches_joint_state():
+    cir = dq.QumodeCircuit(1, 'vac', backend='gaussian')
+    cir.s(0, 0.25)
+    cir.ps(0, encode=True)
+    cir.delay(0, ntau=2, inputs=[0.4, 0.2])
+    model = dqp.HardwareModel()
+    model.ps().theta.gaussian(sigma=0.04)
+    cir.set_hardware_model(model)
+    cir.double()
+    data = torch.linspace(0.1, 0.7, 4, dtype=torch.double).reshape(2, 2, 1)
+    model.manual_seed(21)
+    output = next(cir.tdm_substate(4, data=data, window=2))
+    model.manual_seed(21)
+    expected = cir.tdm_substate(slice(3, 5), data=data)
+    torch.testing.assert_close(output, expected)
+
+
+def test_tdm_selected_times_and_periodic_data_validation():
+    cir = dq.QumodeCircuit(1, 'vac', backend='gaussian')
+    cir.s(0, encode=True)
+    cir.delay(0, ntau=2, inputs=[0.4, 0.2])
+    data = torch.tensor([[0.2, 0.1], [0.3, -0.2]])
+    for time_steps in ([], [-1], [0, 0], [0.5], True, slice(None), slice(0, 3, 0)):
+        with pytest.raises(ValueError, match='time_steps'):
+            cir.tdm_substate(time_steps, data=data)
+    for invalid in (data.flatten(), data[:0], data[:, :1]):
+        with pytest.raises(ValueError, match='data'):
+            cir.tdm_substate([0, 3], data=invalid)
+    with pytest.raises(ValueError, match='ascending'):
+        cir.tdm_substate([2, 1], data=data, window=2)
+    for window in (0, True, 1.5):
+        with pytest.raises(ValueError, match='window'):
+            cir.tdm_substate(slice(4), data=data, window=window)
 
 
 @pytest.mark.parametrize('query', ['get_unitary', 'get_symplectic', 'get_displacement'])
@@ -123,7 +228,7 @@ def test_tdm_entries_reuse_mapping(hardware):
         circuit.get_symplectic,
         lambda: circuit.get_displacement(torch.zeros(6, 1, dtype=torch.double)),
         lambda: circuit.tdm_output_wires(3),
-        lambda: circuit.tdm_substate(3, [1, 2]),
+        lambda: circuit.tdm_substate([1, 2]),
         lambda: circuit.global_circuit(3),
         lambda: circuit.measure_homodyne(shots=2),
     ]:

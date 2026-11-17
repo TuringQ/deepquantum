@@ -66,8 +66,8 @@ Photonic circuits:
 - Bargmann backend:
   - Use `backend='bargmann'`; forward returns a `BargmannState`. Its `polyexp` is a `dqp.BargmannPolyExp(mat_a, vec_b, coeff_c)` with inferred free and auxiliary variable counts.
   - Supported Gaussian gates and photon loss act through `get_bargmann()` representations. Loss requires `den_mat=True`. `state.to_fock(cutoff)` performs explicit finite-cutoff readout; the cutoff does not truncate Bargmann evolution.
-  - `quadrature_mean`, `quadrature_moments` and `photon_number_mean_var` read normalized moments directly from Bargmann states without Fock truncation. `quadrature_moments` returns `(cov, mean)` in xxpp order, including correlations between modes.
-  - Thermal source preparation, submodes, TDM and circuit-level sampling are not supported.
+  - `quadrature_mean`, `quadrature_moments` and `photon_number_mean_var` read moments directly from Bargmann states without Fock truncation. By default, `quadrature_moments` returns normalized `(cov, mean)` in xxpp order, including correlations between modes. Set `centered=False, normalize=False` on an unnormalized conditional state to obtain event-weighted raw moments, including zero contributions for impossible events.
+  - Thermal source preparation, submodes, native delay-loop evolution and circuit-level sampling are not supported. An explicit `global_circuit(nstep)` can evolve with Bargmann-supported operations. `tdm_substate` requires the Gaussian backend.
 - Clements and GBS:
   - `dq.Clements`, `dq.UnitaryDecomposer`, `dq.GaussianBosonSampling`, and `dqp.GraphGBS` are documented through tutorials/examples.
   - `QumodeCircuit.any(...)` supports arbitrary unitary gates; tutorials note `clements(...)` performs a physical Clements decomposition and is not used as the differentiable arbitrary-unitary path.
@@ -87,11 +87,13 @@ Photonic hardware models:
 
 Photonic TDM:
 
-- `global_circuit(nstep)` unrolls delay loops and remaps the attached hardware model. `tdm_substate(nstep, time_steps, wires=..., data=...)` computes selected Gaussian outputs without building the full unrolled circuit.
+- `global_circuit(nstep)` unrolls delay loops and remaps the attached hardware model.
+- `tdm_substate(time_steps, wires=None, data=None, window=None)` returns a joint Gaussian state in the supplied time and wire order. A positive `window` yields consecutive output windows ending at ascending selected times. Evolution stops at the largest selected time. Slices require an explicit stop. Data shaped `(ntimes, ndata)` or `(batch, ntimes, ndata)` repeat cyclically. Inputs and delay modes start in vacuum, and readout does not condition the circulating memory. Source preparations and submodes are not supported.
 - `QumodeCircuitTDM` supports stepwise Gaussian/Bosonic evolution with homodyne measurements.
 
 Photonic measurement and probabilities:
 
+- Moment readouts preserve the batch axis: `quadrature_mean` returns `(batch, K, 1)`, and `photon_number_mean_var` returns two `(batch, K)` tensors. The two legacy Fock readouts retain the truncated state weight. `quadrature_moments` provides explicit normalization control.
 - `QumodeCircuit.measure(shots=1024, with_prob=False, wires=None, detector=None, mcmc=False)` returns Fock-state keyed dictionaries, or a list for batched state/data.
 - Gaussian `measure(..., mcmc=True)` and Fock `measure(..., mcmc=True)` are documented for sampling when full probabilities are expensive.
 - `measure_homodyne(shots=..., wires=...)` returns quadrature samples and stores collapsed states in `state_measured` when measurement operations were added with `homodyne`, `homodyne_x`, or `homodyne_p`. Use `lo` to select a local-oscillator mode and `phi` for an additional quadrature angle.

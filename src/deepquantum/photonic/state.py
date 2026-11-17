@@ -26,7 +26,14 @@ from .bargmann import (
     vacuum_bargmann,
 )
 from .draw import GaussianGraphVisualizer
-from .qmath import _quadrature_moments_ladder, cv_to_wigner, dirac_rep, fock_to_wigner, xpxp_to_xxpp, xxpp_to_xpxp
+from .qmath import (
+    _quadrature_moments_ladder,
+    cv_to_wigner,
+    dirac_rep,
+    fock_to_wigner,
+    xpxp_to_xxpp,
+    xxpp_to_xpxp,
+)
 
 
 class FockState(nn.Module):
@@ -518,8 +525,10 @@ class BargmannState(nn.Module):
         coeff_c = self.coeff_c / denominator.reshape(-1, *([1] * (self.coeff_c.ndim - 1)))
         return self._new(BargmannPolyExp._from_tensors(self.mat_a, self.vec_b, coeff_c))
 
-    def _prepare_moments(self, wires: int | list[int] | None) -> tuple[BargmannPolyExp, torch.Tensor]:
-        """Validate selected modes and construct normalized-moment readout data."""
+    def _prepare_moments(
+        self, wires: int | list[int] | None, *, require_positive: bool = True
+    ) -> tuple[BargmannPolyExp, torch.Tensor]:
+        """Validate selected modes and construct the moment generating function and state weight."""
         if wires is None:
             wires = list(range(self.nmode))
         elif not isinstance(wires, (list, tuple)):
@@ -534,8 +543,8 @@ class BargmannState(nn.Module):
             raise ValueError('wires must contain distinct valid mode indices')
         density = self.to_dm()
         weight = density.norm()
-        if bool((weight <= 0).any()):
-            raise ValueError('Moments require a positive state weight')
+        if require_positive and bool((weight <= 0).any()):
+            raise ValueError('Normalized moments require a positive state weight')
         return _moment_generating(density.polyexp, wires), weight
 
     def quadrature_mean(self, wires: int | list[int] | None = None, phi: Any = None) -> torch.Tensor:
@@ -558,21 +567,41 @@ class BargmannState(nn.Module):
         value = (alpha * torch.exp(-1j * phi.reshape(1, -1))).real / weight[:, None]
         return (dqp.hbar**0.5 / dqp.kappa * value).unsqueeze(-1)
 
-    def quadrature_moments(self, wires: int | list[int] | None = None) -> tuple[torch.Tensor, torch.Tensor]:
-        r"""Get normalized xxpp covariance and mean without Fock truncation.
+    def quadrature_moments(
+        self, wires: int | list[int] | None = None, *, centered: bool = True, normalize: bool = True
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        r"""Get xxpp quadrature moments without Fock truncation.
 
-        The covariance is :math:`V_{ij}=\langle\{\Delta r_i,\Delta r_j\}\rangle/2`.
         These are the moments of the complete state, including non-Gaussian terms.
+        Let :math:`r` be the column vector of selected quadratures in xxpp order.
+        For state weight :math:`w=\operatorname{Tr}\rho`, define the normalized mean
+        :math:`\mu=\operatorname{Tr}(\rho r)/w` and covariance
+        :math:`V_{ij}=\langle\{\Delta r_i,\Delta r_j\}\rangle/2`, with :math:`\Delta r=r-\mu`.
+
+        Centering removes the mean contribution from the second moment.
+        Normalization divides the readout by the state weight.
+        With both options disabled, the result is linear in the input state:
+
+        .. math::
+
+            M_{ij} = \tfrac12\operatorname{Tr}\!\left[\rho(r_i r_j+r_j r_i)\right],
+            \qquad m_i = \operatorname{Tr}(\rho r_i).
 
         Args:
             wires: The indices of the modes to measure, in output order. Default: ``None`` (all modes)
+            centered: Return covariance instead of uncentered second moments.
+                The first-moment vector is retained in either case. Default: ``True``
+            normalize: Divide both returned tensors by the state weight.
+                Requires positive weight when enabled. Default: ``True``
 
         Returns:
-            ``(cov, mean)`` with shapes ``(batch, 2K, 2K)`` and ``(batch, 2K, 1)``,
+            Two tensors with shapes ``(batch, 2K, 2K)`` and ``(batch, 2K, 1)``,
             where ``K=len(wires)``. Units follow the current ``hbar`` and ``kappa``.
-            The state weight must be positive.
+            The default is ``(V, mu)``. With ``centered=False`` it is
+            ``(V + mu @ mu.mT, mu)``. With ``normalize=False``, both tensors
+            retain the factor ``w``. Zero-probability events then contribute zeros.
         """
-        generating, weight = self._prepare_moments(wires)
+        generating, weight = self._prepare_moments(wires, require_positive=normalize)
         nwire = generating.nfree // 2
         alpha = torch.stack([_bargmann_derivative(generating, (i + nwire,)) for i in range(nwire)], dim=-1)
         normal, anomalous = [], []
@@ -581,10 +610,9 @@ class BargmannState(nn.Module):
             anomalous.append(
                 torch.stack([_bargmann_derivative(generating, (i + nwire, j + nwire)) for j in range(nwire)], -1)
             )
-        alpha = alpha / weight[:, None]
-        normal = torch.stack(normal, dim=-2) / weight[:, None, None]
-        anomalous = torch.stack(anomalous, dim=-2) / weight[:, None, None]
-        return _quadrature_moments_ladder(alpha, normal, anomalous)
+        normal = torch.stack(normal, dim=-2)
+        anomalous = torch.stack(anomalous, dim=-2)
+        return _quadrature_moments_ladder(alpha, normal, anomalous, weight, centered=centered, normalize=normalize)
 
     def photon_number_mean_var(self, wires: int | list[int] | None = None) -> tuple[torch.Tensor, torch.Tensor]:
         r"""Get normalized photon-number expectation and variance without Fock truncation.
