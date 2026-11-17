@@ -1545,15 +1545,19 @@ state = cir_global(data=data)
 cir_global.draw(unroll=True)  # draw global circuit
 
 # %% [markdown]
-# `tdm_substate(time_steps, wires=None, data=None)` 一次返回指定时间点的联合 Gaussian 态，演化到最后一个选中时刻为止。
-# `time_steps` 使用非负索引，slice 必须给出终点。
-# `tdm_substate_stepwise(nstep, wires=None, data=None, window=1)` 在一次遍历中逐步返回最近 `window` 步的联合 Gaussian 态。
-# 例如 `nstep=4, window=2` 依次返回时间点 `[0]`、`[0,1]`、`[1,2]`、`[2,3]` 的联合态。
-# 每个窗口与显式指定相同 `time_steps` 的子态一致，逐步接口复用之前的演化，无需每次从初态重算。
-# 两者复用逐步演化内核，从真空输入和真空环路开始，输入光场通过线路中的门制备。
-# 两个接口的编码数据形状均为 `(ntimes, ndata)` 或 `(batch, ntimes, ndata)`。
+# `tdm_substate(time_steps, wires=None, data=None, window=None)` 返回指定输出的联合 Gaussian 态，或逐步返回窗口态。
+# 默认 `window=None` 时，`time_steps` 和 `wires` 均可乱序，返回模式顺序与输入顺序一致。
+# 例如 `time_steps=[3,1], wires=[1,0]` 对应 `(3,1)`、`(3,0)`、`(1,1)`、`(1,0)` 四个时间与空间模式。
+# 索引必须非负且不重复，slice 必须给出终点并使用正步长。
+# 演化到 `max(time_steps)` 为止，不需要另行指定总步数。
+#
+# 设置 `window` 后，返回迭代器，`time_steps` 指定各窗口的结束时刻，必须升序。
+# 例如 `time_steps=slice(4), window=2` 依次返回时间点 `[0]`、`[0,1]`、`[1,2]`、`[2,3]` 的联合态。
+# `time_steps=[2,5], window=2` 则只返回 `[1,2]` 和 `[4,5]`，窗口按实际连续时间步计数。
+# 每个窗口与直接查询相同时间点的子态一致，迭代过程复用之前的演化。
+# 普通查询和窗口迭代共用逐步演化内核，从真空输入和真空环路开始，输入光场通过线路中的门制备。
+# 编码数据形状为 `(ntimes, ndata)` 或 `(batch, ntimes, ndata)`。
 # `ntimes` 是输入序列长度，第 `t` 步读取 `data[t % ntimes]`，所以短序列可以重复使用。
-# `tdm_substate` 从 `time_steps` 推断演化长度，`tdm_substate_stepwise` 使用显式的 `nstep`。
 #
 # 窗口内模式先按时间再按 `wires` 排列，正交分量仍按 xxpp 排列。
 # 下面只有一个空间模式，窗口填满后依次保留前一步和当前步，`cov[0, 0, 1]` 是这两步 x 分量的协方差。
@@ -1570,7 +1574,7 @@ cir_stream.delay(0, ntau=2, inputs=[0.4, 0.1])
 cir_stream.double()
 
 with torch.no_grad():
-    for step, (cov_window, mean_window) in enumerate(cir_stream.tdm_substate_stepwise(4, window=2)):
+    for step, (cov_window, mean_window) in enumerate(cir_stream.tdm_substate(slice(4), window=2)):
         print(step, cov_window.shape, mean_window.shape)
         # 第一步为 (1, 2, 2)、(1, 2, 1)，之后为 (1, 4, 4)、(1, 4, 1)
 

@@ -1061,45 +1061,80 @@ class QumodeCircuit(Operation):
         time_steps: int | slice | list[int] | torch.Tensor,
         wires: int | list[int] | torch.Tensor | None = None,
         data: torch.Tensor | None = None,
-    ) -> list[torch.Tensor]:
-        """Get the Gaussian state of selected TDM outputs.
+        *,
+        window: int | None = None,
+    ) -> list[torch.Tensor] | Iterator[list[torch.Tensor]]:
+        """Get a joint Gaussian TDM substate or iterate over output windows.
 
-        Evolution stops after the last selected time step. Encoded data repeat
+        With ``window=None``, return the joint state in the supplied time and wire
+        order. Otherwise, yield one window ending at each selected time step in a
+        single forward traversal. A window contains the most recent consecutive
+        steps, including steps not listed in ``time_steps``.
+
+        Evolution stops after the largest selected time step. Encoded data repeat
         cyclically when the selected outputs extend beyond the input sequence.
+        As in ``global_circuit``, all inputs and delay modes start in vacuum.
+        Prepare input fields with circuit operations. Only Gaussian evolution
+        without source preparations or orthogonal basis modes is supported.
+
+        Window iteration retains the delay modes and recent outputs with their
+        cross correlations, tracing out earlier outputs. It computes unconditional
+        states without sampling or conditioning the circulating memory. Each new
+        iterator starts from vacuum, while a paused iterator continues from its
+        current step. Circuit structure and parameters must stay fixed during
+        iteration. Use ``torch.no_grad()`` when gradients are not needed, since
+        autograd retains the history required for backward.
 
         Args:
-            time_steps: The nonnegative time steps in ascending order.
+            time_steps: The distinct nonnegative time steps, in output order.
+                Window iteration requires ascending order.
                 A slice must have an explicit stop and a positive step.
-            wires: The selected spatial wires. Default: ``None``
+            wires: The selected spatial wires, in output order. Default: ``None`` (all wires)
             data: Encoded data with shape ``(ntimes, ndata)`` or
-                ``(batch, ntimes, ndata)``. Default: ``None``
+                ``(batch, ntimes, ndata)``, repeated cyclically. Default: ``None``
+            window: The maximum number of consecutive output steps in each window.
+                At time ``t`` a window contains steps ``max(0, t - window + 1)``
+                through ``t``. Default: ``None`` (return one joint state)
 
         Returns:
-            The covariance matrix and mean vector in time-major order, with shapes
-            ``(batch, 2 * nselected, 2 * nselected)`` and ``(batch, 2 * nselected, 1)``.
+            ``[cov, mean]``, or an iterator yielding such pairs when ``window`` is set.
+            Each pair has shapes ``(batch, 2K, 2K)`` and ``(batch, 2K, 1)`` for
+            ``K`` selected output modes. Modes follow time then wire order, with
+            quadratures in xxpp order. Times within each window are chronological.
         """
         if isinstance(time_steps, slice):
             start = 0 if time_steps.start is None else time_steps.start
             step = 1 if time_steps.step is None else time_steps.step
             if time_steps.stop is None or start < 0 or time_steps.stop < 0 or step <= 0:
                 raise ValueError('time_steps slices require nonnegative bounds, an explicit stop and a positive step')
-            time_steps = list(range(start, time_steps.stop, step))
-        time_steps = torch.as_tensor(time_steps)
-        if (
-            time_steps.ndim > 1
-            or time_steps.dtype == torch.bool
-            or time_steps.is_floating_point()
-            or time_steps.is_complex()
-        ):
-            raise ValueError('time_steps must contain integers')
-        time_steps = time_steps.reshape(-1).to(dtype=torch.long, device='cpu')
-        if time_steps.numel() == 0 or bool((time_steps < 0).any()):
-            raise ValueError('time_steps must contain nonnegative indices')
-        if bool((time_steps[1:] <= time_steps[:-1]).any()):
-            raise ValueError('time_steps must be unique and ascending')
-        nstep = int(time_steps[-1]) + 1
-        wires, data = self._prepare_tdm_readout(nstep, wires, data)
+            time_steps = range(start, time_steps.stop, step)
+            if len(time_steps) == 0:
+                raise ValueError('time_steps must not be empty')
+        else:
+            time_steps = torch.as_tensor(time_steps)
+            if (
+                time_steps.ndim > 1
+                or time_steps.dtype == torch.bool
+                or time_steps.is_floating_point()
+                or time_steps.is_complex()
+            ):
+                raise ValueError('time_steps must contain integers')
+            time_steps = time_steps.reshape(-1).to(dtype=torch.long, device='cpu')
+            if time_steps.numel() == 0 or bool((time_steps < 0).any()):
+                raise ValueError('time_steps must contain nonnegative indices')
+            if torch.unique(time_steps).numel() != time_steps.numel():
+                raise ValueError('time_steps must be unique')
+        if window is not None:
+            if not isinstance(window, int) or isinstance(window, bool) or window < 1:
+                raise ValueError('window must be a positive integer')
+            if isinstance(time_steps, torch.Tensor) and bool((time_steps[1:] < time_steps[:-1]).any()):
+                raise ValueError('time_steps must be ascending for window iteration')
+        wires, data = self._prepare_tdm_readout(wires, data)
+        if window is not None:
+            return self._tdm_substate_stepwise(time_steps, wires, data, window)
 
+        time_steps = torch.as_tensor(time_steps, dtype=torch.long)
+        nstep = int(time_steps.max()) + 1
         if data is None:
             return [value.unsqueeze(0) for value in self._tdm_substate_gaussian(nstep, time_steps, wires)]
         with self._preserve_encoders():
@@ -1107,46 +1142,14 @@ class QumodeCircuit(Operation):
                 nstep, time_steps, wires, data
             )
 
-    def tdm_substate_stepwise(
+    def _tdm_substate_stepwise(
         self,
-        nstep: int,
-        wires: int | list[int] | torch.Tensor | None = None,
-        data: torch.Tensor | None = None,
-        *,
-        window: int = 1,
+        time_steps: range | torch.Tensor,
+        wires: torch.Tensor,
+        data: torch.Tensor | None,
+        window: int,
     ) -> Iterator[list[torch.Tensor]]:
-        """Yield Gaussian TDM output windows in a single forward traversal.
-
-        Each step retains the delay modes and the selected outputs from the most
-        recent ``window`` steps, including their cross correlations. Earlier outputs
-        are traced out. As in ``global_circuit``, all inputs and delay modes start in
-        vacuum. Prepare input fields with circuit operations.
-
-        This computes unconditional output states without sampling or conditioning
-        the circulating memory. Apply measurements to the yielded states for readout.
-        Each new iterator starts from vacuum. A paused iterator continues from its
-        current step. Circuit structure and parameters must stay fixed during iteration.
-        Use ``torch.no_grad()`` when gradients are not needed. Autograd retains the
-        history required for backward even though the propagated state has bounded size.
-
-        Args:
-            nstep: The total number of time steps to evolve.
-            wires: The selected spatial wires, in output order. Default: ``None`` (all wires)
-            data: Encoded data with shape ``(ntimes, ndata)`` or
-                ``(batch, ntimes, ndata)``, repeated cyclically when ``nstep > ntimes``.
-                Default: ``None``
-            window: The maximum number of consecutive output steps to retain.
-                The first windows contain fewer steps. Default: 1
-
-        Yields:
-            ``[cov, mean]`` in time-major mode order and xxpp quadrature order.
-            At step ``t`` the shapes are ``(batch, 2K, 2K)`` and ``(batch, 2K, 1)``,
-            where ``K = min(t + 1, window) * len(wires)``. Only Gaussian evolution
-            without source preparations or orthogonal basis modes is supported.
-        """
-        wires, data = self._prepare_tdm_readout(nstep, wires, data)
-        if not isinstance(window, int) or isinstance(window, bool) or window < 1:
-            raise ValueError('window must be a positive integer')
+        """Yield Gaussian windows at selected times while reusing preceding evolution."""
         loop_wire_map = self._tdm_loop_map()
         nloop = len(loop_wire_map)
         vac = self.init_state.cov.new_tensor(dqp.hbar / (4 * dqp.kappa**2))
@@ -1154,8 +1157,9 @@ class QumodeCircuit(Operation):
         cov = (torch.eye(2 * nloop, dtype=vac.dtype, device=vac.device) * vac).expand(batch, -1, -1)
         mean = cov.new_zeros(batch, 2 * nloop, 1)
         bindings = self.hardware_model._bind(self.operators) if self.hardware_model is not None else None
+        selected_steps = time_steps if isinstance(time_steps, range) else set(time_steps.tolist())
         selected_wires = wires.tolist()
-        for step in range(nstep):
+        for step in range(int(time_steps[-1]) + 1):
             old_nmode = cov.shape[-1] // 2
             first_retained = max(nloop, old_nmode - (window - 1) * len(selected_wires))
             if first_retained > nloop:
@@ -1177,13 +1181,13 @@ class QumodeCircuit(Operation):
             keep = torch.tensor(keep, dtype=torch.long, device=cov.device)
             indices = torch.cat([keep, keep + old_nmode + self.nmode])
             cov, mean = cov[:, indices[:, None], indices], mean[:, indices]
-            retained = torch.arange(nloop, len(keep), device=cov.device)
-            indices = torch.cat([retained, retained + len(keep)])
-            yield [cov[:, indices[:, None], indices], mean[:, indices]]
+            if step in selected_steps:
+                retained = torch.arange(nloop, len(keep), device=cov.device)
+                indices = torch.cat([retained, retained + len(keep)])
+                yield [cov[:, indices[:, None], indices], mean[:, indices]]
 
     def _prepare_tdm_readout(
         self,
-        nstep: int,
         wires: int | list[int] | torch.Tensor | None,
         data: torch.Tensor | None,
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
@@ -1195,7 +1199,6 @@ class QumodeCircuit(Operation):
             self._validate_hardware_model(self.hardware_model)
         assert self.backend == 'gaussian', 'TDM state readout requires Gaussian backend'
         assert self._with_delay, 'TDM state readout requires at least one delay loop'
-        assert isinstance(nstep, int) and not isinstance(nstep, bool) and nstep > 0, 'nstep must be a positive integer'
         wires = torch.arange(self.nmode) if wires is None else torch.as_tensor(wires, dtype=torch.long).reshape(-1)
         assert wires.numel() > 0, 'wires must not be empty'
         assert torch.all((wires >= 0) & (wires < self.nmode)), 'wires must lie in [0, nmode)'
@@ -1258,7 +1261,10 @@ class QumodeCircuit(Operation):
             cov = cov_step[keep_xp[:, None], keep_xp]
             mean = mean_step[keep_xp]
 
-        retained = torch.arange(nloop, nloop + nretained, device=cov.device)
+        # Evolution retains outputs chronologically. Restore the requested time order.
+        time_order = time_steps.argsort().argsort().to(device=cov.device)
+        wire_order = torch.arange(len(selected_wires), device=cov.device)
+        retained = nloop + (time_order[:, None] * len(selected_wires) + wire_order).reshape(-1)
         retained_xp = torch.cat([retained, retained + nloop + nretained])
         return [cov[retained_xp[:, None], retained_xp], mean[retained_xp]]
 

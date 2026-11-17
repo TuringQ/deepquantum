@@ -87,8 +87,8 @@ Photonic hardware models:
 
 Photonic TDM:
 
-- `global_circuit(nstep)` unrolls delay loops and remaps the attached hardware model. `tdm_substate(time_steps, wires=None, data=None)` computes selected Gaussian outputs through the last requested time step. Slices require an explicit stop.
-- `tdm_substate_stepwise(nstep, wires=None, data=None, window=1)` yields consecutive Gaussian output windows in one traversal, preserving correlations within the window and with the delay modes. Both substate interfaces accept `(ntimes, ndata)` or `(batch, ntimes, ndata)` and repeat short input sequences cyclically. Inputs and delay modes start in vacuum. Each new iterator restarts, and a paused iterator can continue. Readout does not condition the circulating memory. Use `torch.no_grad()` for bounded-memory inference. Source preparations and submodes are not supported.
+- `global_circuit(nstep)` unrolls delay loops and remaps the attached hardware model.
+- `tdm_substate(time_steps, wires=None, data=None, window=None)` evolves through the largest requested time step. By default it returns a joint Gaussian state in the supplied time and wire order. A positive `window` returns an iterator over consecutive output windows ending at the selected times, which must be ascending. Slices require an explicit stop. Data shaped `(ntimes, ndata)` or `(batch, ntimes, ndata)` repeat cyclically. Inputs and delay modes start in vacuum. Each new iterator restarts, and a paused iterator can continue. Readout does not condition the circulating memory. Use `torch.no_grad()` for bounded-memory window iteration. Source preparations and submodes are not supported.
 - `QumodeCircuitTDM` supports stepwise Gaussian/Bosonic evolution with homodyne measurements.
 
 Photonic measurement and probabilities:
