@@ -5,39 +5,47 @@ It uses the same gate construction methods as `QubitCircuit` and supports statev
 
 ## Installation
 
+Run the commands from a DeepQuantum source checkout. Choose the section for your GPU, then run the GHZ example below in that Conda environment.
+Both examples use Python 3.10. For CoreX, match the Python version to the PyTorch wheel from Iluvatar (`cp310` for Python 3.10 or `cp311` for Python 3.11).
+
 ### NVIDIA cuQuantum
 
-Install NVIDIA CUDA-enabled PyTorch, a matching CUDA toolkit with `nvcc`, and a C++17 compiler.
-The CUDA runtime alone is not sufficient to compile the extension.
+This example requires a compatible NVIDIA driver, the [CUDA 12.6 Toolkit](https://docs.nvidia.com/cuda/archive/12.6.3/cuda-installation-guide-linux/index.html) with `nvcc`, and a C++17 compiler.
 
 ```bash
-python -m pip install 'deepquantum[cuquantum]'
+conda create -n dq-cuquantum python=3.10 pip -y
+conda activate dq-cuquantum
+python -m pip install torch==2.7.1 --index-url https://download.pytorch.org/whl/cu126
+python -m pip install -e '.[cuquantum]' 'custatevec-cu12==1.14.0'
+export CUDA_HOME=/usr/local/cuda-12.6  # Adjust to your CUDA Toolkit path.
 ```
-
-Set `CUDA_HOME` to the CUDA toolkit directory.
-The loader finds the cuStateVec SDK installed by `custatevec-cu12` in the active Python environment.
-For a separate SDK installation, set `CUQUANTUM_ROOT` to its root directory containing `include/` and `lib/` or `lib64/`.
 
 ### Iluvatar ixquantum
 
-Obtain the GPU driver, CoreX toolkit, CoreX-compatible PyTorch, and ixquantum SDK from Iluvatar (天数智芯).
-The [Iluvatar developer downloads page](https://developer.iluvatar.com/downloads) provides contact information at the bottom of the page.
+Install the GPU driver and CoreX toolkit from Iluvatar (天数智芯). Obtain the CoreX PyTorch wheel and the ixquantum SDK files from Iluvatar as well.
+
+- `custatevec.h` is the C API header used to compile the DeepQuantum GPU extension.
+- `libcustatevec.so.1.8.0` is the ixquantum shared library that DeepQuantum links to and calls at runtime.
+
+Please contact Iluvatar for the ixquantum SDK files using the contact details at the bottom of its [developer downloads page](https://developer.iluvatar.com/downloads).
 This backend has been tested on Linux x86_64 with a BI-V150 GPU, CoreX 5.0.0, CoreX PyTorch 2.10.0, and ixquantum 1.8.0.
 A C++17 compiler and Python development headers are also required.
 
-For CoreX installed under `/usr/local/corex`, configure the environment as follows:
+Set `IXQUANTUM_ROOT` to the directory containing the ixquantum SDK files.
+Replace `/path/to/corex-torch.whl` with the path to the CoreX PyTorch wheel.
+The commands assume CoreX is installed at `/usr/local/corex`.
 
 ```bash
+conda create -n dq-ixquantum python=3.10 pip -y
+conda activate dq-ixquantum
 export PATH="/usr/local/corex/bin:$PATH"
 export LD_LIBRARY_PATH="/usr/local/corex/lib64:/usr/local/corex/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export IXQUANTUM_ROOT=/path/to/ixquantum
-python -m pip install 'deepquantum[ixquantum]'
+python -m pip install /path/to/corex-torch.whl
+python -m pip install -e '.[ixquantum]'
+python -c "import torch; assert getattr(torch, 'corex', False) and torch.cuda.is_available()"
 ```
 
-Set `IXQUANTUM_ROOT` to the directory containing `custatevec.h` and `libcustatevec.so.1.8.0`, or an SDK directory with `include/` and `lib/` or `lib64/`.
-If unset, it defaults to `/usr/local/corex`.
-
-For a source checkout, use `python -m pip install -e '.[cuquantum]'` or `python -m pip install -e '.[ixquantum]'`.
 The extension compiles on first use and is cached for subsequent runs.
 
 ## Build and run a circuit
@@ -46,7 +54,7 @@ Choose the GPU with `device` when constructing the circuit.
 By default, the backend is selected from the installed PyTorch build.
 You can also set `backend='cuquantum'` or `backend='ixquantum'` explicitly.
 
-The following example prepares a three-qubit GHZ state:
+Run the following Python example in the environment you just configured. It prepares a three-qubit GHZ state and checks the measurement counts.
 
 ```python
 import deepquantum as dq
@@ -57,8 +65,10 @@ circuit.cnot(0, 1)
 circuit.cnot(1, 2)
 
 state = circuit()
-print(state.shape)                 # torch.Size([8, 1])
-print(circuit.measure(shots=1024))  # approximately equal '000' and '111' counts
+counts = circuit.measure(shots=1024)
+assert state.shape == (8, 1)
+assert set(counts) <= {'000', '111'} and sum(counts.values()) == 1024
+print(counts)  # Approximately equal '000' and '111' counts.
 circuit.close()
 ```
 

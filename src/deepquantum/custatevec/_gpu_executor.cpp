@@ -31,7 +31,8 @@ void check_cuda(cudaError_t status, const char* operation) {
 void check_custatevec(custatevecStatus_t status, const char* operation) {
   if (status != CUSTATEVEC_STATUS_SUCCESS)
     // ixquantum 1.8.0 does not implement custatevecGetErrorString reliably.
-    throw std::runtime_error(std::string(operation) + ": cuStateVec status " + std::to_string(static_cast<int>(status)));
+    throw std::runtime_error(std::string(operation) + ": cuStateVec status " +
+                             std::to_string(static_cast<int>(status)));
 }
 
 // Own native resources independently of executor construction and tensor allocation.
@@ -51,8 +52,10 @@ struct NativeResources {
   void initialize() {
     const c10::cuda::CUDAGuard guard(device);
     check_custatevec(custatevecCreate(&handle), "custatevecCreate");
-    check_cuda(cudaEventCreateWithFlags(&torch_to_custatevec, cudaEventDisableTiming), "create torch-to-cuStateVec event");
-    check_cuda(cudaEventCreateWithFlags(&custatevec_to_torch, cudaEventDisableTiming), "create cuStateVec-to-torch event");
+    check_cuda(cudaEventCreateWithFlags(&torch_to_custatevec, cudaEventDisableTiming),
+               "create torch-to-cuStateVec event");
+    check_cuda(cudaEventCreateWithFlags(&custatevec_to_torch, cudaEventDisableTiming),
+               "create cuStateVec-to-torch event");
   }
 
   void close() {
@@ -60,7 +63,8 @@ struct NativeResources {
     const auto sampler_status =
         sampler ? custatevecSamplerDestroy(std::exchange(sampler, nullptr)) : CUSTATEVEC_STATUS_SUCCESS;
     const auto handle_status = handle ? custatevecDestroy(std::exchange(handle, nullptr)) : CUSTATEVEC_STATUS_SUCCESS;
-    const auto input_status = torch_to_custatevec ? cudaEventDestroy(std::exchange(torch_to_custatevec, nullptr)) : cudaSuccess;
+    const auto input_status =
+        torch_to_custatevec ? cudaEventDestroy(std::exchange(torch_to_custatevec, nullptr)) : cudaSuccess;
     const auto output_status =
         custatevec_to_torch ? cudaEventDestroy(std::exchange(custatevec_to_torch, nullptr)) : cudaSuccess;
     check_custatevec(sampler_status, "custatevecSamplerDestroy");
@@ -457,7 +461,8 @@ class GPUCircuitExecutor {
   void custatevec_to_torch() {
     if (custatevec_uses_current_stream_ || current_stream_ == nullptr) return;
     check_cuda(cudaEventRecord(resources_.custatevec_to_torch, nullptr), "record cuStateVec-to-torch event");
-    check_cuda(cudaStreamWaitEvent(current_stream_, resources_.custatevec_to_torch, 0), "wait cuStateVec-to-torch event");
+    check_cuda(cudaStreamWaitEvent(current_stream_, resources_.custatevec_to_torch, 0),
+               "wait cuStateVec-to-torch event");
   }
   void validate_parameters(const torch::Tensor& parameters) const {
     if (!parameters.is_cuda() || parameters.get_device() != device_ || parameters.scalar_type() != torch::kFloat ||

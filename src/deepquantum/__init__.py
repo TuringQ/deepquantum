@@ -41,7 +41,6 @@ from .ansatz import (
     ShorCircuit,
     ShorCircuitFor15,
 )
-from .backends.gpu import QubitCircuitGPU
 from .channel import (
     AmplitudeDamping,
     BitFlip,
@@ -53,6 +52,7 @@ from .channel import (
 )
 from .circuit import DistributedQubitCircuit, QubitCircuit
 from .communication import cleanup_distributed, setup_distributed
+from .custatevec import QubitCircuitGPU
 from .gate import (
     Barrier,
     CNOT,

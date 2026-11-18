@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 import torch
 
-from ...gate import Barrier
+from ..gate import Barrier
 
 OP_MATRIX = 0
 OP_PAULI_ROTATION = 1
@@ -75,19 +75,6 @@ def _custatevec_bits(nqubit: int, wires: tuple[int, ...]) -> tuple[int, ...]:
     # DQ wire 0 is tensor/MSB; custatevec bit 0 is LSB.  For a multi-target
     # matrix DQ's first wire is the matrix MSB axis, so reverse target axes too.
     return tuple(reversed([nqubit - wire - 1 for wire in wires]))
-
-
-def _parameter_key(theta: torch.Tensor) -> tuple[Any, ...]:
-    """Return a stable key for one logical scalar parameter."""
-    storage = theta.untyped_storage()
-    return (
-        'tensor',
-        theta.device.type,
-        theta.device.index,
-        str(theta.dtype),
-        storage.data_ptr(),
-        theta.storage_offset(),
-    )
 
 
 def compile_pauli_observables(
@@ -177,7 +164,8 @@ def compile_circuit(circuit: Any) -> CompiledCircuitPlan:
     parameter_indices: list[int] = []
     parameter_scales: list[float] = []
     parameter_sources: list[torch.Tensor] = []
-    parameter_slots: dict[tuple[Any, ...], int] = {}
+    # Distinct autograd leaves can share storage. Only merge the same object.
+    parameter_slots: dict[int, int] = {}
     gradient_kinds: list[int] = []
     generator_coeffs: list[float] = []
 
@@ -211,7 +199,7 @@ def compile_circuit(circuit: Any) -> CompiledCircuitPlan:
             parameter_scales.append(scale)
             generator_coeffs.append(scale)
             if theta.requires_grad:
-                key = _parameter_key(theta)
+                key = id(theta)
                 if key not in parameter_slots:
                     parameter_slots[key] = len(parameter_sources)
                     parameter_sources.append(theta)
@@ -243,7 +231,7 @@ def compile_circuit(circuit: Any) -> CompiledCircuitPlan:
                 controls.append(control_bits)
                 matrices.append(None)
                 if theta.requires_grad:
-                    key = _parameter_key(theta)
+                    key = id(theta)
                     if key not in parameter_slots:
                         parameter_slots[key] = len(parameter_sources)
                         parameter_sources.append(theta)

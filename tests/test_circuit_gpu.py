@@ -2,25 +2,45 @@
 
 import math
 import os
+from pathlib import Path
 
 import pytest
 import torch
 
 import deepquantum as dq
+from deepquantum.custatevec.loader import resolve_backend, resolve_sdk
 
-pytestmark = pytest.mark.skipif(
-    not torch.cuda.is_available(),
-    reason='requires CUDA/CoreX PyTorch and an available GPU',
-)
+
+@pytest.fixture(scope='module', autouse=True)
+def gpu_backend():
+    requested = os.environ.get('DQ_GPU_BACKEND', 'auto')
+    try:
+        if not torch.cuda.is_available():
+            raise RuntimeError('requires CUDA/CoreX PyTorch and an available GPU')
+        backend = resolve_backend(requested)
+        resolve_sdk(backend)
+        from torch.utils.cpp_extension import verify_ninja_availability
+
+        verify_ninja_availability()
+        if backend == 'cuquantum':
+            from torch.utils.cpp_extension import CUDA_HOME
+
+            if CUDA_HOME is None or not (Path(CUDA_HOME) / 'bin' / 'nvcc').is_file():
+                raise RuntimeError('requires a CUDA toolkit with nvcc; set CUDA_HOME')
+    except (ImportError, RuntimeError) as exc:
+        if requested != 'auto':
+            pytest.fail(f'{requested} test prerequisites: {exc}', pytrace=False)
+        pytest.skip(str(exc))
+    return backend
 
 
 @pytest.fixture
-def gpu():
+def gpu(gpu_backend):
     torch.cuda.set_device(os.environ.get('DQ_GPU_DEVICE', 'cuda:0'))
     circuits = []
 
     def create(nqubit, **kwargs):
-        circuit = dq.QubitCircuitGPU(nqubit, backend=os.environ.get('DQ_GPU_BACKEND', 'auto'), **kwargs)
+        circuit = dq.QubitCircuitGPU(nqubit, backend=gpu_backend, **kwargs)
         circuits.append(circuit)
         return circuit
 
@@ -217,6 +237,43 @@ def test_stale_backward(gpu, mutation):
         getattr(circuit, mutation)()
     with pytest.raises(RuntimeError):
         value.sum().backward()
+
+
+def test_independent_parameter_gradients_with_shared_storage(gpu):
+    actual = gpu(1)
+    expected = dq.QubitCircuit(1)
+    for circuit in (actual, expected):
+        initial = torch.tensor(0.37)
+        circuit.add(dq.Rx(inputs=initial, requires_grad=True))
+        circuit.add(dq.Ry(inputs=initial, requires_grad=True))
+        circuit.observable(0, 'z')
+    expected()
+    expected.expectation().sum().backward()
+    actual.expectation().sum().backward()
+    for parameter, reference in zip(actual.parameters(), expected.parameters(), strict=True):
+        assert parameter.grad is not None
+        torch.testing.assert_close(parameter.grad.cpu(), reference.grad, atol=1e-4, rtol=1e-3)
+
+
+def test_parameter_freeze_and_unfreeze_recompile(gpu):
+    circuit = gpu(1)
+    circuit.ry(0)
+    circuit.observable(0, 'z')
+    theta = next(circuit.parameters())
+    circuit.requires_grad_(False)
+    theta.fill_(0.37)
+    circuit()
+    assert not circuit.expectation().requires_grad
+    theta.requires_grad_(True)
+    with torch.no_grad():
+        theta.fill_(0.9)
+    value = circuit.expectation().sum()
+    assert abs(value.item() - math.cos(0.9)) < 3e-5
+    value.backward()
+    assert abs(theta.grad.item() + math.sin(0.9)) < 1e-4
+    theta.requires_grad_(False)
+    circuit()
+    assert not circuit.expectation().requires_grad
 
 
 def test_automatic_gradient_and_inference(gpu):

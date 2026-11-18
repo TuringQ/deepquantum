@@ -9,8 +9,8 @@ from typing import Any
 import torch
 from torch import nn
 
-from ...circuit import QubitCircuit
-from ...operation import Gate
+from ..circuit import QubitCircuit
+from ..operation import Gate
 from .compiler import CompiledCircuitPlan, compile_circuit, compile_pauli_observables
 from .loader import load_gpu_executor, resolve_backend
 
@@ -61,6 +61,7 @@ class QubitCircuitGPU(QubitCircuit):
         self.gpu_device = torch.device('cuda', index)
         self.gpu_backend = gpu_backend
         self._compiled_plan: CompiledCircuitPlan | None = None
+        self._compiled_trainability: tuple[tuple[nn.Parameter, bool], ...] = ()
         self._executor: Any = None
         self._matrix_observable: tuple[torch.Tensor, tuple[int, ...]] | None = None
         self._plan_dirty = True
@@ -134,6 +135,7 @@ class QubitCircuitGPU(QubitCircuit):
             .contiguous(),
         )
         self._compiled_plan = plan
+        self._compiled_trainability = tuple((parameter, parameter.requires_grad) for parameter in self.parameters())
         self._plan_dirty = False
         self.state = None
         return self
@@ -306,8 +308,11 @@ class QubitCircuitGPU(QubitCircuit):
             self._executor = module.GPUCircuitExecutor(self.nqubit, self.gpu_device.index or 0)
 
     def _ensure_compiled(self) -> None:
-        if self._plan_dirty or self._compiled_plan is None or self._executor is None:
+        if self._plan_dirty or self._compiled_plan is None or self._executor is None or self._trainability_changed():
             self.compile()
+
+    def _trainability_changed(self) -> bool:
+        return any(parameter.requires_grad != flag for parameter, flag in self._compiled_trainability)
 
     def _parameter_tensor(self) -> torch.Tensor:
         """Pack dynamic values once per execution while preserving autograd edges."""
@@ -373,6 +378,7 @@ class _GPUAdjointExpectation(torch.autograd.Function):
         if (
             circuit._executor is not ctx.executor
             or circuit._plan_dirty
+            or circuit._trainability_changed()
             or ctx.executor.plan_version() != ctx.plan_version
         ):
             raise RuntimeError('single-GPU circuit changed or closed before backward')

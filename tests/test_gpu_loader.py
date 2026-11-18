@@ -8,8 +8,8 @@ import pytest
 import torch
 
 import deepquantum as dq
-from deepquantum.backends.gpu.compiler import compile_circuit
-from deepquantum.backends.gpu.loader import load_gpu_executor, load_ixquantum_executor, resolve_backend, resolve_sdk
+from deepquantum.custatevec.compiler import compile_circuit
+from deepquantum.custatevec.loader import load_gpu_executor, load_ixquantum_executor, resolve_backend, resolve_sdk
 
 
 @pytest.mark.parametrize('layout', ['flat', 'lib', 'lib64'])
@@ -64,7 +64,7 @@ def test_backend_selection(monkeypatch):
 def test_backend_build_configuration(tmp_path, monkeypatch, backend):
     import torch.utils.cpp_extension as extension
 
-    import deepquantum.backends.gpu.loader as loader
+    import deepquantum.custatevec.loader as loader
 
     monkeypatch.setattr(torch, 'corex', backend == 'ixquantum', raising=False)
     monkeypatch.setattr(torch.version, 'cuda', '12.6')
@@ -87,7 +87,7 @@ def test_missing_nvidia_sdk_is_explicit(tmp_path, monkeypatch):
 def test_corex_optional(monkeypatch):
     monkeypatch.setattr(torch, 'corex', False, raising=False)
     monkeypatch.setattr(torch.cuda, 'is_available', lambda: False)
-    importlib.reload(importlib.import_module('deepquantum.backends.gpu.loader'))
+    importlib.reload(importlib.import_module('deepquantum.custatevec.loader'))
     circuit = dq.QubitCircuit(2)
     circuit.h(0)
     circuit.cnot(0, 1)
@@ -97,6 +97,20 @@ def test_corex_optional(monkeypatch):
         dq.QubitCircuitGPU(2)
     with pytest.raises(RuntimeError, match='CoreX'):
         load_ixquantum_executor()
+
+
+def test_independent_parameters_with_shared_storage():
+    initial = torch.tensor(0.37)
+    circuit = dq.QubitCircuit(1)
+    rx = dq.Rx(inputs=initial, requires_grad=True)
+    ry = dq.Ry(inputs=initial, requires_grad=True)
+    circuit.add(rx)
+    circuit.add(ry)
+    assert rx.theta is not ry.theta and rx.theta.data_ptr() == ry.theta.data_ptr()
+    plan = compile_circuit(circuit)
+    assert plan.parameter_indices.tolist() == [0, 1]
+    assert plan.parameter_sources[0] is rx.theta
+    assert plan.parameter_sources[1] is ry.theta
 
 
 def test_compiler_order_and_shared_parameters():
@@ -124,14 +138,14 @@ def test_compiler_rejects_data_encoding():
 
 
 def test_compiler_rejects_invalid_observable():
-    from deepquantum.backends.gpu.compiler import compile_pauli_observables
+    from deepquantum.custatevec.compiler import compile_pauli_observables
 
     with pytest.raises(ValueError, match='unique circuit wires'):
         compile_pauli_observables(2, [SimpleNamespace(wires=[0, 0], basis='zz')])
 
 
 def test_specialized_api_dispatch():
-    from deepquantum.backends.gpu.compiler import (
+    from deepquantum.custatevec.compiler import (
         GRAD_PAULI_GENERATOR,
         GRAD_PHASE,
         OP_MATRIX,
