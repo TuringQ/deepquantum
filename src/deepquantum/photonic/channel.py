@@ -34,16 +34,18 @@ def _loss_to_theta(inputs: Any, convention: str) -> torch.Tensor | None:
 class DisplacementChannel(Channel):
     r"""Displacement by mixing the signal with a coherent auxiliary mode.
 
-    The auxiliary amplitude is :math:`\beta=\mathrm{amplitude}\,e^{i\,\mathrm{phase}}`, with mean photon number
-    ``amplitude**2`` before the beam splitter. The phase is in radians.
-    The beam splitter acts as
-    :math:`\hat a_{\mathrm{out}}=\cos(\mathrm{loss\_theta}/2)\hat a_{\mathrm{in}}
-    +\sin(\mathrm{loss\_theta}/2)\hat b_{\mathrm{in}}`.
+    The auxiliary mode has coherent amplitude :math:`\beta=Ae^{i\phi}` and mean photon number
+    :math:`|\beta|^2`, where :math:`A` and :math:`\phi` are ``amplitude`` and ``phase`` (in radians).
+    For the mixing angle :math:`\theta` (``loss_theta``), the beam splitter acts as
+
+    .. math::
+
+        \hat a_{\mathrm{out}} = \cos(\theta/2)\hat a_{\mathrm{in}} + \sin(\theta/2)\hat b_{\mathrm{in}}.
+
     Tracing out the auxiliary output gives attenuation followed by displacement
-    :math:`\alpha=\sin(\mathrm{loss\_theta}/2)\,\beta`.
-    The signal power transmittance is :math:`t=\cos^2(\mathrm{loss\_theta}/2)`.
-    A transmittance input selects ``loss_theta`` in ``[0, pi]``. Angle inputs retain the
-    signed field amplitudes, with a negative amplitude corresponding to a pi phase shift.
+    :math:`\alpha=\beta\sin(\theta/2)`. The signal power transmittance is :math:`t=\cos^2(\theta/2)`.
+    A transmittance input selects :math:`\theta\in[0,\pi]`. An angle input preserves the field sign;
+    a negative amplitude corresponds to a phase shift of :math:`\pi`.
     See https://arxiv.org/pdf/1009.1844v2 Eq.(8), Eq.(18).
 
     Args:
@@ -160,7 +162,8 @@ class OPA(Channel):
     r"""Single-mode optical parametric amplifier with uniform distributed vacuum loss.
 
     Gain, loss and pump phase are constant along the device, with an undepleted classical pump.
-    With ``r = g L``, ``T = cos(loss_theta / 2)**2`` and ``a = -log(T)``, the Gaussian channel is
+    Let :math:`r=gL` be the integrated gain and :math:`T=\cos^2(\theta_\ell/2)` the pump-off power
+    transmittance, with :math:`\theta_\ell` stored in ``loss_theta``. Writing :math:`a=-\ln T`, the channel is
 
     .. math::
 
@@ -170,25 +173,26 @@ class OPA(Channel):
             (\operatorname{exprel}(-2r-a),\operatorname{exprel}(2r-a))R(\theta/2)^T,
 
     where :math:`v_0=\hbar/(4\kappa^2)`, :math:`R` is a quadrature rotation and
-    ``exprel(z) = expm1(z) / z`` with ``exprel(0) = 1``.
-    Positive ``r`` and ``theta=0`` squeeze x and amplify p.
+    :math:`\operatorname{exprel}(z)=(e^z-1)/z`, with :math:`\operatorname{exprel}(0)=1`.
+    Positive :math:`r` and :math:`\theta=0` squeeze :math:`x` and amplify :math:`p`.
     The internal parameters are ``r``, ``theta`` and ``loss_theta``.
     See https://arxiv.org/abs/2606.02524v1 Eq.(16) and Methods, Internal Loss.
 
-    Gaussian and Bosonic states use X and Y directly. Bargmann density states
+    Gaussian and Bosonic states use :math:`X` and :math:`Y` directly. Bargmann density states
     use the analytic channel kernel. Fock density states use its projected
     superoperator, with four local axes of length ``cutoff``. Output weight
     above the cutoff is discarded without renormalization.
 
     ``HardwareModel.opa().submodes(relative_r=...)`` sets fixed orthogonal gain
-    modes with ``r_k = r * relative_r[k]``. The same distributed loss acts on
+    modes with :math:`r_k=r q_k`, where :math:`q_k` is ``relative_r[k]``. The same distributed loss acts on
     every basis mode, including zero-gain modes. This assumes mode-independent
     attenuation and a fixed gain basis along the device.
 
     Args:
         inputs: The parameters of the channel (``r``, ``theta`` and loss).
             With ``convention='gain_db'``, use ``[gain_db, theta, loss_db]``, where gain is the net
-            coherent power gain along the amplified axis and ``r = (gain_db + loss_db) * log(10) / 20``.
+            coherent power gain along the amplified axis. Gain :math:`G_{\rm dB}` and pump-off loss
+            :math:`L_{\rm dB}` give :math:`r=(G_{\rm dB}+L_{\rm dB})\ln(10)/20`.
             Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 1
         wires: The indices of the modes that the quantum operation acts on. Default: ``None``

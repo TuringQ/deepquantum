@@ -67,7 +67,7 @@ Photonic circuits:
   - Use `backend='bargmann'`; forward returns a `BargmannState`. Its `polyexp` is a `dqp.BargmannPolyExp(mat_a, vec_b, coeff_c)` with inferred free and auxiliary variable counts.
   - Supported Gaussian gates and channels act through `get_bargmann()` representations. Channels, including OPA and DisplacementChannel, require `den_mat=True`. `state.to_fock(cutoff)` performs explicit finite-cutoff readout; the cutoff does not truncate Bargmann evolution.
   - `quadrature_mean`, `quadrature_moments` and `photon_number_mean_var` read moments directly from Bargmann states without Fock truncation. By default, `quadrature_moments` returns normalized `(cov, mean)` in xxpp order, including correlations between modes. Set `centered=False, normalize=False` on an unnormalized conditional state to obtain event-weighted raw moments, including zero contributions for impossible events.
-  - `thermal` prepares analytic thermal density states; `single_photon` prepares one photon per selected spatial input. `tensor_product`, `reorder` and `partial_trace` manipulate native states. Submodes and circuit-level sampling are not supported. `tdm_substate` requires the Gaussian backend.
+  - `thermal` prepares analytic thermal density states; `single_photon` prepares one photon per selected spatial input. `tensor_product`, `reorder` and `partial_trace` manipulate native states. Submodes and circuit-level sampling are not supported.
 - Clements and GBS:
   - `dq.Clements`, `dq.UnitaryDecomposer`, `dq.GaussianBosonSampling`, and `dqp.GraphGBS` are documented through tutorials/examples.
   - `QumodeCircuit.any(...)` supports arbitrary unitary gates; tutorials note `clements(...)` performs a physical Clements decomposition and is not used as the differentiable arbitrary-unitary path.
@@ -88,9 +88,10 @@ Photonic hardware models:
 Photonic TDM:
 
 - `global_circuit(nstep)` unrolls delay loops and remaps the attached hardware model.
-- `tdm_substate(time_steps, wires=None, data=None, window=None)` returns a joint Gaussian state in the supplied time and wire order. A positive `window` yields consecutive output windows ending at ascending selected times. Evolution stops at the largest selected time. Slices require an explicit stop. Data shaped `(ntimes, ndata)` or `(batch, ntimes, ndata)` repeat cyclically. Inputs and delay modes start in vacuum, and readout does not condition the circulating memory. Source preparations and submodes are not supported.
+- On Gaussian and Bargmann `QumodeCircuit` delay loops, `cir(memory=...)` evolves one step with fresh spatial `init_state`/source inputs. `memory` contains only the delay slots and is mutually exclusive with `state`. The result is the joint state with slots already shifted to next-step order. Gaussian accepts `[cov, mean]` or `GaussianState`; Bargmann accepts `BargmannState`.
+- Bargmann `post_select` on all spatial outputs returns memory ready for the next call. `normalize=False` carries joint event weights. For unconditional memory, trace the output slots with `joint.partial_trace(cir.tdm_output_wires(1)[0].tolist())` (`den_mat=True`).
+- `tdm_substate(time_steps, wires=None, data=None, window=None)` independently reads unconditional output marginals in the supplied time and wire order: Gaussian returns `[cov, mean]`, Bargmann a density `BargmannState`. A positive `window` yields consecutive output windows ending at ascending selected times. Evolution stops at the last requested time; bounded slices and cyclic `(ntimes, ndata)` or `(batch, ntimes, ndata)` controls are supported. As in `global_circuit`, all modes start in vacuum and declared sources prepare fresh spatial inputs per step. Submodes require global expansion.
 - `QumodeCircuitTDM` supports stepwise Gaussian/Bosonic evolution with homodyne measurements.
-- Bargmann `QumodeCircuit.tdm_step(data=None, state=None)` combines loop memory with fresh `init_state`/source inputs and returns the concurrent state after shifting delay slots. Condition all spatial outputs with `post_select` and feed the returned memory into the next step. `normalize=False` preserves joint event weights. For unconditional evolution, trace the current output slots using `state.partial_trace(cir.tdm_output_wires(1)[0].tolist())`; mixed memory requires `den_mat=True`.
 
 Photonic measurement and probabilities:
 

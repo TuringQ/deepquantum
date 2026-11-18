@@ -18,14 +18,14 @@ from .state import FockStateBosonic
 
 
 class Generaldyne(Operation):
-    """General-dyne measurement.
+    r"""General-dyne measurement.
 
     A finite seed covariance specifies a Gaussian POVM with x and p outcomes.
     ``cov_m=None`` selects the ideal x-homodyne limit, with one outcome per mode.
 
     Args:
-        cov_m: The seed covariance in xxpp order and the input state's quadrature units.
-            Vacuum is ``hbar / (4*kappa**2) * I``. Default: ``None``
+        cov_m: The seed covariance in ``xxpp`` order and the input state's quadrature units.
+            The vacuum seed is :math:`\hbar I/(4\kappa^2)`. Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 1
         wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
@@ -135,7 +135,7 @@ class Generaldyne(Operation):
 
         Args:
             x: The Gaussian (Bosonic) state.
-            samples: The measurement outcomes with one row per batch item, in xxpp order.
+            samples: The measurement outcomes with one row per batch item, in ``xxpp`` order.
                 With ``cov_m=None``, each row contains only x outcomes. Default: ``None``
         """
         if self.cov_m is None:

@@ -69,10 +69,12 @@ class QumodeCircuitTDM(QumodeCircuit):
         self.state = state
         samples = []
         for i in range(nstep):
-            if data is None:
-                self.state = super().forward(state=self.state)
+            data_i = None if data is None else data[:, i % size[1], :]
+            if i and self.sources:
+                # The measured spatial slots are vacuum. Replace them with this step's declared inputs.
+                memory = self._tdm_marginal(self.state, list(self._tdm_loop_map()))
+                self.state = super().forward(data_i, memory=memory)
             else:
-                data_i = data[:, i % size[1], :]
                 self.state = super().forward(data_i, self.state)
             samples.append(self.measure_homodyne(shots=1))
             self.state = self.state_measured

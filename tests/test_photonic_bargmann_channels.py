@@ -137,7 +137,7 @@ def test_bargmann_loop_conditioning_matches_unrolled(density, detector):
     memory = None
     outcomes = [1, 0, 1]
     for row, outcome in zip(data, outcomes, strict=True):
-        out = cir.tdm_step(row, state=memory)
+        out = cir(row, memory=memory)
         assert out.nmode == 3
         memory, probability = cir.post_select(0, outcome, detector=detector, normalize=False)
     unrolled = cir.global_circuit(3)
@@ -165,12 +165,9 @@ def test_native_loop_sources_batch_and_unconditional_memory():
     cir.double()
     unrolled = cir.global_circuit(3)
     data = torch.tensor([[0.2, 0.1], [0.3, -0.2]], dtype=torch.double, requires_grad=True)
-    direct = cir(data)
-    first_step = cir.tdm_step(data)
-    torch.testing.assert_close(direct.quadrature_moments(), first_step.quadrature_moments())
     memory = None
     for _ in range(3):
-        state = cir.tdm_step(data, memory)
+        state = cir(data, memory=memory)
         memory = state.partial_trace([2, 4])
     reference = unrolled(data.repeat(1, 3))
     expected = reference.partial_trace([2, 4, 5, 6]).reorder([1, 0, 3, 2, 4])
@@ -217,8 +214,8 @@ def test_bargmann_loop_normalized_event_weights_and_single_photon_source():
     memory_n = memory_w = None
     product = torch.ones(1, dtype=torch.double)
     for _ in range(3):
-        normalized.tdm_step(state=memory_n)
-        weighted.tdm_step(state=memory_w)
+        normalized(memory=memory_n)
+        weighted(memory=memory_w)
         memory_n, p = normalized.post_select(0, 1)
         memory_w, joint, info = weighted.post_select(0, 1, normalize=False, return_info=True)
         product = product * p

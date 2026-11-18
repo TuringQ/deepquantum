@@ -273,17 +273,16 @@ class GaussianState(nn.Module):
         return cv_to_wigner([self.cov, self.mean], wire, xrange, prange, npoints, plot, k, normalize)
 
     def graph(self, k: int = 0, threshold: float = 1e-3, layout: str = 'spring', mode: str = 'simplified'):
-        """Draw Gaussian graph state.
+        r"""Draw a Gaussian graph state.
 
         Args:
             k: The batch index for covariance matrix.
-            threshold: Cutoff threshold for ignoring extremely small numerical edge weights
-            in the visualization.
+            threshold: The smallest edge weight to display.
             layout: The layout algorithm (``'spring'``, ``'circular'`` or ``'kamada_kawai'``).
                 Also accepts ``'kamada'`` for Kamada-Kawai layout. Default: ``'spring'``
-            mode: The ``'simplified'`` mode for the core structure including node squeezing :math:`Im(Z_{jj})` and
-            edge entanglement :math:`Re(Z_{jk})`. The ``'full'`` mode for all structure including
-            local shear :math:`Re(Z_{jj})` and correlated noise :math:`Im(Z_{jk})`. Default: ``'simplified'``
+            mode: Use ``'simplified'`` for node squeezing :math:`\operatorname{Im}Z_{jj}` and edge entanglement
+                :math:`\operatorname{Re}Z_{jk}`. Use ``'full'`` to also show local shear :math:`\operatorname{Re}Z_{jj}`
+                and correlated noise :math:`\operatorname{Im}Z_{jk}`. Default: ``'simplified'``
         """
         assert self.is_pure, 'The visualization is valid for Gaussian pure state'
         cov = 2 * dqp.kappa**2 / dqp.hbar * self.cov[k]
@@ -504,7 +503,7 @@ class BargmannState(nn.Module):
         return self._new(polyexp, den_mat=first.den_mat)
 
     def reorder(self, wires: list[int]) -> 'BargmannState':
-        """Permute modes so new mode i is old mode wires[i], including both density axes."""
+        """Permute modes so new mode :math:`i` is old mode ``wires[i]``, including both density axes."""
         if sorted(wires) != list(range(self.nmode)):
             raise ValueError('wires must be a permutation of all modes')
         order = list(wires)
@@ -553,8 +552,8 @@ class BargmannState(nn.Module):
         r"""Get the squared norm :math:`\langle\psi|\psi\rangle` of a ket or the trace of a density matrix.
 
         Computed by Gaussian integration, independently of any Fock cutoff.
-        Nonfinite results or imaginary parts exceeding 100 dtype eps times
-        ``1 + abs(real part)`` raise ``ValueError``. Roundoff imaginary parts are discarded.
+        A nonfinite result :math:`z` or :math:`|\operatorname{Im}z|>100\epsilon(1+|\operatorname{Re}z|)`
+        raises ``ValueError``, where :math:`\epsilon` is the dtype precision. Roundoff imaginary parts are discarded.
 
         Returns:
             The squared norm or trace, with shape ``(batch,)``.
@@ -621,10 +620,10 @@ class BargmannState(nn.Module):
     def quadrature_moments(
         self, wires: int | list[int] | None = None, *, centered: bool = True, normalize: bool = True
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        r"""Get xxpp quadrature moments without Fock truncation.
+        r"""Get ``xxpp`` quadrature moments without Fock truncation.
 
         These are the moments of the complete state, including non-Gaussian terms.
-        Let :math:`r` be the column vector of selected quadratures in xxpp order.
+        Let :math:`r` be the column vector of selected quadratures in ``xxpp`` order.
         For state weight :math:`w=\operatorname{Tr}\rho`, define the normalized mean
         :math:`\mu=\operatorname{Tr}(\rho r)/w` and covariance
         :math:`V_{ij}=\langle\{\Delta r_i,\Delta r_j\}\rangle/2`, with :math:`\Delta r=r-\mu`.
@@ -648,9 +647,9 @@ class BargmannState(nn.Module):
         Returns:
             Two tensors with shapes ``(batch, 2K, 2K)`` and ``(batch, 2K, 1)``,
             where ``K=len(wires)``. Units follow the current ``hbar`` and ``kappa``.
-            The default is ``(V, mu)``. With ``centered=False`` it is
-            ``(V + mu @ mu.mT, mu)``. With ``normalize=False``, both tensors
-            retain the factor ``w``. Zero-probability events then contribute zeros.
+            The default is :math:`(V,\mu)`. With ``centered=False`` it is
+            :math:`(V+\mu\mu^T,\mu)`. With ``normalize=False``, both tensors retain the factor :math:`w`.
+            Zero-probability events then contribute zeros.
         """
         generating, weight = self._prepare_moments(wires, require_positive=normalize)
         nwire = generating.nfree // 2

@@ -77,7 +77,7 @@ class Operation(nn.Module):
         """Get the Bargmann representation of the quantum operation.
 
         Unitary kernels order outputs before inputs. Channel kernels order ket output,
-        bra output, ket input and bra input. An operation without effect returns None.
+        bra output, ket input and bra input. An operation without effect returns ``None``.
         Unsupported operations raise NotImplementedError.
         """
         raise NotImplementedError(f'{self.name} is not supported by the Bargmann backend')
@@ -145,11 +145,11 @@ class Gate(Operation):
         return evolve_den_mat(x, matrix, self.nmode, self.wires, self.cutoff)
 
     def update_transform_xp(self) -> tuple[torch.Tensor, torch.Tensor]:
-        """Update the local affine symplectic transformation acting on quadrature operators in xxpp order."""
+        """Update the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
         return self.matrix_xp, self.vector_xp
 
     def get_symplectic(self) -> torch.Tensor:
-        """Get the global symplectic matrix acting on quadrature operators in xxpp order."""
+        """Get the global symplectic matrix acting on quadrature operators in ``xxpp`` order."""
         matrix, _ = self.update_transform_xp()
         assert matrix.shape[-2] == matrix.shape[-1] == 2 * len(self.wires), 'The matrix may not act on xxpp operators.'
         s = matrix.new_ones(2 * self.nmode)
@@ -159,7 +159,7 @@ class Gate(Operation):
         return s
 
     def get_displacement(self) -> torch.Tensor:
-        """Get the global displacement vector acting on quadrature operators in xxpp order."""
+        """Get the global displacement vector acting on quadrature operators in ``xxpp`` order."""
         _, vector = self.update_transform_xp()
         assert vector.shape[-2] == 2 * len(self.wires), 'The vector may not act on xxpp operators.'
         d = vector.new_zeros(2 * self.nmode, 1)
@@ -251,7 +251,7 @@ class Gate(Operation):
         self,
         x: BargmannState | torch.Tensor | list[torch.Tensor] | MatrixProductState | DistributedFockState | None = None,
     ) -> BargmannState | torch.Tensor | list[torch.Tensor] | MatrixProductState | DistributedFockState:
-        """Apply the gate to a state or return its local mode matrix when the state is None."""
+        """Apply the gate to a state or return its local mode matrix when ``x`` is ``None``."""
         if x is None:
             return self.update_matrix()
         elif isinstance(x, BargmannState):
@@ -307,10 +307,11 @@ class Channel(Operation):
         return gaussian_channel_to_bargmann(*self.update_transform_xyd())
 
     def get_superoperator(self) -> torch.Tensor:
-        """Get Fock matrix elements ordered as ket output, bra output, ket input, bra input.
+        r"""Get Fock matrix elements ordered as ket output, bra output, ket input, bra input.
 
-        Each mode axis has length ``cutoff``. This is the cutoff projection of
-        the full channel, so trace lost to higher output occupations is retained.
+        For one mode, element :math:`(n,m,k,l)` is :math:`\langle n|\mathcal E(|k\rangle\langle l|)|m\rangle`.
+        Each mode axis has length ``cutoff``. Probability outside the output cutoff is discarded without
+        renormalizing the retained density matrix.
         """
         return self.get_bargmann().to_fock((self.cutoff,) * (4 * len(self.wires)))[0]
 
@@ -333,9 +334,9 @@ class Channel(Operation):
         return self.matrix_x, self.matrix_y
 
     def update_transform_xyd(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
-        """Update the local X, Y and displacement for mean -> X @ mean + d.
+        r"""Get :math:`X`, :math:`Y` and :math:`d` for the affine mean update :math:`\mu\mapsto X\mu+d`.
 
-        The displacement has shape ``(2 * len(wires), 1)`` in xxpp order, or is ``None``.
+        The displacement has shape ``(2 * len(wires), 1)`` in ``xxpp`` order, or is ``None``.
         """
         matrix_x, matrix_y = self.update_transform_xy()
         return matrix_x, matrix_y, None

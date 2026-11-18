@@ -46,8 +46,8 @@ class Submodes(nn.Module):
     """Mode coefficients and squeezing ratios in a common orthogonal basis.
 
     The basis may describe temporal, spectral, polarization or transverse modes.
-    Calibration data are fixed buffers. Squeezing strengths satisfy ``r_k = r * relative_r[k]``,
-    with the first addressed mode as reference.
+    Calibration data are fixed buffers. The first addressed mode sets the reference squeezing :math:`r`.
+    Mode :math:`k` has :math:`r_k=r q_k`, where :math:`q_k` is ``relative_r[k]``.
     See https://arxiv.org/pdf/1012.0262v2 Eq.(5)-(7).
 
     Args:
@@ -113,9 +113,9 @@ class Submodes(nn.Module):
 
     @classmethod
     def from_nbar(cls, nbar: Any, coefficients: Any = None) -> 'Submodes':
-        """Infer squeezing ratios from absolute vacuum-seeded photon numbers corrected for loss.
+        r"""Infer squeezing ratios from absolute vacuum-seeded photon numbers corrected for loss.
 
-        Vacuum input gives ``nbar_k = sinh(r_k)**2``. The circuit sets the reference squeezing separately.
+        Vacuum input gives :math:`\bar n_k=\sinh^2 r_k`. The circuit sets the reference squeezing separately.
         See https://arxiv.org/pdf/1012.0262v2 Eq.(6) and Eq.(B.6).
         """
         nbar = torch.as_tensor(nbar)
@@ -140,10 +140,10 @@ class Submodes(nn.Module):
         return len(self.relative_r) if self.components is None else self.components.shape[1]
 
     def mean_photon_weights(self, r: Any) -> torch.Tensor:
-        """Return vacuum-generated photon fractions, including their zero-gain limit.
+        r"""Return vacuum-generated photon fractions, including their zero-gain limit.
 
         See https://arxiv.org/pdf/1012.0262v2 Eq.(6) and Eq.(18).
-        With ``r_k = r * relative_r[k]``, weights are ``sinh(r_k)**2 / sum_j sinh(r_j)**2``.
+        For modal squeezings :math:`r_k`, the fractions are :math:`p_k=\sinh^2 r_k/\sum_j\sinh^2 r_j`.
         """
         r = torch.as_tensor(r, device=self.relative_r.device, dtype=self.relative_r.dtype).unsqueeze(-1)
         denominator = torch.where(r == 0, torch.ones_like(r), r.sinh())
@@ -152,7 +152,7 @@ class Submodes(nn.Module):
         return photons / photons.sum(-1, keepdim=True)
 
     def effective_mode_number(self, r: Any) -> torch.Tensor:
-        """Return the inverse squared photon-fraction sum at reference squeezing r.
+        """Return the inverse squared photon-fraction sum at reference squeezing :math:`r`.
 
         See https://arxiv.org/pdf/1012.0262v2 Eq.(17)-(19).
         This finite-gain intensity mode number approaches the Schmidt number at low gain.
@@ -161,19 +161,20 @@ class Submodes(nn.Module):
 
 
 class ThermalSource(nn.Module):
-    """Thermal input preparation.
+    r"""Thermal input preparation.
 
     Each selected input is replaced by an independent thermal state before all gates.
-    Its covariance is ``(2*nbar + 1) * hbar / (4*kappa**2) * I``.
+    For mean photon number :math:`\bar n`, its covariance is :math:`(2\bar n+1)\hbar I/(4\kappa^2)`.
     ``HardwareModel.input().submodes()`` selects the occupied mode. Other basis modes remain vacuum.
     Fock preparation requires density matrices and retains the unnormalized cutoff projection,
-    with trace ``1 - (nbar/(1+nbar))**cutoff`` per mode. The internal parameter is ``sqrt(nbar)``.
+    with trace :math:`1-[\bar n/(1+\bar n)]^C` per mode at cutoff :math:`C`.
+    The internal parameter is :math:`\sqrt{\bar n}`.
     Bargmann preparation requires density matrices and uses the full thermal kernel without truncation.
     See https://arxiv.org/pdf/1110.3234v1 Eq.(27).
 
     Args:
         nbar: The mean thermal photon number. Specify exactly one of ``nbar`` and ``purity``. Default: ``None``
-        purity: The single-mode purity ``1 / (2*nbar + 1)`` in (0, 1]. Default: ``None``
+        purity: The single-mode purity :math:`1/(2\bar n+1)` in :math:`(0,1]`. Default: ``None``
         requires_grad: Whether the parameter is ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
@@ -249,7 +250,7 @@ class ThermalSource(nn.Module):
 
 
 class SinglePhotonSource(nn.Module):
-    """Pure or mixed single-photon input in an orthogonal basis.
+    r"""Pure or mixed single-photon input in an orthogonal basis.
 
     ``QumodeCircuit.single_photon`` prepares independent spatial inputs before all gates.
     Mixed inputs require Fock density matrices. Pure Fock state tensors require vacuum on the selected inputs.
@@ -264,8 +265,8 @@ class SinglePhotonSource(nn.Module):
         density_matrix: The trace-one density matrix with shape ``(nsubmode, nsubmode)``. Default: ``None``
         coefficients: The coefficient vector in the common orthogonal basis, normalized internally.
             Default: ``None`` (the first basis mode when no state is specified)
-        factor: A nonzero matrix of shape ``(nsubmode, rank)``, with
-            ``rho = factor @ factor.mH / trace(factor @ factor.mH)``. Default: ``None``
+        factor: A nonzero matrix :math:`F` of shape ``(nsubmode, rank)`` defining
+            :math:`\rho=FF^\dagger/\operatorname{Tr}(FF^\dagger)`. Default: ``None``
         requires_grad: Whether the parameters are ``nn.Parameter`` or ``buffer``.
             Default: ``False`` (which means ``buffer``)
     """
@@ -325,10 +326,10 @@ class SinglePhotonSource(nn.Module):
 
     @property
     def purity(self) -> torch.Tensor:
-        """Single-photon purity, equal to HOM visibility for two independent identical sources.
+        r"""Single-photon purity, equal to HOM visibility for two independent identical sources.
 
         See https://arxiv.org/pdf/1909.04294v2 Eq.(3). Integrating over frequencies and mixing the inputs gives
-        ``P_coinc = (1 - trace(rho_a @ rho_b)) / 2`` for an ideal balanced beam splitter.
+        :math:`P_{\rm coinc}=[1-\operatorname{Tr}(\rho_a\rho_b)]/2` for an ideal balanced beam splitter.
         """
         density = self.density_matrix
         return (density @ density).diagonal().sum().real

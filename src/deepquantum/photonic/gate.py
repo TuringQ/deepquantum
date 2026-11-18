@@ -2399,7 +2399,7 @@ class Barrier(Gate):
         return x
 
     def get_bargmann(self) -> None:
-        """Return None because a barrier does not change the state."""
+        """Return ``None`` because a barrier does not change the state."""
         return None
 
     def extra_repr(self) -> str:

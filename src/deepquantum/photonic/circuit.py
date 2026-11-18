@@ -4,8 +4,8 @@ import itertools
 import math
 import warnings
 from collections import Counter, defaultdict
-from collections.abc import Generator
-from contextlib import contextmanager
+from collections.abc import Generator, Sequence
+from contextlib import contextmanager, nullcontext
 from copy import copy, deepcopy
 from dataclasses import replace
 from operator import index as operator_index
@@ -167,7 +167,7 @@ class QumodeCircuit(Operation):
         self.sources = nn.ModuleDict()
 
     def set_hardware_model(self, model: HardwareModel | None) -> None:
-        """Attach a hardware model before creating the optimizer, or pass None to remove it."""
+        """Attach a hardware model before creating the optimizer, or pass ``None`` to remove it."""
         if model is not None:
             self._validate_hardware_model(model)
         self.hardware_model = model
@@ -334,12 +334,16 @@ class QumodeCircuit(Operation):
         detector: str | None = None,
         sort: bool = True,
         stepwise: bool = False,
+        *,
+        memory: GaussianState | Sequence[torch.Tensor] | BargmannState | None = None,
     ) -> 'torch.Tensor | dict | list[torch.Tensor] | BargmannState | dqp.SubmodeResult':
         """Perform a forward pass of the photonic quantum circuit and return the final-state-related result.
 
         Args:
             data: The input data for the ``encoders``. Default: ``None``
-            state: The initial state for the photonic quantum circuit. Default: ``None``
+            state: The initial state override. On a delay circuit it may include the entire concurrent state,
+                including the spatial inputs. Mutually exclusive with ``memory`` and source preparations.
+                Default: ``None``
             is_prob: For Fock backend, whether to return probabilities or amplitudes.
                 With ``basis=True``, set ``None`` to return the unitary matrix.
                 For Gaussian (Bosonic) backend, whether to return probabilities or the final Gaussian (Bosonic) state.
@@ -350,9 +354,15 @@ class QumodeCircuit(Operation):
             sort: Whether to sort dictionary of Fock basis states in the descending order of probabilities.
                 Default: ``True``
             stepwise: Whether to use the forward function of each operator for Gaussian backend. Default: ``False``
+            memory: The state of the delay slots only, in increasing concurrent wire order. A Gaussian
+                circuit accepts ``[cov, mean]`` or ``GaussianState``; a Bargmann circuit accepts
+                ``BargmannState``. Use the same dtype and device as the fresh spatial inputs from
+                ``init_state`` and any declared sources. Default: ``None`` (vacuum delay slots for spatial inputs)
 
         Returns:
             The result of the photonic quantum circuit after applying the ``operators``.
+            For state readout on a delay circuit, the joint state contains both spatial outputs and delay slots.
+            The slots have shifted into next-step order. No measurement or feedback is implicit.
             With orthogonal basis modes, return ``SubmodeResult`` describing the joint or factorized layout.
             ``is_prob=True`` instead returns spatial photon-count probabilities.
         """
@@ -360,12 +370,21 @@ class QumodeCircuit(Operation):
         self._prepare_unroll_dict()
         if self.hardware_model is not None:
             self._validate_hardware_model(self.hardware_model)
+        if memory is not None:
+            if state is not None:
+                raise ValueError('Supply either state or memory, not both.')
+            if not self._with_delay or self.backend not in ('gaussian', 'bargmann'):
+                raise ValueError('memory requires a Gaussian or Bargmann circuit with delay loops.')
+            if self.hardware_model is not None and self.hardware_model._has_submodes:
+                raise NotImplementedError('Loop memory with submodes requires global_circuit().')
         if self.sources:
-            if self._with_delay and self.backend != 'bargmann':
+            if self._with_delay and self.backend not in ('gaussian', 'bargmann'):
                 raise NotImplementedError('Unroll source preparations with global_circuit() before execution.')
             if state is not None:
                 raise ValueError('Use either source preparations or a forward state override.')
             state = self._prepare_sources()
+        if memory is not None:
+            state = self._join_tdm_memory(memory, self.init_state if state is None else state)
         if (
             self.hardware_model is not None
             and self.hardware_model._has_submodes
@@ -392,9 +411,10 @@ class QumodeCircuit(Operation):
             return result
         if self.backend == 'fock':
             return self._forward_fock(data, state, is_prob, sort)
-        elif self.backend in ('gaussian', 'bosonic'):
-            return self._forward_cv(data, state, is_prob, detector, stepwise or bool(self.sources))
-        elif self.backend == 'bargmann':
+        # Each delay step consumes its own controls. Do not retain views into its autograd graph on the circuit.
+        with self._preserve_encoders() if self._with_delay and data is not None else nullcontext():
+            if self.backend in ('gaussian', 'bosonic'):
+                return self._forward_cv(data, state, is_prob, detector, stepwise or bool(self.sources))
             return self._forward_bargmann(data, state, is_prob)
 
     def _forward_fock(
@@ -717,93 +737,73 @@ class QumodeCircuit(Operation):
         elif not isinstance(state, BargmannState):
             state = BargmannState(state, nmode=self.nmode, cutoff=self.cutoff, den_mat=self.den_mat)
         if self._with_delay and state.nmode == self.nmode:
-            memory = BargmannState('vac', nmode=self._nmode_tdm - self.nmode, den_mat=self.den_mat).to(
-                device=state.mat_a.device, dtype=state.mat_a.real.dtype
-            )
-            state = self._join_bargmann_tdm(memory, state)
+            nloop = self._nmode_tdm - self.nmode
+            state = self._join_tdm_memory(self._tdm_vacuum(nloop, state), state)
         if state.nmode != (self._nmode_tdm if self._with_delay else self.nmode):
             raise ValueError('The number of modes of the state does not match the circuit')
         if state.den_mat != self.den_mat:
             if not self.den_mat:
                 raise ValueError('A density-matrix state requires den_mat=True')
             state = state.to_dm()
-        if self.ndata == 0:
-            data = None
-        if data is None or data.ndim == 1:
-            result = self._forward_helper_bargmann(data, state)
-        else:
-            assert data.ndim == 2
-            batch = state.mat_a.shape[0]
-            if batch not in (1, data.shape[0]):
-                raise ValueError('The batch sizes of data and state do not match')
-            outputs = []
-            wires = [self._unroll_dict[w][-1] for w in self.wires] if self._with_delay else self.wires
-            run = self.hardware_model._new_run(self.backend, wires) if self.hardware_model is not None else None
-            for i in range(data.shape[0]):
-                sample = state if batch == 1 else state._select_batch(i)
-                outputs.append(self._forward_helper_bargmann(data[i], sample, run))
-            result = BargmannState._cat_batch(outputs)
+        spatial = [self._unroll_dict[w][-1] for w in self.wires] if self._with_delay else self.wires
+        result = self._evolve_mapped_modes(state, data if self.ndata else None, spatial, state.nmode)
         if self._with_delay:
             result = self._shift_state(result)
         # A forward result must not be registered as a circuit submodule.
         self.__dict__['state'] = result
         return result
 
-    def _forward_helper_bargmann(
-        self, data: torch.Tensor | None, state: BargmannState, run: _HardwareRun | None = None
-    ) -> BargmannState:
-        """Perform a forward pass for one sample with the Bargmann backend."""
-        self.encode(data)
-        operators = self._unroll_operators()
-        if self.hardware_model is not None:
-            wires = [self._unroll_dict[w][-1] for w in self.wires] if self._with_delay else self.wires
-            return self.hardware_model(state, operators, self.backend, wires, self.operators, _run=run)
-        return operators(state)
+    def _tdm_vacuum(
+        self, nmode: int, like: GaussianState | BargmannState | None = None
+    ) -> GaussianState | BargmannState:
+        """Create vacuum modes in the same units, dtype and device as the input."""
+        like = self.init_state if like is None else like
+        if isinstance(like, BargmannState):
+            return BargmannState('vac', nmode=nmode, den_mat=self.den_mat, cutoff=self.cutoff).to(like.mat_a.real)
+        ref = like.cov
+        cov = torch.eye(2 * nmode, dtype=ref.dtype, device=ref.device) * (dqp.hbar / (4 * dqp.kappa**2))
+        return GaussianState([cov, ref.new_zeros(2 * nmode, 1)], cutoff=self.cutoff)
 
-    def _join_bargmann_tdm(self, memory: BargmannState, inputs: BargmannState) -> BargmannState:
-        """Place chronological loop slots and fresh spatial inputs in the concurrent layout."""
-        spatial = [self._unroll_dict[w][-1] for w in self.wires]
-        loop = [w for w in range(self._nmode_tdm) if w not in spatial]
-        order = loop + spatial
-        return memory.tensor_product(inputs).reorder([order.index(w) for w in range(self._nmode_tdm)])
-
-    def tdm_step(self, data: torch.Tensor | None = None, state: BargmannState | None = None) -> BargmannState:
-        """Evolve Bargmann loop memory with a fresh set of spatial inputs for one time step.
-
-        Fresh inputs come from ``init_state`` and the declared sources on every call.
-        The returned state contains both loop slots and spatial outputs in the same
-        concurrent layout as a direct forward pass. Delay slots have already shifted
-        to the next time step. Evolution never uses a Fock cutoff.
-
-        Args:
-            data: Encoded controls for this step, with shape ``(ndata,)`` or
-                ``(batch, ndata)``. Default: ``None``
-            state: Loop memory only, ordered by increasing concurrent slot index.
-                Condition all spatial outputs with ``post_select`` to obtain this
-                state, or trace the output slots from the returned state with
-                ``partial_trace(cir.tdm_output_wires(1)[0].tolist())``.
-                Unnormalized memory retains the joint event weight.
-                Default: ``None`` (vacuum memory)
-
-        Returns:
-            The joint ``BargmannState`` of loop memory and current spatial outputs.
-        """
-        self._invalidate_state()
-        self._prepare_unroll_dict()
-        if self.backend != 'bargmann' or not self._with_delay:
-            raise NotImplementedError('tdm_step requires a Bargmann circuit with delay loops')
-        if self.hardware_model is not None:
-            self._validate_hardware_model(self.hardware_model)
-        inputs = self._prepare_sources() if self.sources else self.init_state
+    def _join_tdm_memory(
+        self, memory: GaussianState | Sequence[torch.Tensor] | BargmannState, inputs: GaussianState | BargmannState
+    ) -> list[torch.Tensor] | BargmannState:
+        """Place the loop memory and independent spatial inputs in concurrent wire order."""
         nloop = self._nmode_tdm - self.nmode
-        if state is None:
-            state = BargmannState('vac', nmode=nloop, den_mat=self.den_mat, cutoff=self.cutoff).to(
-                device=inputs.mat_a.device, dtype=inputs.mat_a.real.dtype
-            )
-        if not isinstance(state, BargmannState) or state.nmode != nloop:
-            raise ValueError(f'state must be a BargmannState containing the {nloop} loop modes only')
-        with self._preserve_encoders():
-            return self._forward_bargmann(data, self._join_bargmann_tdm(state, inputs))
+        spatial = [self._unroll_dict[w][-1] for w in self.wires]
+        loops = list(self._tdm_loop_map())
+        if self.backend == 'bargmann':
+            if not isinstance(memory, BargmannState) or memory.nmode != nloop:
+                raise ValueError(f'memory must be a BargmannState containing only the {nloop} delay modes.')
+            order = loops + spatial
+            return memory.tensor_product(inputs).reorder([order.index(w) for w in range(self._nmode_tdm)])
+        if isinstance(memory, GaussianState):
+            memory = [memory.cov, memory.mean]
+        if not (
+            isinstance(memory, Sequence)
+            and len(memory) == 2
+            and all(isinstance(x, torch.Tensor) and x.ndim in (2, 3) and x.is_floating_point() for x in memory)
+            and memory[0].shape[-2:] == (2 * nloop, 2 * nloop)
+            and memory[1].shape[-2:] == (2 * nloop, 1)
+        ):
+            raise ValueError(f'memory must contain Gaussian moments of the {nloop} delay modes only.')
+        if any(x.dtype != inputs.cov.dtype or x.device != inputs.cov.device for x in memory):
+            raise ValueError('memory must have the same dtype and device as the spatial inputs.')
+        return self._join_gaussian_modes(memory, [inputs.cov, inputs.mean], loops, spatial)
+
+    @staticmethod
+    def _join_gaussian_modes(
+        first: Sequence[torch.Tensor], second: Sequence[torch.Tensor], first_wires: list[int], second_wires: list[int]
+    ) -> list[torch.Tensor]:
+        """Embed two independent sets of Gaussian moments on disjoint wires in ``xxpp`` order."""
+        nmode = len(first_wires) + len(second_wires)
+        batch = torch.broadcast_shapes(*(x.shape[:-2] for x in (*first, *second)))
+        cov = first[0].new_zeros(*batch, 2 * nmode, 2 * nmode)
+        mean = first[1].new_zeros(*batch, 2 * nmode, 1)
+        for (v, m), wires in ((first, first_wires), (second, second_wires)):
+            idx = torch.tensor(wires + [w + nmode for w in wires], device=cov.device)
+            cov[..., idx[:, None], idx] = v
+            mean[..., idx, :] = m
+        return [cov, mean]
 
     def _forward_cv_prob(
         self, cov: torch.Tensor, mean: torch.Tensor, weight: torch.Tensor | None = None, detector: str | None = None
@@ -1061,15 +1061,23 @@ class QumodeCircuit(Operation):
             mean_tdm[..., idx, :] = mean
             return [cov_tdm, mean_tdm]
 
-    def _unroll_operators(self) -> nn.Sequential:
+    def _unroll_operators(
+        self,
+        spatial_wires: list[int] | None = None,
+        nmode: int | None = None,
+        step: int = 0,
+        loop_wire_map: dict[int, int] | None = None,
+    ) -> nn.Sequential:
         """Map current gates using the prepared mode map without caching the copies."""
         if not self._with_delay:
             return self.operators
-        spatial_wires = [self._unroll_dict[wire][-1] for wire in self.wires]
+        if spatial_wires is None:
+            spatial_wires = [self._unroll_dict[wire][-1] for wire in self.wires]
+        nmode = self._nmode_tdm if nmode is None else nmode
         operators = nn.Sequential()
-        for _, gate, wires in self._mapped_gates(spatial_wires):
+        for _, gate, wires in self._mapped_gates(spatial_wires, step, loop_wire_map):
             mapped = copy(gate)
-            mapped.nmode, mapped.wires = self._nmode_tdm, wires
+            mapped.nmode, mapped.wires = nmode, wires
             operators.append(mapped)
         return operators
 
@@ -1120,7 +1128,7 @@ class QumodeCircuit(Operation):
         data: torch.Tensor | None = None,
         *,
         window: None = None,
-    ) -> list[torch.Tensor]: ...
+    ) -> list[torch.Tensor] | BargmannState: ...
 
     @overload
     def tdm_substate(
@@ -1130,7 +1138,7 @@ class QumodeCircuit(Operation):
         data: torch.Tensor | None = None,
         *,
         window: int,
-    ) -> Generator[list[torch.Tensor], None, None]: ...
+    ) -> Generator[list[torch.Tensor] | BargmannState, None, None]: ...
 
     def tdm_substate(
         self,
@@ -1139,8 +1147,8 @@ class QumodeCircuit(Operation):
         data: torch.Tensor | None = None,
         *,
         window: int | None = None,
-    ) -> list[torch.Tensor] | Generator[list[torch.Tensor], None, None]:
-        """Get a joint Gaussian TDM substate or iterate over output windows.
+    ) -> list[torch.Tensor] | BargmannState | Generator[list[torch.Tensor] | BargmannState, None, None]:
+        r"""Get a joint TDM output state or iterate over windows on a Gaussian or Bargmann circuit.
 
         With ``window=None``, return the joint state in the supplied time and wire
         order. Otherwise, yield one window ending at each selected time step in a
@@ -1149,9 +1157,9 @@ class QumodeCircuit(Operation):
 
         Evolution stops after the largest selected time step. Encoded data repeat
         cyclically when the selected outputs extend beyond the input sequence.
-        As in ``global_circuit``, all inputs and delay modes start in vacuum.
-        Prepare input fields with circuit operations. Only Gaussian evolution
-        without source preparations or orthogonal basis modes is supported.
+        As in ``global_circuit``, the delay slots and incoming spatial modes start in vacuum,
+        irrespective of ``init_state``. Declared sources prepare fresh spatial inputs at every step.
+        Orthogonal basis modes require ``global_circuit``.
 
         Window iteration retains the delay modes and recent outputs with their
         cross correlations. Readout does not condition the circulating memory.
@@ -1172,10 +1180,11 @@ class QumodeCircuit(Operation):
                 through ``t``. Default: ``None`` (return one joint state)
 
         Returns:
-            ``[cov, mean]``, or an iterator yielding such pairs when ``window`` is set.
-            Each pair has shapes ``(batch, 2K, 2K)`` and ``(batch, 2K, 1)`` for
-            ``K`` selected output modes. Modes follow time then wire order, with
-            quadratures in xxpp order. Times within each window are chronological.
+            With :math:`K` selected modes, Gaussian returns ``[cov, mean]`` with shapes
+            :math:`(B, 2K, 2K)` and :math:`(B, 2K, 1)` in ``xxpp`` order, where :math:`B` is the batch size.
+            Bargmann returns a :class:`BargmannState` density matrix obtained by exact partial trace.
+            With ``window`` set, the iterator yields the same type at each requested time. Modes follow
+            time then wire order; times within a window are chronological.
         """
         if isinstance(time_steps, slice):
             start = 0 if time_steps.start is None else time_steps.start
@@ -1205,79 +1214,89 @@ class QumodeCircuit(Operation):
             if isinstance(time_indices, torch.Tensor) and bool((time_indices[1:] < time_indices[:-1]).any()):
                 raise ValueError('time_steps must be ascending for window iteration')
         wires, data = self._prepare_tdm_readout(wires, data)
-        if window is not None:
-            return self._tdm_substate_stepwise(time_indices, wires, data, window)
+        stream = self._tdm_substates(time_indices, wires, data, window)
+        return next(stream) if window is None else stream
 
-        time_indices = torch.as_tensor(time_indices, dtype=torch.long)
-        nstep = int(time_indices.max()) + 1
-        if data is None:
-            return [value.unsqueeze(0) for value in self._tdm_substate_gaussian(nstep, time_indices, wires)]
-        with self._preserve_encoders():
-            return vmap(self._tdm_substate_gaussian, in_dims=(None, None, None, 0), randomness='same')(
-                nstep, time_indices, wires, data
-            )
-
-    def _tdm_substate_stepwise(
-        self,
-        time_steps: range | torch.Tensor,
-        wires: torch.Tensor,
-        data: torch.Tensor | None,
-        window: int,
-    ) -> Generator[list[torch.Tensor], None, None]:
-        """Yield Gaussian windows at selected times while reusing preceding evolution."""
-        loop_wire_map = self._tdm_loop_map()
-        nloop = len(loop_wire_map)
-        vac = self.init_state.cov.new_tensor(dqp.hbar / (4 * dqp.kappa**2))
-        batch = 1 if data is None else data.shape[0]
-        cov = (torch.eye(2 * nloop, dtype=vac.dtype, device=vac.device) * vac).expand(batch, -1, -1)
-        mean = cov.new_zeros(batch, 2 * nloop, 1)
-        bindings = self.hardware_model._bind(self.operators) if self.hardware_model is not None else {}
-        selected_steps = time_steps if isinstance(time_steps, range) else set(time_steps.tolist())
-        selected_wires = wires.tolist()
-        for step in range(int(time_steps[-1]) + 1):
-            old_nmode = cov.shape[-1] // 2
-            first_retained = max(nloop, old_nmode - (window - 1) * len(selected_wires))
-            if first_retained > nloop:
-                keep = list(range(nloop)) + list(range(first_retained, old_nmode))
-                keep = torch.tensor(keep, dtype=torch.long, device=cov.device)
-                indices = torch.cat([keep, keep + old_nmode])
-                cov, mean = cov[:, indices[:, None], indices], mean[:, indices]
-                old_nmode = len(keep)
-            if data is None:
-                state = self._tdm_step_gaussian([cov[0], mean[0]], step, loop_wire_map, bindings)
-                cov, mean = [value.unsqueeze(0) for value in state]
+    def _tdm_substates(
+        self, time_steps: range | torch.Tensor, wires: list[int], data: torch.Tensor | None, window: int | None
+    ) -> Generator[list[torch.Tensor] | BargmannState, None, None]:
+        """Keep the delay slots and requested output modes correlated until readout."""
+        loop_map = self._tdm_loop_map()
+        nloop = len(loop_map)
+        loop_wires = list(range(nloop))
+        memory = self._tdm_vacuum(nloop)
+        inputs = self._tdm_vacuum(self.nmode)
+        if self.sources:
+            inputs = self._prepare_sources(inputs)
+        state = memory if isinstance(memory, BargmannState) else [memory.cov, memory.mean]
+        fresh = inputs if isinstance(inputs, BargmannState) else [inputs.cov, inputs.mean]
+        times = time_steps if isinstance(time_steps, range) else time_steps.tolist()
+        selected = times if isinstance(times, range) else set(times)
+        last = times[-1] if isinstance(times, range) else max(times)
+        nretained = 0
+        for step in range(last + 1):
+            # Working order: fixed delay slots, past outputs, new spatial inputs.
+            if window is not None and nretained == window * len(wires):
+                state = self._tdm_marginal(state, loop_wires + list(range(nloop + len(wires), nloop + nretained)))
+                nretained -= len(wires)
+            old_nmode = nloop + nretained
+            spatial = list(range(old_nmode, old_nmode + self.nmode))
+            if isinstance(state, BargmannState):
+                joint = state.tensor_product(fresh)
             else:
-                with self._preserve_encoders():
-                    cov, mean = vmap(self._tdm_step_gaussian, in_dims=(0, None, None, None, 0), randomness='same')(
-                        [cov, mean], step, loop_wire_map, bindings, data[:, step % data.shape[1]]
-                    )
+                joint = self._join_gaussian_modes(state, fresh, list(range(old_nmode)), spatial)
+            controls = None if data is None else data[:, step % data.shape[1]]
+            # Do not leave encoded values on the circuit while a window iterator is paused.
+            with self._preserve_encoders() if controls is not None else nullcontext():
+                joint = self._evolve_mapped_modes(joint, controls, spatial, old_nmode + self.nmode, step, loop_map)
             keep = list(range(old_nmode))
-            keep.extend(old_nmode + wire for wire in selected_wires)
-            keep = torch.tensor(keep, dtype=torch.long, device=cov.device)
-            indices = torch.cat([keep, keep + old_nmode + self.nmode])
-            cov, mean = cov[:, indices[:, None], indices], mean[:, indices]
-            if step in selected_steps:
-                retained = torch.arange(nloop, len(keep), device=cov.device)
-                indices = torch.cat([retained, retained + len(keep)])
-                yield [cov[:, indices[:, None], indices], mean[:, indices]]
+            if window is not None or step in selected:
+                keep.extend(spatial[w] for w in wires)
+                nretained += len(wires)
+            state = self._tdm_marginal(joint, keep)
+            if window is not None and step in selected:
+                yield self._tdm_marginal(state, list(range(nloop, nloop + nretained)))
+        if window is None:
+            offsets = {time: nloop + i * len(wires) for i, time in enumerate(sorted(times))}
+            yield self._tdm_marginal(state, [offsets[t] + i for t in times for i in range(len(wires))])
+
+    @staticmethod
+    def _tdm_marginal(state: list[torch.Tensor] | BargmannState, keep: list[int]) -> list[torch.Tensor] | BargmannState:
+        """Trace out the complement of ``keep`` and restore the requested mode order."""
+        nmode = state.nmode if isinstance(state, BargmannState) else state[0].shape[-1] // 2
+        if keep == list(range(nmode)):
+            return state
+        if isinstance(state, BargmannState):
+            order = {w: i for i, w in enumerate(sorted(keep))}
+            discard = [w for w in range(nmode) if w not in order]
+            reduced = state.partial_trace(discard) if discard else state
+            return reduced if keep == sorted(keep) else reduced.reorder([order[w] for w in keep])
+        cov, mean = state
+        idx = torch.tensor(keep + [w + nmode for w in keep], device=cov.device)
+        return [cov[..., idx[:, None], idx], mean[..., idx, :]]
 
     def _prepare_tdm_readout(
         self,
         wires: int | list[int] | torch.Tensor | None,
         data: torch.Tensor | None,
-    ) -> tuple[torch.Tensor, torch.Tensor | None]:
-        """Prepare the wiring, spatial selection and encoded sequence for Gaussian TDM readout."""
-        if self.sources or self.hardware_model is not None and self.hardware_model._has_submodes:
-            raise NotImplementedError('Streaming submode/source preparation is not implemented; use global_circuit().')
+    ) -> tuple[list[int], torch.Tensor | None]:
+        """Prepare the wiring, spatial selection and encoded sequence for TDM readout."""
+        if self.hardware_model is not None and self.hardware_model._has_submodes:
+            raise NotImplementedError('Streaming submodes are not supported; use global_circuit().')
         self._prepare_unroll_dict()
         if self.hardware_model is not None:
             self._validate_hardware_model(self.hardware_model)
-        assert self.backend == 'gaussian', 'TDM state readout requires Gaussian backend'
-        assert self._with_delay, 'TDM state readout requires at least one delay loop'
-        wires = torch.arange(self.nmode) if wires is None else torch.as_tensor(wires, dtype=torch.long).reshape(-1)
-        assert wires.numel() > 0, 'wires must not be empty'
-        assert torch.all((wires >= 0) & (wires < self.nmode)), 'wires must lie in [0, nmode)'
-        assert torch.unique(wires).numel() == wires.numel(), 'wires must be unique'
+        if self.backend not in ('gaussian', 'bargmann') or not self._with_delay:
+            raise ValueError('tdm_substate requires a Gaussian or Bargmann circuit with delay loops.')
+        if wires is None:
+            wires = self.wires
+        else:
+            indices = torch.as_tensor(wires)
+            if indices.ndim > 1 or indices.dtype == torch.bool or indices.is_floating_point() or indices.is_complex():
+                raise ValueError('wires must contain integer spatial indices')
+            wires = indices.reshape(-1).tolist()
+            if not wires or min(wires) < 0 or max(wires) >= self.nmode or len(set(wires)) != len(wires):
+                raise ValueError('wires must contain distinct valid spatial indices')
 
         if self.ndata == 0:
             if data is not None:
@@ -1302,93 +1321,41 @@ class QumodeCircuit(Operation):
                     loop_wires.extend(value)
         return {wire: slot for slot, wire in enumerate(loop_wires)}
 
-    def _tdm_substate_gaussian(
+    def _evolve_mapped_modes(
         self,
-        nstep: int,
-        time_steps: torch.Tensor,
-        wires: torch.Tensor,
-        data: torch.Tensor | None = None,
-    ) -> list[torch.Tensor]:
-        """Get one encoded Gaussian TDM substate."""
-        loop_wire_map = self._tdm_loop_map()
-        nloop = len(loop_wire_map)
-        vac = self.init_state.cov.new_tensor(dqp.hbar / (4 * dqp.kappa**2))
-        cov = torch.eye(2 * nloop, dtype=vac.dtype, device=vac.device) * vac
-        mean = torch.zeros(2 * nloop, 1, dtype=vac.dtype, device=vac.device)
-        selected_steps = set(time_steps.tolist())
-        selected_wires = wires.tolist()
-        nretained = 0
+        state: list[torch.Tensor] | BargmannState,
+        data: torch.Tensor | None,
+        spatial: list[int],
+        nmode: int,
+        step: int = 0,
+        loop_map: dict[int, int] | None = None,
+    ) -> list[torch.Tensor] | BargmannState:
+        """Apply the optical circuit at the mapped wires, sharing hardware samples across a data batch."""
         model = self.hardware_model
-        bindings = model._bind(self.operators) if model is not None else {}
+        run = model._new_run(self.backend, spatial) if model is not None else None
 
-        for step in range(nstep):
-            old_nmode = nloop + nretained
-            step_nmode = old_nmode + self.nmode
-            data_step = None if data is None else data[step % data.shape[0]]
-            cov_step, mean_step = self._tdm_step_gaussian([cov, mean], step, loop_wire_map, bindings, data_step)
-
-            keep = list(range(old_nmode))
-            if step in selected_steps:
-                keep.extend(old_nmode + wire for wire in selected_wires)
-                nretained += len(selected_wires)
-            keep = torch.tensor(keep, dtype=torch.long, device=cov.device)
-            keep_xp = torch.cat([keep, keep + step_nmode])
-            cov = cov_step[keep_xp[:, None], keep_xp]
-            mean = mean_step[keep_xp]
-
-        # Evolution retains outputs chronologically. Restore the requested time order.
-        time_order = time_steps.argsort().argsort().to(device=cov.device)
-        wire_order = torch.arange(len(selected_wires), device=cov.device)
-        retained = nloop + (time_order[:, None] * len(selected_wires) + wire_order).reshape(-1)
-        retained_xp = torch.cat([retained, retained + nloop + nretained])
-        return [cov[retained_xp[:, None], retained_xp], mean[retained_xp]]
-
-    def _tdm_step_gaussian(
-        self,
-        state: list[torch.Tensor],
-        step: int,
-        loop_wire_map: dict[int, int],
-        bindings: dict[Operation, list],
-        data: torch.Tensor | None = None,
-    ) -> list[torch.Tensor]:
-        """Append vacuum inputs and evolve one step while preserving retained output correlations."""
-        cov, mean = state
-        vac = cov.new_tensor(dqp.hbar / (4 * dqp.kappa**2))
-        model = self.hardware_model
-        if data is not None:
-            self.encode(data)
-        # Streaming layout: loop slots, retained outputs, current-step spatial modes.
-        old_nmode = cov.shape[-1] // 2
-        step_nmode = old_nmode + self.nmode
-        old_idx = torch.cat(
-            [torch.arange(old_nmode, device=cov.device), torch.arange(old_nmode, device=cov.device) + step_nmode]
-        )
-        cov_step = torch.eye(2 * step_nmode, dtype=cov.dtype, device=cov.device) * vac
-        cov_step = cov_step.index_put((old_idx[:, None], old_idx), cov)
-        mean_step = torch.zeros(2 * step_nmode, 1, dtype=mean.dtype, device=mean.device)
-        mean_step = mean_step.index_copy(0, old_idx, mean)
-
-        spatial_wires = [old_nmode + wire for wire in self.wires]
-        if model is not None:
-            run = model._new_run(self.backend, spatial_wires)
-            cov_step, mean_step = model._apply_io_plugins([cov_step, mean_step], run, 'input')
-        for _, gate, gate_wires in self._mapped_gates(spatial_wires, step, loop_wire_map):
-            gate_step = copy(gate)
-            gate_step.nmode, gate_step.wires = step_nmode, gate_wires
+        def evolve(
+            controls: torch.Tensor | None, sample: list[torch.Tensor] | BargmannState
+        ) -> list[torch.Tensor] | BargmannState:
+            self.encode(controls)
+            operators = self._unroll_operators(spatial, nmode, step, loop_map)
             if model is None:
-                cov_step, mean_step = gate_step([cov_step, mean_step])
-            else:
-                cov_step, mean_step = model._apply_operation(
-                    [cov_step, mean_step],
-                    gate_step,
-                    run,
-                    bindings.get(gate, ()),
-                    gate,
-                )
-        if model is not None:
-            cov_step, mean_step = model._apply_io_plugins([cov_step, mean_step], run, 'output')
+                return operators(sample)
+            return model(sample, operators, self.backend, spatial, self.operators, _run=run)
 
-        return [cov_step, mean_step]
+        if data is None or data.ndim == 1:
+            return evolve(data, state)
+        if data.ndim != 2 or not len(data):
+            raise ValueError('Expected a nonempty batch of encoded controls for one step.')
+        if isinstance(state, BargmannState):
+            batch = state.mat_a.shape[0]
+            if batch not in (1, len(data)):
+                raise ValueError('The batch sizes of data and state do not match')
+            return BargmannState._cat_batch(
+                [evolve(row, state if batch == 1 else state._select_batch(i)) for i, row in enumerate(data)]
+            )
+        moments = [x.expand(len(data), -1, -1) for x in state]
+        return vmap(evolve, randomness='same')(data, moments)
 
     def _mapped_gates(self, spatial_wires: list[int], step: int = 0, loop_wire_map: dict[int, int] | None = None):
         """Yield operation locations, source gates and execution wires from the cached wiring."""
@@ -1811,10 +1778,10 @@ class QumodeCircuit(Operation):
         purity: bool | None = None,
         loop: bool | None = None,
     ) -> torch.Tensor:
-        """Get the probabilities of the final states for Gaussian backend.
+        r"""Get the probabilities of the final states for Gaussian backend.
 
         See https://arxiv.org/pdf/2010.15595v4 Eq.(3)-(5) and Eq.(8)-(12).
-        The vacuum prefactor in Eq.(10) is evaluated using ``logdet(Q)``, since Q is positive Hermitian.
+        The vacuum prefactor in Eq.(10) is evaluated using :math:`\ln\det Q`, since :math:`Q` is positive Hermitian.
         """
         if loop is None:
             loop = ~torch.all(mean == 0)
@@ -1922,10 +1889,10 @@ class QumodeCircuit(Operation):
         purity: bool = True,
         loop: bool = False,
     ) -> torch.Tensor:
-        """Get the probability of the final state for Gaussian backend.
+        r"""Get the probability of the final state for Gaussian backend.
 
         See https://arxiv.org/pdf/2010.15595v4 Eq.(11)-(12).
-        For pure states, normalize the loop hafnian by ``sqrt(prod(n!))`` before taking its squared modulus.
+        For pure states, normalize the loop hafnian by :math:`\sqrt{\prod_j n_j!}` before taking its squared modulus.
         """
         gamma = gamma.squeeze()
         nmode = len(final_state)
@@ -2563,7 +2530,7 @@ class QumodeCircuit(Operation):
     def quadrature_moments(
         self, wires: int | list[int] | None = None, *, centered: bool = True, normalize: bool = True
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Get quadrature moments in xxpp order.
+        r"""Get quadrature moments in ``xxpp`` order.
 
         Supports Fock state tensors, Gaussian, Bosonic and Bargmann states from
         the latest forward pass. Bargmann moments do not use a Fock cutoff.
@@ -2582,7 +2549,7 @@ class QumodeCircuit(Operation):
             Two tensors with shapes ``(batch, 2K, 2K)`` and ``(batch, 2K, 1)``,
             where ``K=len(wires)``. Units follow the current ``hbar`` and ``kappa``.
             The default is ``(cov, mean)``. With ``centered=False``, the first
-            tensor includes ``mean @ mean.mT``. With ``normalize=False``, both
+            tensor includes :math:`\mu\mu^T`, where :math:`\mu` is the mean. With ``normalize=False``, both
             tensors retain the state weight. Disabling both options gives linear
             contributions that can be summed over events, including zero-probability events.
             See ``BargmannState.quadrature_moments`` for the moment definitions.
@@ -2681,7 +2648,7 @@ class QumodeCircuit(Operation):
 
         On a Bargmann delay circuit, ``wires`` selects current spatial outputs.
         Loop slots are retained in their shifted order. Conditioning all spatial
-        outputs returns the memory accepted by ``tdm_step(state=...)``.
+        outputs returns the memory accepted by ``cir(memory=...)``.
         ``remaining_wires`` then labels concurrent slots, as in the forward state.
 
         Args:
@@ -2718,7 +2685,7 @@ class QumodeCircuit(Operation):
             mode indices. ``info['remaining_wires']`` records the source spatial modes.
 
             ``probability_in_cutoff`` and ``retained_fraction`` report the unnormalized
-            finite-output weight and its fraction of the event weight. They are None for
+            finite-output weight and its fraction of the event weight. They are ``None`` for
             native Bargmann output. Bargmann additionally reports ``input_weight`` and
             ``conditional_probability``. ``source_cutoff`` is set only for Fock inputs.
         """
@@ -3211,16 +3178,19 @@ class QumodeCircuit(Operation):
             self.sources[str(wire)] = source
         self._invalidate_state()
 
-    def _prepare_sources(self):
+    def _prepare_sources(
+        self, init_state: GaussianState | BargmannState | None = None
+    ) -> FockState | GaussianState | BosonicState | BargmannState:
         """Build the declared input state before optical evolution."""
+        init_state = self.init_state if init_state is None else init_state
         if self.backend == 'bargmann':
-            state = self.init_state
+            state = init_state
             run = _HardwareRun(self.backend, None, tuple(self.wires), self.nmode, False)
             for wire, preparation in self.sources.items():
                 state = preparation(state, replace(run, wires=(int(wire),)))
             return state
-        source = copy(self.init_state)
-        source._buffers = self.init_state._buffers.copy()
+        source = copy(init_state)
+        source._buffers = init_state._buffers.copy()
         if self.backend == 'bosonic' and self._bosonic_states is not None:
             source = combine_bosonic_states(self._bosonic_states, cutoff=self.cutoff)
         state = source.state if self.backend == 'fock' else [source.cov, source.mean]
