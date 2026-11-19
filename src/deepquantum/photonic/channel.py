@@ -130,8 +130,15 @@ class DisplacementChannel(Channel):
         """Complex displacement amplitude, including the beam-splitter coupling sign."""
         return torch.sin(self.loss_theta / 2) * self.coherent_amplitude
 
+    def update_matrix_state(self) -> torch.Tensor:
+        """Update the local Kraus matrices acting on Fock state density matrices."""
+        loss = PhotonLoss(self.loss_theta, cutoff=self.cutoff)
+        amplitude = torch.sin(self.loss_theta / 2) * self.amplitude
+        displacement = Displacement(cutoff=self.cutoff).get_matrix_state(amplitude, self.phase)
+        return displacement @ loss.update_matrix_state()
+
     def update_transform_xy(self) -> tuple[torch.Tensor, torch.Tensor]:
-        """Update the local transformation matrices X and Y."""
+        """Update the local transformation matrices X and Y acting on Gaussian states."""
         angle = self.loss_theta.reshape(())
         identity = torch.eye(2, dtype=angle.dtype, device=angle.device)
         matrix_x = torch.cos(angle / 2) * identity
@@ -139,18 +146,11 @@ class DisplacementChannel(Channel):
         return matrix_x, matrix_y
 
     def update_transform_xyd(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Update the local transformation matrices X, Y and displacement."""
+        """Update the local Gaussian channel matrices and displacement vector."""
         matrix_x, matrix_y = self.update_transform_xy()
         alpha = self.displacement_amplitude.reshape(())
         displacement = torch.stack([alpha.real, alpha.imag]).reshape(2, 1) * dqp.hbar**0.5 / dqp.kappa
         return matrix_x, matrix_y, displacement
-
-    def update_matrix_state(self) -> torch.Tensor:
-        """Update the local Kraus matrices."""
-        loss = PhotonLoss(self.loss_theta, cutoff=self.cutoff)
-        amplitude = torch.sin(self.loss_theta / 2) * self.amplitude
-        displacement = Displacement(cutoff=self.cutoff).get_matrix_state(amplitude, self.phase)
-        return displacement @ loss.update_matrix_state()
 
     def extra_repr(self) -> str:
         return (
@@ -291,7 +291,7 @@ class OPA(Channel):
         return torch.where(small, series, regular)
 
     def update_transform_xy(self) -> tuple[torch.Tensor, torch.Tensor]:
-        """Return the complete local channel matrices in x, p order."""
+        """Update the local transformation matrices X and Y acting on Gaussian states."""
         r, theta = self.r.reshape(()), self.theta.reshape(())
         t = self.t.to(r).reshape(())
         full_loss = t == 0
@@ -311,7 +311,7 @@ class OPA(Channel):
         return matrix_x, matrix_y
 
     def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
-        """Apply the exact channel projected into the specified Fock cutoff."""
+        """Perform a forward pass for density matrices."""
         wires = self.wires + [wire + self.nmode for wire in self.wires]
         dim = self.cutoff ** len(wires)
         matrix = self.get_superoperator().reshape(dim, dim)
@@ -409,10 +409,6 @@ class PhotonLoss(Channel):
             unitary = unitary.index_put((rows[:, None], columns), matrix @ unitary[rows])
         return unitary
 
-    def update_matrix_state(self) -> torch.Tensor:
-        """Update the local Kraus matrices acting on Fock state density matrices."""
-        return self.get_matrix_state(self.theta)
-
     def get_matrix_state(self, theta: Any) -> torch.Tensor:
         """Get the local Kraus matrices acting on Fock state density matrices.
 
@@ -420,6 +416,10 @@ class PhotonLoss(Channel):
         """
         matrix = self.gate.get_matrix_state(self.gate.get_matrix(theta))
         return matrix[..., 0].permute([1, 0, 2])
+
+    def update_matrix_state(self) -> torch.Tensor:
+        """Update the local Kraus matrices acting on Fock state density matrices."""
+        return self.get_matrix_state(self.theta)
 
     def update_transform_xy(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Update the local transformation matrices X and Y acting on Gaussian states.
@@ -437,7 +437,7 @@ class PhotonLoss(Channel):
         return matrix_x, matrix_y
 
     def get_bargmann(self) -> BargmannPolyExp:
-        r"""Get the Bargmann representation of the photon loss channel.
+        r"""Get the Bargmann representation of the channel.
 
         With field transmittance :math:`t=\cos(\theta/2)` and power transmittance :math:`T=t^2`, the kernel is
 

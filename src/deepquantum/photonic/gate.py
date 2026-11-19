@@ -186,7 +186,7 @@ class PhaseShift(SingleGate):
         return matrix_xp, vector_xp
 
     def get_bargmann(self) -> BargmannPolyExp:
-        """Get the Bargmann representation from the local mode unitary matrix."""
+        """Get the Bargmann representation of the gate."""
         return passive_bargmann(self.update_matrix())
 
     def init_para(self, inputs: Any = None) -> None:
@@ -351,7 +351,7 @@ class BeamSplitter(DoubleGate):
         return matrix_xp, vector_xp
 
     def get_bargmann(self) -> BargmannPolyExp:
-        """Get the Bargmann representation from the local mode unitary matrix."""
+        """Get the Bargmann representation of the gate."""
         return passive_bargmann(self.update_matrix())
 
     def init_para(self, inputs: Any = None) -> None:
@@ -876,7 +876,7 @@ class UAnyGate(Gate):
         return matrix_xp, vector_xp
 
     def get_bargmann(self) -> BargmannPolyExp:
-        """Get the Bargmann representation from the local mode unitary matrix."""
+        """Get the Bargmann representation of the gate."""
         return passive_bargmann(self.update_matrix())
 
 
@@ -2396,18 +2396,18 @@ class Barrier(Gate):
         self.register_buffer('_one', torch.ones(()), persistent=False)
 
     def update_matrix_state(self) -> torch.Tensor:
-        """Get the local Fock identity on the selected modes."""
+        """Update the local transformation matrix acting on Fock state tensors."""
         nwire = len(self.wires)
         diagonal = (self._one + 0j).expand(self.cutoff**nwire)
         return diagonal.diag().reshape((self.cutoff,) * (2 * nwire))
 
-    def forward(self, x: Any) -> Any:
-        """Perform a forward pass."""
-        return x
-
     def get_bargmann(self) -> None:
         """Return ``None`` because a barrier does not change the state."""
         return None
+
+    def forward(self, x: Any) -> Any:
+        """Perform a forward pass."""
+        return x
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}'

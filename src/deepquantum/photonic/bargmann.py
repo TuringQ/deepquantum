@@ -213,17 +213,21 @@ class BargmannPolyExp:
         coeff_c = f.coeff_c.reshape(batch, l1, 1, *d1, *([1] * len(d2))) * g.coeff_c.reshape(
             batch, 1, l2, *([1] * len(d1)), *d2
         )
-        perm = (
-            list(range(f.nfree))
-            + [n1 + j for j in range(g.nfree)]
-            + list(range(f.nfree, n1))
-            + [n1 + j for j in range(g.nfree, n2)]
-        )
         mat_a = mat_a.reshape(batch, l1 * l2, n1 + n2, n1 + n2)
         vec_b = vec_b.reshape(batch, l1 * l2, n1 + n2)
-        return BargmannPolyExp._from_tensors(
-            mat_a[..., perm, :][..., perm], vec_b[..., perm], coeff_c.reshape(batch, l1 * l2, *d1, *d2)
-        )
+        # Move the right free variables ahead of the left auxiliary variables when both are present.
+        if f.naux and g.nfree:
+            end_free = n1 + g.nfree
+            order = (
+                list(range(f.nfree))
+                + list(range(n1, end_free))
+                + list(range(f.nfree, n1))
+                + list(range(end_free, n1 + n2))
+            )
+            idx = torch.tensor(order, dtype=torch.long, device=f.device)
+            mat_a = mat_a[..., idx[:, None], idx]
+            vec_b = vec_b[..., idx]
+        return BargmannPolyExp._from_tensors(mat_a, vec_b, coeff_c.reshape(batch, l1 * l2, *d1, *d2))
 
     def contract(self, pairs: list[tuple[int, int]]) -> 'BargmannPolyExp':
         """Integrate pairs of free variables with the Bargmann measure.

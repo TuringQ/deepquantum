@@ -774,7 +774,7 @@ class QumodeCircuit(Operation):
             if not isinstance(memory, BargmannState) or memory.nmode != nloop:
                 raise ValueError(f'memory must be a BargmannState containing only the {nloop} delay modes.')
             order = spatial + loops
-            return inputs.tensor_product(memory).reorder([order.index(w) for w in range(self._nmode_tdm)])
+            return inputs._tensor_product(memory, [order.index(w) for w in range(self._nmode_tdm)])
         if isinstance(memory, GaussianState):
             memory = [memory.cov, memory.mean]
         if not (

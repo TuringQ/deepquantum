@@ -491,14 +491,23 @@ class BargmannState(nn.Module):
         The result uses this state's default readout cutoff. Coefficients must
         have the same dtype and device. State weights multiply.
         """
+        return self._tensor_product(other, None)
+
+    def _tensor_product(self, other: 'BargmannState', order: list[int] | None) -> 'BargmannState':
+        """Form the tensor product in the requested permutation of the concatenated modes."""
         first, second = self, other
         if first.den_mat or second.den_mat:
             first, second = first.to_dm(), second.to_dm()
         polyexp = first.polyexp.tensor_product(second.polyexp)
         if first.den_mat:
             n, m = first.nmode, second.nmode
-            order = list(range(n)) + list(range(2 * n, 2 * n + m))
-            order += list(range(n, 2 * n)) + list(range(2 * n + m, 2 * (n + m)))
+            ket = list(range(n)) + list(range(2 * n, 2 * n + m))
+            bra = list(range(n, 2 * n)) + list(range(2 * n + m, 2 * (n + m)))
+            if order is not None:
+                ket = [ket[w] for w in order]
+                bra = [bra[w] for w in order]
+            order = ket + bra
+        if order is not None:
             polyexp = polyexp.reorder(order)
         return self._new(polyexp, den_mat=first.den_mat)
 
@@ -534,7 +543,7 @@ class BargmannState(nn.Module):
             if not torch.allclose(rest.norm(), self.norm(), rtol=100 * torch.finfo(self.mat_a.real.dtype).eps, atol=0):
                 raise ValueError('Pure input preparation requires vacuum on the selected input wires')
         order = [w for w in range(self.nmode) if w not in wires] + list(wires)
-        return rest.tensor_product(replacement).reorder([order.index(w) for w in range(self.nmode)])
+        return rest._tensor_product(replacement, [order.index(w) for w in range(self.nmode)])
 
     def _post_select(
         self, positions: tuple[int, ...], photons: tuple[int, ...], detector: str = 'pnrd'

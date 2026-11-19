@@ -135,6 +135,31 @@ def test_bargmann_ket_source_checks_vacuum_relative_to_input_weight():
         cir()
 
 
+def test_bargmann_loop_join_preserves_interleaved_density_axes_and_gradients():
+    rng = torch.Generator().manual_seed(31)
+    spatial_ket = torch.randn(2, 2, dtype=torch.cdouble, generator=rng, requires_grad=True)
+    memory_ket = torch.randn(2, 2, 2, dtype=torch.cdouble, generator=rng, requires_grad=True)
+    spatial_dm = torch.einsum('ij,kl->ijkl', spatial_ket, spatial_ket.conj())
+    spatial = dq.BargmannState(spatial_dm, nmode=2, cutoff=2, den_mat=True)
+    memory = dq.BargmannState(memory_ket, nmode=2, cutoff=7)
+    cir = dq.QumodeCircuit(2, spatial, backend='bargmann')
+    for wire in (0, 1):
+        cir.delay(wire, ntau=1, inputs=[0.0, 0.0])
+    cir.double()
+
+    # Each identity delay places its loop mode immediately before its spatial mode.
+    joint = cir(memory=memory)
+    actual = joint.to_fock().reshape(2, 16, 16)
+    ket = torch.einsum('ij,bkl->bkilj', spatial_ket, memory_ket).flatten(1)
+    expected = ket.unsqueeze(-1) * ket.conj().unsqueeze(-2)
+    assert joint.cutoff == 2 and memory.cutoff == 7
+    torch.testing.assert_close(actual, expected)
+    inputs = (spatial_ket, memory_ket)
+    actual_grad = torch.autograd.grad(actual[:, 1, 4].imag.sum(), inputs)
+    expected_grad = torch.autograd.grad(expected[:, 1, 4].imag.sum(), inputs)
+    torch.testing.assert_close(actual_grad, expected_grad)
+
+
 @pytest.mark.parametrize('density, detector', [(False, 'pnrd'), (True, 'pnrd'), (True, 'threshold')])
 def test_bargmann_loop_conditioning_matches_unrolled(density, detector):
     cir = dq.QumodeCircuit(1, 'vac', backend='bargmann', den_mat=density)
