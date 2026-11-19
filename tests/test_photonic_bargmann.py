@@ -119,7 +119,7 @@ def test_channel_bargmann_matches_kraus_map(theta):
 
 def test_barrier_and_unsupported_operations():
     assert dqp.Barrier(nmode=2).get_bargmann() is None
-    for operation in (dqp.Kerr(cutoff=3), dqp.OPA(cutoff=3)):
+    for operation in (dqp.Kerr(cutoff=3),):
         with pytest.raises(NotImplementedError, match='not supported by the Bargmann backend'):
             operation.get_bargmann()
 
@@ -549,7 +549,7 @@ def test_zero_order_auxiliary_variables_are_eliminated(density):
     torch.testing.assert_close(probability, (1 / r.cosh() ** 2).reshape(1))
 
 
-def test_thermal_source_rejects_bargmann_at_configuration():
-    circuit = dq.QumodeCircuit(1, 'vac', backend='bargmann', den_mat=True)
-    with pytest.raises(NotImplementedError, match='Thermal source preparation'):
+def test_thermal_source_requires_bargmann_density():
+    circuit = dq.QumodeCircuit(1, 'vac', backend='bargmann')
+    with pytest.raises(NotImplementedError, match='den_mat=True'):
         circuit.thermal(0, nbar=0.2)

@@ -8,7 +8,7 @@ from torch import nn, vmap
 
 from ..qmath import evolve_den_mat, evolve_state, state_to_tensors
 from ..state import MatrixProductState
-from .bargmann import BargmannPolyExp
+from .bargmann import BargmannPolyExp, gaussian_channel_to_bargmann
 from .distributed import dist_gate
 from .state import BargmannState, DistributedFockState
 
@@ -77,7 +77,7 @@ class Operation(nn.Module):
         """Get the Bargmann representation of the quantum operation.
 
         Unitary kernels order outputs before inputs. Channel kernels order ket output,
-        bra output, ket input and bra input. An operation without effect returns None.
+        bra output, ket input and bra input. An operation without effect returns ``None``.
         Unsupported operations raise NotImplementedError.
         """
         raise NotImplementedError(f'{self.name} is not supported by the Bargmann backend')
@@ -132,48 +132,17 @@ class Gate(Operation):
         matrix = self.update_matrix()
         return self.get_matrix_state(matrix)
 
-    def op_state_tensor(self, x: torch.Tensor) -> torch.Tensor:
-        """Perform a forward pass for state tensors."""
-        nt = len(self.wires)
-        matrix = self.update_matrix_state().reshape(self.cutoff**nt, self.cutoff**nt)
-        return evolve_state(x, matrix, self.nmode, self.wires, self.cutoff)
+    def get_superoperator(self) -> torch.Tensor:
+        r"""Get the local Fock superoperator acting on density matrices.
 
-    def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
-        """Perform a forward pass for density matrices."""
-        nt = len(self.wires)
-        matrix = self.update_matrix_state().reshape(self.cutoff**nt, self.cutoff**nt)
-        return evolve_den_mat(x, matrix, self.nmode, self.wires, self.cutoff)
-
-    def update_transform_xp(self) -> tuple[torch.Tensor, torch.Tensor]:
-        """Update the local affine symplectic transformation acting on quadrature operators in xxpp order."""
-        return self.matrix_xp, self.vector_xp
-
-    def get_symplectic(self) -> torch.Tensor:
-        """Get the global symplectic matrix acting on quadrature operators in xxpp order."""
-        matrix, _ = self.update_transform_xp()
-        assert matrix.shape[-2] == matrix.shape[-1] == 2 * len(self.wires), 'The matrix may not act on xxpp operators.'
-        s = matrix.new_ones(2 * self.nmode)
-        s = torch.diag(s)
-        wires = self.wires + [wire + self.nmode for wire in self.wires]
-        s[np.ix_(wires, wires)] = matrix
-        return s
-
-    def get_displacement(self) -> torch.Tensor:
-        """Get the global displacement vector acting on quadrature operators in xxpp order."""
-        _, vector = self.update_transform_xp()
-        assert vector.shape[-2] == 2 * len(self.wires), 'The vector may not act on xxpp operators.'
-        d = vector.new_zeros(2 * self.nmode, 1)
-        wires = self.wires + [wire + self.nmode for wire in self.wires]
-        d[np.ix_(wires)] = vector
-        return d
-
-    def op_cv(self, x: list[torch.Tensor]) -> list[torch.Tensor]:
-        """Perform a forward pass for Gaussian (Bosonic) states."""
-        cov, mean = x[:2]
-        sp_mat = self.get_symplectic()
-        cov = sp_mat @ cov @ sp_mat.mT
-        mean = sp_mat.to(mean.dtype) @ mean + self.get_displacement()
-        return [cov, mean] + x[2:]
+        For the local Fock gate matrix :math:`U`, its elements are :math:`S_{nmkl}=U_{nk}U_{ml}^*`.
+        The axes are grouped as ket output, bra output, ket input and bra input.
+        Each group follows ``wires`` and each mode axis has length ``cutoff``.
+        """
+        nwire = len(self.wires)
+        dim = self.cutoff**nwire
+        matrix = self.update_matrix_state().reshape(dim, dim)
+        return torch.einsum('ik,jl->ijkl', matrix, matrix.conj()).reshape((self.cutoff,) * (4 * nwire))
 
     def get_mpo(self) -> tuple[list[torch.Tensor], int]:
         r"""Convert gate to MPO form with identities at empty sites.
@@ -219,6 +188,41 @@ class Gate(Operation):
             previous_i = i
         return tensors, index_left
 
+    def update_transform_xp(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Update the local affine symplectic transformation acting on quadrature operators in ``xxpp`` order."""
+        return self.matrix_xp, self.vector_xp
+
+    def get_symplectic(self) -> torch.Tensor:
+        """Get the global symplectic matrix acting on quadrature operators in ``xxpp`` order."""
+        matrix, _ = self.update_transform_xp()
+        assert matrix.shape[-2] == matrix.shape[-1] == 2 * len(self.wires), 'The matrix may not act on xxpp operators.'
+        s = matrix.new_ones(2 * self.nmode)
+        s = torch.diag(s)
+        wires = self.wires + [wire + self.nmode for wire in self.wires]
+        s[np.ix_(wires, wires)] = matrix
+        return s
+
+    def get_displacement(self) -> torch.Tensor:
+        """Get the global displacement vector acting on quadrature operators in ``xxpp`` order."""
+        _, vector = self.update_transform_xp()
+        assert vector.shape[-2] == 2 * len(self.wires), 'The vector may not act on xxpp operators.'
+        d = vector.new_zeros(2 * self.nmode, 1)
+        wires = self.wires + [wire + self.nmode for wire in self.wires]
+        d[np.ix_(wires)] = vector
+        return d
+
+    def op_state_tensor(self, x: torch.Tensor) -> torch.Tensor:
+        """Perform a forward pass for state tensors."""
+        nt = len(self.wires)
+        matrix = self.update_matrix_state().reshape(self.cutoff**nt, self.cutoff**nt)
+        return evolve_state(x, matrix, self.nmode, self.wires, self.cutoff)
+
+    def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
+        """Perform a forward pass for density matrices."""
+        nt = len(self.wires)
+        matrix = self.update_matrix_state().reshape(self.cutoff**nt, self.cutoff**nt)
+        return evolve_den_mat(x, matrix, self.nmode, self.wires, self.cutoff)
+
     def op_mps(self, mps: MatrixProductState) -> MatrixProductState:
         """Perform a forward pass for the ``MatrixProductState``."""
         mpo_tensors, left = self.get_mpo()
@@ -247,27 +251,61 @@ class Gate(Operation):
         targets = [self.nmode - wire - 1 for wire in self.wires]
         return dist_gate(x, targets, matrix)
 
+    def op_cv(self, x: list[torch.Tensor]) -> list[torch.Tensor]:
+        """Perform a forward pass for Gaussian (Bosonic) states."""
+        cov, mean = x[:2]
+        wires = self.wires
+        # A custom gate may define its action directly in the global quadrature basis.
+        if (
+            getattr(self.get_symplectic, '__func__', None) is not Gate.get_symplectic
+            or getattr(self.get_displacement, '__func__', None) is not Gate.get_displacement
+        ):
+            matrix, vector = self.get_symplectic(), self.get_displacement()
+            wires = None
+        else:
+            matrix, vector = self.update_transform_xp()
+            size = 2 * len(wires)
+            assert matrix.shape[-2:] == (size, size) and vector.shape[-2] == size, 'Invalid local quadrature transform.'
+        if wires is None or (len(wires) == self.nmode and wires == list(range(self.nmode))):
+            return [matrix @ cov @ matrix.mT, matrix.to(mean.dtype) @ mean + vector, *x[2:]]
+        nquad = 2 * self.nmode
+        assert cov.shape[-2:] == (nquad, nquad) and mean.shape[-2] == nquad, 'The state must match the gate modes.'
+        idx = torch.tensor(wires + [wire + self.nmode for wire in wires], device=cov.device)
+        # Transform rows and then columns, including correlations with all other modes.
+        rows = matrix @ cov.index_select(-2, idx)
+        cov = cov.to(rows.dtype).index_copy(-2, idx, rows)
+        cov = cov.index_copy(-1, idx, cov.index_select(-1, idx) @ matrix.mT)
+        local_mean = matrix.to(mean.dtype) @ mean.index_select(-2, idx)
+        # Autocast can lower the matmul precision before the displacement promotes it again.
+        mean = mean.to(local_mean.dtype)
+        local_mean = local_mean + vector
+        mean = mean.to(local_mean.dtype).index_copy(-2, idx, local_mean)
+        return [cov, mean] + x[2:]
+
     def forward(
         self,
-        x: BargmannState | torch.Tensor | list[torch.Tensor] | MatrixProductState | DistributedFockState | None = None,
-    ) -> BargmannState | torch.Tensor | list[torch.Tensor] | MatrixProductState | DistributedFockState:
-        """Apply the gate to a state or return its local mode matrix when the state is None."""
+        x: torch.Tensor | MatrixProductState | DistributedFockState | list[torch.Tensor] | BargmannState | None = None,
+    ) -> torch.Tensor | MatrixProductState | DistributedFockState | list[torch.Tensor] | BargmannState:
+        """Perform a forward pass.
+
+        With ``x=None``, return the local mode matrix.
+        """
         if x is None:
             return self.update_matrix()
-        elif isinstance(x, BargmannState):
-            kernel = self.get_bargmann()
-            return x if kernel is None else x.apply_unitary(kernel, self.wires)
-        elif isinstance(x, DistributedFockState):
-            return self.op_dist_state(x)
-        elif isinstance(x, MatrixProductState):
-            return self.op_mps(x)
         elif isinstance(x, torch.Tensor):
             if self.den_mat:
                 return self.op_den_mat(x)
             else:
                 return self.op_state_tensor(x)
+        elif isinstance(x, MatrixProductState):
+            return self.op_mps(x)
+        elif isinstance(x, DistributedFockState):
+            return self.op_dist_state(x)
         elif isinstance(x, list):
             return self.op_cv(x)
+        elif isinstance(x, BargmannState):
+            kernel = self.get_bargmann()
+            return x if kernel is None else x.apply_unitary(kernel, self.wires)
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}'
@@ -302,24 +340,39 @@ class Channel(Operation):
         """Update the local Kraus matrices acting on Fock state density matrices."""
         raise NotImplementedError
 
-    def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
-        """Perform a forward pass for density matrices."""
-        nt = len(self.wires)
-        matrix = self.update_matrix_state().reshape(-1, self.cutoff**nt, self.cutoff**nt)
-        x = vmap(evolve_den_mat, in_dims=(None, 0, None, None, None))(x, matrix, self.nmode, self.wires, self.cutoff)
-        return x.sum(0)
+    def get_superoperator(self) -> torch.Tensor:
+        r"""Get the local Fock superoperator acting on density matrices.
+
+        Its elements are :math:`S_{nmkl}=\langle n|\mathcal{E}(|k\rangle\langle l|)|m\rangle`.
+        The axes are grouped as ket output, bra output, ket input and bra input.
+        Each group follows ``wires`` and each mode axis has length ``cutoff``.
+        Probability outside the output cutoff is discarded without renormalizing the retained density matrix.
+        """
+        return self.get_bargmann().to_fock((self.cutoff,) * (4 * len(self.wires)))[0]
 
     def update_transform_xy(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Update the local transformation matrices X and Y acting on Gaussian states."""
         return self.matrix_x, self.matrix_y
 
     def update_transform_xyd(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
-        """Update the local X, Y and displacement for mean -> X @ mean + d.
+        r"""Update the local Gaussian channel matrices and displacement vector.
 
-        The displacement has shape ``(2 * len(wires), 1)`` in xxpp order, or is ``None``.
+        In the mean update :math:`\mu\mapsto X\mu+d`, the displacement has shape
+        ``(2 * len(wires), 1)`` in ``xxpp`` order, or is ``None``.
         """
         matrix_x, matrix_y = self.update_transform_xy()
         return matrix_x, matrix_y, None
+
+    def get_bargmann(self) -> BargmannPolyExp:
+        """Get the Bargmann representation of the channel."""
+        return gaussian_channel_to_bargmann(*self.update_transform_xyd())
+
+    def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
+        """Perform a forward pass for density matrices."""
+        nt = len(self.wires)
+        matrix = self.update_matrix_state().reshape(-1, self.cutoff**nt, self.cutoff**nt)
+        x = vmap(evolve_den_mat, in_dims=(None, 0, None, None, None))(x, matrix, self.nmode, self.wires, self.cutoff)
+        return x.sum(0)
 
     def op_cv(self, x: list[torch.Tensor]) -> list[torch.Tensor]:
         """Perform a forward pass for Gaussian (Bosonic) states.
@@ -348,15 +401,15 @@ class Channel(Operation):
         return [cov, mean] + x[2:]
 
     def forward(
-        self, x: BargmannState | torch.Tensor | list[torch.Tensor]
-    ) -> BargmannState | torch.Tensor | list[torch.Tensor]:
+        self, x: torch.Tensor | list[torch.Tensor] | BargmannState
+    ) -> torch.Tensor | list[torch.Tensor] | BargmannState:
         """Perform a forward pass."""
-        if isinstance(x, BargmannState):
-            return x.apply_channel(self.get_bargmann(), self.wires)
-        elif isinstance(x, torch.Tensor):
+        if isinstance(x, torch.Tensor):
             return self.op_den_mat(x)
         elif isinstance(x, list):
             return self.op_cv(x)
+        elif isinstance(x, BargmannState):
+            return x.apply_channel(self.get_bargmann(), self.wires)
 
 
 class Delay(Operation):
@@ -364,7 +417,7 @@ class Delay(Operation):
 
     Args:
         name: The name of the quantum operation. Default: ``'Delay'``
-        ntau: The number of modes in the delay loop. Default: 1
+        ntau: The delay in time bins, equal to the number of modes held in the loop. Default: 1
         nmode: The number of spatial modes that the quantum operation acts on. Default: 1
         wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``

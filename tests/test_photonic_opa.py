@@ -291,17 +291,11 @@ def test_opa_rejects_invalid_loss(convention, loss):
         dqp.OPA([0.3, 0.2, loss], convention=convention)
 
 
-@pytest.mark.parametrize('basis, den_mat', [(True, False), (False, False), (False, True)])
-def test_opa_rejects_fock(basis, den_mat):
+@pytest.mark.parametrize('basis, den_mat', [(True, False), (False, False)])
+def test_opa_requires_fock_density(basis, den_mat):
     cir = dqp.QumodeCircuit(1, 'vac', basis=basis, den_mat=den_mat)
-    with pytest.raises(NotImplementedError, match='OPA supports Gaussian and Bosonic'):
+    with pytest.raises(NotImplementedError, match='OPA requires Fock state tensors'):
         cir.opa(0, r=0.3, theta=0, loss=0.2, convention='db')
-    op = dqp.OPA([0.3, 0, 0.2], convention='db')
-    with pytest.raises(NotImplementedError, match='OPA supports Gaussian and Bosonic'):
-        op(torch.ones(1, 2, 2))
-    cir.operators.append(op)
-    with pytest.raises(NotImplementedError, match='OPA'):
-        cir()
 
 
 @pytest.mark.parametrize('method', ['opa', 'opa_db'])
@@ -342,11 +336,12 @@ def test_opa_complete_positivity_and_vacuum_normalization():
             op = dqp.OPA([0.0, 0.7, 1.2], convention='db').double()
             loss = dqp.PhotonLoss(op.db, convention='db').double()
             torch.testing.assert_close(op.update_transform_xy(), loss.update_transform_xy())
-            squeeze = dqp.Squeezing([0.4, 0.7]).double()
-            op = dqp.OPA([0.4, 0.7, 0.0]).double()
+            squeeze = dqp.Squeezing([0.4, 0.7], cutoff=4).double()
+            op = dqp.OPA([0.4, 0.7, 0.0], cutoff=4).double()
             x, y = op.update_transform_xy()
             torch.testing.assert_close(x, squeeze.update_transform_xp()[0])
             torch.testing.assert_close(y, torch.zeros_like(y))
+            torch.testing.assert_close(op.get_superoperator(), squeeze.get_superoperator())
 
 
 @pytest.mark.parametrize('convention', ['theta', 't', 'db'])

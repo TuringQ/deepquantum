@@ -213,17 +213,21 @@ class BargmannPolyExp:
         coeff_c = f.coeff_c.reshape(batch, l1, 1, *d1, *([1] * len(d2))) * g.coeff_c.reshape(
             batch, 1, l2, *([1] * len(d1)), *d2
         )
-        perm = (
-            list(range(f.nfree))
-            + [n1 + j for j in range(g.nfree)]
-            + list(range(f.nfree, n1))
-            + [n1 + j for j in range(g.nfree, n2)]
-        )
         mat_a = mat_a.reshape(batch, l1 * l2, n1 + n2, n1 + n2)
         vec_b = vec_b.reshape(batch, l1 * l2, n1 + n2)
-        return BargmannPolyExp._from_tensors(
-            mat_a[..., perm, :][..., perm], vec_b[..., perm], coeff_c.reshape(batch, l1 * l2, *d1, *d2)
-        )
+        # Move the right free variables ahead of the left auxiliary variables when both are present.
+        if f.naux and g.nfree:
+            end_free = n1 + g.nfree
+            order = (
+                list(range(f.nfree))
+                + list(range(n1, end_free))
+                + list(range(f.nfree, n1))
+                + list(range(end_free, n1 + n2))
+            )
+            idx = torch.tensor(order, dtype=torch.long, device=f.device)
+            mat_a = mat_a[..., idx[:, None], idx]
+            vec_b = vec_b[..., idx]
+        return BargmannPolyExp._from_tensors(mat_a, vec_b, coeff_c.reshape(batch, l1 * l2, *d1, *d2))
 
     def contract(self, pairs: list[tuple[int, int]]) -> 'BargmannPolyExp':
         """Integrate pairs of free variables with the Bargmann measure.
@@ -316,7 +320,7 @@ def fock_to_bargmann(tensor: torch.Tensor, nvar: int) -> BargmannPolyExp:
 def vacuum_bargmann(
     nvar: int, dtype: torch.dtype = torch.cfloat, device: torch.device | str | None = None
 ) -> BargmannPolyExp:
-    """Get the vacuum kernel ``F = 1`` on ``nvar`` free variables.
+    """Get the vacuum kernel :math:`F=1` on ``nvar`` free variables.
 
     Args:
         nvar: The number of free variables, one per mode for a ket or two per mode for a density matrix.
@@ -380,16 +384,16 @@ def gaussian_to_bargmann(
     Eqs.(45), (51) and (68)-(71).
 
     Args:
-        cov: Real covariance tensor of shape ``(batch, 2M, 2M)`` in xxpp order.
+        cov: Real covariance tensor of shape ``(batch, 2M, 2M)`` in ``xxpp`` order.
         mean: Real mean tensor of shape ``(batch, 2M, 1)`` in the same units.
         den_mat: Whether to use density matrix representation. A ket requires pure inputs and fixes
             the vacuum amplitude to be positive. Default: ``True``
 
     Returns:
-        Complex symmetric ``A`` and complex ``b`` with shapes ``(batch, 2M, 2M)``
-        and ``(batch, 2M)``, and real vacuum probabilities ``c`` of shape ``(batch,)``.
-        The first M variables label ket indices and the last M label bra indices.
-        For a ket, only the first M variables are retained and c is the vacuum amplitude.
+        Complex symmetric :math:`A` and complex :math:`b` with shapes ``(batch, 2M, 2M)``
+        and ``(batch, 2M)``, and real vacuum probabilities :math:`c` of shape ``(batch,)``.
+        The first :math:`M` variables label ket indices and the last :math:`M` label bra indices.
+        For a ket, only the first :math:`M` variables are retained and :math:`c` is the vacuum amplitude.
     """
     if cov.ndim != 3 or cov.shape[-1] != cov.shape[-2] or cov.shape[-1] % 2 or cov.shape[-1] == 0:
         raise ValueError('cov must have shape (batch, 2M, 2M), with M > 0')
@@ -436,6 +440,85 @@ def _gaussian_bargmann(mat_a: torch.Tensor, vec_b: torch.Tensor, coeff_c: torch.
     return BargmannPolyExp._from_tensors(
         mat_a.to(dtype).reshape(1, 1, nvar, nvar), vec_b.to(dtype).reshape(1, 1, nvar), coeff_c.to(dtype).reshape(1, 1)
     )
+
+
+def gaussian_channel_to_bargmann(
+    matrix_x: torch.Tensor, matrix_y: torch.Tensor, displacement: torch.Tensor | None = None
+) -> BargmannPolyExp:
+    r"""Convert a local affine Gaussian channel to its Bargmann density kernel.
+
+    In ``xxpp`` order the covariance and mean transform as
+    :math:`V' = XVX^T + Y` and :math:`\mu' = X\mu + d`. For :math:`N` modes let
+    :math:`s=2\kappa^2/\hbar`. The ladder basis change :math:`W` and exchange matrix
+    :math:`J` are defined in :func:`gaussian_to_bargmann`. For a vacuum input define
+
+    .. math::
+
+        \begin{aligned}
+            \Gamma &= s V'_{\mathrm{vac}} + I/2 = (I+XX^T)/2 + sY, & Q &= W\Gamma W^\dagger, \\
+            M &= WXW^\dagger, & \beta &= \sqrt{s}\,Wd.
+        \end{aligned}
+
+    Write :math:`u=(z,w)` for the ket and bra output variables and :math:`v=(\alpha,\alpha^*)`
+    for the input variables. A coherent input shifts the output mean from :math:`\beta` to
+    :math:`\beta+Mv` in the ladder basis. Multiplying its output kernel by
+    :math:`e^{\|\alpha\|^2}` removes the coherent-state normalization. The channel kernel is
+    :math:`K(u,v)=c\exp(\xi^T A\xi/2+b^T\xi)`, where :math:`\xi=(u,v)` and
+
+    .. math::
+
+        \begin{aligned}
+            C &= Q^{-1}M, & h &= Q^{-1}\beta, \\
+            A &= \begin{pmatrix}
+                (I-Q^{-1})J & C \\ C^T & J-M^T JC
+            \end{pmatrix}, &
+            b &= \begin{pmatrix} h \\ -M^T Jh \end{pmatrix}, \\
+            c &= \frac{\exp(-\beta^\dagger h/2)}{\sqrt{\det\Gamma}}.
+        \end{aligned}
+
+    Here :math:`T` denotes transpose and :math:`\dagger` conjugate transpose.
+    The scalar :math:`c` is the probability of vacuum output given vacuum input.
+    See https://arxiv.org/pdf/2504.10455v3 Eqs.(87)-(89), with the variables reordered
+    as above and :math:`\hbar_{\mathrm{paper}}=\hbar/(2\kappa^2)`.
+
+    Args:
+        matrix_x: The real matrix :math:`X` of shape :math:`(2N,2N)`.
+        matrix_y: The real noise covariance :math:`Y`, with the same shape, dtype and device as ``matrix_x``.
+        displacement: The real displacement :math:`d` of shape :math:`(2N,1)`. Default: ``None`` (zero)
+
+    Returns:
+        A :class:`BargmannPolyExp` with :math:`4N` free variables, ordered as ket output, bra output,
+        ket input and bra input. For occupation multi-indices :math:`n,m,k,l`, its derivatives give
+
+        .. math::
+
+            \langle n|\mathcal E(|k\rangle\langle l|)|m\rangle
+            = \frac{\partial_z^n\partial_w^m\partial_\alpha^k\partial_{\alpha^*}^l K(0)}
+                   {\sqrt{n!\,m!\,k!\,l!}}.
+    """
+    if matrix_x.ndim != 2 or matrix_x.shape[0] != matrix_x.shape[1] or matrix_x.shape[0] % 2:
+        raise ValueError('matrix_x must have shape (2M, 2M)')
+    if matrix_y.shape != matrix_x.shape:
+        raise ValueError('matrix_y must match matrix_x')
+    if displacement is None:
+        displacement = matrix_x.new_zeros(matrix_x.shape[0], 1)
+    if displacement.shape != (matrix_x.shape[0], 1):
+        raise ValueError('displacement must have shape (2M, 1)')
+    identity = torch.eye(matrix_x.shape[0], dtype=matrix_x.dtype, device=matrix_x.device)
+    gamma = (identity + matrix_x @ matrix_x.mT) / 2 + (2 * dqp.kappa**2 / dqp.hbar) * matrix_y
+    inverse = quadrature_to_ladder(torch.linalg.solve(gamma, identity), symplectic=True)
+    transform = quadrature_to_ladder(matrix_x, symplectic=True)
+    beta = quadrature_to_ladder(displacement)
+    exchange = identity.roll(matrix_x.shape[0] // 2, dims=0).to(inverse.dtype)
+    cross = inverse @ transform
+    output = (identity - inverse) @ exchange
+    input_ = exchange - transform.mT @ exchange @ cross
+    mat_a = torch.cat([torch.cat([output, cross], -1), torch.cat([cross.mT, input_], -1)], -2)
+    mat_a = (mat_a + mat_a.mT) / 2
+    solved = inverse @ beta
+    vec_b = torch.cat([solved, -transform.mT @ exchange @ solved], -2).squeeze(-1)
+    log_c = -(torch.linalg.slogdet(gamma)[1] + (beta.conj() * solved).sum().real) / 2
+    return _gaussian_bargmann(mat_a, vec_b, log_c.exp().to(mat_a.dtype))
 
 
 def passive_bargmann(unitary: torch.Tensor) -> BargmannPolyExp:
@@ -512,8 +595,8 @@ def _project_threshold(
 
     A no-click event projects onto vacuum. A click applies the difference between
     a partial trace and a vacuum projection, since :math:`\Pi_1=I-|0\rangle\langle0|`.
-    The result is an unnormalized density kernel with at most ``2**sum(clicks)``
-    times as many terms. Auxiliary derivatives are retained throughout.
+    The result is an unnormalized density kernel with at most :math:`2^h`
+    times as many terms for :math:`h` clicked modes. Auxiliary derivatives are retained throughout.
 
     See https://arxiv.org/pdf/2202.04600v2 Eqs.(1)-(4) for the threshold POVM.
     Here the same expansion retains the conditional density operator instead
@@ -616,7 +699,7 @@ def conditional_fock(
 
     The tuples above illustrate an H,R reordering. Returned axes retain their
     original mode order. Gaussian marginal moments are obtained by selecting
-    the measured xxpp rows/columns, then converting that marginal afresh.
+    the measured ``xxpp`` rows/columns, then converting that marginal afresh.
     Selecting a subblock of the full Bargmann A would instead project the other
     modes onto vacuum, and would not compute a partial trace.
 

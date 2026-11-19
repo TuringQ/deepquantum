@@ -223,7 +223,7 @@ def test_validation():
         dqp.SinglePhotonSource([[1.2, 0], [0, -0.2]])
     with pytest.raises(NotImplementedError, match='Fock density'):
         dqp.QumodeCircuit(1, [1]).thermal(0, nbar=0.1)
-    with pytest.raises(NotImplementedError, match='Fock backend'):
+    with pytest.raises(NotImplementedError, match='Fock or Bargmann backend'):
         dqp.QumodeCircuit(1, 'vac', backend='gaussian').single_photon(0)
     density_circuit = dqp.QumodeCircuit(1, 'vac', cutoff=2, basis=False, den_mat=True)
     density_circuit.single_photon(0, density_matrix=[[1, 0], [0, 0]])

@@ -90,9 +90,9 @@ class _HardwareRun:
 
 
 class Loss(nn.Module):
-    """Photon loss specified by power transmittance or loss in dB.
+    r"""Photon loss specified by power transmittance or loss in dB.
 
-    The internal parameter is the loss angle, with ``t = cos(theta / 2)**2``.
+    The internal parameter is the loss angle, with power transmittance :math:`t=\cos^2(\theta/2)`.
 
     Args:
         t: The power transmittance. Specify exactly one of ``t`` and ``db``. Default: ``None``
@@ -493,7 +493,17 @@ class _SqueezingConfig(_AmplitudePhaseConfig):
         return super().submodes(modes, name=name)
 
 
-class _OPAConfig(_AmplitudePhaseConfig):
+class _OPAConfig(_SqueezingConfig):
+    def submodes(self, coefficients: Any = None, *, relative_r: Any = None, name: str | None = None) -> 'HardwareModel':
+        """Set fixed orthogonal gain modes with :math:`r_k=r q_k`, where :math:`q_k` is ``relative_r[k]``.
+
+        Ratios are normalized by the first entry. All basis modes experience the
+        same distributed loss, including modes with zero gain. This assumes
+        mode-independent attenuation along the device. Output photon numbers
+        alone do not calibrate these ratios in a lossy amplifier.
+        """
+        return super().submodes(coefficients, relative_r=relative_r, name=name)
+
     @property
     def loss_theta(self) -> _ParameterConfig:
         """Select the internal loss angle."""
@@ -641,7 +651,7 @@ class HardwareModel(nn.Module):
         self.manual_seed(seed)
 
     def manual_seed(self, seed: int | None) -> 'HardwareModel':
-        """Reset the hardware RNG, using the global PyTorch RNG when seed is None."""
+        """Reset the hardware RNG, using the global PyTorch RNG when ``seed`` is ``None``."""
         self._generator = None if seed is None else torch.Generator().manual_seed(seed)
         return self
 
@@ -711,11 +721,11 @@ class HardwareModel(nn.Module):
         return _DelayConfig(self, wires, index)
 
     def input(self, wires: int | list[int] | None = None) -> _StateConfig:
-        """Select input modes, with None selecting all modes."""
+        """Select input modes, with ``None`` selecting all modes."""
         return _StateConfig(self, 'input', None, wires)
 
     def output(self, wires: int | list[int] | None = None) -> _StateConfig:
-        """Select output modes, with None selecting all modes."""
+        """Select output modes, with ``None`` selecting all modes."""
         return _StateConfig(self, 'output', None, wires)
 
     @property
@@ -763,9 +773,9 @@ class HardwareModel(nn.Module):
                 ):
                     raise ValueError('Orthogonal-basis coefficients apply to squeezing, displacement or OPA.')
                 elif len(binding.plugin.relative_r) > 1 and any(
-                    kind not in (Squeezing, Squeezing2) for kind in binding.op_types
+                    kind not in (Squeezing, Squeezing2, OPA) for kind in binding.op_types
                 ):
-                    raise ValueError('Multiple coefficient rows require squeezing or two-mode squeezing.')
+                    raise ValueError('Multiple coefficient rows require squeezing, two-mode squeezing or OPA.')
 
             if binding.bound_ops is not None and not binding.bound_ops <= operations:
                 raise ValueError(f'{name}: a bound operation was removed or replaced; rebuild the hardware binding.')

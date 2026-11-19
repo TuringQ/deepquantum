@@ -264,10 +264,10 @@ def _lo_coefficients(lo, nwire, nsubmode, reference):
 
 
 def _lo_view(result, cutoff, wires, lo=None):
-    """Reduce saved states to the LO modes without constructing the evolved joint state.
+    r"""Reduce saved states to the LO modes without constructing the evolved joint state.
 
     See https://arxiv.org/pdf/quant-ph/0511044v2 Eq.(11)-(14) for mode-selective homodyne detection.
-    Here the selected annihilation operator is ``b = sum_k conj(lo[k]) * a_k``.
+    Here the selected annihilation operator is :math:`b=\sum_k u_k^* a_k`, where :math:`u_k` is ``lo[k]``.
     """
     factors = result._factors()
     reference = factors[0][1] if result.backend == 'fock' else factors[0][1][0]
@@ -362,12 +362,12 @@ class _SubmodeOperation(nn.Module):
 
 
 class _SubmodeCircuit(QumodeCircuit):
-    """Ephemeral execution view that reuses the ordinary backend and measurement kernels.
+    r"""Ephemeral execution view that reuses the ordinary backend and measurement kernels.
 
     See https://arxiv.org/pdf/1110.3234v1 Eq.(25) for Gaussian covariance evolution.
-    With vacuum auxiliary modes, an isometric quadrature embedding E gives
-    ``V_out = E @ (V - v0*I) @ E.T + v0*I`` and ``mean_out = E @ mean``, where
-    ``v0 = hbar / (4*kappa**2)``. The added term supplies vacuum in the orthogonal complement.
+    With vacuum auxiliary modes and an isometric quadrature embedding :math:`E`,
+    :math:`V_{\rm out}=E(V-v_0 I)E^T+v_0 I` and :math:`\mu_{\rm out}=E\mu`, where
+    :math:`v_0=\hbar/(4\kappa^2)`. The added term supplies vacuum in the orthogonal complement.
     """
 
     def __init__(self, parent: QumodeCircuit, state: Any = None, *, nsubmode=None, joint=False):
@@ -574,14 +574,11 @@ class _SubmodeCircuit(QumodeCircuit):
                 )
 
         def scaled_gate(wires, ratio):
-            """Scale the active field while retaining a displacement coupler's loss on every basis mode."""
+            """Scale gain or drive while retaining the device loss on every basis mode."""
             gate = _clone_operation(op, wires, self.nmode)
             for name in controls:
                 gate._parameters.pop(name, None)
                 gate._buffers[name] = getattr(op, name) * ratio
-            if isinstance(op, OPA):
-                gate._parameters.pop('loss_theta', None)
-                gate._buffers['loss_theta'] = op.loss_theta * ratio
             return gate
 
         if self.factorized:
@@ -599,7 +596,7 @@ class _SubmodeCircuit(QumodeCircuit):
         if modes is not None:
             for wire in op.wires:
                 state = self._rotate(state, modes, wire, run, inverse=True)
-        uniform_loss = isinstance(op, DisplacementChannel)
+        uniform_loss = isinstance(op, (DisplacementChannel, OPA))
         count = self.nsubmode if not active or uniform_loss else 1 if modes is None else len(modes.relative_r)
         for k in range(count):
             wires = [w * self.nsubmode + k for w in op.wires]

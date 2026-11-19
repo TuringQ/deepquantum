@@ -72,10 +72,11 @@ def delay_coefficients(
     amplitude: Any = None,
     phase: Any = None,
 ) -> torch.Tensor:
-    """Expand delayed spectral modes in a common orthogonal basis.
+    r"""Expand delayed spectral modes in a common orthogonal basis.
 
-    Each mode has amplitude ``sqrt(intensity) * exp(1j * phase)`` or the supplied ``amplitude``.
-    A delay multiplies it by ``exp(-2j * pi * frequency_hz * delay)``.
+    Given ``intensity`` and ``phase``, the spectral amplitude at frequency :math:`f` is
+    :math:`u(f)=\sqrt{I(f)}e^{i\phi(f)}`; ``amplitude`` supplies :math:`u(f)` directly.
+    A delay :math:`\tau` multiplies it by :math:`e^{-2\pi i f\tau}`.
     Amplitudes are linearly interpolated, zero outside each grid, and normalized by frequency integration.
     The grids must resolve the spectra and phases. Transverse profiles and polarization are assumed matched.
     See https://arxiv.org/pdf/1909.04294v2 Eq.(1) and https://dlmf.nist.gov/1.14.E1 Eq.(1.14.1).
@@ -98,7 +99,7 @@ def delay_coefficients(
 
     Returns:
         Normalized coefficient rows of shape ``(ninput, nsubmode)``, in CPU complex128.
-        ``coefficients.conj() @ coefficients.T`` gives the spectral overlaps.
+        The overlap of rows :math:`i,j` of the returned matrix :math:`C` is :math:`\sum_k C_{ik}^* C_{jk}`.
     """
     if (intensity is None) == (amplitude is None):
         raise ValueError('Specify exactly one of intensity and amplitude.')
@@ -385,15 +386,15 @@ def _convolve_counts(
     limits: list[int] | None = None,
     operators: bool = False,
 ) -> torch.Tensor:
-    """Convolve count distributions, optionally tensoring their retained operators.
+    r"""Convolve count distributions, optionally tensoring their retained operators.
 
     A leading batch axis is followed by one count axis per detector. With
-    operators=True, the last two axes are retained ket/bra axes. Optional limits
+    ``operators=True``, the last two axes are retained ket/bra axes. Optional limits
     discard counts above a target event. Direct products and scatter-add avoid
     FFT cancellation in very small herald probabilities.
 
-    For independent blocks, ``P(n) = sum_{a+b=n} P_left(a) * P_right(b)``.
-    Retained states replace each scalar product by ``A_left(a) tensor A_right(b)``.
+    For independent blocks, :math:`P(n)=\sum_{a+b=n} P_L(a)P_R(b)`.
+    Retained states replace each scalar product by :math:`A_L(a)\otimes A_R(b)`.
     See https://arxiv.org/pdf/1012.0262v2, the convolution discussion following Eq.(19).
     """
     end = -2 if operators else None
@@ -514,13 +515,14 @@ def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
 
 
 def product_factorial(state: torch.Tensor, power: float = 1.0) -> torch.Tensor:
-    """Return the factorial product raised to ``power``, evaluating the power in log space.
+    r"""Return the factorial product raised to ``power``, evaluating the power in log space.
 
     Integer photon counts produce float64 results, or float32 on MPS.
     Floating inputs retain their dtype.
 
-    See https://dlmf.nist.gov/5.4.E1 Eq.(5.4.1) for ``n! = Gamma(n + 1)``.
-    Evaluate ``exp(power * sum(lgamma(n + 1)))`` without forming the unpowered factorial product.
+    See https://dlmf.nist.gov/5.4.E1 Eq.(5.4.1) for :math:`n!=\Gamma(n+1)`.
+    For exponent :math:`p` (``power``), evaluate :math:`\exp[p\sum_j\ln\Gamma(n_j+1)]`
+    without forming the unpowered factorial product.
 
     Args:
         state: Photon counts, with modes along the final axis.
@@ -695,7 +697,7 @@ def _quadrature_moments_ladder(
     centered: bool = True,
     normalize: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    r"""Convert unnormalized ladder moments to xxpp quadrature moments.
+    r"""Convert unnormalized ladder moments to ``xxpp`` quadrature moments.
 
     ``alpha`` stores :math:`\operatorname{Tr}(\rho a_i)`, ``normal`` stores
     :math:`\operatorname{Tr}(\rho a_i^\dagger a_j)` and ``anomalous`` stores
@@ -725,7 +727,7 @@ def quadrature_moments_fock(
     centered: bool = True,
     normalize: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Get xxpp quadrature moments from a Fock state tensor.
+    """Get ``xxpp`` quadrature moments from a Fock state tensor.
 
     Normally ordered ladder moments retain the vacuum commutator at the cutoff
     boundary. Pure inputs are evaluated without constructing a density matrix.
@@ -1039,12 +1041,12 @@ def sample_homodyne_fock(
     x_range: float = 15,
     nbin: int = 100000,
 ) -> torch.Tensor:
-    """Get the samples of homodyne measurement for batched Fock state tensors on one mode.
+    r"""Get the samples of homodyne measurement for batched Fock state tensors on one mode.
 
     See https://arxiv.org/pdf/quant-ph/0511044v2 Eq.(26) and Eq.(43)-(44) for Fock
     wavefunctions and quadrature probabilities. The recurrence uses
     https://dlmf.nist.gov/18.9.E1 Eq.(18.9.1) and Table 18.9.1, rescaled by
-    ``exp(-y**2/2) / sqrt(2**n * n!)``, with ``y = sqrt(2*kappa**2/hbar) * x``.
+    :math:`e^{-y^2/2}/\sqrt{2^n n!}`, with :math:`y=\sqrt{2\kappa^2/\hbar}\,x`.
     Common normalization constants cancel in the discrete sampling weights.
     """
     coef = 2 * dqp.kappa**2 / dqp.hbar

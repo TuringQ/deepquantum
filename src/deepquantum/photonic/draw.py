@@ -919,7 +919,7 @@ class GaussianGraphVisualizer:
         Args:
             layout: The layout algorithm (``'spring'``, ``'circular'``, ``'kamada_kawai'`` or ``'custom'``).
                 Also accepts ``'kamada'`` for Kamada-Kawai layout. Default: ``'circular'``
-            pos_dict: Custom positions if layout=``'custom'``.
+            pos_dict: Custom positions when ``layout='custom'``.
             style_config: Dictionary to override default visual styles.
         """
         g = self.graph

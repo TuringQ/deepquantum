@@ -9,6 +9,7 @@ from torch import nn
 
 import deepquantum.photonic as dqp
 
+from ..qmath import evolve_state
 from .bargmann import BargmannPolyExp, _gaussian_bargmann
 from .gate import BeamSplitterSingle, Displacement
 from .operation import Channel
@@ -34,16 +35,18 @@ def _loss_to_theta(inputs: Any, convention: str) -> torch.Tensor | None:
 class DisplacementChannel(Channel):
     r"""Displacement by mixing the signal with a coherent auxiliary mode.
 
-    The auxiliary amplitude is :math:`\beta=\mathrm{amplitude}\,e^{i\,\mathrm{phase}}`, with mean photon number
-    ``amplitude**2`` before the beam splitter. The phase is in radians.
-    The beam splitter acts as
-    :math:`\hat a_{\mathrm{out}}=\cos(\mathrm{loss\_theta}/2)\hat a_{\mathrm{in}}
-    +\sin(\mathrm{loss\_theta}/2)\hat b_{\mathrm{in}}`.
+    The auxiliary mode has coherent amplitude :math:`\beta=Ae^{i\phi}` and mean photon number
+    :math:`|\beta|^2`, where :math:`A` and :math:`\phi` are ``amplitude`` and ``phase`` (in radians).
+    For the mixing angle :math:`\theta` (``loss_theta``), the beam splitter acts as
+
+    .. math::
+
+        \hat a_{\mathrm{out}} = \cos(\theta/2)\hat a_{\mathrm{in}} + \sin(\theta/2)\hat b_{\mathrm{in}}.
+
     Tracing out the auxiliary output gives attenuation followed by displacement
-    :math:`\alpha=\sin(\mathrm{loss\_theta}/2)\,\beta`.
-    The signal power transmittance is :math:`t=\cos^2(\mathrm{loss\_theta}/2)`.
-    A transmittance input selects ``loss_theta`` in ``[0, pi]``. Angle inputs retain the
-    signed field amplitudes, with a negative amplitude corresponding to a pi phase shift.
+    :math:`\alpha=\beta\sin(\theta/2)`. The signal power transmittance is :math:`t=\cos^2(\theta/2)`.
+    A transmittance input selects :math:`\theta\in[0,\pi]`. An angle input preserves the field sign;
+    a negative amplitude corresponds to a phase shift of :math:`\pi`.
     See https://arxiv.org/pdf/1009.1844v2 Eq.(8), Eq.(18).
 
     Args:
@@ -127,8 +130,15 @@ class DisplacementChannel(Channel):
         """Complex displacement amplitude, including the beam-splitter coupling sign."""
         return torch.sin(self.loss_theta / 2) * self.coherent_amplitude
 
+    def update_matrix_state(self) -> torch.Tensor:
+        """Update the local Kraus matrices acting on Fock state density matrices."""
+        loss = PhotonLoss(self.loss_theta, cutoff=self.cutoff)
+        amplitude = torch.sin(self.loss_theta / 2) * self.amplitude
+        displacement = Displacement(cutoff=self.cutoff).get_matrix_state(amplitude, self.phase)
+        return displacement @ loss.update_matrix_state()
+
     def update_transform_xy(self) -> tuple[torch.Tensor, torch.Tensor]:
-        """Update the local transformation matrices X and Y."""
+        """Update the local transformation matrices X and Y acting on Gaussian states."""
         angle = self.loss_theta.reshape(())
         identity = torch.eye(2, dtype=angle.dtype, device=angle.device)
         matrix_x = torch.cos(angle / 2) * identity
@@ -136,18 +146,11 @@ class DisplacementChannel(Channel):
         return matrix_x, matrix_y
 
     def update_transform_xyd(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Update the local transformation matrices X, Y and displacement."""
+        """Update the local Gaussian channel matrices and displacement vector."""
         matrix_x, matrix_y = self.update_transform_xy()
         alpha = self.displacement_amplitude.reshape(())
         displacement = torch.stack([alpha.real, alpha.imag]).reshape(2, 1) * dqp.hbar**0.5 / dqp.kappa
         return matrix_x, matrix_y, displacement
-
-    def update_matrix_state(self) -> torch.Tensor:
-        """Update the local Kraus matrices."""
-        loss = PhotonLoss(self.loss_theta, cutoff=self.cutoff)
-        amplitude = torch.sin(self.loss_theta / 2) * self.amplitude
-        displacement = Displacement(cutoff=self.cutoff).get_matrix_state(amplitude, self.phase)
-        return displacement @ loss.update_matrix_state()
 
     def extra_repr(self) -> str:
         return (
@@ -160,7 +163,8 @@ class OPA(Channel):
     r"""Single-mode optical parametric amplifier with uniform distributed vacuum loss.
 
     Gain, loss and pump phase are constant along the device, with an undepleted classical pump.
-    With ``r = g L``, ``T = cos(loss_theta / 2)**2`` and ``a = -log(T)``, the Gaussian channel is
+    Let :math:`r=gL` be the integrated gain and :math:`T=\cos^2(\theta_\ell/2)` the pump-off power
+    transmittance, with :math:`\theta_\ell` stored in ``loss_theta``. Writing :math:`a=-\ln T`, the channel is
 
     .. math::
 
@@ -170,15 +174,26 @@ class OPA(Channel):
             (\operatorname{exprel}(-2r-a),\operatorname{exprel}(2r-a))R(\theta/2)^T,
 
     where :math:`v_0=\hbar/(4\kappa^2)`, :math:`R` is a quadrature rotation and
-    ``exprel(z) = expm1(z) / z`` with ``exprel(0) = 1``.
-    Positive ``r`` and ``theta=0`` squeeze x and amplify p.
+    :math:`\operatorname{exprel}(z)=(e^z-1)/z`, with :math:`\operatorname{exprel}(0)=1`.
+    Positive :math:`r` and :math:`\theta=0` squeeze :math:`x` and amplify :math:`p`.
     The internal parameters are ``r``, ``theta`` and ``loss_theta``.
     See https://arxiv.org/abs/2606.02524v1 Eq.(16) and Methods, Internal Loss.
+
+    Gaussian and Bosonic states use :math:`X` and :math:`Y` directly. Bargmann density states
+    use the analytic channel kernel. Fock density states use its projected
+    superoperator, with four local axes of length ``cutoff``. Output weight
+    above the cutoff is discarded without renormalization.
+
+    ``HardwareModel.opa().submodes(relative_r=...)`` sets fixed orthogonal gain
+    modes with :math:`r_k=r q_k`, where :math:`q_k` is ``relative_r[k]``. The same distributed loss acts on
+    every basis mode, including zero-gain modes. This assumes mode-independent
+    attenuation and a fixed gain basis along the device.
 
     Args:
         inputs: The parameters of the channel (``r``, ``theta`` and loss).
             With ``convention='gain_db'``, use ``[gain_db, theta, loss_db]``, where gain is the net
-            coherent power gain along the amplified axis and ``r = (gain_db + loss_db) * log(10) / 20``.
+            coherent power gain along the amplified axis. Gain :math:`G_{\rm dB}` and pump-off loss
+            :math:`L_{\rm dB}` give :math:`r=(G_{\rm dB}+L_{\rm dB})\ln(10)/20`.
             Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 1
         wires: The indices of the modes that the quantum operation acts on. Default: ``None``
@@ -276,7 +291,7 @@ class OPA(Channel):
         return torch.where(small, series, regular)
 
     def update_transform_xy(self) -> tuple[torch.Tensor, torch.Tensor]:
-        """Return the complete local channel matrices in x, p order."""
+        """Update the local transformation matrices X and Y acting on Gaussian states."""
         r, theta = self.r.reshape(()), self.theta.reshape(())
         t = self.t.to(r).reshape(())
         full_loss = t == 0
@@ -295,9 +310,12 @@ class OPA(Channel):
         self.matrix_x, self.matrix_y = matrix_x.detach(), matrix_y.detach()
         return matrix_x, matrix_y
 
-    def update_matrix_state(self) -> torch.Tensor:
-        """Fock Kraus matrices are not implemented for OPA yet."""
-        raise NotImplementedError('OPA supports Gaussian and Bosonic states only; Fock support is not implemented.')
+    def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
+        """Perform a forward pass for density matrices."""
+        wires = self.wires + [wire + self.nmode for wire in self.wires]
+        dim = self.cutoff ** len(wires)
+        matrix = self.get_superoperator().reshape(dim, dim)
+        return evolve_state(x, matrix, 2 * self.nmode, wires, self.cutoff)
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, r={self.r.item()}, theta={self.theta.item()}, transmittance={self.t.item()}'
@@ -391,10 +409,6 @@ class PhotonLoss(Channel):
             unitary = unitary.index_put((rows[:, None], columns), matrix @ unitary[rows])
         return unitary
 
-    def update_matrix_state(self) -> torch.Tensor:
-        """Update the local Kraus matrices acting on Fock state density matrices."""
-        return self.get_matrix_state(self.theta)
-
     def get_matrix_state(self, theta: Any) -> torch.Tensor:
         """Get the local Kraus matrices acting on Fock state density matrices.
 
@@ -402,6 +416,10 @@ class PhotonLoss(Channel):
         """
         matrix = self.gate.get_matrix_state(self.gate.get_matrix(theta))
         return matrix[..., 0].permute([1, 0, 2])
+
+    def update_matrix_state(self) -> torch.Tensor:
+        """Update the local Kraus matrices acting on Fock state density matrices."""
+        return self.get_matrix_state(self.theta)
 
     def update_transform_xy(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Update the local transformation matrices X and Y acting on Gaussian states.
@@ -419,7 +437,7 @@ class PhotonLoss(Channel):
         return matrix_x, matrix_y
 
     def get_bargmann(self) -> BargmannPolyExp:
-        r"""Get the Bargmann representation of the photon loss channel.
+        r"""Get the Bargmann representation of the channel.
 
         With field transmittance :math:`t=\cos(\theta/2)` and power transmittance :math:`T=t^2`, the kernel is
 
