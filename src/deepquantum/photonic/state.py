@@ -531,7 +531,7 @@ class BargmannState(nn.Module):
             rest = self.partial_trace(wires)
         else:
             rest = self._post_select(tuple(wires), (0,) * len(wires))
-            if not torch.allclose(rest.norm(), self.norm(), atol=100 * torch.finfo(self.mat_a.real.dtype).eps, rtol=0):
+            if not torch.allclose(rest.norm(), self.norm(), rtol=100 * torch.finfo(self.mat_a.real.dtype).eps, atol=0):
                 raise ValueError('Pure input preparation requires vacuum on the selected input wires')
         order = [w for w in range(self.nmode) if w not in wires] + list(wires)
         return rest.tensor_product(replacement).reorder([order.index(w) for w in range(self.nmode)])

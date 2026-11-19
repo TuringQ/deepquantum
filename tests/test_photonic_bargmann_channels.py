@@ -124,6 +124,17 @@ def test_bargmann_sources_and_replacement_preserve_weight():
     assert prepared.sources['0'].components.grad is not None
 
 
+def test_bargmann_ket_source_checks_vacuum_relative_to_input_weight():
+    amplitudes = torch.tensor([1e-3, 0], dtype=torch.cfloat)
+    vacuum = dq.BargmannState(amplitudes, nmode=1)
+    cir = dq.QumodeCircuit(1, vacuum, backend='bargmann')
+    cir.single_photon(0)
+    torch.testing.assert_close(cir().to_fock(2)[0], amplitudes.flip(0), atol=0, rtol=1e-6)
+    cir.set_init_state(dq.BargmannState(amplitudes.flip(0), nmode=1))
+    with pytest.raises(ValueError, match='requires vacuum'):
+        cir()
+
+
 @pytest.mark.parametrize('density, detector', [(False, 'pnrd'), (True, 'pnrd'), (True, 'threshold')])
 def test_bargmann_loop_conditioning_matches_unrolled(density, detector):
     cir = dq.QumodeCircuit(1, 'vac', backend='bargmann', den_mat=density)
@@ -144,7 +155,7 @@ def test_bargmann_loop_conditioning_matches_unrolled(density, detector):
     unrolled(data.flatten())
     outputs = cir.tdm_output_wires(3).flatten().tolist()
     expected, expected_probability = unrolled.post_select(outputs, outcomes, detector=detector, normalize=False)
-    # The native delay register is shifted each step; map it to fixed unrolled slots.
+    # Match the fixed loop wires in the unrolled circuit to the mode order after three time steps.
     expected = expected.reorder([1, 0])
     torch.testing.assert_close(memory.to_fock(3), expected.to_fock(3), atol=1e-10, rtol=1e-9)
     torch.testing.assert_close(probability, expected_probability)

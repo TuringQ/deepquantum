@@ -2276,7 +2276,7 @@ class DelayBS(Delay):
 
     Args:
         inputs: The parameters of the gate. Default: ``None``
-        ntau: The number of modes in the delay loop. Default: 1
+        ntau: The delay in time bins, equal to the number of modes held in the loop. Default: 1
         nmode: The number of spatial modes that the quantum operation acts on. Default: 1
         wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
@@ -2329,7 +2329,7 @@ class DelayMZI(Delay):
 
     Args:
         inputs: The parameters of the gate. Default: ``None``
-        ntau: The number of modes in the delay loop. Default: 1
+        ntau: The delay in time bins, equal to the number of modes held in the loop. Default: 1
         nmode: The number of spatial modes that the quantum operation acts on. Default: 1
         wires: The indices of the modes that the quantum operation acts on. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``

@@ -161,7 +161,7 @@ class QumodeCircuit(Operation):
         self._ntau_dict = defaultdict(list)  # {wire: [tau1, tau2, ...]}
         self._unroll_dict = None  # {wire_space: [wires_delay_n, ..., wires_delay_1, wire_space_concurrent]}
         self._tdm_structure = None
-        self._tdm_gate_map = []  # (operation location, source gate, spatial wires, optional loop slots)
+        self._tdm_gate_map = []  # (operation location, source gate, spatial wires, optional loop wires)
         self._tdm_measurement_map = []
         self.hardware_model = None
         self.sources = nn.ModuleDict()
@@ -354,15 +354,16 @@ class QumodeCircuit(Operation):
             sort: Whether to sort dictionary of Fock basis states in the descending order of probabilities.
                 Default: ``True``
             stepwise: Whether to use the forward function of each operator for Gaussian backend. Default: ``False``
-            memory: The state of the delay slots only, in increasing concurrent wire order. A Gaussian
-                circuit accepts ``[cov, mean]`` or ``GaussianState``; a Bargmann circuit accepts
-                ``BargmannState``. Use the same dtype and device as the fresh spatial inputs from
-                ``init_state`` and any declared sources. Default: ``None`` (vacuum delay slots for spatial inputs)
+            memory: The state of the modes in the delay loops, in increasing concurrent wire order.
+                Gaussian accepts ``[cov, mean]`` or ``GaussianState``. Bargmann accepts a ``BargmannState``
+                and uses the circuit's default Fock readout cutoff. Use the same dtype and device as the fresh
+                spatial inputs from ``init_state`` and any declared sources.
+                Default: ``None`` (vacuum loop modes when only spatial inputs are given)
 
         Returns:
             The result of the photonic quantum circuit after applying the ``operators``.
-            For state readout on a delay circuit, the joint state contains both spatial outputs and delay slots.
-            The slots have shifted into next-step order. No measurement or feedback is implicit.
+            On a delay circuit, the joint state contains the spatial outputs and the modes still in the loops.
+            The loop modes are already ordered for the next time step. Measurements are applied separately.
             With orthogonal basis modes, return ``SubmodeResult`` describing the joint or factorized layout.
             ``is_prob=True`` instead returns spatial photon-count probabilities.
         """
@@ -411,11 +412,9 @@ class QumodeCircuit(Operation):
             return result
         if self.backend == 'fock':
             return self._forward_fock(data, state, is_prob, sort)
-        # Each delay step consumes its own controls. Do not retain views into its autograd graph on the circuit.
-        with self._preserve_encoders() if self._with_delay and data is not None else nullcontext():
-            if self.backend in ('gaussian', 'bosonic'):
-                return self._forward_cv(data, state, is_prob, detector, stepwise or bool(self.sources))
-            return self._forward_bargmann(data, state, is_prob)
+        if self.backend in ('gaussian', 'bosonic'):
+            return self._forward_cv(data, state, is_prob, detector, stepwise or bool(self.sources))
+        return self._forward_bargmann(data, state, is_prob)
 
     def _forward_fock(
         self, data: torch.Tensor | None = None, state: Any = None, is_prob: bool | None = None, sort: bool = True
@@ -774,8 +773,8 @@ class QumodeCircuit(Operation):
         if self.backend == 'bargmann':
             if not isinstance(memory, BargmannState) or memory.nmode != nloop:
                 raise ValueError(f'memory must be a BargmannState containing only the {nloop} delay modes.')
-            order = loops + spatial
-            return memory.tensor_product(inputs).reorder([order.index(w) for w in range(self._nmode_tdm)])
+            order = spatial + loops
+            return inputs.tensor_product(memory).reorder([order.index(w) for w in range(self._nmode_tdm)])
         if isinstance(memory, GaussianState):
             memory = [memory.cov, memory.mean]
         if not (
@@ -1100,7 +1099,8 @@ class QumodeCircuit(Operation):
             nstep: The number of time steps.
 
         Returns:
-            The output wires with shape ``(nstep, nmode)``.
+            The wire indices of the spatial outputs in the unrolled circuit, with shape ``(nstep, nmode)``.
+            For ``nstep=1``, the row also indexes the spatial outputs in a single-step joint state.
         """
         self._prepare_unroll_dict()
         if not self._with_delay:
@@ -1157,7 +1157,7 @@ class QumodeCircuit(Operation):
 
         Evolution stops after the largest selected time step. Encoded data repeat
         cyclically when the selected outputs extend beyond the input sequence.
-        As in ``global_circuit``, the delay slots and incoming spatial modes start in vacuum,
+        As in ``global_circuit``, the loop modes and incoming spatial modes start in vacuum,
         irrespective of ``init_state``. Declared sources prepare fresh spatial inputs at every step.
         Orthogonal basis modes require ``global_circuit``.
 
@@ -1220,7 +1220,7 @@ class QumodeCircuit(Operation):
     def _tdm_substates(
         self, time_steps: range | torch.Tensor, wires: list[int], data: torch.Tensor | None, window: int | None
     ) -> Generator[list[torch.Tensor] | BargmannState, None, None]:
-        """Keep the delay slots and requested output modes correlated until readout."""
+        """Retain the joint state of the loop modes and the requested output modes."""
         loop_map = self._tdm_loop_map()
         nloop = len(loop_map)
         loop_wires = list(range(nloop))
@@ -1235,7 +1235,7 @@ class QumodeCircuit(Operation):
         last = times[-1] if isinstance(times, range) else max(times)
         nretained = 0
         for step in range(last + 1):
-            # Working order: fixed delay slots, past outputs, new spatial inputs.
+            # Mode order: loop modes (fixed wire indices), retained outputs, new spatial inputs.
             if window is not None and nretained == window * len(wires):
                 state = self._tdm_marginal(state, loop_wires + list(range(nloop + len(wires), nloop + nretained)))
                 nretained -= len(wires)
@@ -1313,13 +1313,13 @@ class QumodeCircuit(Operation):
         return wires, data
 
     def _tdm_loop_map(self) -> dict[int, int]:
-        """Map unrolled delay wires to the leading slots of the propagated state."""
+        """Map the loop wires of the unrolled circuit to local mode indices in the propagated state."""
         loop_wires = []
         for values in self._unroll_dict.values():
             for value in values:
                 if isinstance(value, list):
                     loop_wires.extend(value)
-        return {wire: slot for slot, wire in enumerate(loop_wires)}
+        return {wire: local_index for local_index, wire in enumerate(loop_wires)}
 
     def _evolve_mapped_modes(
         self,
@@ -1381,7 +1381,7 @@ class QumodeCircuit(Operation):
         nmode = self._nmode_tdm + (nstep - 1) * self.nmode
         cir = QumodeCircuit(
             nmode,
-            init_state='vac',
+            init_state=self._tdm_vacuum(nmode) if self.backend in ('gaussian', 'bargmann') else 'vac',
             cutoff=self.cutoff,
             backend=self.backend,
             basis=self.basis,
@@ -1401,8 +1401,12 @@ class QumodeCircuit(Operation):
             wire_map.append(spatial_wires)
             for op_location, gate, gate_wires in self._mapped_gates(spatial_wires, i):
                 encode = self.operators[op_location[0]] in self.encoders
-                is_deep = use_deepcopy or encode
-                op_tdm = deepcopy(gate) if is_deep else copy(gate)
+                if use_deepcopy or encode:
+                    # Encoded buffers may be views of differentiable data. Tensor deepcopy only accepts leaves.
+                    memo = {id(buf): buf.clone() for buf in gate.buffers() if not buf.is_leaf}
+                    op_tdm = deepcopy(gate, memo)
+                else:
+                    op_tdm = copy(gate)
                 op_tdm.nmode, op_tdm.wires = nmode, gate_wires
                 if isinstance(gate, PhotonLoss):
                     cir._lossy = True
@@ -1450,7 +1454,7 @@ class QumodeCircuit(Operation):
 
     @contextmanager
     def _preserve_encoders(self) -> Generator[None, None, None]:
-        """Restore encoded controls and cached matrices before returning from batched execution."""
+        """Restore encoded controls and cached matrices after a TDM readout step."""
         saved = [
             (op, {**op.__dict__, '_buffers': op._buffers.copy()})
             for encoder in self.encoders
@@ -2647,9 +2651,8 @@ class QumodeCircuit(Operation):
         a Fock or Gaussian ``forward(is_prob=True)``.
 
         On a Bargmann delay circuit, ``wires`` selects current spatial outputs.
-        Loop slots are retained in their shifted order. Conditioning all spatial
+        Loop modes are retained in their order for the next time step. Conditioning all spatial
         outputs returns the memory accepted by ``cir(memory=...)``.
-        ``remaining_wires`` then labels concurrent slots, as in the forward state.
 
         Args:
             wires: Measured spatial modes, in the same order as ``photons``.
@@ -2682,7 +2685,8 @@ class QumodeCircuit(Operation):
             before normalization and output cropping. For unnormalized inputs it is an
             event weight, such as a joint probability in a chain of post-selections.
             Gaussian kets require pure inputs. Bargmann outputs use consecutive local
-            mode indices. ``info['remaining_wires']`` records the source spatial modes.
+            mode indices. ``info['remaining_wires']`` lists the original spatial wires, or the wire indices
+            in the single-step joint state on a Bargmann delay circuit.
 
             ``probability_in_cutoff`` and ``retained_fraction`` report the unnormalized
             finite-output weight and its fraction of the event weight. They are ``None`` for
@@ -3810,7 +3814,7 @@ class QumodeCircuit(Operation):
         encode: bool = False,
         loop_gates: list | None = None,
     ) -> None:
-        """Add a delay loop."""
+        """Add a delay loop with a round-trip delay of ``ntau`` time bins."""
         requires_grad = not encode
         if inputs is not None:
             requires_grad = False

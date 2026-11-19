@@ -458,7 +458,7 @@ def gaussian_channel_to_bargmann(
     Write :math:`u=(z,w)` for the ket and bra output variables and :math:`v=(\alpha,\alpha^*)`
     for the input variables. A coherent input shifts the output mean from :math:`\beta` to
     :math:`\beta+Mv` in the ladder basis. Multiplying its output kernel by
-    :math:`e^{|\alpha|^2}` removes the coherent-state normalization. The channel kernel is
+    :math:`e^{\|\alpha\|^2}` removes the coherent-state normalization. The channel kernel is
     :math:`K(u,v)=c\exp(\xi^T A\xi/2+b^T\xi)`, where :math:`\xi=(u,v)` and
 
     .. math::

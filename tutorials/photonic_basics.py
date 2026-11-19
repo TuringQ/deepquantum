@@ -801,9 +801,9 @@ cov_opa_encode.sum().backward()
 print(data_opa.grad)  # 三个输入参数的梯度
 
 # %% [markdown]
-# TDM 中，普通 OPA 在时间步间共享三个参数，编码 OPA 每步读取三项数据。
-# 延时环内也可以直接添加 `dqp.OPA`。
-# 下面编码光源，并提取第 0、2 个时间步的输出子态：
+# TDM 线路在各时间步共享 OPA 的固定参数。
+# 若设置 `encode=True`，每步读取三个控制参数。
+# 下面在空间输入和延时环内分别放置 OPA，读取时间片 0 和 2 的联合输出态。
 #
 
 # %%
@@ -830,32 +830,6 @@ print(cov_opa_tdm.shape, mean_opa_tdm.shape)  # (1, 4, 4), (1, 4, 1)
 # 如需改变正交分量归一化，应先调用 `dqp.set_hbar(...)`、`dqp.set_kappa(...)`，再建立状态和线路。
 # 这些设置不会自动转换已有的状态张量。
 #
-
-# %% [markdown]
-# **推导：为什么有损 OPA 不能总等效为理想压缩器加出口损耗？**
-#
-# 以归一化传播距离 $\tau\in[0,1]$ 描述一个行波器件，假设泵浦不耗尽、相位不变，增益和损耗沿程均匀，损耗端口注入独立真空。
-# 设 $r$ 为全长压缩参数、$T$ 为关泵功率透射率、$\ell=-\ln T$，并记真空正交方差为 $v_0=\hbar/(4\kappa^2)$。
-#
-# 1. 在压缩轴上，一小段 $\Delta\tau$ 将两个正交分量乘以 $e^{\mp r\Delta\tau}$；该段的**场**透射率为 $e^{-\ell\Delta\tau/2}$，**功率**透射率为 $e^{-\ell\Delta\tau}$。
-#    因而两个轴的一阶漂移率分别为 $k_-=-r-\ell/2$ 和 $k_+=r-\ell/2$。
-# 2. 将轴旋回实验坐标，令 $R=R(\theta/2)$，$K=R\operatorname{diag}(k_-,k_+)R^T$。
-#    均值满足 $d\mu/d\tau=K\mu$；该段注入的真空方差为 $(1-e^{-\ell\Delta\tau})v_0 I=\ell v_0 I\Delta\tau+O(\Delta\tau^2)$。
-#    将 $V(\tau+\Delta\tau)=(I+K\Delta\tau)V(\tau)(I+K\Delta\tau)^T+\ell v_0 I\Delta\tau+O(\Delta\tau^2)$ 展开，便有 $dV/d\tau=KV+VK^T+\ell v_0I$。
-# 3. 输入传播全长得到 $X=e^K$；而每一段注入的噪声只传播剩余距离，故 $Y=\ell v_0\int_0^1e^{Ku}e^{K^Tu}\,du$。
-#    在本征轴上积的是标量 $e^{2k_\pm u}$，于是
-#
-# $$
-# \begin{aligned}
-#  X &=R\operatorname{diag}(e^{k_-},e^{k_+})R^T,\\
-#  Y &=\ell v_0 R\operatorname{diag}\bigl(\operatorname{exprel}(2k_-),\operatorname{exprel}(2k_+)\bigr)R^T,\qquad
-#  \operatorname{exprel}(x)=\begin{cases}(e^x-1)/x,&x\ne0,\\1,&x=0.\end{cases}
-# \end{aligned}
-# $$
-#
-# 无相干驱动意味着 $d=0$，非零输入均值仍会变成 $X\mu$。
-# 零增益模式退化为纯损耗 $X=\sqrt{T}\,I,\ Y=(1-T)v_0 I$；所以 `relative_r` 缩放各个基模的 $r$ 时，共用的传播损耗仍然存在。
-# 这对应 [Practical Limits on Integrated Squeezers，式 (16) 及 Methods: Internal Loss](https://arxiv.org/pdf/2606.02524v1) 的非共振、均匀损耗模型。
 
 # %% [markdown]
 # ### 不完美光源与正交基模
@@ -1518,8 +1492,14 @@ print(sample, state_measured)
 # ### 延时线圈组成的时域复用线路
 
 # %% [markdown]
-# 通过`QumodeCircuit`构造带延时线圈线路，通过`QumodeCircuit.delay`加入可调延时线圈，参数`wires` 表示作用的波导，`ntau`表示延时线圈内延时的个数，`inputs`表示延时线圈中可调参数，`convention` 对应两种，bs和mzi，对应延时线是`DelayBS`和`DelayMZI` 类型，默认是bs，对应一个单参数theta可调分束器和一个移相器。
-# `encode`控制角度自由编码。
+# 在时域复用（TDM）线路中，一个时间片（time bin）是每个空间端口接收一个新脉冲模式的时间间隔。
+# 模拟每推进一个时间步（step），就处理一个时间片。
+# `cir.delay(wires, ntau=...)` 在指定波导上加入延时环，`ntau` 是以时间片为单位的往返延时。
+# 例如 `ntau=2` 表示进入环内的光要经过两个时间步才回到耦合器，此时环内可同时容纳两个时间模式。
+#
+# `inputs` 设置环的控制参数，`encode=True` 允许各时间步使用不同参数。
+# 默认的 `convention='bs'` 使用一个可调分束器和一个移相器。
+# `'mzi'` 使用 MZI。
 
 # %%
 r = 5
@@ -1535,7 +1515,8 @@ cir.homodyne(1)
 cir.draw()
 
 # %% [markdown]
-# `dq.QumodeCircuit` 构造带延时线的线路只能进行单个时间步线路演化，是通过`cir.draw(unroll=True)` 可以得到初次测量的等效的空间线路，然后演化等效空间线路得到最后的结果。
+# `cir.draw(unroll=True)` 展示一个时间步的等效空间线路，包括新输入和环内模式。
+# 调用 `cir()` 执行这个时间步，得到这些模式的联合态。
 
 # %%
 cir.draw(unroll=True)
@@ -1545,7 +1526,9 @@ state = cir()
 print(state)
 
 # %% [markdown]
-# 若要进行n次测量实验，得到对应的空间等效线路，可以通过`QumodeCircuit.global_circuit` 设置`nstep`得到，当设置`encode=True`的门必定不共享，因为是多个输入数据，`use_deepcopy`只控制变分参数的门是不是共享变分参数。
+# `cir.global_circuit(nstep)` 将 `nstep` 个时间步展开成一条空间线路，每个时间片都有独立的输出模式。
+# 编码门在每个时间步读取自己的数据。
+# 其他门默认共享可训练参数，设置 `use_deepcopy=True` 可使各步参数独立。
 
 # %%
 r = 5
@@ -1567,7 +1550,7 @@ cir_global.draw(unroll=True)  # draw global circuit
 print(cir_global.ndata)
 
 # %% [markdown]
-# 当设置对应的`encode=True`，就可以自由编码global线路的角度
+# 对设置了 `encode=True` 的门，按时间步顺序传入展开线路的控制参数。
 
 # %%
 data = torch.tensor([0] * cir_global.ndata)
@@ -1575,30 +1558,23 @@ state = cir_global(data=data)
 cir_global.draw(unroll=True)  # draw global circuit
 
 # %% [markdown]
-# `tdm_substate(time_steps, wires=None, data=None, window=None)` 返回指定输出的联合态，或逐步返回窗口态。
-# Gaussian 返回 `[cov, mean]`，Bargmann 返回 `BargmannState` 密度态。
-# 默认 `window=None` 时，`time_steps` 和 `wires` 均可乱序，返回模式顺序与输入顺序一致。
-# 例如 `time_steps=[3,1], wires=[1,0]` 对应 `(3,1)`、`(3,0)`、`(1,1)`、`(1,0)` 四个时间与空间模式。
-# 索引必须非负且不重复，slice 必须给出终点并使用正步长。
-# 演化到 `max(time_steps)` 为止，不需要另行指定总步数。
+# `tdm_substate(time_steps, wires=None, data=None, window=None)` 读取指定时间片和空间端口的联合输出态。
+# Gaussian 返回 `[cov, mean]`，Bargmann 返回约化密度态 `BargmannState`。
+# 默认按给定的时间片顺序、再按 `wires` 顺序排列输出，例如 `time_steps=[3, 1], wires=[1, 0]` 的前两个模式分别是时间片 3 的端口 1 和 0。
+# 时间片编号从 0 开始且不能重复。
+# 切片必须有终点，步长为正。
 #
-# 设置 `window` 后，返回迭代器，`time_steps` 指定各窗口的结束时刻，必须升序。
-# 例如 `time_steps=slice(4), window=2` 依次返回时间点 `[0]`、`[0,1]`、`[1,2]`、`[2,3]` 的联合态。
-# `time_steps=[2,5], window=2` 则只返回 `[1,2]` 和 `[4,5]`，窗口按实际连续时间步计数。
-# 每个窗口与直接查询相同时间点的子态一致，迭代过程复用之前的演化。
-# 与 `global_circuit` 一样，环路和各拍输入从真空开始；每拍会应用声明的光源，再执行线路上的门。
-# 此读出独立运行，不读取 `init_state` 的光场或上一次 `forward` 的条件态。
-# 编码数据形状为 `(ntimes, ndata)` 或 `(batch, ntimes, ndata)`。
-# `ntimes` 是输入序列长度，第 `t` 步读取 `data[t % ntimes]`，所以短序列可以重复使用。
+# 设置 `window` 时返回迭代器，`time_steps` 按升序指定窗口结束的时间片。
+# 例如 `time_steps=slice(4), window=2` 依次返回时间片 `[0]`、`[0, 1]`、`[1, 2]`、`[2, 3]` 的联合态。
+# 迭代保留跨时间片的相关性，读出不改变后续环内态。
+# 只关心最近几个时间片时，可以逐个处理窗口。
+# 对于非高斯 Bargmann 态，辅助变量数或指数项数仍可能随步数增长。
 #
-# 窗口内模式先按时间再按 `wires` 排列，Gaussian 的正交分量按 xxpp 排列。
-# 下面只有一个空间模式，窗口填满后依次保留前一步和当前步，`cov[0, 0, 1]` 是这两步 x 分量的协方差。
-# 新迭代器重新开始，保留同一迭代器可以暂停后继续。
-# 流式输出保留环路与窗口的相关性，读出结果不会用于条件更新环路。
-# 关闭梯度并及时处理输出时，保留的物理模式数由环路和窗口决定。
-# Bargmann 非高斯态的辅助变量或指数项仍可能随步数增长。
-# 启用 autograd 会保留反向传播所需的历史。
-# 含正交基模的线路使用 `global_circuit` 展开后读出。
+# 与 `global_circuit` 一样，这个读出从真空开始，每个时间步都应用声明的输入光源。
+# 需要接续条件态时，使用下文的 `cir(memory=...)`。
+# `data` 的形状为 `(ntimes, ndata)` 或 `(batch, ntimes, ndata)`，第 `t` 步读取时间轴上索引为 `t % ntimes` 的数据。
+# 下面的 Gaussian 示例中，窗口填满后，`cov_window[0, 0, 1]` 给出相邻两个时间片的 x 分量协方差。
+# 一个空间端口含多个正交基模时，使用 `global_circuit` 展开后读出。
 #
 
 # %%
@@ -1613,7 +1589,8 @@ with torch.no_grad():
         # 第一步为 (1, 2, 2)、(1, 2, 1)，之后为 (1, 4, 4)、(1, 4, 1)
 
 # %% [markdown]
-# 通过`dq.QumodeCircuitTDM`也可以构造带延时线圈线路，它继承自`dq.QumodeCircuit`，不同之处在于可以进行多个时间步的演化，所有空间模式上都要求做Homodyne测量。
+# 每个时间步都要对所有空间输出做 Homodyne 测量时，可以使用 `dq.QumodeCircuitTDM`。
+# 它自动将测量后的状态用于下一步，并用 `nstep` 指定演化的时间步数。
 
 # %%
 r = 5
@@ -1967,14 +1944,13 @@ print(second_event.shape, first_event.shape)  # (1, 2, 2)、(1, 2, 1)
 # %% [markdown]
 # ### 光源、信道与 Fock 读出
 #
-# `thermal(wires, nbar=...)` 在演化前制备完整的热态，需要 `den_mat=True`。
-# `single_photon(wires)` 为每个选中空间输入准备一个光子，Bargmann 路径目前每个空间输入只含一个正交基模。
-# 这里的“重置”只描述输入制备 `thermal`、`single_photon` 的数学作用，线路没有可插在两道门之间的 `reset_source` 指令。
-# 对待制备模式 $S$ 和其余模式 $R$，密度矩阵制备给出 $\tau_S\otimes\operatorname{Tr}_S\rho_{SR}$（按线路模式顺序排列），保留 $R$ 的边缘态和原有权重。
-# 纯态制备要求选中输入原为真空；环路逐拍执行时只在新输入上应用光源，不会重置回送的环内态。
+# `thermal(wires, nbar=...)` 在指定空间输入制备热态，需要 `den_mat=True`。
+# `single_photon(wires)` 为每个选中的空间输入制备一个光子。
+# Bargmann 后端每个空间输入支持一个正交基模。
+# 光源只作用于输入端，纯态制备要求目标模式原为真空。
 #
-# OPA 和 DisplacementChannel 通过同一 Gaussian 信道转换得到 Bargmann 核。
-# `op.get_superoperator()` 返回 Fock 信道张量，轴顺序为输出 ket、输出 bra、输入 ket、输入 bra，每个模式轴长度为 `op.cutoff`。
+# OPA 和 DisplacementChannel 使用同一 Gaussian 信道到 Bargmann 核的转换。
+# `op.get_superoperator()` 返回截断后的 Fock 信道张量，模式轴依次为输出 ket、输出 bra、输入 ket、输入 bra，每个轴长为 `op.cutoff`。
 #
 
 # %%
@@ -1989,61 +1965,18 @@ print(source_output.norm())  # tensor([1.], dtype=torch.float64)
 print(source_output.to_fock().shape)  # (1, 6, 6, 6, 6)
 
 # %% [markdown]
-# **推导：从 Gaussian 信道到可作用于任意 Fock 密度矩阵的核。**
+# ### 逐步演化并回送条件态
 #
-# 第一步，区分算符和作用于算符的映射。
-# $|k\rangle\langle l|$ 是算符空间的一个基元，$\mathcal E$ 是把算符变成算符的线性映射。
-# 给定 Kraus 算符 $L_j$，$\mathcal E(B)=\sum_j L_j B L_j^\dagger$；特别地，$\mathcal E(|k\rangle\langle l|)=\sum_j(L_j|k\rangle)(L_j|l\rangle)^\dagger$。
-# 因此把 $\rho=\sum_{kl}\rho_{kl}|k\rangle\langle l|$ 代入并用线性性，左右再乘 $\langle n|$ 和 $|m\rangle$，就得到
+# 对带延时环的 `QumodeCircuit`，第一次调用 `cir()` 时环内为真空。
+# 要从指定环内态继续，调用 `cir(memory=memory)`。
+# 每个时间步的空间输入由 `init_state` 和声明的光源独立准备。
+# `memory` 只含环内模式，模式数等于所有延时环的 `ntau` 之和，与覆盖初态的 `state` 参数互斥。
+# 返回的联合态包含当前空间输出和环内模式，环内模式已经按下一时间步的顺序排列。
 #
-# $$
-# \langle n|\mathcal E(\rho)|m\rangle
-# =\sum_{kl}\rho_{kl}\underbrace{\sum_j\langle n|L_j|k\rangle\langle m|L_j|l\rangle^*}_{\mathcal E_{nm;kl}}.
-# $$
-#
-# 第二步，用一个生成函数同时取出所有 $|k\rangle\langle l|$ 的像。
-# 以单模为例，$e^{|\alpha|^2}|\alpha\rangle\langle\alpha|=\sum_{kl}\alpha^k(\alpha^*)^l|k\rangle\langle l|/\sqrt{k!l!}$；多模的幂和阶乘逐模相乘。
-# 设 $u=(z,w)$ 为输出 ket、bra 的形式变量，$v=(\alpha,\alpha^*)$ 为输入变量（均为列向量）。
-# 对这个等式施加 $\mathcal E$，再取输出 Bargmann 核，就得到 $K_{\mathcal E}(u,v)=e^{|\alpha|^2}K_{\mathcal E(|\alpha\rangle\langle\alpha|)}(u)$。
-# 求系数时把 $\alpha,\alpha^*$ 当作独立形式变量。
-#
-# 第三步，把相干输入的均值和不依赖 $\alpha$ 的协方差分别带入。
-# 对于 $N$ 模，$X,Y$ 是 $2N\times2N$ 的实矩阵，$d$ 是位移列向量；设 $s=2\kappa^2/\hbar$，则 $V_{\rm vac}=I/(2s)$。
-# 取 $W=2^{-1/2}\left(\begin{smallmatrix}I&iI\\I&-iI\end{smallmatrix}\right)$、$J=\left(\begin{smallmatrix}0&I\\I&0\end{smallmatrix}\right)$；$W$ 转至产生湮灭算符对应的复坐标，$J$ 交换上下两组分量。
-# 相干态的输出协方差是 $X V_{\rm vac}X^T+Y$，再加上相干态重叠贡献的半个单位阵，便有 $\Gamma=(I+XX^T)/2+sY$ 和 $Q=W\Gamma W^\dagger$。
-# 令 $H=Q^{-1}$、$M=WXW^\dagger$、$\beta=\sqrt{s}\,Wd$，则输出的复均值是 $g=\beta+Mv$。
-# 代入 Gaussian 密度核，并用 $|\alpha|^2=v^TJv/2$、$g^\dagger=g^TJ$，得到
-#
-# $$
-# \log K_{\mathcal E}=\tfrac12u^T(I-H)Ju+u^TH(\beta+Mv)
-# -\tfrac12(\beta+Mv)^TJH(\beta+Mv)+\tfrac12v^TJv-\tfrac12\ln\det\Gamma.
-# $$
-#
-# 第四步，按 $u^2,uv,v^2,u,v$ 和常数项读出系数。
-# 由于 $JH$ 对称，展开第三项时两个交叉项相等，合并成 $-v^TM^TJH\beta$。
-# 写 $\xi=(u,v)$ 和 $K=c\exp(\xi^T A\xi/2+b^T\xi)$，就得到
-#
-# $$
-#  A=\begin{pmatrix}(I-H)J&HM\\(HM)^T&J-M^TJHM\end{pmatrix},\qquad
-#  b=\begin{pmatrix}H\beta\\-M^TJH\beta\end{pmatrix},\qquad
-#  c=\frac{e^{-\beta^\dagger H\beta/2}}{\sqrt{\det\Gamma}}.
-# $$
-#
-# 代入恒等信道 $X=I,Y=0,d=0$，核退化为 $e^{u^Tv}$，即 $\mathcal E_{nm;kl}=\delta_{nk}\delta_{ml}$。
-# `gaussian_channel_to_bargmann` 使用这一变量顺序；与 [The stellar decomposition of Gaussian quantum states，附录 A.4.3 式 (87)–(89)](https://arxiv.org/pdf/2504.10455v3) 对照时还需取 $\hbar_{\rm paper}=1/s$。
-
-# %% [markdown]
-# ### 原生环路与条件态回送
-#
-# 对有延时线圈的 `QumodeCircuit`，`cir(memory=memory)` 演化一拍，把环内态和从 `init_state` 及声明光源准备的本拍空间输入组合起来。
-# 第一拍调用 `cir()` 即可，环内默认为真空；后续也只有显式传入 `memory` 才会延续上一拍。
-# `memory` 的模式数等于各延时长度之和；`state` 用来覆盖初态，也可以传入完整并发态，不能与 `memory` 同时指定。
-# 输出态含环内槽位与本步空间输出，环内槽位已移位到下一步的顺序。
-# 在 Bargmann 后端，`post_select` 使用空间端口编号；测完本拍所有空间输出后，返回的 `BargmannState` 可直接作为下一拍的 `memory`。
-# Gaussian 的 `memory` 接受 `[cov, mean]` 或 `GaussianState`；Homodyne 后取环内模式的均值和协方差即可回送。
-# 光子计数或阈值后选择一般产生非高斯态，需要 Bargmann 才能在环内继续原生演化。
-# 选择 `normalize=False` 时，返回的概率是到当前步为止整条事件序列的联合权重。
-# 下面选择第 1、3 步各探测到一个光子，第 2 步探测到真空。
+# 在 Bargmann 后端，对所有空间输出做 `post_select` 后，返回态可以直接作为下一步的 `memory`。
+# Gaussian 后端接受 `[cov, mean]` 或 `GaussianState` 形式的环内态。
+# 光子计数条件态通常是非高斯态，应选用 Bargmann 继续演化。
+# 下面在时间片 0、1、2 分别选择光子数 1、0、1，`normalize=False` 保留到当前时间步为止的联合事件权重。
 #
 
 # %%
@@ -2060,14 +1993,13 @@ for photons in [1, 0, 1]:
 print(memory.to_fock().shape)  # (1, 5, 5, 5, 5)
 
 for window_state in cir_native_loop.tdm_substate(slice(3), window=2):
-    print(window_state.nmode)  # 依次为 1、2、2；不按上面的事件序列筛选
+    print(window_state.nmode)  # 依次为 1、2、2，来自无条件演化
 
 # %% [markdown]
-# 阈值事件可用 `detector='threshold'`，其条件态为密度矩阵，后续环路应设置 `den_mat=True`。
-# 如果不按测量结果筛选，使用 `joint.partial_trace(cir_native_loop.tdm_output_wires(1)[0].tolist())` 迹掉本步输出，得到无条件环内记忆。
-# `partial_trace` 返回密度矩阵，因此无条件循环也使用 `den_mat=True`。
+# 阈值事件使用 `detector='threshold'`。
+# 条件态是密度矩阵，继续演化时使用 `den_mat=True`。
+# 若不筛选测量结果，可用 `joint.partial_trace(cir_native_loop.tdm_output_wires(1)[0].tolist())` 迹掉当前空间输出，取得无条件环内密度态。
 #
-# `tensor_product` 拼接独立态，`reorder` 调整模式顺序，`partial_trace` 在 Bargmann 表示中完成部分迹，均不使用 Fock cutoff。
-# 测量部分空间输出时，条件态还保留未测输出；可根据 `return_info=True` 的 `remaining_wires`（并发槽位编号）定位并迹掉它们，再回送环内记忆。
-# 每次 PNR 会保留新的辅助求导变量，点击条件会增加指数项数，长事件序列的计算规模仍会增长。
+# 只测部分端口时，返回态还包含未测输出。
+# `return_info=True` 返回的 `remaining_wires` 按返回态的模式顺序列出它们在原联合态中的编号，可据此迹掉其余空间输出，再回送环内态。
 #

@@ -280,6 +280,28 @@ def test_tdm_cache_keeps_live_parameters_and_refreshes_measurements():
     assert [op.wires for op in circuit._unroll_measurements()] == [[3], [2]]
 
 
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann'])
+def test_loop_forward_keeps_encoded_controls_when_repeated_or_unrolled(backend):
+    cir = dq.QumodeCircuit(1, 'vac', backend=backend)
+    cir.s(0, r=0.0, theta=0.0, encode=True)
+    cir.delay(0, ntau=1, inputs=[0.35, 0.1])
+    cir.double()
+    data = torch.tensor([0.4, 0.3], dtype=torch.double, requires_grad=True)
+
+    def covariance(circuit, controls=None):
+        output = circuit(controls)
+        return output.quadrature_moments()[0] if backend == 'bargmann' else output[0]
+
+    encoded = covariance(cir, data)
+    torch.testing.assert_close(covariance(cir), encoded)
+    unrolled = covariance(cir.global_circuit(1))
+    torch.testing.assert_close(unrolled, encoded)
+    torch.testing.assert_close(
+        torch.autograd.grad(unrolled.square().sum(), data, retain_graph=True)[0],
+        torch.autograd.grad(encoded.square().sum(), data)[0],
+    )
+
+
 def test_gaussian_loop_accepts_homodyne_memory_in_next_step_order():
     cir = dq.QumodeCircuit(2, 'vac', backend='gaussian')
     cir.thermal(1, nbar=0.2)
@@ -302,8 +324,8 @@ def test_gaussian_loop_accepts_homodyne_memory_in_next_step_order():
     # Condition the global state in one measurement on all six outcomes; it never rotates its fixed delay wires.
     joint_measure = dqp.Generaldyne(nmode=full.nmode, wires=output.flatten().tolist())
     cov, mean = joint_measure(full(), samples=records.flatten())
-    slots = torch.tensor([1, 0, 3])  # only the two-slot delay rotates after three steps
-    idx = torch.cat([slots, slots + full.nmode])
+    loop_wires = torch.tensor([1, 0, 3])  # the two-bin loop swaps mode order after three steps
+    idx = torch.cat([loop_wires, loop_wires + full.nmode])
     expected = [cov[:, idx[:, None], idx], mean[:, idx]]
     torch.testing.assert_close(memory, expected)
     torch.testing.assert_close(
@@ -418,9 +440,11 @@ def test_loop_readout_starts_from_vacuum_independently_of_forward(backend):
         torch.testing.assert_close(cir(memory=vacuum)[1], joint_mean)
         output_mean = cir.tdm_substate(0)[1]
     else:
-        vacuum = dq.BargmannState('vac', nmode=2).double()
+        vacuum = dq.BargmannState('vac', nmode=2, cutoff=2).double()
         joint_mean = cir().quadrature_moments()[1]
-        torch.testing.assert_close(cir(memory=vacuum).quadrature_moments()[1], joint_mean)
+        joint = cir(memory=vacuum)
+        assert joint.cutoff == cir.cutoff != vacuum.cutoff
+        torch.testing.assert_close(joint.quadrature_moments()[1], joint_mean)
         output_mean = cir.tdm_substate(0).quadrature_moments()[1]
     assert joint_mean.abs().max() > 0.1
     torch.testing.assert_close(output_mean, torch.zeros_like(output_mean))

@@ -71,7 +71,7 @@ class QumodeCircuitTDM(QumodeCircuit):
         for i in range(nstep):
             data_i = None if data is None else data[:, i % size[1], :]
             if i and self.sources:
-                # The measured spatial slots are vacuum. Replace them with this step's declared inputs.
+                # Keep the modes still in the loops and prepare fresh inputs for this time step.
                 memory = self._tdm_marginal(self.state, list(self._tdm_loop_map()))
                 self.state = super().forward(data_i, memory=memory)
             else:
