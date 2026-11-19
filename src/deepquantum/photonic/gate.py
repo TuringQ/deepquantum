@@ -2393,6 +2393,13 @@ class Barrier(Gate):
         if wires is None:
             wires = list(range(nmode))
         super().__init__(name='Barrier', nmode=nmode, wires=wires, cutoff=cutoff)
+        self.register_buffer('_one', torch.ones(()), persistent=False)
+
+    def update_matrix_state(self) -> torch.Tensor:
+        """Get the local Fock identity on the selected modes."""
+        nwire = len(self.wires)
+        diagonal = (self._one + 0j).expand(self.cutoff**nwire)
+        return diagonal.diag().reshape((self.cutoff,) * (2 * nwire))
 
     def forward(self, x: Any) -> Any:
         """Perform a forward pass."""

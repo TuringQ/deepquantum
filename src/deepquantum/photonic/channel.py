@@ -9,6 +9,7 @@ from torch import nn
 
 import deepquantum.photonic as dqp
 
+from ..qmath import evolve_state
 from .bargmann import BargmannPolyExp, _gaussian_bargmann
 from .gate import BeamSplitterSingle, Displacement
 from .operation import Channel
@@ -311,7 +312,10 @@ class OPA(Channel):
 
     def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
         """Apply the exact channel projected into the specified Fock cutoff."""
-        return self._op_den_mat_bargmann(x)
+        wires = self.wires + [wire + self.nmode for wire in self.wires]
+        dim = self.cutoff ** len(wires)
+        matrix = self.get_superoperator().reshape(dim, dim)
+        return evolve_state(x, matrix, 2 * self.nmode, wires, self.cutoff)
 
     def extra_repr(self) -> str:
         return f'wires={self.wires}, r={self.r.item()}, theta={self.theta.item()}, transmittance={self.t.item()}'

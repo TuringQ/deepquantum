@@ -336,11 +336,12 @@ def test_opa_complete_positivity_and_vacuum_normalization():
             op = dqp.OPA([0.0, 0.7, 1.2], convention='db').double()
             loss = dqp.PhotonLoss(op.db, convention='db').double()
             torch.testing.assert_close(op.update_transform_xy(), loss.update_transform_xy())
-            squeeze = dqp.Squeezing([0.4, 0.7]).double()
-            op = dqp.OPA([0.4, 0.7, 0.0]).double()
+            squeeze = dqp.Squeezing([0.4, 0.7], cutoff=4).double()
+            op = dqp.OPA([0.4, 0.7, 0.0], cutoff=4).double()
             x, y = op.update_transform_xy()
             torch.testing.assert_close(x, squeeze.update_transform_xp()[0])
             torch.testing.assert_close(y, torch.zeros_like(y))
+            torch.testing.assert_close(op.get_superoperator(), squeeze.get_superoperator())
 
 
 @pytest.mark.parametrize('convention', ['theta', 't', 'db'])

@@ -1950,7 +1950,8 @@ print(second_event.shape, first_event.shape)  # (1, 2, 2)、(1, 2, 1)
 # 光源只作用于输入端，纯态制备要求目标模式原为真空。
 #
 # OPA 和 DisplacementChannel 使用同一 Gaussian 信道到 Bargmann 核的转换。
-# `op.get_superoperator()` 返回截断后的 Fock 信道张量，模式轴依次为输出 ket、输出 bra、输入 ket、输入 bra，每个轴长为 `op.cutoff`。
+# 光子门和信道都可用 `op.get_superoperator()` 取得作用于 Fock 密度矩阵的局部超算符。
+# 模式轴分为输出 ket、输出 bra、输入 ket、输入 bra 四组，每组按 `op.wires` 排列，每个轴长为 `op.cutoff`。
 #
 
 # %%

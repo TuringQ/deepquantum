@@ -6,6 +6,34 @@ import torch
 import deepquantum as dq
 import deepquantum.photonic as dqp
 from deepquantum.photonic.qmath import product_factorial, sample_homodyne_fock
+from deepquantum.qmath import evolve_state
+
+
+@pytest.mark.parametrize('gate_type,wires,inputs', [(dqp.BeamSplitter, [2, 0], [0.41, -0.57]), (dqp.Kerr, [1], 0.23)])
+def test_local_gate_superoperator_matches_density_evolution(gate_type, wires, inputs):
+    nmode, cutoff = 3, 3
+    controls = torch.tensor(inputs, dtype=torch.double, requires_grad=True)
+    gate = gate_type(controls, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=True)
+    ket = torch.randn(2, cutoff**nmode, dtype=torch.cdouble, generator=torch.Generator().manual_seed(13))
+    ket = ket / torch.linalg.vector_norm(ket, dim=1, keepdim=True)
+    rho = (ket.unsqueeze(-1) * ket.conj().unsqueeze(-2)).reshape((2,) + (cutoff,) * (2 * nmode))
+    expected = gate(rho)
+
+    superoperator = gate.get_superoperator()
+    assert superoperator.shape == (cutoff,) * (4 * len(wires))
+    targets = wires + [w + nmode for w in wires]
+    dim = cutoff ** len(targets)
+    actual = evolve_state(rho, superoperator.reshape(dim, dim), 2 * nmode, targets, cutoff)
+    torch.testing.assert_close(actual, expected)
+    torch.testing.assert_close(
+        torch.autograd.grad(actual.real.sum(), controls), torch.autograd.grad(expected.real.sum(), controls)
+    )
+
+
+def test_barrier_local_fock_superoperator():
+    barrier = dqp.Barrier(nmode=3, wires=[2, 0], cutoff=2).double()
+    identity = torch.eye(16, dtype=torch.cdouble).reshape((2,) * 8)
+    torch.testing.assert_close(barrier.get_superoperator(), identity)
 
 
 def test_large_photon_normalization_and_homodyne(monkeypatch):

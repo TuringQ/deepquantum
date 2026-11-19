@@ -128,9 +128,21 @@ class Gate(Operation):
         raise NotImplementedError
 
     def update_matrix_state(self) -> torch.Tensor:
-        """Update the local transformation matrix acting on Fock state tensors."""
+        """Update the local Fock gate matrix, with output mode axes followed by input mode axes."""
         matrix = self.update_matrix()
         return self.get_matrix_state(matrix)
+
+    def get_superoperator(self) -> torch.Tensor:
+        r"""Get the local Fock superoperator acting on density matrices.
+
+        For the local Fock gate matrix :math:`U`, its elements are :math:`S_{nmkl}=U_{nk}U_{ml}^*`.
+        The axes are grouped as ket output, bra output, ket input and bra input.
+        Each group follows ``wires`` and each mode axis has length ``cutoff``.
+        """
+        nwire = len(self.wires)
+        dim = self.cutoff**nwire
+        matrix = self.update_matrix_state().reshape(dim, dim)
+        return torch.einsum('ik,jl->ijkl', matrix, matrix.conj()).reshape((self.cutoff,) * (4 * nwire))
 
     def op_state_tensor(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass for state tensors."""
@@ -299,7 +311,7 @@ class Channel(Operation):
         super().__init__(name=name, nmode=nmode, wires=wires, cutoff=cutoff, den_mat=True)
 
     def update_matrix_state(self) -> torch.Tensor:
-        """Update the local Kraus matrices acting on Fock state density matrices."""
+        """Update the local Fock Kraus matrices, with a leading Kraus axis followed by output and input mode axes."""
         raise NotImplementedError
 
     def get_bargmann(self) -> BargmannPolyExp:
@@ -307,20 +319,14 @@ class Channel(Operation):
         return gaussian_channel_to_bargmann(*self.update_transform_xyd())
 
     def get_superoperator(self) -> torch.Tensor:
-        r"""Get Fock matrix elements ordered as ket output, bra output, ket input, bra input.
+        r"""Get the local Fock superoperator acting on density matrices.
 
-        For one mode, element :math:`(n,m,k,l)` is :math:`\langle n|\mathcal E(|k\rangle\langle l|)|m\rangle`.
-        Each mode axis has length ``cutoff``. Probability outside the output cutoff is discarded without
-        renormalizing the retained density matrix.
+        Its elements are :math:`S_{nmkl}=\langle n|\mathcal{E}(|k\rangle\langle l|)|m\rangle`.
+        The axes are grouped as ket output, bra output, ket input and bra input.
+        Each group follows ``wires`` and each mode axis has length ``cutoff``.
+        Probability outside the output cutoff is discarded without renormalizing the retained density matrix.
         """
         return self.get_bargmann().to_fock((self.cutoff,) * (4 * len(self.wires)))[0]
-
-    def _op_den_mat_bargmann(self, x: torch.Tensor) -> torch.Tensor:
-        """Apply the Bargmann-derived local superoperator to a Fock density tensor."""
-        size = self.cutoff ** (2 * len(self.wires))
-        matrix = self.get_superoperator().reshape(size, size)
-        wires = self.wires + [wire + self.nmode for wire in self.wires]
-        return evolve_state(x, matrix, 2 * self.nmode, wires, self.cutoff)
 
     def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass for density matrices."""
