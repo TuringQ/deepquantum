@@ -754,14 +754,14 @@ class QumodeCircuit(Operation):
 
     def _tdm_vacuum(
         self, nmode: int, like: GaussianState | BargmannState | None = None
-    ) -> GaussianState | BargmannState:
-        """Create vacuum modes in the same units, dtype and device as the input."""
+    ) -> list[torch.Tensor] | BargmannState:
+        """Create vacuum moments or a Bargmann vacuum in the input's units, dtype and device."""
         like = self.init_state if like is None else like
         if isinstance(like, BargmannState):
             return BargmannState('vac', nmode=nmode, den_mat=self.den_mat, cutoff=self.cutoff).to(like.mat_a.real)
         ref = like.cov
         cov = torch.eye(2 * nmode, dtype=ref.dtype, device=ref.device) * (dqp.hbar / (4 * dqp.kappa**2))
-        return GaussianState([cov, ref.new_zeros(2 * nmode, 1)], cutoff=self.cutoff)
+        return [cov.unsqueeze(0), ref.new_zeros(1, 2 * nmode, 1)]
 
     def _join_tdm_memory(
         self, memory: GaussianState | Sequence[torch.Tensor] | BargmannState, inputs: GaussianState | BargmannState
@@ -1224,12 +1224,10 @@ class QumodeCircuit(Operation):
         loop_map = self._tdm_loop_map()
         nloop = len(loop_map)
         loop_wires = list(range(nloop))
-        memory = self._tdm_vacuum(nloop)
-        inputs = self._tdm_vacuum(self.nmode)
+        state = self._tdm_vacuum(nloop)
+        fresh = self._tdm_vacuum(self.nmode)
         if self.sources:
-            inputs = self._prepare_sources(inputs)
-        state = memory if isinstance(memory, BargmannState) else [memory.cov, memory.mean]
-        fresh = inputs if isinstance(inputs, BargmannState) else [inputs.cov, inputs.mean]
+            fresh = self._prepare_sources(fresh)
         times = time_steps if isinstance(time_steps, range) else time_steps.tolist()
         selected = times if isinstance(times, range) else set(times)
         last = times[-1] if isinstance(times, range) else max(times)
@@ -3183,11 +3181,11 @@ class QumodeCircuit(Operation):
         self._invalidate_state()
 
     def _prepare_sources(
-        self, init_state: GaussianState | BargmannState | None = None
-    ) -> FockState | GaussianState | BosonicState | BargmannState:
+        self, init_state: list[torch.Tensor] | GaussianState | BargmannState | None = None
+    ) -> FockState | GaussianState | BosonicState | BargmannState | list[torch.Tensor]:
         """Build the declared input state before optical evolution."""
         init_state = self.init_state if init_state is None else init_state
-        if self.backend == 'bargmann':
+        if isinstance(init_state, (BargmannState, list)):
             state = init_state
             run = _HardwareRun(self.backend, None, tuple(self.wires), self.nmode, False)
             for wire, preparation in self.sources.items():

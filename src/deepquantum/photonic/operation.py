@@ -254,9 +254,32 @@ class Gate(Operation):
     def op_cv(self, x: list[torch.Tensor]) -> list[torch.Tensor]:
         """Perform a forward pass for Gaussian (Bosonic) states."""
         cov, mean = x[:2]
-        sp_mat = self.get_symplectic()
-        cov = sp_mat @ cov @ sp_mat.mT
-        mean = sp_mat.to(mean.dtype) @ mean + self.get_displacement()
+        wires = self.wires
+        # A custom gate may define its action directly in the global quadrature basis.
+        if (
+            getattr(self.get_symplectic, '__func__', None) is not Gate.get_symplectic
+            or getattr(self.get_displacement, '__func__', None) is not Gate.get_displacement
+        ):
+            matrix, vector = self.get_symplectic(), self.get_displacement()
+            wires = None
+        else:
+            matrix, vector = self.update_transform_xp()
+            size = 2 * len(wires)
+            assert matrix.shape[-2:] == (size, size) and vector.shape[-2] == size, 'Invalid local quadrature transform.'
+        if wires is None or (len(wires) == self.nmode and wires == list(range(self.nmode))):
+            return [matrix @ cov @ matrix.mT, matrix.to(mean.dtype) @ mean + vector, *x[2:]]
+        nquad = 2 * self.nmode
+        assert cov.shape[-2:] == (nquad, nquad) and mean.shape[-2] == nquad, 'The state must match the gate modes.'
+        idx = torch.tensor(wires + [wire + self.nmode for wire in wires], device=cov.device)
+        # Transform rows and then columns, including correlations with all other modes.
+        rows = matrix @ cov.index_select(-2, idx)
+        cov = cov.to(rows.dtype).index_copy(-2, idx, rows)
+        cov = cov.index_copy(-1, idx, cov.index_select(-1, idx) @ matrix.mT)
+        local_mean = matrix.to(mean.dtype) @ mean.index_select(-2, idx)
+        # Autocast can lower the matmul precision before the displacement promotes it again.
+        mean = mean.to(local_mean.dtype)
+        local_mean = local_mean + vector
+        mean = mean.to(local_mean.dtype).index_copy(-2, idx, local_mean)
         return [cov, mean] + x[2:]
 
     def forward(
