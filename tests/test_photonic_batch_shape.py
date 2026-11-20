@@ -1,7 +1,10 @@
+from unittest.mock import patch
+
 import pytest
 import torch
 
 import deepquantum as dq
+import deepquantum.photonic as dqp
 
 
 def test_forward_unitary():
@@ -89,6 +92,23 @@ def test_gaussian_get_prob_batch_shapes():
     multiplexed = torch.tensor([[2, 0], [0, 2], [2, 1], [1, 2], [0, 0]])
     expected = torch.stack([cir.get_prob(pattern, state) for pattern in multiplexed])
     torch.testing.assert_close(cir.get_prob(multiplexed, state), expected)
+
+
+@pytest.mark.parametrize('detector', ['pnrd', 'threshold', 'click'])
+def test_gaussian_chunk_budget_preserves_values_and_gradients(detector, monkeypatch):
+    monkeypatch.setattr(dqp.utils, '_chunk_budgets', {})
+    cir = dq.QumodeCircuit(1, 'vac', cutoff=3, backend='gaussian', detector=detector)
+    cov = (torch.eye(2, dtype=torch.double) * 1.4).expand(5, -1, -1)
+    mean = torch.linspace(0.1, 1, 10, dtype=torch.double).reshape(5, 2, 1).requires_grad_()
+    expected = cir.get_prob([[1], [0]], [cov, mean])
+    dqp.set_chunk_budget('cpu', 256)
+    with patch.object(cir, '_get_probs_gaussian_helper', wraps=cir._get_probs_gaussian_helper) as read:
+        actual = cir.get_prob([[1], [0]], [cov, mean])
+    assert read.call_count > 1
+    torch.testing.assert_close(actual, expected)
+    torch.testing.assert_close(
+        torch.autograd.grad(actual[:, 0].sum(), mean), torch.autograd.grad(expected[:, 0].sum(), mean)
+    )
 
 
 def test_gaussian_pnrd_get_prob_mixed_totals_in_requested_order():

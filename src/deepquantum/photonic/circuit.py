@@ -85,8 +85,7 @@ from .state import (
     combine_bosonic_states,
 )
 from .torontonian_ import torontonian
-
-_MAX_GAUSSIAN_PROB_BATCH_ELEMENTS = 2**19  # 8 MiB of complex128 matrix entries
+from .utils import _chunk_capacity
 
 
 class QumodeCircuit(Operation):
@@ -1771,13 +1770,19 @@ class QumodeCircuit(Operation):
         cov = cov.reshape(-1, 2 * nmode, 2 * nmode)
         mean = mean.reshape(-1, 2 * nmode, 1)
         order = None
-        group_sizes = None
-        if self.detector in ('pnrd', 'threshold') and len(final_states) > 1:
-            # Each group has one Hafnian or Torontonian matrix size.
-            counts, order = final_states.sum(-1).sort()
-            group_sizes = counts.unique_consecutive(return_counts=True)[1].tolist()
-            final_states = final_states[order]
-        probs = self._get_probs_gaussian_state_batch(final_states, cov, mean, group_sizes)
+        event_groups = None
+        if self.detector in ('pnrd', 'threshold'):
+            if len(final_states) > 1:
+                # Each group has one Hafnian or Torontonian matrix size, shared by all input chunks.
+                totals, order = final_states.sum(-1).sort()
+                counts, sizes = torch.stack(totals.unique_consecutive(return_counts=True)).tolist()
+                final_states = final_states[order].to(cov.device)
+                event_groups = tuple(zip(final_states.split(sizes), counts, strict=True))
+            else:
+                nphoton = int(final_states[0].sum())
+                final_states = final_states.to(cov.device)
+                event_groups = ((final_states, nphoton),)
+        probs = self._get_probs_gaussian_state_batch(final_states, cov, mean, event_groups)
         if order is not None:
             probs = probs[:, order.argsort().to(cov.device)]
         if len(cov) == 1:
@@ -1787,26 +1792,36 @@ class QumodeCircuit(Operation):
         return probs
 
     def _get_probs_gaussian_state_batch(
-        self, final_states: torch.Tensor, cov: torch.Tensor, mean: torch.Tensor, group_sizes: list[int] | None
+        self,
+        final_states: torch.Tensor,
+        cov: torch.Tensor,
+        mean: torch.Tensor,
+        event_groups: tuple[tuple[torch.Tensor, int], ...] | None,
     ) -> torch.Tensor:
         """Evaluate common event patterns for each input, keeping its purity and displacement branches."""
         get_probs = partial(
-            self._get_probs_gaussian_helper, final_states, detector=self.detector, group_sizes=group_sizes
+            self._get_probs_gaussian_helper, final_states, detector=self.detector, event_groups=event_groups
         )
         if len(cov) == len(mean) == 1:
             return get_probs(cov[0], mean[0]).unsqueeze(0)
         batch_get_probs = vmap(get_probs)
-        if self.detector == 'threshold':
-            return batch_get_probs(cov, mean, loop=True)
         if len(cov) != len(mean):
+            if self.detector == 'threshold':
+                return batch_get_probs(cov, mean, loop=True)
             # External moments have historically been paired by covariance row.
             return torch.stack([get_probs(c, mean[i]) for i, c in enumerate(cov)])
 
-        displaced = mean.ne(0).any(dim=(-2, -1))
-        pure = GaussianState._purity_mask(cov) if self.detector == 'pnrd' else torch.zeros_like(displaced)
-        state_groups = defaultdict(list)
-        for row, (purity, loop) in enumerate(torch.stack([pure, displaced], dim=-1).tolist()):
-            state_groups[purity, loop].append(row)
+        if self.detector == 'threshold':
+            state_groups = {(False, True): range(len(cov))}
+            entry_bytes = 2 * cov.element_size()
+        else:
+            displaced = mean.ne(0).any(dim=(-2, -1))
+            pure = GaussianState._purity_mask(cov) if self.detector == 'pnrd' else torch.zeros_like(displaced)
+            state_groups = defaultdict(list)
+            for row, (purity, loop) in enumerate(torch.stack([pure, displaced], dim=-1).tolist()):
+                state_groups[purity, loop].append(row)
+            # The Hafnian promotes its subset matrices to complex128. Click counting uses real quadratures.
+            entry_bytes = torch.cdouble.itemsize if self.detector == 'pnrd' else cov.element_size()
 
         if len(state_groups) == len(cov):
             # Each branch has one input and the groups are already in input order.
@@ -1814,27 +1829,24 @@ class QumodeCircuit(Operation):
                 [get_probs(cov[i], mean[i], purity=p, loop=loop) for i, (p, loop) in enumerate(state_groups)]
             )
 
-        max_total = int(final_states.sum(-1).max())
-        max_exponent = _MAX_GAUSSIAN_PROB_BATCH_ELEMENTS.bit_length()
+        capacity = _chunk_capacity(cov.device, entry_bytes)
+        if event_groups is None:
+            counts = [(int(final_states.sum(-1).max()), len(final_states))]
+        else:
+            counts = [(total, len(group)) for group, total in event_groups]
         blocks = []
         for (purity, loop), rows in state_groups.items():
-            # At order k the subset sums use at most 2**k matrices of side 2*k per event.
-            # Once one input fills the budget, larger exponents still give a single-input chunk.
-            k = (max_total + 1) // 2 if purity else max_total
-            subsets = 2 ** min(k, max_exponent)
-            if self.detector == 'click' and k > final_states.shape[-1]:
-                # Each active spatial mode contributes at most cutoff terms and two quadratures.
-                k = final_states.shape[-1]
-                subsets = min(subsets, self.cutoff ** min(k, max_exponent))
-            elements = max(cov.shape[-1] ** 2, len(final_states) * subsets * (2 * k) ** 2)
-            chunk_size = max(1, _MAX_GAUSSIAN_PROB_BATCH_ELEMENTS // elements)
+            chunk_size = self._gaussian_prob_chunk_size(capacity, cov.shape[-1] // 2, counts, purity)
+            whole_batch = len(rows) == len(cov)
+            if whole_batch and len(rows) <= chunk_size:
+                return batch_get_probs(cov, mean, purity=purity, loop=loop)
             for start in range(0, len(rows), chunk_size):
-                indices = rows[start : start + chunk_size]
-                if len(indices) == 1:
-                    block = get_probs(cov[indices[0]], mean[indices[0]], purity=purity, loop=loop).unsqueeze(0)
-                elif len(indices) == len(cov):
-                    return batch_get_probs(cov, mean, purity=purity, loop=loop)
+                stop = min(start + chunk_size, len(rows))
+                if stop == start + 1:
+                    row = rows[start]
+                    block = get_probs(cov[row], mean[row], purity=purity, loop=loop).unsqueeze(0)
                 else:
+                    indices = slice(start, stop) if whole_batch else rows[start:stop]
                     block = batch_get_probs(cov[indices], mean[indices], purity=purity, loop=loop)
                 blocks.append(block)
         probs = torch.cat(blocks)
@@ -1842,6 +1854,24 @@ class QumodeCircuit(Operation):
             order = torch.tensor(list(itertools.chain.from_iterable(state_groups.values())), device=cov.device)
             probs = probs[order.argsort()]
         return probs
+
+    def _gaussian_prob_chunk_size(self, capacity: int, nmode: int, counts: list[tuple[int, int]], pure: bool) -> int:
+        """Size an input chunk for the largest intermediate over sequential event groups."""
+        elements = (2 * nmode) ** 2
+        for total, nevent in counts:
+            k = (total + 1) // 2 if pure else total
+            if self.detector == 'threshold' and k:
+                # Torontonian subsets of size j run together. C(k,j) * (2*j)**2 peaks at j = k//2 + 1.
+                j = k // 2 + 1
+                elements = max(elements, nevent * math.comb(k, j) * (2 * j) ** 2)
+            else:
+                # Once one input fills the budget, larger exponents still give a single-input chunk.
+                subsets = 2 ** min(k, capacity.bit_length())
+                if self.detector == 'click' and k > nmode:
+                    k = nmode
+                    subsets = min(subsets, self.cutoff ** min(k, capacity.bit_length()))
+                elements = max(elements, nevent * subsets * (2 * k) ** 2)
+        return max(1, capacity // elements)
 
     def _get_probs_gaussian_helper(
         self,
@@ -1852,12 +1882,12 @@ class QumodeCircuit(Operation):
         purity: bool | None = None,
         loop: bool | None = None,
         *,
-        group_sizes: list[int] | None = None,
+        event_groups: tuple[tuple[torch.Tensor, int], ...] | None = None,
     ) -> torch.Tensor:
         r"""Get the probabilities of the final states for Gaussian backend.
 
         For PNRD and threshold, each consecutive group must have a common total occupation.
-        If ``group_sizes`` is omitted, all final states form one group.
+        If ``event_groups`` is omitted, all final states form one group.
 
         See https://arxiv.org/pdf/2010.15595v4 Eq.(3)-(5) and Eq.(8)-(12).
         The vacuum prefactor in Eq.(10) is evaluated using :math:`\ln\det Q`, since :math:`Q` is positive Hermitian.
@@ -1893,10 +1923,11 @@ class QumodeCircuit(Operation):
         if purity is None and detector == 'pnrd':
             purity = bool(GaussianState._purity_mask(cov))
         batch_get_prob = vmap(self._get_prob_gaussian_base, in_dims=(0, None, None, None, None, None, None))
-        groups = (final_states,) if group_sizes is None else final_states.split(group_sizes)
+        if event_groups is None:
+            event_groups = ((final_states, int(final_states[0].sum())),)
         probs = [
-            batch_get_prob(group, matrix, gamma, p_vac, detector, purity, loop, nphoton=int(group[0].sum()))
-            for group in groups
+            batch_get_prob(group, matrix, gamma, p_vac, detector, purity, loop, nphoton=nphoton)
+            for group, nphoton in event_groups
         ]
         return probs[0] if len(probs) == 1 else torch.cat(probs)
 

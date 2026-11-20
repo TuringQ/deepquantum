@@ -481,10 +481,20 @@ def permanent(mat: torch.Tensor) -> torch.Tensor:
 def create_subset(num_coincidence: int) -> Generator[torch.Tensor, None, None]:
     r"""Create all subsets from :math:`\{1,2,...,n\}`."""
     for k in range(1, num_coincidence + 1):
-        comb_lst = []
-        for comb in itertools.combinations(range(num_coincidence), k):
-            comb_lst.append(list(comb))
-        yield torch.tensor(comb_lst).reshape(len(comb_lst), k)
+        yield from _subset_chunks(num_coincidence, k, None)
+
+
+def _subset_chunks(n: int, k: int, chunk_size: int | None) -> Generator[torch.Tensor, None, None]:
+    """Generate Ryser subset indices a chunk at a time, in lexicographic order."""
+    subsets = itertools.combinations(range(n), k)
+    count = math.comb(n, k)
+    if chunk_size is None or chunk_size >= count:
+        yield torch.tensor(list(subsets), dtype=torch.long)
+    else:
+        if chunk_size <= 0:
+            raise ValueError('chunk_size must be positive')
+        for _ in range(0, count, chunk_size):
+            yield torch.tensor(list(itertools.islice(subsets, chunk_size)), dtype=torch.long)
 
 
 def get_powerset(n: int) -> list:
@@ -501,20 +511,19 @@ def get_powerset(n: int) -> list:
 def permanent_ryser(mat: torch.Tensor) -> torch.Tensor:
     """Calculate the permanent by Ryser's formula."""
 
-    def helper(subset: torch.Tensor, mat: torch.Tensor) -> torch.Tensor:
-        num_elements = subset.numel()
-        s = torch.sum(mat[:, subset], dim=-1)
-        value_times = torch.prod(s) * (-1) ** num_elements
-        return value_times
+    def subset_product(indices: torch.Tensor) -> torch.Tensor:
+        return mat[:, indices].sum(-1).prod()
 
-    num_coincidence = mat.size()[0]
+    batch_product = vmap(subset_product)
+    n = mat.shape[0]
     value_perm = 0
-    chunk_size = mem_to_chunksize(mat.device, mat.dtype)
-    for subset in create_subset(num_coincidence):
-        temp_value = vmap(helper, in_dims=(0, None), chunk_size=chunk_size)(subset, mat)
-        value_perm += temp_value.sum()
-    value_perm *= (-1) ** num_coincidence
-    return value_perm
+    for k in range(1, n + 1):
+        chunk_size = mem_to_chunksize(mat.device, mat.dtype, elements_per_subset=n * k)
+        values = [batch_product(subset) for subset in _subset_chunks(n, k, chunk_size)]
+        # Reduce in the same subset order for every chunk size.
+        terms = values[0] if len(values) == 1 else torch.cat(values)
+        value_perm += (-1) ** k * terms.sum()
+    return (-1) ** n * value_perm
 
 
 def product_factorial(state: torch.Tensor, power: float = 1.0) -> torch.Tensor:
