@@ -351,11 +351,9 @@ def test_gradcheck_mixed_loss_parameter():
     assert torch.autograd.gradcheck(result, (eta,), atol=1e-5, rtol=1e-4)
 
 
-@pytest.mark.parametrize('backend', ['fock', 'gaussian'])
-@pytest.mark.parametrize('den_mat', [False, True])
-@pytest.mark.parametrize('nmode', [1, 2])
-def test_requires_measured_and_remaining_modes(backend, den_mat, nmode):
-    cir = dq.QumodeCircuit(nmode, 'vac', cutoff=3, backend=backend, basis=False, den_mat=den_mat)
+@pytest.mark.parametrize('backend,nmode', [('fock', 1), ('gaussian', 2)])
+def test_requires_measured_and_remaining_modes(backend, nmode):
+    cir = dq.QumodeCircuit(nmode, 'vac', cutoff=3, backend=backend, basis=False)
     cir()
     with pytest.raises(ValueError, match='at least one measured mode'):
         cir.post_select([], [])

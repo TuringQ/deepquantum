@@ -119,9 +119,8 @@ def test_channel_bargmann_matches_kraus_map(theta):
 
 def test_barrier_and_unsupported_operations():
     assert dqp.Barrier(nmode=2).get_bargmann() is None
-    for operation in (dqp.Kerr(cutoff=3),):
-        with pytest.raises(NotImplementedError, match='not supported by the Bargmann backend'):
-            operation.get_bargmann()
+    with pytest.raises(NotImplementedError, match='not supported by the Bargmann backend'):
+        dqp.Kerr(cutoff=3).get_bargmann()
 
 
 def test_direct_gate_and_channel_apply_to_bargmann_state():
@@ -323,11 +322,8 @@ def moments_density(cov, mean, cutoff):
     return _fock_coefficients(mat_a, vec_b, coeff_c, (cutoff,) * mat_a.shape[-1])
 
 
-@pytest.mark.parametrize('den_mat', [False, True])
-@pytest.mark.parametrize('loss', [False, True])
+@pytest.mark.parametrize('den_mat,loss', [(False, False), (True, False), (True, True)])
 def test_gaussian_circuit_matches_gaussian_backend(den_mat, loss):
-    if loss and not den_mat:
-        pytest.skip('Loss requires density matrices')
     cutoff = 4
     cov, mean = gaussian_circuit('gaussian', loss=loss)()
     reference = moments_density(cov, mean, cutoff)

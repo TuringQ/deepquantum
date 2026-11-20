@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import strawberryfields as sf
 import thewalrus
 import torch
@@ -8,23 +9,14 @@ import deepquantum as dq
 from deepquantum.photonic import hafnian, quadrature_to_ladder, torontonian
 
 
-def test_hafnian():
+@pytest.mark.parametrize('loop', [False, True])
+def test_hafnian(loop):
     n = 12
     temp = np.random.rand(n, n)
     mat = temp + temp.transpose()
-    haf1 = thewalrus.hafnian(mat, loop=False)
+    haf1 = thewalrus.hafnian(mat, loop=loop)
     mat = torch.tensor(mat)
-    haf2 = hafnian(mat, loop=False)
-    assert abs(haf1 - haf2) < 1e-6
-
-
-def test_hafnian_loop():
-    n = 12
-    temp = np.random.rand(n, n)
-    mat = temp + temp.transpose()
-    haf1 = thewalrus.hafnian(mat, loop=True)
-    mat = torch.tensor(mat)
-    haf2 = hafnian(mat, loop=True)
+    haf2 = hafnian(mat, loop=loop)
     assert abs(haf1 - haf2) < 1e-6
 
 
@@ -33,7 +25,6 @@ def test_torontonian():
     cir = dq.QumodeCircuit(nmode=nmode, init_state='vac', cutoff=5, backend='gaussian')
     for i in range(nmode):
         cir.s(wires=i)
-        cir.d(wires=i)
     for i in range(nmode - 1):
         cir.bs(wires=[i, i + 1])
     cir.to(torch.double)

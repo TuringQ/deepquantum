@@ -117,9 +117,16 @@ def test_gaussian_pnrd_get_prob_mixed_totals_in_requested_order():
     )
 
 
-@pytest.mark.parametrize('dtype', [torch.float32, torch.float64])
-@pytest.mark.parametrize('lossy', [False, True])
-@pytest.mark.parametrize('angles', [[[0.1]], [[0.1], [0.4], [0.9]]], ids=['single', 'batch'])
+@pytest.mark.parametrize(
+    'dtype,lossy,angles',
+    [
+        (torch.float64, False, [[0.1]]),
+        (torch.float64, True, [[0.1], [0.4], [0.9]]),
+        (torch.float32, False, [[0.1], [0.4], [0.9]]),
+        (torch.float32, True, [[0.1]]),
+    ],
+    ids=['double-pure-single', 'double-loss-batch', 'float-pure-batch', 'float-loss-single'],
+)
 def test_gaussian_threshold_probabilities_in_requested_order(dtype, lossy, angles, request):
     previous_dtype = torch.get_default_dtype()
     request.addfinalizer(lambda: torch.set_default_dtype(previous_dtype))

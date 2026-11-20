@@ -1,120 +1,31 @@
 import numpy as np
+import pytest
 import strawberryfields as sf
 import torch
-from strawberryfields.ops import CKgate, CXgate, CZgate, Kgate, Pgate, Vgate
+from strawberryfields.ops import CKgate, CXgate, CZgate, Ket, Kgate, Pgate, Vgate
 
 import deepquantum as dq
 
 
-def test_quadratic_phase_gate():
-    nmode = 1
+@pytest.mark.parametrize(
+    'gate,reference,nmode',
+    [('qp', Pgate, 1), ('cx', CXgate, 2), ('cz', CZgate, 2), ('cp', Vgate, 1), ('k', Kgate, 1), ('ck', CKgate, 2)],
+)
+def test_fock_gate_matches_strawberry_fields(gate, reference, nmode):
     cutoff = 10
-    params = np.random.rand(1)
+    strength = 0.25
+    ket = np.zeros((cutoff,) * nmode, dtype=np.complex128)
+    # The relative phase makes the action of Kerr and cross-Kerr observable.
+    ket[(0,) * nmode] = 2**-0.5
+    ket[(2,) if nmode == 1 else (1, 2)] = 2**-0.5
+    program = sf.Program(nmode)
+    with program.context as q:
+        Ket(ket) | q
+        reference(strength) | q
+    engine = sf.Engine('fock', backend_options={'cutoff_dim': cutoff})
+    expected = engine.run(program).state.data
 
-    prog = sf.Program(nmode)
-    with prog.context as q:
-        Pgate(params[0]) | q[0]
-    eng = sf.Engine('fock', backend_options={'cutoff_dim': cutoff})
-    result = eng.run(prog)
-
-    cir = dq.QumodeCircuit(nmode=nmode, init_state='vac', cutoff=cutoff, backend='fock', basis=False)
-    cir.qp(0, params[0])
-    cir.to(torch.double)
-    state = cir()
-
-    assert np.allclose(result.state.data, state.numpy())
-
-
-def test_cx_gate():
-    nmode = 2
-    cutoff = 10
-    params = np.random.rand(1)
-
-    prog = sf.Program(nmode)
-    with prog.context as q:
-        CXgate(params[0]) | (q[0], q[1])
-    eng = sf.Engine('fock', backend_options={'cutoff_dim': cutoff})
-    result = eng.run(prog)
-
-    cir = dq.QumodeCircuit(nmode=nmode, init_state='vac', cutoff=cutoff, backend='fock', basis=False)
-    cir.cx([0, 1], params[0])
-    cir.to(torch.double)
-    state = cir()
-
-    assert np.allclose(result.state.data, state.numpy())
-
-
-def test_cz_gate():
-    nmode = 2
-    cutoff = 10
-    params = np.random.rand(1)
-
-    prog = sf.Program(nmode)
-    with prog.context as q:
-        CZgate(params[0]) | (q[0], q[1])
-    eng = sf.Engine('fock', backend_options={'cutoff_dim': cutoff})
-    result = eng.run(prog)
-
-    cir = dq.QumodeCircuit(nmode=nmode, init_state='vac', cutoff=cutoff, backend='fock', basis=False)
-    cir.cz([0, 1], params[0])
-    cir.to(torch.double)
-    state = cir()
-
-    assert np.allclose(result.state.data, state.numpy())
-
-
-def test_cubic_phase_gate():
-    nmode = 1
-    cutoff = 10
-    params = np.random.rand(1)
-
-    prog = sf.Program(nmode)
-    with prog.context as q:
-        Vgate(params[0]) | q[0]
-    eng = sf.Engine('fock', backend_options={'cutoff_dim': cutoff})
-    result = eng.run(prog)
-
-    cir = dq.QumodeCircuit(nmode=nmode, init_state='vac', cutoff=cutoff, backend='fock', basis=False)
-    cir.cp(0, params[0])
-    cir.to(torch.double)
-    state = cir()
-
-    assert np.allclose(result.state.data, state.numpy())
-
-
-def test_kerr_gate():
-    nmode = 1
-    cutoff = 10
-    params = np.random.rand(1)
-
-    prog = sf.Program(nmode)
-    with prog.context as q:
-        Kgate(params[0]) | q[0]
-    eng = sf.Engine('fock', backend_options={'cutoff_dim': cutoff})
-    result = eng.run(prog)
-
-    cir = dq.QumodeCircuit(nmode=nmode, init_state='vac', cutoff=cutoff, backend='fock', basis=False)
-    cir.k(0, params[0])
-    cir.to(torch.double)
-    state = cir()
-
-    assert np.allclose(result.state.data, state.numpy())
-
-
-def test_cross_kerr_gate():
-    nmode = 2
-    cutoff = 10
-    params = np.random.rand(1)
-
-    prog = sf.Program(nmode)
-    with prog.context as q:
-        CKgate(params[0]) | (q[0], q[1])
-    eng = sf.Engine('fock', backend_options={'cutoff_dim': cutoff})
-    result = eng.run(prog)
-
-    cir = dq.QumodeCircuit(nmode=nmode, init_state='vac', cutoff=cutoff, backend='fock', basis=False)
-    cir.ck([0, 1], params[0])
-    cir.to(torch.double)
-    state = cir()
-
-    assert np.allclose(result.state.data, state.numpy())
+    circuit = dq.QumodeCircuit(nmode, torch.from_numpy(ket).unsqueeze(0), cutoff=cutoff, backend='fock', basis=False)
+    getattr(circuit, gate)(list(range(nmode)), strength)
+    actual = circuit.double()()[0]
+    np.testing.assert_allclose(actual.numpy(), expected, atol=1e-12, rtol=1e-10)

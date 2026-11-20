@@ -106,13 +106,7 @@ def test_qumode_circuit_click_matches_cpu_on_mps():
     final_states = torch.tensor([[0, 2], [2, 0]])
     cir = dq.QumodeCircuit(2, 'vac', cutoff=3, backend='gaussian', detector='click')
 
-    expected = cir._get_probs_gaussian_helper(final_states, cov, mean, detector='click', loop=True)
-    actual = cir._get_probs_gaussian_helper(
-        final_states,
-        cov.to('mps'),
-        mean.to('mps'),
-        detector='click',
-        loop=True,
-    ).cpu()
+    expected = cir.get_prob(final_states, [cov, mean])
+    actual = cir.get_prob(final_states, [cov.to('mps'), mean.to('mps')]).cpu()
 
     assert torch.allclose(actual, expected, rtol=1e-5, atol=1e-5)
