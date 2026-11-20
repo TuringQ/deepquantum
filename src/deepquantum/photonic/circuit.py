@@ -8,6 +8,7 @@ from collections.abc import Generator, Sequence
 from contextlib import contextmanager, nullcontext
 from copy import copy, deepcopy
 from dataclasses import replace
+from functools import partial
 from operator import index as operator_index
 from typing import Any, overload
 
@@ -84,6 +85,8 @@ from .state import (
     combine_bosonic_states,
 )
 from .torontonian_ import torontonian
+
+_MAX_GAUSSIAN_PROB_BATCH_ELEMENTS = 2**19  # 8 MiB of complex128 matrix entries
 
 
 class QumodeCircuit(Operation):
@@ -827,7 +830,6 @@ class QumodeCircuit(Operation):
             mean = mean.expand(-1, shape_cov[1], -1, -1)
         cov = cov.reshape(-1, *shape_cov[-2:])
         mean = mean.reshape(-1, *shape_mean[-2:])
-        purity = GaussianState([cov, mean]).is_pure
         batch_forward = vmap(self._forward_gaussian_prob_helper, in_dims=(0, 0, None, None, None, None))
         if detector is None:
             detector = self.detector
@@ -836,6 +838,7 @@ class QumodeCircuit(Operation):
             self.detector = detector
         basis = self._get_odd_even_fock_basis(detector=detector)
         if detector == 'pnrd':
+            purity = bool(GaussianState._purity_mask(cov).all())
             idx_loop = torch.all(mean == 0, dim=1)
             idx_loop = idx_loop.squeeze(1)
             cov_0 = cov[idx_loop]
@@ -860,7 +863,7 @@ class QumodeCircuit(Operation):
         elif detector in ('threshold', 'click'):
             final_states = torch.cat(basis)
             loop = detector == 'threshold' or not bool(torch.all(mean == 0))
-            probs = batch_forward(cov, mean, basis, detector, purity, loop)
+            probs = batch_forward(cov, mean, basis, detector, None, loop)
         keys = list(map(FockState, final_states.tolist()))
         # TODO: Fock probabilities for Bosonic state with weights
         # if weight is not None:
@@ -1721,7 +1724,7 @@ class QumodeCircuit(Operation):
             return rst
         elif self.backend == 'gaussian':
             if refer_state is None:
-                refer_state = list(self._get_output_state())
+                refer_state = self._get_output_state()
             return self._get_prob_gaussian(final_state, refer_state)
 
     def _get_prob_fock(
@@ -1757,19 +1760,16 @@ class QumodeCircuit(Operation):
         is_single = final_state.ndim == 1
         final_states = final_state.unsqueeze(0) if is_single else final_state
         if state is None:
-            cov = self._cov
-            mean = self._mean
+            cov, mean = self._cov, self._mean
+        elif isinstance(state, (list, tuple)) and all(isinstance(x, torch.Tensor) for x in state):
+            cov, mean = state
         else:
             if not isinstance(state, GaussianState):
                 state = GaussianState(state=state, cutoff=self.cutoff)
-            cov = state.cov
-            mean = state.mean
-        if cov.ndim == 2:
-            cov = cov.unsqueeze(0)
-        if mean.ndim == 2:
-            mean = mean.unsqueeze(0)
-        assert cov.ndim == mean.ndim == 3
-        batch = cov.shape[0]
+            cov, mean = state.cov, state.mean
+        nmode = cov.shape[-1] // 2
+        cov = cov.reshape(-1, 2 * nmode, 2 * nmode)
+        mean = mean.reshape(-1, 2 * nmode, 1)
         order = None
         group_sizes = None
         if self.detector in ('pnrd', 'threshold') and len(final_states) > 1:
@@ -1777,24 +1777,70 @@ class QumodeCircuit(Operation):
             counts, order = final_states.sum(-1).sort()
             group_sizes = counts.unique_consecutive(return_counts=True)[1].tolist()
             final_states = final_states[order]
-        if self.detector == 'threshold':
-            batch_get_prob = vmap(self._get_probs_gaussian_helper, in_dims=(None, 0, 0, None, None, None))
-            probs = batch_get_prob(final_states, cov, mean, self.detector, None, True, group_sizes=group_sizes)
-        else:
-            probs = torch.stack(
-                [
-                    self._get_probs_gaussian_helper(
-                        final_states, cov[i], mean[i], self.detector, group_sizes=group_sizes
-                    )
-                    for i in range(batch)
-                ]
-            )
+        probs = self._get_probs_gaussian_state_batch(final_states, cov, mean, group_sizes)
         if order is not None:
             probs = probs[:, order.argsort().to(cov.device)]
-        if batch == 1:
+        if len(cov) == 1:
             probs = probs[0]
         if is_single:
             probs = probs[..., 0]
+        return probs
+
+    def _get_probs_gaussian_state_batch(
+        self, final_states: torch.Tensor, cov: torch.Tensor, mean: torch.Tensor, group_sizes: list[int] | None
+    ) -> torch.Tensor:
+        """Evaluate common event patterns for each input, keeping its purity and displacement branches."""
+        get_probs = partial(
+            self._get_probs_gaussian_helper, final_states, detector=self.detector, group_sizes=group_sizes
+        )
+        if len(cov) == len(mean) == 1:
+            return get_probs(cov[0], mean[0]).unsqueeze(0)
+        batch_get_probs = vmap(get_probs)
+        if self.detector == 'threshold':
+            return batch_get_probs(cov, mean, loop=True)
+        if len(cov) != len(mean):
+            # External moments have historically been paired by covariance row.
+            return torch.stack([get_probs(c, mean[i]) for i, c in enumerate(cov)])
+
+        displaced = mean.ne(0).any(dim=(-2, -1))
+        pure = GaussianState._purity_mask(cov) if self.detector == 'pnrd' else torch.zeros_like(displaced)
+        state_groups = defaultdict(list)
+        for row, (purity, loop) in enumerate(torch.stack([pure, displaced], dim=-1).tolist()):
+            state_groups[purity, loop].append(row)
+
+        if len(state_groups) == len(cov):
+            # Each branch has one input and the groups are already in input order.
+            return torch.stack(
+                [get_probs(cov[i], mean[i], purity=p, loop=loop) for i, (p, loop) in enumerate(state_groups)]
+            )
+
+        max_total = int(final_states.sum(-1).max())
+        max_exponent = _MAX_GAUSSIAN_PROB_BATCH_ELEMENTS.bit_length()
+        blocks = []
+        for (purity, loop), rows in state_groups.items():
+            # At order k the subset sums use at most 2**k matrices of side 2*k per event.
+            # Once one input fills the budget, larger exponents still give a single-input chunk.
+            k = (max_total + 1) // 2 if purity else max_total
+            subsets = 2 ** min(k, max_exponent)
+            if self.detector == 'click' and k > final_states.shape[-1]:
+                # Each active spatial mode contributes at most cutoff terms and two quadratures.
+                k = final_states.shape[-1]
+                subsets = min(subsets, self.cutoff ** min(k, max_exponent))
+            elements = max(cov.shape[-1] ** 2, len(final_states) * subsets * (2 * k) ** 2)
+            chunk_size = max(1, _MAX_GAUSSIAN_PROB_BATCH_ELEMENTS // elements)
+            for start in range(0, len(rows), chunk_size):
+                indices = rows[start : start + chunk_size]
+                if len(indices) == 1:
+                    block = get_probs(cov[indices[0]], mean[indices[0]], purity=purity, loop=loop).unsqueeze(0)
+                elif len(indices) == len(cov):
+                    return batch_get_probs(cov, mean, purity=purity, loop=loop)
+                else:
+                    block = batch_get_probs(cov[indices], mean[indices], purity=purity, loop=loop)
+                blocks.append(block)
+        probs = torch.cat(blocks)
+        if len(state_groups) > 1:
+            order = torch.tensor(list(itertools.chain.from_iterable(state_groups.values())), device=cov.device)
+            probs = probs[order.argsort()]
         return probs
 
     def _get_probs_gaussian_helper(
@@ -1845,7 +1891,7 @@ class QumodeCircuit(Operation):
         log_det = torch.linalg.slogdet(q)[1]
         p_vac = torch.exp(-(mean_ladder.mH @ q_inv_mean + log_det) / 2)
         if purity is None and detector == 'pnrd':
-            purity = GaussianState([cov, mean]).is_pure
+            purity = bool(GaussianState._purity_mask(cov))
         batch_get_prob = vmap(self._get_prob_gaussian_base, in_dims=(0, None, None, None, None, None, None))
         groups = (final_states,) if group_sizes is None else final_states.split(group_sizes)
         probs = [

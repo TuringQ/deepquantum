@@ -92,15 +92,15 @@ def test_gaussian_get_prob_batch_shapes():
 
 
 def test_gaussian_pnrd_get_prob_mixed_totals_in_requested_order():
-    cir = dq.QumodeCircuit(2, 'vac', cutoff=3, backend='gaussian', detector='pnrd')
-    amplitude = torch.tensor([0.4, 0.0, 0.65], dtype=torch.float64, requires_grad=True)
-    nbar = amplitude.new_tensor([0.0, 0.3, 0.5])
+    cir = dq.QumodeCircuit(2, 'vac', cutoff=5, backend='gaussian', detector='pnrd')
+    amplitude = torch.tensor([0.4, 0.0, 0.65, 0.0, 0.22, 0.55, 0.28], dtype=torch.float64, requires_grad=True)
+    nbar = amplitude.new_tensor([0.0, 0.3, 0.5, 0.0, 0.6, 0.0, 0.2])
     ones = torch.ones_like(nbar)
     zeros = torch.zeros_like(nbar)
     cov = torch.stack([ones, 2 * nbar + 1, ones, 2 * nbar + 1], dim=-1).diag_embed()
     mean = torch.stack([2 * amplitude, zeros, zeros, zeros], dim=-1).unsqueeze(-1)
     cir(state=[cov, mean])
-    patterns = torch.tensor([[2, 0], [0, 0], [0, 1], [1, 1], [1, 0], [2, 0], [0, 2]])
+    patterns = torch.tensor([[2, 0], [0, 0], [3, 4], [0, 1], [1, 1], [1, 0], [2, 0], [0, 2]])
     actual = cir.get_prob(patterns)
 
     # Independent coherent and thermal modes have Poisson and geometric photon counts.
