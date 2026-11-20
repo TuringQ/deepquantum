@@ -1661,8 +1661,8 @@ class QumodeCircuit(Operation):
         Args:
             final_state: The final Fock basis state with shape ``(nmode,)``. For Gaussian backend,
                 multiple final states with shape ``(npattern, nmode)`` are also supported and returned in
-                the supplied order. Threshold patterns contain 0 or 1 per mode. PNRD patterns in one
-                request must have the same total photon count.
+                the supplied order, including patterns with different total photon counts.
+                Threshold patterns contain 0 or 1 per mode.
             refer_state: The initial Fock basis state or the final Gaussian state. Default: ``None``
             unitary: The unitary matrix. Default: ``None`` (the ideal circuit unitary)
         """
@@ -1756,9 +1756,6 @@ class QumodeCircuit(Operation):
         assert final_state.ndim in (1, 2)
         is_single = final_state.ndim == 1
         final_states = final_state.unsqueeze(0) if is_single else final_state
-        if self.detector == 'pnrd' and not is_single:
-            totals = final_states.sum(dim=-1)
-            assert torch.all(totals == totals[0]), 'PNRD patterns in one batch must have the same total occupation'
         if state is None:
             cov = self._cov
             mean = self._mean
@@ -1773,17 +1770,27 @@ class QumodeCircuit(Operation):
             mean = mean.unsqueeze(0)
         assert cov.ndim == mean.ndim == 3
         batch = cov.shape[0]
-        if self.detector == 'threshold':
-            # Events with the same number of clicks use the same Torontonian matrix size.
+        order = None
+        group_sizes = None
+        if self.detector in ('pnrd', 'threshold') and len(final_states) > 1:
+            # Each group has one Hafnian or Torontonian matrix size.
             counts, order = final_states.sum(-1).sort()
-            sizes = counts.unique_consecutive(return_counts=True)[1].tolist()
-            groups = final_states[order].split(sizes)
-            batch_forward = vmap(self._forward_gaussian_prob_helper, in_dims=(0, 0, None, None, None, None))
-            probs = batch_forward(cov, mean, groups, self.detector, None, True)[:, order.argsort().to(cov.device)]
+            group_sizes = counts.unique_consecutive(return_counts=True)[1].tolist()
+            final_states = final_states[order]
+        if self.detector == 'threshold':
+            batch_get_prob = vmap(self._get_probs_gaussian_helper, in_dims=(None, 0, 0, None, None, None))
+            probs = batch_get_prob(final_states, cov, mean, self.detector, None, True, group_sizes=group_sizes)
         else:
             probs = torch.stack(
-                [self._get_probs_gaussian_helper(final_states, cov[i], mean[i], self.detector) for i in range(batch)]
+                [
+                    self._get_probs_gaussian_helper(
+                        final_states, cov[i], mean[i], self.detector, group_sizes=group_sizes
+                    )
+                    for i in range(batch)
+                ]
             )
+        if order is not None:
+            probs = probs[:, order.argsort().to(cov.device)]
         if batch == 1:
             probs = probs[0]
         if is_single:
@@ -1798,8 +1805,13 @@ class QumodeCircuit(Operation):
         detector: str = 'pnrd',
         purity: bool | None = None,
         loop: bool | None = None,
+        *,
+        group_sizes: list[int] | None = None,
     ) -> torch.Tensor:
         r"""Get the probabilities of the final states for Gaussian backend.
+
+        For PNRD and threshold, each consecutive group must have a common total occupation.
+        If ``group_sizes`` is omitted, all final states form one group.
 
         See https://arxiv.org/pdf/2010.15595v4 Eq.(3)-(5) and Eq.(8)-(12).
         The vacuum prefactor in Eq.(10) is evaluated using :math:`\ln\det Q`, since :math:`Q` is positive Hermitian.
@@ -1835,9 +1847,12 @@ class QumodeCircuit(Operation):
         if purity is None and detector == 'pnrd':
             purity = GaussianState([cov, mean]).is_pure
         batch_get_prob = vmap(self._get_prob_gaussian_base, in_dims=(0, None, None, None, None, None, None))
-        nphoton = int(final_states[0].sum())
-        probs = batch_get_prob(final_states, matrix, gamma, p_vac, detector, purity, loop, nphoton=nphoton)
-        return probs
+        groups = (final_states,) if group_sizes is None else final_states.split(group_sizes)
+        probs = [
+            batch_get_prob(group, matrix, gamma, p_vac, detector, purity, loop, nphoton=int(group[0].sum()))
+            for group in groups
+        ]
+        return probs[0] if len(probs) == 1 else torch.cat(probs)
 
     def _get_probs_gaussian_click(
         self,

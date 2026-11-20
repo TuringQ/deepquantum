@@ -91,19 +91,30 @@ def test_gaussian_get_prob_batch_shapes():
     torch.testing.assert_close(cir.get_prob(multiplexed, state), expected)
 
 
-def test_gaussian_pnrd_get_prob_fixed_total_pattern_batch():
+def test_gaussian_pnrd_get_prob_mixed_totals_in_requested_order():
     cir = dq.QumodeCircuit(2, 'vac', cutoff=3, backend='gaussian', detector='pnrd')
-    cir.d(0, r=0.35)
-    cir.to(torch.double)
-    state = cir()
-    patterns = torch.tensor([[1, 0], [0, 1]])
+    amplitude = torch.tensor([0.4, 0.0, 0.65], dtype=torch.float64, requires_grad=True)
+    nbar = amplitude.new_tensor([0.0, 0.3, 0.5])
+    ones = torch.ones_like(nbar)
+    zeros = torch.zeros_like(nbar)
+    cov = torch.stack([ones, 2 * nbar + 1, ones, 2 * nbar + 1], dim=-1).diag_embed()
+    mean = torch.stack([2 * amplitude, zeros, zeros, zeros], dim=-1).unsqueeze(-1)
+    cir(state=[cov, mean])
+    patterns = torch.tensor([[2, 0], [0, 0], [0, 1], [1, 1], [1, 0], [2, 0], [0, 2]])
+    actual = cir.get_prob(patterns)
 
-    batched = cir.get_prob(patterns, state)
-    expected = torch.stack([cir.get_prob(pattern, state) for pattern in patterns])
-
-    torch.testing.assert_close(batched, expected)
-    with pytest.raises(AssertionError, match='same total occupation'):
-        cir.get_prob(torch.tensor([[0, 0], [1, 0]]), state)
+    # Independent coherent and thermal modes have Poisson and geometric photon counts.
+    n, m = patterns.T
+    rate = amplitude.square().unsqueeze(-1)
+    factorial = (n.to(rate) + 1).lgamma().exp()
+    thermal = nbar.unsqueeze(-1)
+    expected = (-rate).exp() * rate**n / factorial * (thermal / (1 + thermal)) ** m / (1 + thermal)
+    torch.testing.assert_close(actual, expected, atol=1e-12, rtol=0)
+    torch.testing.assert_close(cir.get_prob(patterns[0]), expected[:, 0], atol=1e-12, rtol=0)
+    torch.testing.assert_close(cir.get_prob(patterns, [cov[0], mean[0]]), expected[0], atol=1e-12, rtol=0)
+    torch.testing.assert_close(
+        torch.autograd.grad(actual.sum(), amplitude), torch.autograd.grad(expected.sum(), amplitude), atol=1e-12, rtol=0
+    )
 
 
 @pytest.mark.parametrize('dtype', [torch.float32, torch.float64])
