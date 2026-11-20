@@ -119,9 +119,8 @@ def test_channel_bargmann_matches_kraus_map(theta):
 
 def test_barrier_and_unsupported_operations():
     assert dqp.Barrier(nmode=2).get_bargmann() is None
-    for operation in (dqp.Kerr(cutoff=3),):
-        with pytest.raises(NotImplementedError, match='not supported by the Bargmann backend'):
-            operation.get_bargmann()
+    with pytest.raises(NotImplementedError, match='not supported by the Bargmann backend'):
+        dqp.Kerr(cutoff=3).get_bargmann()
 
 
 def test_direct_gate_and_channel_apply_to_bargmann_state():
@@ -157,6 +156,30 @@ def test_bargmann_hardware_seeded_control_noise():
     generator = torch.Generator().manual_seed(7)
     sampled_theta = 0.23 + 0.1 * torch.randn((), generator=generator)
     torch.testing.assert_close(circuit().to_fock(2)[0, 1], torch.exp(1j * sampled_theta))
+
+
+def test_bargmann_hardware_legacy_forward_signature():
+    class LegacyModel(dqp.HardwareModel):
+        def forward(self, state, operators, backend, wires=None, *, _run=None):
+            return super().forward(state, operators, backend, wires, _run=_run)
+
+    circuit = dq.QumodeCircuit(1, [1], cutoff=2, backend='bargmann')
+    circuit.ps(0, encode=True)
+    circuit.set_hardware_model(LegacyModel().ps(0).theta.gaussian(mu=0.25, sigma=0))
+    angles = torch.tensor([[0.125], [0.5]], dtype=dtype)
+    amplitudes = circuit.to(dtype)(angles).to_fock(2)[:, 1]
+    torch.testing.assert_close(amplitudes, torch.exp(1j * (angles[:, 0] + 0.25)))
+
+
+def test_bargmann_delay_applies_gate_bound_loss_on_mapped_wire():
+    circuit = dq.QumodeCircuit(1, [1], cutoff=2, backend='bargmann', den_mat=True)
+    circuit.delay(0, ntau=1, inputs=[math.pi / 4, 0])
+    circuit.ps(0, 0.0)
+    circuit.set_hardware_model(dqp.HardwareModel().on(circuit.operators[-1]).after.loss(t=0.25))
+    density = circuit.to(dtype)().to_fock(2).reshape(4, 4)
+    # Half of the photon probability is in the loop. Only the spatial output sees the loss.
+    expected = torch.tensor([0.375, 0.125, 0.5, 0.0], dtype=dtype)
+    torch.testing.assert_close(density.diagonal().real, expected)
 
 
 def test_bargmann_hardware_input_and_gate_boundary_loss_match_explicit_channels():
@@ -299,11 +322,8 @@ def moments_density(cov, mean, cutoff):
     return _fock_coefficients(mat_a, vec_b, coeff_c, (cutoff,) * mat_a.shape[-1])
 
 
-@pytest.mark.parametrize('den_mat', [False, True])
-@pytest.mark.parametrize('loss', [False, True])
+@pytest.mark.parametrize('den_mat,loss', [(False, False), (True, False), (True, True)])
 def test_gaussian_circuit_matches_gaussian_backend(den_mat, loss):
-    if loss and not den_mat:
-        pytest.skip('Loss requires density matrices')
     cutoff = 4
     cov, mean = gaussian_circuit('gaussian', loss=loss)()
     reference = moments_density(cov, mean, cutoff)

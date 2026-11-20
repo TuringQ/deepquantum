@@ -1,3 +1,5 @@
+from itertools import permutations
+
 import networkx as nx
 import numpy as np
 import pytest
@@ -7,6 +9,44 @@ from scipy.stats import unitary_group
 import deepquantum as dq
 import deepquantum.photonic as dqp
 from deepquantum.photonic import Squeezing2, ladder_to_quadrature, quadrature_to_ladder, xpxp_to_xxpp, xxpp_to_xpxp
+
+
+def test_chunk_budget_device_inheritance(monkeypatch):
+    monkeypatch.setattr(dqp.utils, '_chunk_budgets', {})
+    first, second = torch.device('cuda:0'), torch.device('cuda:1')
+    dqp.set_chunk_budget('cuda', 1024)
+    dqp.set_chunk_budget(first, 256)
+    assert dqp.utils._chunk_capacity(first, 128) == 2
+    assert dqp.utils._chunk_capacity(second, 128) == 8
+    dqp.set_chunk_budget(first, None)
+    assert dqp.utils._chunk_capacity(first, 128) == 8
+    with pytest.raises(ValueError, match='positive'):
+        dqp.set_chunk_budget(first, 0)
+
+
+def test_ryser_chunk_budget_and_subset_override(monkeypatch):
+    monkeypatch.setattr(dqp.utils, '_chunk_budgets', {})
+    monkeypatch.setattr(dqp, 'perm_chunksize_dict', {})
+    cpu = torch.device('cpu')
+    dqp.set_chunk_budget(cpu, 256)
+    assert dqp.utils.mem_to_chunksize(cpu, torch.cdouble, elements_per_subset=8) == 2
+    assert dqp.utils.mem_to_chunksize(cpu, torch.cfloat, elements_per_subset=8) == 4
+
+    matrices = torch.randn(2, 4, 4, dtype=torch.cdouble, requires_grad=True)
+    rows = torch.arange(4)
+    expected = sum(matrices[:, rows, list(cols)].prod(-1) for cols in permutations(range(4)))
+    actual = torch.vmap(dqp.permanent)(matrices)
+    torch.testing.assert_close(actual, expected)
+    torch.testing.assert_close(
+        torch.autograd.grad(actual.real.sum(), matrices), torch.autograd.grad(expected.real.sum(), matrices)
+    )
+
+    dqp.set_chunk_budget(cpu, None)
+    assert dqp.utils.mem_to_chunksize(cpu, torch.cdouble, elements_per_subset=8) > 2
+    dqp.set_chunk_budget(cpu, 1)
+    for limit in (3, None):
+        dqp.set_perm_chunksize(cpu, torch.cdouble, limit)
+        assert dqp.utils.mem_to_chunksize(cpu, torch.cdouble, elements_per_subset=8) == limit
 
 
 def test_delay_coefficients_independent_grids_and_inputs():

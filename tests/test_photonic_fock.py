@@ -72,13 +72,10 @@ def test_product_factorial_mps_dtype():
         torch.set_default_dtype(previous)
 
 
-def test_batched_fock_basis_states():
-    batch = 3
-    # set nphoton = max_photon_in_one_mode + 1
-    nphoton = 3
-    init_state = torch.randint(nphoton, (batch, 3))
-    data = torch.randn(8)
-
+@pytest.mark.parametrize('batch_data', [False, True], ids=['shared-controls', 'per-sample-controls'])
+def test_batched_fock_basis_states(batch_data):
+    init_state = torch.tensor([[1, 0, 1], [2, 1, 0], [0, 0, 1]])
+    data = torch.randn((len(init_state), 8) if batch_data else (8,))
     cir = dq.QumodeCircuit(nmode=3, init_state=init_state, basis=True)
     cir.ps([0], encode=True)
     cir.ps([1], encode=True)
@@ -89,63 +86,20 @@ def test_batched_fock_basis_states():
     cir.ps([1], encode=True)
     cir.ps([2], encode=True)
 
-    re1 = cir(data=data, state=init_state, is_prob=None)
-    re2 = cir(data=data, state=init_state, is_prob=False)
-    re3 = cir(data=data, state=init_state, is_prob=True)
-
-    for i in range(init_state.shape[0]):
-        res1 = cir(data=data, state=init_state[i], is_prob=None)
-        res2 = cir(data=data, state=init_state[i], is_prob=False)
-        res3 = cir(data=data, state=init_state[i], is_prob=True)
-
-        # test is_prob=None
-        assert torch.equal(res1, re1[i])
-
-        for key in res2:
-            # test is_prob=False
-            assert torch.allclose(res2[key], re2[key][i], atol=1e-6)
-
-        for key in res3:
-            # test is prob=True
-            assert torch.allclose(res3[key], re3[key][i], atol=1e-6)
-
-
-def test_batched_fock_basis_states_and_data():
-    batch = 3
-    # set nphoton = max_photon_in_one_mode + 1
-    nphoton = 3
-    init_state = torch.randint(nphoton, (batch, 3))
-    data = torch.randn(batch * 8).reshape(batch, 8)
-
-    cir = dq.QumodeCircuit(nmode=3, init_state=init_state, basis=True)
-    cir.ps([0], encode=True)
-    cir.ps([1], encode=True)
-    cir.ps([2], encode=True)
-    cir.bs_theta([0, 1], encode=True)
-    cir.bs_theta([1, 2], encode=True)
-    cir.ps([0], encode=True)
-    cir.ps([1], encode=True)
-    cir.ps([2], encode=True)
-
-    re1 = cir(data=data, state=init_state, is_prob=None)
-    re2 = cir(data=data, state=init_state, is_prob=False)
-    re3 = cir(data=data, state=init_state, is_prob=True)
-
-    for i in range(init_state.shape[0]):
-        res1 = cir(data=data[i], state=init_state[i], is_prob=None)
-        res2 = cir(data=data[i], state=init_state[i], is_prob=False)
-        res3 = cir(data=data[i], state=init_state[i], is_prob=True)
-
-        # test is_prob=None
-        assert torch.allclose(res1, re1[i], atol=1e-6)
-
-        for key in res2:
-            # test is_prob=False
-            assert torch.allclose(res2[key], re2[key][i], atol=1e-5)
-
-        for key in res3:
-            # test is_prob=True
-            assert torch.allclose(res3[key], re3[key][i], atol=1e-6)
+    unitaries = cir(data=data, state=init_state)
+    amplitudes = cir(data=data, state=init_state, is_prob=False)
+    probabilities = cir(data=data, state=init_state, is_prob=True)
+    for i, state in enumerate(init_state):
+        row = data[i] if batch_data else data
+        unitary = cir(data=row, state=state)
+        if batch_data:
+            torch.testing.assert_close(unitary, unitaries[i], rtol=1e-5, atol=1e-6)
+        else:
+            assert torch.equal(unitary, unitaries[i])
+        for event, amplitude in cir(data=row, state=state, is_prob=False).items():
+            torch.testing.assert_close(amplitude, amplitudes[event][i], rtol=1e-5, atol=1e-5 if batch_data else 1e-6)
+        for event, probability in cir(data=row, state=state, is_prob=True).items():
+            torch.testing.assert_close(probability, probabilities[event][i], rtol=1e-5, atol=1e-6)
 
 
 def test_loss_batched_fock_basis_states():

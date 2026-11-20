@@ -243,11 +243,13 @@ class GaussianState(nn.Module):
 
         See https://arxiv.org/pdf/quant-ph/0503237.pdf Eq.(2.5)
         """
-        sign, log_det = torch.linalg.slogdet(4 * dqp.kappa**2 / dqp.hbar * self.cov)
-        is_pure = (sign > 0).all() and torch.allclose(
-            log_det, torch.tensor(0.0, device=log_det.device, dtype=log_det.dtype), rtol=rtol, atol=atol
-        )
-        return is_pure
+        return bool(self._purity_mask(self.cov, rtol, atol).all())
+
+    @staticmethod
+    def _purity_mask(cov: torch.Tensor, rtol: float = 3e-4, atol: float = 3e-4) -> torch.Tensor:
+        """Check each covariance matrix against the Gaussian pure-state determinant."""
+        sign, log_det = torch.linalg.slogdet(4 * dqp.kappa**2 / dqp.hbar * cov)
+        return (sign > 0) & torch.isclose(log_det, log_det.new_zeros(()), rtol=rtol, atol=atol)
 
     def wigner(
         self,

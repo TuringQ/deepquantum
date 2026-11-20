@@ -28,14 +28,12 @@ def test_gaussian_backend_auto_grad():
 
     target_prob = 0.5  # set vacuum state prob
     optimizer = torch.optim.Adam(para_ini, lr=0.05)
-    best_para = []
     for _ in range(500):
         optimizer.zero_grad()
         vac_prob = get_vac_prob(para_ini)  # forward
         loss = abs(target_prob - vac_prob)
         if loss < 1e-4:
-            best_para.append([i.detach().clone() for i in para_ini])
+            break
         loss.backward()  # backpropagation
         optimizer.step()  # update parameters
-    best_result = get_vac_prob(best_para[0])
-    assert abs(best_result - target_prob) < 1e-4
+    assert loss < 1e-4

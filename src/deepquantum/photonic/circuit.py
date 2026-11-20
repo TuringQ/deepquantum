@@ -8,6 +8,7 @@ from collections.abc import Generator, Sequence
 from contextlib import contextmanager, nullcontext
 from copy import copy, deepcopy
 from dataclasses import replace
+from functools import partial
 from operator import index as operator_index
 from typing import Any, overload
 
@@ -84,6 +85,7 @@ from .state import (
     combine_bosonic_states,
 )
 from .torontonian_ import torontonian
+from .utils import _chunk_capacity
 
 
 class QumodeCircuit(Operation):
@@ -560,7 +562,8 @@ class QumodeCircuit(Operation):
         )
         if self._is_batch_expanded:
             unitary = torch.block_diag(unitary, torch.eye(1, dtype=unitary.dtype, device=unitary.device))
-        sub_mats = vmap(sub_matrix, in_dims=(None, None, 0))(unitary, state, final_states)
+        nphoton = int(final_states[0].sum())
+        sub_mats = vmap(sub_matrix, in_dims=(None, None, 0))(unitary, state, final_states, nphoton=nphoton)
         per_norms = self._get_permanent_norms(state, final_states).to(unitary.dtype)
         if is_prob:
             rst = vmap(self._get_prob_fock_vmap)(sub_mats, per_norms)
@@ -664,7 +667,7 @@ class QumodeCircuit(Operation):
                     data, [cov, mean], stepwise
                 )
             self.encode(data[-1])
-        if self.backend == 'gaussian' and not self._with_delay:
+        if self.backend == 'gaussian':
             if is_prob:
                 self._state_raw = (cov, mean)
             self._state_units = (dqp.hbar, dqp.kappa)
@@ -699,7 +702,7 @@ class QumodeCircuit(Operation):
         elif stepwise:
             cov, mean = operators([cov, mean])
         else:
-            sp_mat = self._get_symplectic(operators)
+            sp_mat = self._get_symplectic(operators, cov)
             cov = sp_mat @ cov @ sp_mat.mT
             mean = self._get_displacement(mean, operators)
         return [cov.squeeze(0), mean.squeeze(0)]
@@ -826,7 +829,6 @@ class QumodeCircuit(Operation):
             mean = mean.expand(-1, shape_cov[1], -1, -1)
         cov = cov.reshape(-1, *shape_cov[-2:])
         mean = mean.reshape(-1, *shape_mean[-2:])
-        purity = GaussianState([cov, mean]).is_pure
         batch_forward = vmap(self._forward_gaussian_prob_helper, in_dims=(0, 0, None, None, None, None))
         if detector is None:
             detector = self.detector
@@ -835,6 +837,7 @@ class QumodeCircuit(Operation):
             self.detector = detector
         basis = self._get_odd_even_fock_basis(detector=detector)
         if detector == 'pnrd':
+            purity = bool(GaussianState._purity_mask(cov).all())
             idx_loop = torch.all(mean == 0, dim=1)
             idx_loop = idx_loop.squeeze(1)
             cov_0 = cov[idx_loop]
@@ -859,7 +862,7 @@ class QumodeCircuit(Operation):
         elif detector in ('threshold', 'click'):
             final_states = torch.cat(basis)
             loop = detector == 'threshold' or not bool(torch.all(mean == 0))
-            probs = batch_forward(cov, mean, basis, detector, purity, loop)
+            probs = batch_forward(cov, mean, basis, detector, None, loop)
         keys = list(map(FockState, final_states.tolist()))
         # TODO: Fock probabilities for Bosonic state with weights
         # if weight is not None:
@@ -1339,7 +1342,9 @@ class QumodeCircuit(Operation):
             operators = self._unroll_operators(spatial, nmode, step, loop_map)
             if model is None:
                 return operators(sample)
-            return model(sample, operators, self.backend, spatial, self.operators, _run=run)
+            if self._with_delay:
+                return model(sample, operators, self.backend, spatial, self.operators, _run=run)
+            return model(sample, operators, self.backend, spatial, _run=run)
 
         if data is None or data.ndim == 1:
             return evolve(data, state)
@@ -1534,9 +1539,10 @@ class QumodeCircuit(Operation):
     def get_symplectic(self) -> torch.Tensor:
         """Get the ideal circuit's symplectic matrix, requiring no explicit channels."""
         self._prepare_unroll_dict()
-        return self._get_symplectic(self._unroll_operators())
+        return self._get_symplectic(self._unroll_operators(), getattr(self.init_state, 'cov', None))
 
-    def _get_symplectic(self, operators: nn.Sequential) -> torch.Tensor:
+    def _get_symplectic(self, operators: nn.Sequential, cov: torch.Tensor | None = None) -> torch.Tensor:
+        """Compose optical gates, using the covariance's dtype and device for the identity."""
         s = None
         for op in operators:
             if isinstance(op, Barrier):
@@ -1547,7 +1553,10 @@ class QumodeCircuit(Operation):
                 )
             s = op.get_symplectic() if s is None else op.get_symplectic() @ s
         if s is None:
-            return torch.eye(2 * self._nmode_tdm, dtype=torch.float)
+            nquad = 2 * self._nmode_tdm
+            if cov is None:
+                return torch.eye(nquad, dtype=torch.float)
+            return torch.eye(nquad, dtype=cov.dtype, device=cov.device)
         return s
 
     def get_displacement(self, init_mean: Any) -> torch.Tensor:
@@ -1634,7 +1643,9 @@ class QumodeCircuit(Operation):
             idx_nonzero = torch.where(torch.sum(state, dim=-1) == torch.sum(final_state))[0]
             amp = torch.zeros(state.shape[0], dtype=unitary.dtype, device=unitary.device)
             if idx_nonzero.numel() != 0:
-                sub_mats = vmap(sub_matrix, in_dims=(None, 0, None))(unitary, state[idx_nonzero], final_state)
+                sub_mats = vmap(sub_matrix, in_dims=(None, 0, None))(
+                    unitary, state[idx_nonzero], final_state, nphoton=int(final_state.sum())
+                )
                 per_norms = self._get_permanent_norms(state[idx_nonzero], final_state).to(unitary.dtype)
                 rst = vmap(self._get_amplitude_fock_vmap)(sub_mats, per_norms).flatten()
                 amp[idx_nonzero] = rst
@@ -1651,7 +1662,9 @@ class QumodeCircuit(Operation):
 
         Args:
             final_state: The final Fock basis state with shape ``(nmode,)``. For Gaussian backend,
-                multiple final states with shape ``(npattern, nmode)`` are also supported.
+                multiple final states with shape ``(npattern, nmode)`` are also supported and returned in
+                the supplied order, including patterns with different total photon counts.
+                Threshold patterns contain 0 or 1 per mode.
             refer_state: The initial Fock basis state or the final Gaussian state. Default: ``None``
             unitary: The unitary matrix. Default: ``None`` (the ideal circuit unitary)
         """
@@ -1660,16 +1673,21 @@ class QumodeCircuit(Operation):
             if refer_state is not None or unitary is not None:
                 raise ValueError('Submode probabilities use the most recent forward state.')
             return self._submode_circuit.get_spatial_prob(final_state)
+        threshold = self.backend == 'gaussian' and self.detector == 'threshold'
         if not isinstance(final_state, torch.Tensor):
-            final_state = torch.tensor(final_state, dtype=torch.long)
-        result_name = 'clicks' if self.backend == 'gaussian' and self.detector == 'click' else 'photons'
+            final_state = torch.as_tensor(final_state, dtype=None if threshold else torch.long)
+        result_name = 'clicks' if self.backend == 'gaussian' and self.detector in ('click', 'threshold') else 'photons'
         assert final_state.numel() > 0, 'The final state must not be empty'
         if self.backend == 'gaussian':
             assert final_state.ndim in (1, 2), 'The final state must be 1D or 2D for Gaussian backend'
         else:
             assert final_state.ndim == 1, 'The final state must be 1D'
-        assert torch.all(final_state >= 0), f'The number of {result_name} must be non-negative'
-        assert final_state.max() < self.cutoff, f'The number of {result_name} must be less than cutoff'
+        if threshold:
+            assert torch.all((final_state == 0) | (final_state == 1)), 'Threshold outcomes must be 0 or 1'
+            final_state = final_state.long()
+        else:
+            assert torch.all(final_state >= 0), f'The number of {result_name} must be non-negative'
+            assert final_state.max() < self.cutoff, f'The number of {result_name} must be less than cutoff'
         if self.backend == 'fock':
             if unitary is None:
                 unitary = self.get_unitary()
@@ -1704,9 +1722,8 @@ class QumodeCircuit(Operation):
                 rst = list(rst.values())[0]
             return rst
         elif self.backend == 'gaussian':
-            nmode = self._nmode_tdm if self._with_delay else self.nmode
             if refer_state is None:
-                refer_state = GaussianState(self.state, nmode=nmode, cutoff=self.cutoff)
+                refer_state = self._get_output_state()
             return self._get_prob_gaussian(final_state, refer_state)
 
     def _get_prob_fock(
@@ -1741,35 +1758,120 @@ class QumodeCircuit(Operation):
         assert final_state.ndim in (1, 2)
         is_single = final_state.ndim == 1
         final_states = final_state.unsqueeze(0) if is_single else final_state
-        if self.detector in ('pnrd', 'threshold') and not is_single:
-            totals = final_states.sum(dim=-1)
-            assert torch.all(totals == totals[0]), (
-                'PNRD and threshold patterns in one batch must have the same total occupation'
-            )
         if state is None:
-            cov = self._cov
-            mean = self._mean
+            cov, mean = self._cov, self._mean
+        elif isinstance(state, (list, tuple)) and all(isinstance(x, torch.Tensor) for x in state):
+            cov, mean = state
         else:
             if not isinstance(state, GaussianState):
                 state = GaussianState(state=state, cutoff=self.cutoff)
-            cov = state.cov
-            mean = state.mean
-        if cov.ndim == 2:
-            cov = cov.unsqueeze(0)
-        if mean.ndim == 2:
-            mean = mean.unsqueeze(0)
-        assert cov.ndim == mean.ndim == 3
-        batch = cov.shape[0]
-        probs = []
-        for i in range(batch):
-            prob = self._get_probs_gaussian_helper(final_states, cov=cov[i], mean=mean[i], detector=self.detector)
-            probs.append(prob)
-        probs = torch.stack(probs)
-        if batch == 1:
+            cov, mean = state.cov, state.mean
+        nmode = cov.shape[-1] // 2
+        cov = cov.reshape(-1, 2 * nmode, 2 * nmode)
+        mean = mean.reshape(-1, 2 * nmode, 1)
+        order = None
+        event_groups = None
+        if self.detector in ('pnrd', 'threshold'):
+            if len(final_states) > 1:
+                # Each group has one Hafnian or Torontonian matrix size, shared by all input chunks.
+                totals, order = final_states.sum(-1).sort()
+                counts, sizes = torch.stack(totals.unique_consecutive(return_counts=True)).tolist()
+                final_states = final_states[order].to(cov.device)
+                event_groups = tuple(zip(final_states.split(sizes), counts, strict=True))
+            else:
+                nphoton = int(final_states[0].sum())
+                final_states = final_states.to(cov.device)
+                event_groups = ((final_states, nphoton),)
+        probs = self._get_probs_gaussian_state_batch(final_states, cov, mean, event_groups)
+        if order is not None:
+            probs = probs[:, order.argsort().to(cov.device)]
+        if len(cov) == 1:
             probs = probs[0]
         if is_single:
             probs = probs[..., 0]
         return probs
+
+    def _get_probs_gaussian_state_batch(
+        self,
+        final_states: torch.Tensor,
+        cov: torch.Tensor,
+        mean: torch.Tensor,
+        event_groups: tuple[tuple[torch.Tensor, int], ...] | None,
+    ) -> torch.Tensor:
+        """Evaluate common event patterns for each input, keeping its purity and displacement branches."""
+        get_probs = partial(
+            self._get_probs_gaussian_helper, final_states, detector=self.detector, event_groups=event_groups
+        )
+        if len(cov) == len(mean) == 1:
+            return get_probs(cov[0], mean[0]).unsqueeze(0)
+        batch_get_probs = vmap(get_probs)
+        if len(cov) != len(mean):
+            if self.detector == 'threshold':
+                return batch_get_probs(cov, mean, loop=True)
+            # External moments have historically been paired by covariance row.
+            return torch.stack([get_probs(c, mean[i]) for i, c in enumerate(cov)])
+
+        if self.detector == 'threshold':
+            state_groups = {(False, True): range(len(cov))}
+            entry_bytes = 2 * cov.element_size()
+        else:
+            displaced = mean.ne(0).any(dim=(-2, -1))
+            pure = GaussianState._purity_mask(cov) if self.detector == 'pnrd' else torch.zeros_like(displaced)
+            state_groups = defaultdict(list)
+            for row, (purity, loop) in enumerate(torch.stack([pure, displaced], dim=-1).tolist()):
+                state_groups[purity, loop].append(row)
+            # The Hafnian promotes its subset matrices to complex128. Click counting uses real quadratures.
+            entry_bytes = torch.cdouble.itemsize if self.detector == 'pnrd' else cov.element_size()
+
+        if len(state_groups) == len(cov):
+            # Each branch has one input and the groups are already in input order.
+            return torch.stack(
+                [get_probs(cov[i], mean[i], purity=p, loop=loop) for i, (p, loop) in enumerate(state_groups)]
+            )
+
+        capacity = _chunk_capacity(cov.device, entry_bytes)
+        if event_groups is None:
+            counts = [(int(final_states.sum(-1).max()), len(final_states))]
+        else:
+            counts = [(total, len(group)) for group, total in event_groups]
+        blocks = []
+        for (purity, loop), rows in state_groups.items():
+            chunk_size = self._gaussian_prob_chunk_size(capacity, cov.shape[-1] // 2, counts, purity)
+            whole_batch = len(rows) == len(cov)
+            if whole_batch and len(rows) <= chunk_size:
+                return batch_get_probs(cov, mean, purity=purity, loop=loop)
+            for start in range(0, len(rows), chunk_size):
+                stop = min(start + chunk_size, len(rows))
+                if stop == start + 1:
+                    row = rows[start]
+                    block = get_probs(cov[row], mean[row], purity=purity, loop=loop).unsqueeze(0)
+                else:
+                    indices = slice(start, stop) if whole_batch else rows[start:stop]
+                    block = batch_get_probs(cov[indices], mean[indices], purity=purity, loop=loop)
+                blocks.append(block)
+        probs = torch.cat(blocks)
+        if len(state_groups) > 1:
+            order = torch.tensor(list(itertools.chain.from_iterable(state_groups.values())), device=cov.device)
+            probs = probs[order.argsort()]
+        return probs
+
+    def _gaussian_prob_chunk_size(self, capacity: int, nmode: int, counts: list[tuple[int, int]], pure: bool) -> int:
+        """Size an input chunk for the largest intermediate over sequential event groups."""
+        elements = (2 * nmode) ** 2
+        for total, nevent in counts:
+            k = (total + 1) // 2 if pure else total
+            if self.detector == 'threshold' and k:
+                # Torontonian subsets of size j run together. C(k,j) * (2*j)**2 peaks at j = k//2 + 1.
+                j = k // 2 + 1
+                elements = max(elements, nevent * math.comb(k, j) * (2 * j) ** 2)
+            else:
+                # Once one input fills the budget, larger exponents still give a single-input chunk.
+                subsets = 2 ** min(k, capacity.bit_length())
+                if self.detector == 'click' and k > nmode:
+                    k = nmode
+                    subsets = min(subsets, self.cutoff ** min(k, capacity.bit_length()))
+                elements = max(elements, nevent * subsets * (2 * k) ** 2)
+        return max(1, capacity // elements)
 
     def _get_probs_gaussian_helper(
         self,
@@ -1779,8 +1881,13 @@ class QumodeCircuit(Operation):
         detector: str = 'pnrd',
         purity: bool | None = None,
         loop: bool | None = None,
+        *,
+        event_groups: tuple[tuple[torch.Tensor, int], ...] | None = None,
     ) -> torch.Tensor:
         r"""Get the probabilities of the final states for Gaussian backend.
+
+        For PNRD and threshold, each consecutive group must have a common total occupation.
+        If ``event_groups`` is omitted, all final states form one group.
 
         See https://arxiv.org/pdf/2010.15595v4 Eq.(3)-(5) and Eq.(8)-(12).
         The vacuum prefactor in Eq.(10) is evaluated using :math:`\ln\det Q`, since :math:`Q` is positive Hermitian.
@@ -1813,11 +1920,16 @@ class QumodeCircuit(Operation):
         # complex64 det-backward dtype mismatch with a float64 default in PyTorch.
         log_det = torch.linalg.slogdet(q)[1]
         p_vac = torch.exp(-(mean_ladder.mH @ q_inv_mean + log_det) / 2)
-        if purity is None:
-            purity = GaussianState([cov, mean]).is_pure
+        if purity is None and detector == 'pnrd':
+            purity = bool(GaussianState._purity_mask(cov))
         batch_get_prob = vmap(self._get_prob_gaussian_base, in_dims=(0, None, None, None, None, None, None))
-        probs = batch_get_prob(final_states, matrix, gamma, p_vac, detector, purity, loop)
-        return probs
+        if event_groups is None:
+            event_groups = ((final_states, int(final_states[0].sum())),)
+        probs = [
+            batch_get_prob(group, matrix, gamma, p_vac, detector, purity, loop, nphoton=nphoton)
+            for group, nphoton in event_groups
+        ]
+        return probs[0] if len(probs) == 1 else torch.cat(probs)
 
     def _get_probs_gaussian_click(
         self,
@@ -1890,27 +2002,21 @@ class QumodeCircuit(Operation):
         detector: str = 'pnrd',
         purity: bool = True,
         loop: bool = False,
+        *,
+        nphoton: int,
     ) -> torch.Tensor:
         r"""Get the probability of the final state for Gaussian backend.
 
         See https://arxiv.org/pdf/2010.15595v4 Eq.(11)-(12).
         For pure states, normalize the loop hafnian by :math:`\sqrt{\prod_j n_j!}` before taking its squared modulus.
         """
-        gamma = gamma.squeeze()
         nmode = len(final_state)
-        with warnings.catch_warnings():
-            warnings.filterwarnings('ignore')  # local warning
-            gamma_n1 = torch.repeat_interleave(gamma[:nmode], final_state)
-            gamma_n2 = torch.repeat_interleave(gamma[nmode:], final_state)
-        sub_gamma = torch.cat([gamma_n1, gamma_n2])
+        indices = torch.repeat_interleave(final_state, output_size=nphoton)
+        if detector == 'threshold' or not purity:
+            indices = torch.cat([indices, indices + nmode])
+        sub_gamma = gamma.flatten()[indices]
+        sub_mat = matrix[indices[:, None], indices]
         if detector == 'pnrd':
-            if purity:
-                sub_mat = sub_matrix(matrix[:nmode, :nmode], final_state, final_state)
-                half_len = len(sub_gamma) // 2
-                sub_gamma = sub_gamma[:half_len]
-            else:
-                final_state_double = torch.cat([final_state, final_state])
-                sub_mat = sub_matrix(matrix, final_state_double, final_state_double)
             if len(sub_gamma) == 1:
                 sub_mat = sub_gamma
             else:
@@ -1920,8 +2026,6 @@ class QumodeCircuit(Operation):
             normalized = temp_haf / norm
             prob = p_vac * (normalized.real.square() + normalized.imag.square() if purity else normalized)
         elif detector == 'threshold':
-            final_state_double = torch.cat([final_state, final_state])
-            sub_mat = sub_matrix(matrix, final_state_double, final_state_double)
             prob = p_vac * torontonian(sub_mat, sub_gamma)
         return abs(prob.real).squeeze()
 
@@ -2082,7 +2186,8 @@ class QumodeCircuit(Operation):
         """
         if final_states is None:
             final_states = self._out_fock_basis
-        sub_mats = vmap(sub_matrix, in_dims=(None, None, 0))(unitary, init_state, final_states)
+        nphoton = int(final_states[0].sum())
+        sub_mats = vmap(sub_matrix, in_dims=(None, None, 0))(unitary, init_state, final_states, nphoton=nphoton)
         per_norms = self._get_permanent_norms(init_state, final_states).to(unitary.dtype)
         rst = vmap(self._get_prob_fock_vmap)(sub_mats, per_norms)
         state_dict = {}

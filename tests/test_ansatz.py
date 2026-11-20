@@ -1,6 +1,8 @@
 import math
 from fractions import Fraction
 
+import pytest
+
 import deepquantum as dq
 
 
@@ -93,55 +95,15 @@ def test_controlled_ua():
     assert int(max_key, 2) == 0
 
 
-def test_shor_general():
+@pytest.mark.parametrize('circuit_type,kwargs', [(dq.ShorCircuit, {'mod': 15}), (dq.ShorCircuitFor15, {})])
+def test_shor_finds_factors_of_15(circuit_type, kwargs):
     a = 7
-    mod = 15
     ncount = 8
-    found = False
-    trial = 0
-    while not found:
-        trial += 1
-        print(f'\ntrial {trial}:')
-        cir = dq.ShorCircuit(mod, ncount, a)
-        cir()
-        res = cir.measure(wires=list(range(ncount)), shots=1)
-        max_key = max(res, key=res.get)
-        phase = int(max_key, 2) / 2**ncount
-        frac = Fraction(phase).limit_denominator(mod)
-        r = frac.denominator
-        print(f'Result: r = {r}')
-        if phase != 0:
-            guesses = [math.gcd(a ** (r // 2) - 1, mod), math.gcd(a ** (r // 2) + 1, mod)]
-            print(f'Guessed Factors: {guesses[0]} and {guesses[1]}')
-            for guess in guesses:
-                if guess not in [1, mod] and (mod % guess) == 0:
-                    print(f'*** Non-trivial factor found: {guess} ***')
-                    found = True
-                    assert guess in [3, 5]
-
-
-def test_shor_special():
-    a = 7
-    mod = 15
-    ncount = 8
-    found = False
-    trial = 0
-    while not found:
-        trial += 1
-        print(f'\ntrial {trial}:')
-        cir = dq.ShorCircuitFor15(ncount, a)
-        cir()
-        res = cir.measure(wires=list(range(ncount)), shots=1)
-        max_key = max(res, key=res.get)
-        phase = int(max_key, 2) / 2**ncount
-        frac = Fraction(phase).limit_denominator(mod)
-        r = frac.denominator
-        print(f'Result: r = {r}')
-        if phase != 0:
-            guesses = [math.gcd(a ** (r // 2) - 1, mod), math.gcd(a ** (r // 2) + 1, mod)]
-            print(f'Guessed Factors: {guesses[0]} and {guesses[1]}')
-            for guess in guesses:
-                if guess not in [1, mod] and (mod % guess) == 0:
-                    print(f'*** Non-trivial factor found: {guess} ***')
-                    found = True
-                    assert guess in [3, 5]
+    circuit = circuit_type(ncount=ncount, a=a, **kwargs)
+    probabilities = circuit().reshape(2**ncount, -1).abs().square().sum(-1)
+    # The order of 7 modulo 15 is four, giving peaks at k/4 on the counting register.
+    peaks = probabilities.topk(4).indices.sort().values.tolist()
+    assert peaks == [0, 64, 128, 192]
+    period = Fraction(peaks[1], 2**ncount).denominator
+    factors = {math.gcd(a ** (period // 2) + sign, 15) for sign in (-1, 1)}
+    assert factors == {3, 5}

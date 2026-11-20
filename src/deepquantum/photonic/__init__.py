@@ -83,7 +83,7 @@ from .state import (
 from .submode import SubmodeResult
 from .tdm import QumodeCircuitTDM
 from .torontonian_ import torontonian
-from .utils import set_hbar, set_kappa, set_perm_chunksize
+from .utils import set_chunk_budget, set_hbar, set_kappa, set_perm_chunksize
 
 hbar = 2
 kappa = 2 ** (-0.5)

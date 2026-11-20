@@ -59,21 +59,23 @@ def test_kensingtonian_batch_chunk_and_edge_cases():
 def test_qumode_circuit_click_matches_coherent_binomial_distribution():
     cutoff = 5
     num_detectors = cutoff - 1
-    displacement = 0.6
+    displacement = torch.tensor([0.6, 0.0, 0.35], dtype=torch.double, requires_grad=True)
+    controls = torch.stack([displacement, torch.full_like(displacement, 0.3)], dim=-1)
     cir = dq.QumodeCircuit(1, 'vac', cutoff=cutoff, backend='gaussian', detector='click')
-    cir.d(0, displacement, theta=0.3)
+    cir.d(0, encode=True)
     cir.to(torch.double)
-    cir()
-    click_prob = 1 - torch.exp(torch.tensor(-(displacement**2) / num_detectors, dtype=torch.double))
-
-    for num_clicks in range(cutoff):
-        expected = (
-            comb(num_detectors, num_clicks) * click_prob**num_clicks * (1 - click_prob) ** (num_detectors - num_clicks)
-        )
-        assert torch.allclose(cir.get_prob([num_clicks]), expected, atol=1e-10)
-
-    probs = torch.stack(list(cir(is_prob=True).values()))
-    assert torch.allclose(probs.sum(), torch.ones((), dtype=torch.double), atol=1e-10)
+    cir(controls)
+    actual = cir.get_prob(torch.arange(cutoff).unsqueeze(-1))
+    click_prob = 1 - torch.exp(-displacement.square() / num_detectors)
+    expected = torch.stack(
+        [comb(num_detectors, k) * click_prob**k * (1 - click_prob) ** (num_detectors - k) for k in range(cutoff)], -1
+    )
+    torch.testing.assert_close(actual, expected, atol=1e-10, rtol=0)
+    torch.testing.assert_close(
+        torch.autograd.grad(actual[:, 2].sum(), displacement), torch.autograd.grad(expected[:, 2].sum(), displacement)
+    )
+    table = cir(controls, is_prob=True)
+    torch.testing.assert_close(torch.stack([table[dq.FockState([k])] for k in range(cutoff)], -1), expected)
 
 
 def test_qumode_circuit_click_probabilities_are_normalized():
@@ -106,13 +108,7 @@ def test_qumode_circuit_click_matches_cpu_on_mps():
     final_states = torch.tensor([[0, 2], [2, 0]])
     cir = dq.QumodeCircuit(2, 'vac', cutoff=3, backend='gaussian', detector='click')
 
-    expected = cir._get_probs_gaussian_helper(final_states, cov, mean, detector='click', loop=True)
-    actual = cir._get_probs_gaussian_helper(
-        final_states,
-        cov.to('mps'),
-        mean.to('mps'),
-        detector='click',
-        loop=True,
-    ).cpu()
+    expected = cir.get_prob(final_states, [cov, mean])
+    actual = cir.get_prob(final_states, [cov.to('mps'), mean.to('mps')]).cpu()
 
     assert torch.allclose(actual, expected, rtol=1e-5, atol=1e-5)

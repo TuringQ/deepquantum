@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import torch
 from graphix import Pattern, command
 from graphix.fundamentals import Plane
@@ -128,53 +129,8 @@ def test_standardize():
     assert torch.allclose(torch.abs(torch.tensor(state.flatten(), dtype=torch.complex64)), torch.abs(state2.flatten()))
 
 
-def test_signal_shifting():
-    alpha = np.random.rand(100)
-    results_1 = 0
-    results_2 = 1
-
-    while results_1 != results_2:
-        pat_gx = Pattern([0])
-        for i in range(3):
-            pat_gx.add(command.N(1 + 2 * i))
-            pat_gx.add(command.N(2 + 2 * i))
-            pat_gx.add(command.E(nodes=(0 + 2 * i, 1 + 2 * i)))
-            pat_gx.add(command.E(nodes=(1 + 2 * i, 2 + 2 * i)))
-            if i == 0:
-                pat_gx.add(command.M(node=0 + 2 * i, angle=alpha[50]))
-                pat_gx.add(command.M(node=1 + 2 * i, angle=alpha[51], s_domain={0}, t_domain={0}))
-            else:
-                pat_gx.add(command.M(node=0 + 2 * i, angle=alpha[2 * i], s_domain={2 * i - 1}, t_domain={2 * i - 1}))
-                pat_gx.add(command.M(node=1 + 2 * i, angle=alpha[2 * i + 1], s_domain={(2 * i - 1), 2 * i}))
-            pat_gx.add(command.X(node=2 + 2 * i, domain={0 + 2 * i, 1 + 2 * i}))
-            pat_gx.add(command.Z(node=2 + 2 * i, domain={1 + 2 * i}))
-        pat_gx.standardize()
-        pat_gx.shift_signals()
-        state = pat_gx.simulate_pattern(backend='statevector')
-        results_1 = pat_gx.results
-
-        pat_dq = dq.Pattern(nodes_state=[0])
-        for i in range(3):
-            pat_dq.n(1 + 2 * i)
-            pat_dq.n(2 + 2 * i)
-            pat_dq.e(0 + 2 * i, 1 + 2 * i)
-            pat_dq.e(1 + 2 * i, 2 + 2 * i)
-            if i == 0:
-                pat_dq.m(node=0 + 2 * i, angle=alpha[50] * torch.pi)
-                pat_dq.m(node=1 + 2 * i, angle=alpha[51] * torch.pi, s_domain=[0], t_domain=[0])
-            else:
-                pat_dq.m(node=0 + 2 * i, angle=alpha[2 * i] * torch.pi, s_domain=[2 * i - 1], t_domain=[2 * i - 1])
-                pat_dq.m(node=1 + 2 * i, angle=alpha[2 * i + 1] * torch.pi, s_domain=[2 * i - 1, 2 * i])
-            pat_dq.x(node=2 + 2 * i, domain=[0 + 2 * i, 1 + 2 * i])
-            pat_dq.z(node=2 + 2 * i, domain=[1 + 2 * i])
-        pat_dq.standardize()
-        pat_dq.shift_signals()
-        state2 = pat_dq().full_state
-        results_2 = pat_dq.state.measure_dict
-    assert torch.allclose(torch.abs(torch.tensor(state.flatten(), dtype=torch.complex64)), torch.abs(state2.flatten()))
-
-
-def test_signal_shifting_plane_yz():
+@pytest.mark.parametrize('plane', [Plane.XY, Plane.YZ, Plane.XZ], ids=['xy', 'yz', 'xz'])
+def test_signal_shifting(plane):
     alpha = np.random.rand(100)
     results_1 = 0
     results_2 = 1
@@ -192,7 +148,7 @@ def test_signal_shifting_plane_yz():
             else:
                 pat_gx.add(
                     command.M(
-                        node=0 + 2 * i, angle=alpha[2 * i], s_domain={2 * i - 1}, t_domain={2 * i - 1}, plane=Plane.YZ
+                        node=0 + 2 * i, angle=alpha[2 * i], s_domain={2 * i - 1}, t_domain={2 * i - 1}, plane=plane
                     )
                 )
                 pat_gx.add(command.M(node=1 + 2 * i, angle=alpha[2 * i + 1], s_domain={(2 * i - 1), 2 * i}))
@@ -213,66 +169,11 @@ def test_signal_shifting_plane_yz():
                 pat_dq.m(node=0 + 2 * i, angle=alpha[50] * torch.pi)
                 pat_dq.m(node=1 + 2 * i, angle=alpha[51] * torch.pi, s_domain=[0], t_domain=[0])
             else:
+                angle = alpha[2 * i] * torch.pi
                 pat_dq.m(
                     node=0 + 2 * i,
-                    angle=torch.pi / 2 - alpha[2 * i] * torch.pi,
-                    plane='yz',
-                    s_domain=[2 * i - 1],
-                    t_domain=[2 * i - 1],
-                )
-                pat_dq.m(node=1 + 2 * i, angle=alpha[2 * i + 1] * torch.pi, s_domain=[2 * i - 1, 2 * i])
-            pat_dq.x(node=2 + 2 * i, domain=[0 + 2 * i, 1 + 2 * i])
-            pat_dq.z(node=2 + 2 * i, domain=[1 + 2 * i])
-        pat_dq.standardize()
-        pat_dq.shift_signals()
-        state2 = pat_dq().full_state
-        results_2 = pat_dq.state.measure_dict
-    assert torch.allclose(torch.abs(torch.tensor(state.flatten(), dtype=torch.complex64)), torch.abs(state2.flatten()))
-
-
-def test_signal_shifting_plane_xz():
-    alpha = np.random.rand(100)
-    results_1 = 0
-    results_2 = 1
-
-    while results_1 != results_2:
-        pat_gx = Pattern([0])
-        for i in range(3):
-            pat_gx.add(command.N(1 + 2 * i))
-            pat_gx.add(command.N(2 + 2 * i))
-            pat_gx.add(command.E(nodes=(0 + 2 * i, 1 + 2 * i)))
-            pat_gx.add(command.E(nodes=(1 + 2 * i, 2 + 2 * i)))
-            if i == 0:
-                pat_gx.add(command.M(node=0 + 2 * i, angle=alpha[50]))
-                pat_gx.add(command.M(node=1 + 2 * i, angle=alpha[51], s_domain={0}, t_domain={0}))
-            else:
-                pat_gx.add(
-                    command.M(
-                        node=0 + 2 * i, angle=alpha[2 * i], s_domain={2 * i - 1}, t_domain={2 * i - 1}, plane=Plane.XZ
-                    )
-                )
-                pat_gx.add(command.M(node=1 + 2 * i, angle=alpha[2 * i + 1], s_domain={(2 * i - 1), 2 * i}))
-            pat_gx.add(command.X(node=2 + 2 * i, domain={0 + 2 * i, 1 + 2 * i}))
-            pat_gx.add(command.Z(node=2 + 2 * i, domain={1 + 2 * i}))
-        pat_gx.standardize()
-        pat_gx.shift_signals()
-        state = pat_gx.simulate_pattern(backend='statevector')
-        results_1 = pat_gx.results
-
-        pat_dq = dq.Pattern(nodes_state=[0])
-        for i in range(3):
-            pat_dq.n(1 + 2 * i)
-            pat_dq.n(2 + 2 * i)
-            pat_dq.e(0 + 2 * i, 1 + 2 * i)
-            pat_dq.e(1 + 2 * i, 2 + 2 * i)
-            if i == 0:
-                pat_dq.m(node=0 + 2 * i, angle=alpha[50] * torch.pi)
-                pat_dq.m(node=1 + 2 * i, angle=alpha[51] * torch.pi, s_domain=[0], t_domain=[0])
-            else:
-                pat_dq.m(
-                    node=0 + 2 * i,
-                    angle=alpha[2 * i] * torch.pi,
-                    plane='xz',
+                    angle=torch.pi / 2 - angle if plane == Plane.YZ else angle,
+                    plane=plane.name.lower(),
                     s_domain=[2 * i - 1],
                     t_domain=[2 * i - 1],
                 )

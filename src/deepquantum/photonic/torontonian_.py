@@ -21,7 +21,8 @@ def _tor_helper(submat: torch.Tensor, sub_gamma: torch.Tensor) -> torch.Tensor:
     size = submat.shape[-1]
     cov_q_inv = torch.eye(size, dtype=submat.dtype, device=submat.device) - submat
     exp_term = sub_gamma @ torch.linalg.solve(cov_q_inv, sub_gamma.conj()) / 2
-    return torch.exp(exp_term) / torch.sqrt(torch.linalg.det(cov_q_inv))
+    sign, logabsdet = torch.linalg.slogdet(cov_q_inv)
+    return torch.exp(exp_term - logabsdet / 2) / sign.sqrt()
 
 
 def torontonian(o_mat: torch.Tensor, gamma: torch.Tensor | None = None) -> torch.Tensor:
