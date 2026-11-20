@@ -159,6 +159,30 @@ def test_bargmann_hardware_seeded_control_noise():
     torch.testing.assert_close(circuit().to_fock(2)[0, 1], torch.exp(1j * sampled_theta))
 
 
+def test_bargmann_hardware_legacy_forward_signature():
+    class LegacyModel(dqp.HardwareModel):
+        def forward(self, state, operators, backend, wires=None, *, _run=None):
+            return super().forward(state, operators, backend, wires, _run=_run)
+
+    circuit = dq.QumodeCircuit(1, [1], cutoff=2, backend='bargmann')
+    circuit.ps(0, encode=True)
+    circuit.set_hardware_model(LegacyModel().ps(0).theta.gaussian(mu=0.25, sigma=0))
+    angles = torch.tensor([[0.125], [0.5]], dtype=dtype)
+    amplitudes = circuit.to(dtype)(angles).to_fock(2)[:, 1]
+    torch.testing.assert_close(amplitudes, torch.exp(1j * (angles[:, 0] + 0.25)))
+
+
+def test_bargmann_delay_applies_gate_bound_loss_on_mapped_wire():
+    circuit = dq.QumodeCircuit(1, [1], cutoff=2, backend='bargmann', den_mat=True)
+    circuit.delay(0, ntau=1, inputs=[math.pi / 4, 0])
+    circuit.ps(0, 0.0)
+    circuit.set_hardware_model(dqp.HardwareModel().on(circuit.operators[-1]).after.loss(t=0.25))
+    density = circuit.to(dtype)().to_fock(2).reshape(4, 4)
+    # Half of the photon probability is in the loop. Only the spatial output sees the loss.
+    expected = torch.tensor([0.375, 0.125, 0.5, 0.0], dtype=dtype)
+    torch.testing.assert_close(density.diagonal().real, expected)
+
+
 def test_bargmann_hardware_input_and_gate_boundary_loss_match_explicit_channels():
     circuit = dq.QumodeCircuit(2, [1, 0], cutoff=2, backend='bargmann', den_mat=True)
     circuit.ps(0, 0.1)

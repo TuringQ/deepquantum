@@ -1339,7 +1339,9 @@ class QumodeCircuit(Operation):
             operators = self._unroll_operators(spatial, nmode, step, loop_map)
             if model is None:
                 return operators(sample)
-            return model(sample, operators, self.backend, spatial, self.operators, _run=run)
+            if self._with_delay:
+                return model(sample, operators, self.backend, spatial, self.operators, _run=run)
+            return model(sample, operators, self.backend, spatial, _run=run)
 
         if data is None or data.ndim == 1:
             return evolve(data, state)
