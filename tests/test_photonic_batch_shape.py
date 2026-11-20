@@ -91,10 +91,9 @@ def test_gaussian_get_prob_batch_shapes():
     torch.testing.assert_close(cir.get_prob(multiplexed, state), expected)
 
 
-@pytest.mark.parametrize('detector', ['pnrd', 'threshold'])
-def test_gaussian_get_prob_fixed_total_pattern_batch(detector):
-    cir = dq.QumodeCircuit(2, 'vac', cutoff=3, backend='gaussian', detector=detector)
-    cir.s(0, r=0.2)
+def test_gaussian_pnrd_get_prob_fixed_total_pattern_batch():
+    cir = dq.QumodeCircuit(2, 'vac', cutoff=3, backend='gaussian', detector='pnrd')
+    cir.d(0, r=0.35)
     cir.to(torch.double)
     state = cir()
     patterns = torch.tensor([[1, 0], [0, 1]])
@@ -105,6 +104,57 @@ def test_gaussian_get_prob_fixed_total_pattern_batch(detector):
     torch.testing.assert_close(batched, expected)
     with pytest.raises(AssertionError, match='same total occupation'):
         cir.get_prob(torch.tensor([[0, 0], [1, 0]]), state)
+
+
+@pytest.mark.parametrize('dtype', [torch.float32, torch.float64])
+@pytest.mark.parametrize('lossy', [False, True])
+@pytest.mark.parametrize('angles', [[[0.1]], [[0.1], [0.4], [0.9]]], ids=['single', 'batch'])
+def test_gaussian_threshold_probabilities_in_requested_order(dtype, lossy, angles, request):
+    previous_dtype = torch.get_default_dtype()
+    request.addfinalizer(lambda: torch.set_default_dtype(previous_dtype))
+    torch.set_default_dtype(torch.float64)
+    cir = dq.QumodeCircuit(2, 'vac', cutoff=1, backend='gaussian', detector='threshold')
+    cir.s(0, r=0.55)
+    cir.d(1, r=0.23, theta=0.4)
+    cir.ps(0, encode=True)
+    cir.bs([0, 1], inputs=[0.78, 0.0])
+    if lossy:
+        loss_angle = torch.tensor(2.6, dtype=dtype, requires_grad=True)
+        cir.loss(0, inputs=loss_angle)
+        cir.loss_t(1, inputs=0.1)
+    cir.to(dtype)
+    phases = torch.tensor(angles, dtype=dtype, requires_grad=True)
+    patterns = [[1, 1], [0, 0], [1, 0], [0, 1], [1, 0]]
+    cov, mean = cir(phases)
+    double_click = cir.get_prob([1, 1])
+    one_bin = dq.QumodeCircuit(2, 'vac', cutoff=2, backend='gaussian', detector='click')
+    expected = torch.stack(
+        [one_bin.get_prob(patterns, [cov_b.double(), mean_b.double()]) for cov_b, mean_b in zip(cov, mean, strict=True)]
+    ).to(dtype)
+    table = cir(phases, is_prob=True)
+    actual = cir.get_prob(patterns)
+    tol = 1e-11 if dtype == torch.float64 else 1e-6
+    torch.testing.assert_close(actual, expected.squeeze(0), atol=tol, rtol=0)
+    torch.testing.assert_close(double_click, expected[:, 0].squeeze(0), atol=tol, rtol=0)
+    torch.testing.assert_close(
+        torch.stack([table[dq.FockState(p)] for p in patterns], dim=-1), expected, atol=tol, rtol=0
+    )
+    torch.testing.assert_close(sum(table.values()), torch.ones_like(phases[:, 0]), atol=tol, rtol=0)
+    variables = (phases, loss_angle) if lossy else (phases,)
+    torch.testing.assert_close(
+        torch.autograd.grad(actual[..., 0].sum(), variables),
+        torch.autograd.grad(expected[:, 0].sum(), variables),
+        atol=tol,
+        rtol=0,
+    )
+
+
+@pytest.mark.parametrize('count', [0.5, 2])
+def test_gaussian_threshold_rejects_nonbinary_counts(count):
+    cir = dq.QumodeCircuit(1, 'vac', cutoff=3, backend='gaussian', detector='threshold')
+    cir()
+    with pytest.raises(AssertionError, match='0 or 1'):
+        cir.get_prob([count])
 
 
 def test_bosonic_shape():

@@ -432,7 +432,9 @@ def _convolve_counts(
     return result.reshape([batch] + shape + ([k * nright, k * nright] if operators else []))
 
 
-def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.Tensor) -> torch.Tensor:
+def sub_matrix(
+    u: torch.Tensor, input_state: torch.Tensor, output_state: torch.Tensor, *, nphoton: int | None = None
+) -> torch.Tensor:
     """Get the submatrix for calculating the transfer amplitude and transfer probabilities.
 
     The rows are chosen according to the output state and the columns are chosen according to the input state.
@@ -441,11 +443,12 @@ def sub_matrix(u: torch.Tensor, input_state: torch.Tensor, output_state: torch.T
         u: The unitary matrix.
         input_state: The input state.
         output_state: The output state.
+        nphoton: Common photon count when batching input or output patterns with ``vmap``.
     """
     with warnings.catch_warnings():
         warnings.filterwarnings('ignore')  # local warning
-        u1 = torch.repeat_interleave(u, output_state, dim=0)
-        u2 = torch.repeat_interleave(u1, input_state, dim=-1)
+        u1 = torch.repeat_interleave(u, output_state, dim=0, output_size=nphoton)
+        u2 = torch.repeat_interleave(u1, input_state, dim=-1, output_size=nphoton)
     return u2
 
 
