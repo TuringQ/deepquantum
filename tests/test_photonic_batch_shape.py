@@ -39,6 +39,30 @@ def test_gaussian_batch_shape():
     assert tuple(state[0].shape) == (batch, 2, 2) and tuple(state[1].shape) == (batch, 2, 1)
 
 
+@pytest.mark.parametrize(
+    ('device', 'dtype'),
+    [('cpu', torch.float32), ('cpu', torch.float64)]
+    + ([('cuda', torch.float32), ('cuda', torch.float64)] if torch.cuda.is_available() else [])
+    + ([('mps', torch.float32)] if torch.backends.mps.is_available() else []),
+)
+def test_empty_gaussian_receiver_uses_input_dtype_and_device(device, dtype):
+    eye = torch.eye(4, dtype=dtype, device=device)
+    cov = torch.stack([1.1 * eye, 1.3 * eye])
+    mean = eye.new_tensor([[0, 0, 0, 0], [0.2, -0.1, 0.3, 0.1]]).unsqueeze(-1)
+    state = [cov, mean]
+    receiver = dq.QumodeCircuit(2, 'vac', backend='gaussian', detector='click', cutoff=2).double()
+    torch.testing.assert_close(receiver(state=state), state)
+    actual = receiver(state=state, is_prob=True)
+
+    reference = dq.QumodeCircuit(2, state, backend='gaussian', detector='click', cutoff=2)
+    torch.testing.assert_close(reference.get_symplectic(), eye)
+    reference.ps(0, 0.0)
+    reference.to(device=device, dtype=dtype)
+    torch.testing.assert_close(actual, reference(is_prob=True))
+    for event, probability in actual.items():
+        torch.testing.assert_close(probability, receiver.get_prob(event.state, refer_state=state))
+
+
 def test_gaussian_get_prob_batch_shapes():
     cir = dq.QumodeCircuit(2, 'vac', cutoff=3, backend='gaussian', detector='click')
     cir.s(0, r=0.3)

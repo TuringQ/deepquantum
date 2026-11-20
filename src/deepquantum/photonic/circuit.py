@@ -699,7 +699,7 @@ class QumodeCircuit(Operation):
         elif stepwise:
             cov, mean = operators([cov, mean])
         else:
-            sp_mat = self._get_symplectic(operators)
+            sp_mat = self._get_symplectic(operators, cov)
             cov = sp_mat @ cov @ sp_mat.mT
             mean = self._get_displacement(mean, operators)
         return [cov.squeeze(0), mean.squeeze(0)]
@@ -1536,9 +1536,10 @@ class QumodeCircuit(Operation):
     def get_symplectic(self) -> torch.Tensor:
         """Get the ideal circuit's symplectic matrix, requiring no explicit channels."""
         self._prepare_unroll_dict()
-        return self._get_symplectic(self._unroll_operators())
+        return self._get_symplectic(self._unroll_operators(), getattr(self.init_state, 'cov', None))
 
-    def _get_symplectic(self, operators: nn.Sequential) -> torch.Tensor:
+    def _get_symplectic(self, operators: nn.Sequential, cov: torch.Tensor | None = None) -> torch.Tensor:
+        """Compose optical gates, using the covariance's dtype and device for the identity."""
         s = None
         for op in operators:
             if isinstance(op, Barrier):
@@ -1549,7 +1550,10 @@ class QumodeCircuit(Operation):
                 )
             s = op.get_symplectic() if s is None else op.get_symplectic() @ s
         if s is None:
-            return torch.eye(2 * self._nmode_tdm, dtype=torch.float)
+            nquad = 2 * self._nmode_tdm
+            if cov is None:
+                return torch.eye(nquad, dtype=torch.float)
+            return torch.eye(nquad, dtype=cov.dtype, device=cov.device)
         return s
 
     def get_displacement(self, init_mean: Any) -> torch.Tensor:
