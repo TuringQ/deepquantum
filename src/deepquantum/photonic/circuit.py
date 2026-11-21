@@ -55,7 +55,10 @@ from .kensingtonian_ import kensingtonian
 from .measurement import Generaldyne, Homodyne
 from .operation import Channel, Delay, Gate, Operation
 from .qmath import (
+    _homodyne_inputs,
+    _moment_wires,
     _quadrature_moments_from_raw,
+    _wick_moments,
     align_shape,
     fock_combinations,
     measure_fock_tensor,
@@ -2689,6 +2692,45 @@ class QumodeCircuit(Operation):
             return _quadrature_moments_from_raw(second.real, mean.real, total, centered=centered, normalize=normalize)
         # Gaussian covariance and mean already describe a normalized state.
         return (cov if centered else cov + mean @ mean.mT), mean
+
+    def homodyne_moments(
+        self,
+        wires: int | list[int] | None = None,
+        phi: Any = None,
+        *,
+        powers: Sequence[Sequence[int]] | torch.Tensor,
+        normalize: bool = True,
+    ) -> torch.Tensor:
+        r"""Get selected raw moments of terminal Homodyne outcomes on a Gaussian or Bargmann circuit.
+
+        The latest forward state supplies the ideal optical quadratures. Each selected wire has one
+        angle for the entire request. For two wires, ``powers=[(4, 0), (2, 2), (0, 4)]`` reads
+        :math:`\langle X^4\rangle, \langle X^2 Y^2\rangle, \langle Y^4\rangle` in that order.
+
+        Args:
+            wires: Distinct spatial modes in the order used by ``phi`` and ``powers``. Default: ``None`` (all modes)
+            phi: A shared angle in radians or one per selected mode, for
+                :math:`q(\phi)=x\cos\phi+p\sin\phi`. Default: ``None`` (zero)
+            powers: One row per requested moment, with one nonnegative integer exponent per selected mode.
+            normalize: Divide by the state weight, which must then be positive in every batch entry.
+                Gaussian states have unit weight. Default: ``True``
+
+        Returns:
+            Real tensor of shape ``(batch, len(powers))`` in the state's quadrature units.
+            With ``normalize=False``, an all-zero row of powers gives the state weight.
+        """
+        if self.backend == 'bargmann':
+            state = self._get_output_state()
+            if self._with_delay:
+                wires = [self._unroll_dict[w][-1] for w in _moment_wires(wires, self.nmode)]
+            return state.homodyne_moments(wires, phi, powers=powers, normalize=normalize)
+        if self.backend != 'gaussian':
+            raise NotImplementedError('homodyne_moments supports Gaussian and Bargmann states')
+        wires = _moment_wires(wires, self.nmode)
+        cov, mean = self.quadrature_moments(wires)
+        angles, terms = _homodyne_inputs(phi, powers, len(wires), mean)
+        projection = torch.cat([angles.cos().diag(), angles.sin().diag()], dim=-1)
+        return _wick_moments(projection @ cov @ projection.mT, (projection @ mean).squeeze(-1), terms)
 
     def _get_local_covs_means(
         self, cov: torch.Tensor, mean: torch.Tensor, wires: list[int]

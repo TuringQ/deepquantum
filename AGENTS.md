@@ -96,6 +96,7 @@ Photonic TDM:
 Photonic measurement and probabilities:
 
 - Moment readouts preserve the batch axis: `quadrature_mean` returns `(batch, K, 1)`, and `photon_number_mean_var` returns two `(batch, K)` tensors. The two legacy Fock readouts retain the truncated state weight. `quadrature_moments` provides explicit normalization control.
+- Gaussian and Bargmann circuits and `BargmannState` support `homodyne_moments(wires, phi, powers=..., normalize=True)`. Each row of exponents selects a product of simultaneous quadratures, one angle per distinct wire. The result has shape `(batch, len(powers))`. With `normalize=False`, an all-zero row returns the branch weight.
 - `QumodeCircuit.measure(shots=1024, with_prob=False, wires=None, detector=None, mcmc=False)` returns Fock-state keyed dictionaries, or a list for batched state/data.
 - Gaussian `measure(..., mcmc=True)` and Fock `measure(..., mcmc=True)` are documented for sampling when full probabilities are expensive.
 - `measure_homodyne(shots=..., wires=...)` returns quadrature samples and stores collapsed states in `state_measured` when measurement operations were added with `homodyne`, `homodyne_x`, or `homodyne_p`. Use `lo` to select a local-oscillator mode and `phi` for an additional quadrature angle.

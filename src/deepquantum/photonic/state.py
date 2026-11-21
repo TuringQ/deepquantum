@@ -1,6 +1,6 @@
 """Quantum states"""
 
-from operator import index as operator_index
+from collections.abc import Sequence
 from typing import Any
 
 import matplotlib.pyplot as plt
@@ -18,6 +18,7 @@ from .bargmann import (
     BargmannPolyExp,
     _apply_bargmann,
     _bargmann_derivative,
+    _homodyne_moments,
     _moment_generating,
     _project_pnr,
     _project_threshold,
@@ -27,6 +28,8 @@ from .bargmann import (
 )
 from .draw import GaussianGraphVisualizer
 from .qmath import (
+    _homodyne_inputs,
+    _moment_wires,
     _quadrature_moments_ladder,
     cv_to_wigner,
     dirac_rep,
@@ -590,18 +593,7 @@ class BargmannState(nn.Module):
         self, wires: int | list[int] | None, *, require_positive: bool = True
     ) -> tuple[BargmannPolyExp, torch.Tensor]:
         """Validate selected modes and construct the moment generating function and state weight."""
-        if wires is None:
-            wires = list(range(self.nmode))
-        elif not isinstance(wires, (list, tuple)):
-            wires = [wires]
-        if any(isinstance(wire, bool) for wire in wires):
-            raise ValueError('wires must contain integer mode indices')
-        try:
-            wires = [operator_index(wire) for wire in wires]
-        except TypeError as exc:
-            raise ValueError('wires must contain integer mode indices') from exc
-        if not wires or len(set(wires)) != len(wires) or any(wire < 0 or wire >= self.nmode for wire in wires):
-            raise ValueError('wires must contain distinct valid mode indices')
+        wires = _moment_wires(wires, self.nmode)
         density = self.to_dm()
         weight = density.norm()
         if require_positive and bool((weight <= 0).any()):
@@ -674,6 +666,39 @@ class BargmannState(nn.Module):
         normal = torch.stack(normal, dim=-2)
         anomalous = torch.stack(anomalous, dim=-2)
         return _quadrature_moments_ladder(alpha, normal, anomalous, weight, centered=centered, normalize=normalize)
+
+    def homodyne_moments(
+        self,
+        wires: int | list[int] | None = None,
+        phi: Any = None,
+        *,
+        powers: Sequence[Sequence[int]] | torch.Tensor,
+        normalize: bool = True,
+    ) -> torch.Tensor:
+        r"""Get selected raw moments of simultaneous quadrature measurements without a Fock cutoff.
+
+        For each row :math:`k` of ``powers``, the observable is
+        :math:`O_k=\prod_i (x_{w_i}\cos\phi_i+p_{w_i}\sin\phi_i)^{k_i}`.
+        Distinct modes commute, so one row specifies a product from a single joint readout.
+
+        Args:
+            wires: Distinct local mode indices in the order used by ``phi`` and ``powers``.
+                Default: ``None`` (all modes)
+            phi: A shared angle in radians or one per selected mode. Default: ``None`` (zero)
+            powers: One row per requested moment, with one nonnegative integer exponent per selected mode.
+            normalize: Divide by the state weight, which must then be positive in every batch entry.
+                Default: ``True``
+
+        Returns:
+            Real tensor of shape ``(batch, len(powers))`` in request order and current quadrature units.
+            With ``normalize=False``, each column is :math:`\operatorname{Tr}(\rho O_k)`.
+            An all-zero row of powers returns the state weight, including zero for an impossible event.
+            To retain the event probability in the state, also pass ``normalize=False`` to ``post_select``.
+        """
+        generating, weight = self._prepare_moments(wires, require_positive=normalize)
+        angles, terms = _homodyne_inputs(phi, powers, generating.nfree // 2, weight)
+        moments = _homodyne_moments(generating, angles, terms)
+        return moments / weight[:, None] if normalize else moments
 
     def photon_number_mean_var(self, wires: int | list[int] | None = None) -> tuple[torch.Tensor, torch.Tensor]:
         r"""Get normalized photon-number expectation and variance without Fock truncation.
