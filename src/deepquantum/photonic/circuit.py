@@ -55,8 +55,9 @@ from .kensingtonian_ import kensingtonian
 from .measurement import Generaldyne, Homodyne
 from .operation import Channel, Delay, Gate, Operation
 from .qmath import (
-    _homodyne_inputs,
+    _moment_powers,
     _moment_wires,
+    _project_quadrature_moments,
     _quadrature_moments_from_raw,
     _wick_moments,
     align_shape,
@@ -2637,100 +2638,108 @@ class QumodeCircuit(Operation):
                 mean = torch.sum(weight * mean, dim=1)
         return mean
 
+    @overload
     def quadrature_moments(
-        self, wires: int | list[int] | None = None, *, centered: bool = True, normalize: bool = True
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        r"""Get quadrature moments in ``xxpp`` order.
+        self,
+        wires: int | list[int] | None = None,
+        phi: Any = None,
+        *,
+        powers: None = None,
+        centered: bool | None = None,
+        normalize: bool = True,
+    ) -> tuple[torch.Tensor, torch.Tensor]: ...
 
-        Supports Fock state tensors, Gaussian, Bosonic and Bargmann states from
-        the latest forward pass. Bargmann moments do not use a Fock cutoff.
-        Measurement instructions do not change the selected quadratures.
-        Bargmann delay circuits read the current spatial outputs.
-        MPS, Gaussian/Bosonic TDM and orthogonal basis modes are not supported.
-
-        Args:
-            wires: The indices of the modes to measure, in output order. Default: ``None`` (all modes)
-            centered: Return covariance instead of uncentered second moments.
-                The first-moment vector is retained in either case. Default: ``True``
-            normalize: Divide both returned tensors by the state weight.
-                Requires positive weight when enabled. Default: ``True``
-
-        Returns:
-            Two tensors with shapes ``(batch, 2K, 2K)`` and ``(batch, 2K, 1)``,
-            where ``K=len(wires)``. Units follow the current ``hbar`` and ``kappa``.
-            The default is ``(cov, mean)``. With ``centered=False``, the first
-            tensor includes :math:`\mu\mu^T`, where :math:`\mu` is the mean. With ``normalize=False``, both
-            tensors retain the state weight. Disabling both options gives linear
-            contributions that can be summed over events, including zero-probability events.
-            See ``BargmannState.quadrature_moments`` for the moment definitions.
-        """
-        if self.mps or (self._with_delay and self.backend != 'bargmann') or self._submode_circuit is not None:
-            raise NotImplementedError('quadrature_moments does not support MPS, TDM or orthogonal basis modes')
-        if self.backend == 'fock' and self.basis:
-            raise NotImplementedError('Fock quadrature moments require basis=False')
-        wires = self.wires if wires is None else self._convert_indices(wires)
-        if not wires or len(set(wires)) != len(wires):
-            raise ValueError('wires must contain distinct valid mode indices')
-        state = self._get_output_state()
-        if self.backend == 'bargmann':
-            if self._with_delay:
-                wires = [self._unroll_dict[w][-1] for w in wires]
-            return state.quadrature_moments(wires, centered=centered, normalize=normalize)
-        if self.backend == 'fock':
-            return quadrature_moments_fock(
-                state, self.nmode, self.cutoff, wires, self.den_mat, centered=centered, normalize=normalize
-            )
-        indices = wires + [wire + self.nmode for wire in wires]
-        cov, mean = state[:2]
-        cov, mean = cov[..., indices, :][..., indices], mean[..., indices, :]
-        if self.backend == 'bosonic':
-            weight = state[2]
-            total = weight.sum(-1)
-            weight = weight[..., None, None]
-            second = ((cov + mean @ mean.mT) * weight).sum(1)
-            mean = (mean * weight).sum(1)
-            return _quadrature_moments_from_raw(second.real, mean.real, total, centered=centered, normalize=normalize)
-        # Gaussian covariance and mean already describe a normalized state.
-        return (cov if centered else cov + mean @ mean.mT), mean
-
-    def homodyne_moments(
+    @overload
+    def quadrature_moments(
         self,
         wires: int | list[int] | None = None,
         phi: Any = None,
         *,
         powers: Sequence[Sequence[int]] | torch.Tensor,
+        centered: bool | None = None,
         normalize: bool = True,
-    ) -> torch.Tensor:
-        r"""Get selected raw moments of terminal Homodyne outcomes on a Gaussian or Bargmann circuit.
+    ) -> torch.Tensor: ...
 
-        The latest forward state supplies the ideal optical quadratures. Each selected wire has one
-        angle for the entire request. For two wires, ``powers=[(4, 0), (2, 2), (0, 4)]`` reads
-        :math:`\langle X^4\rangle, \langle X^2 Y^2\rangle, \langle Y^4\rangle` in that order.
+    def quadrature_moments(
+        self,
+        wires: int | list[int] | None = None,
+        phi: Any = None,
+        *,
+        powers: Sequence[Sequence[int]] | torch.Tensor | None = None,
+        centered: bool | None = None,
+        normalize: bool = True,
+    ) -> tuple[torch.Tensor, torch.Tensor] | torch.Tensor:
+        r"""Get a covariance and mean, or the moments of specified quadrature products.
+
+        The latest forward state supplies the optical quadratures independently of measurement instructions.
+        The default pair uses ``xxpp`` order.
+        Supply ``phi`` to select :math:`q_i=x_{w_i}\cos\phi_i+p_{w_i}\sin\phi_i` on each wire.
+        On Gaussian and Bargmann states, ``powers=[(4, 0), (2, 2), (0, 4)]`` returns
+        :math:`\langle q_0^4\rangle,\langle q_0^2 q_1^2\rangle,\langle q_1^4\rangle`.
+
+        The covariance and mean are available on Fock state tensors, Gaussian, Bosonic and Bargmann
+        states. Bargmann delay circuits read the current spatial outputs. MPS, Gaussian/Bosonic TDM
+        and orthogonal basis modes are not supported.
 
         Args:
-            wires: Distinct spatial modes in the order used by ``phi`` and ``powers``. Default: ``None`` (all modes)
-            phi: A shared angle in radians or one per selected mode, for
-                :math:`q(\phi)=x\cos\phi+p\sin\phi`. Default: ``None`` (zero)
-            powers: One row per requested moment, with one nonnegative integer exponent per selected mode.
-            normalize: Divide by the state weight, which must then be positive in every batch entry.
-                Gaussian states have unit weight. Default: ``True``
+            wires: Distinct spatial modes in output order. Default: ``None`` (all modes)
+            phi: A shared angle in radians or one per selected wire. Omitting it selects ``xxpp`` for the
+                pair or the x quadrature on each wire for ``powers``.
+            powers: Rows of nonnegative exponents in wire order. Default: ``None`` (return the pair)
+            centered: Subtract the normalized mean from each factor in a product or in the second moment
+                of the pair. The pair always includes the first moment. Default: covariance for the pair,
+                raw moments for explicit powers
+            normalize: Divide by the state weight, which must then be positive for every batch entry.
+                Default: ``True``
 
         Returns:
-            Real tensor of shape ``(batch, len(powers))`` in the state's quadrature units.
-            With ``normalize=False``, an all-zero row of powers gives the state weight.
+            Without ``powers``, a pair of shape ``(batch, D, D)``, ``(batch, D, 1)``, where ``D`` is twice
+            the selected mode count for ``xxpp`` or the selected mode count for specified angles.
+            With ``powers``, a real tensor of shape ``(batch, len(powers))`` in request order.
+            With ``normalize=False``, an all-zero row returns the state weight. Raw unnormalized
+            moments add over mutually exclusive events. Units follow ``hbar`` and ``kappa``.
         """
+        if self.mps or (self._with_delay and self.backend != 'bargmann') or self._submode_circuit is not None:
+            raise NotImplementedError('quadrature_moments does not support MPS, TDM or orthogonal basis modes')
+        if self.backend == 'fock' and self.basis:
+            raise NotImplementedError('Fock quadrature moments require basis=False')
+        if powers is not None and self.backend not in ('gaussian', 'bargmann'):
+            raise NotImplementedError('quadrature_moments with powers requires a Gaussian or Bargmann state')
+        wires = self.wires if wires is None else wires
+        if centered is None:
+            centered = powers is None
+        state = self._get_output_state()
         if self.backend == 'bargmann':
-            state = self._get_output_state()
             if self._with_delay:
                 wires = [self._unroll_dict[w][-1] for w in _moment_wires(wires, self.nmode)]
-            return state.homodyne_moments(wires, phi, powers=powers, normalize=normalize)
-        if self.backend != 'gaussian':
-            raise NotImplementedError('homodyne_moments supports Gaussian and Bargmann states')
+            if phi is None and powers is None:
+                # Existing state subclasses can implement the original covariance/mean signature.
+                return state.quadrature_moments(wires, centered=centered, normalize=normalize)
+            return state.quadrature_moments(wires, phi, powers=powers, centered=centered, normalize=normalize)
         wires = _moment_wires(wires, self.nmode)
-        cov, mean = self.quadrature_moments(wires)
-        angles, terms = _homodyne_inputs(phi, powers, len(wires), mean)
-        projection = torch.cat([angles.cos().diag(), angles.sin().diag()], dim=-1)
-        return _wick_moments(projection @ cov @ projection.mT, (projection @ mean).squeeze(-1), terms)
+        if self.backend == 'fock':
+            second, first = quadrature_moments_fock(
+                state, self.nmode, self.cutoff, wires, self.den_mat, centered=centered, normalize=normalize
+            )
+        else:
+            indices = wires + [wire + self.nmode for wire in wires]
+            cov, mean = state[:2]
+            cov, mean = cov[..., indices, :][..., indices], mean[..., indices, :]
+            if self.backend == 'bosonic':
+                weight = state[2][..., None, None]
+                raw = ((cov + mean @ mean.mT) * weight).sum(1)
+                first = (mean * weight).sum(1)
+                second, first = _quadrature_moments_from_raw(
+                    raw.real, first.real, state[2].sum(-1), centered=centered, normalize=normalize
+                )
+            elif powers is not None:
+                cov, mean = _project_quadrature_moments(cov, mean, phi)
+                mean = mean.squeeze(-1)
+                # Centering cancels the displacement, including its gradient.
+                return _wick_moments(cov, mean * 0 if centered else mean, _moment_powers(powers, len(wires)))
+            else:
+                second, first = (cov if centered else cov + mean @ mean.mT), mean
+        return (second, first) if phi is None else _project_quadrature_moments(second, first, phi)
 
     def _get_local_covs_means(
         self, cov: torch.Tensor, mean: torch.Tensor, wires: list[int]

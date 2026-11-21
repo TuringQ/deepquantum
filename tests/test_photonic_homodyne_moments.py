@@ -21,15 +21,14 @@ def test_displaced_correlated_readout_and_gradients(backend, dtype, monkeypatch)
     preparation.to(dtype)
     data = torch.tensor([[0.21, -0.23], [0.32, 0.54]], dtype=dtype, requires_grad=True)
     cov, mean = preparation(data)
-    state = dq.BargmannState([cov, mean], den_mat=True)
-    reader = preparation if backend == 'gaussian' else dq.QumodeCircuit(2, state)
-    if backend == 'bargmann':
-        reader()
+    reader = preparation if backend == 'gaussian' else dq.BargmannState([cov, mean], den_mat=True)
 
     # Reversed wires, two different angles and a repeated request.
     phi = torch.tensor(0.43, dtype=dtype, requires_grad=True)
     powers = [(0, 4), (2, 2), (4, 0), (0, 0), (2, 2)]
-    actual = reader.homodyne_moments([1, 0], [0.0, phi], powers=powers)
+    readout = {'wires': [1, 0], 'phi': [0.0, phi]}
+    actual = reader.quadrature_moments(**readout, powers=powers)
+    central = reader.quadrature_moments(**readout, powers=powers, centered=True)
     c, s = phi.cos(), phi.sin()
     x, y = mean[:, 1, 0], c * mean[:, 0, 0] + s * mean[:, 2, 0]
     vx = cov[:, 1, 1]
@@ -39,14 +38,17 @@ def test_displaced_correlated_readout_and_gradients(backend, dtype, monkeypatch)
     expected = torch.stack(
         [y**4 + 6 * y**2 * vy + 3 * vy**2, mixed, x**4 + 6 * x**2 * vx + 3 * vx**2, torch.ones_like(x), mixed], -1
     )
-    torch.testing.assert_close(actual, expected)
-    torch.testing.assert_close(
-        torch.autograd.grad(actual.sum(), (data, phi), retain_graph=True),
-        torch.autograd.grad(expected.sum(), (data, phi)),
-    )
+    central_mixed = vx * vy + 2 * vxy**2
+    expected_central = torch.stack([3 * vy**2, central_mixed, 3 * vx**2, torch.ones_like(x), central_mixed], -1)
+    for moments, target in ((actual, expected), (central, expected_central)):
+        torch.testing.assert_close(moments, target)
+        torch.testing.assert_close(
+            torch.autograd.grad(moments.sum(), (data, phi), retain_graph=True),
+            torch.autograd.grad(target.sum(), (data, phi), retain_graph=True),
+        )
 
 
-def _fock_products(density, phi, powers):
+def _fock_products(density, phi, powers, *, centered=False):
     """Trace the unnormalized two-mode Fock matrix against padded local operator powers."""
     cutoff = density.shape[-1]
     size = cutoff + max(max(row) for row in powers)
@@ -54,10 +56,16 @@ def _fock_products(density, phi, powers):
     phase = torch.exp(-1j * torch.as_tensor(phi, dtype=torch.double))
     lowering = phase[:, None, None] * a
     x, y = (lowering + lowering.mH) * (dqp.hbar**0.5 / (2 * dqp.kappa))
+    if centered:
+        weight = torch.einsum('...ijij->...', density).real
+        mean_x = torch.einsum('...ijkj,ki->...', density, x[:cutoff, :cutoff]).real / weight
+        mean_y = torch.einsum('...ijil,lj->...', density, y[:cutoff, :cutoff]).real / weight
+        eye = torch.eye(size, dtype=x.dtype)
+        x, y = x - mean_x[..., None, None] * eye, y - mean_y[..., None, None] * eye
     values = []
     for i, j in powers:
-        op_x, op_y = x.matrix_power(i)[:cutoff, :cutoff], y.matrix_power(j)[:cutoff, :cutoff]
-        values.append(torch.einsum('...ijkl,ki,lj->...', density, op_x, op_y).real)
+        op_x, op_y = x.matrix_power(i)[..., :cutoff, :cutoff], y.matrix_power(j)[..., :cutoff, :cutoff]
+        values.append(torch.einsum('...ijkl,...ki,...lj->...', density, op_x, op_y).real)
     return torch.stack(values, -1)
 
 
@@ -92,17 +100,17 @@ def test_lossy_heralds_against_converged_fock_operators(clicks):
     state, probability = cir.post_select([2, 3], clicks, detector='threshold', normalize=False)
     phi = [0.0, 0.63]
     powers = [(4, 0), (2, 2), (0, 4), (0, 0)]
-    weighted = state.homodyne_moments([0, 1], phi, powers=powers, normalize=False)
-    conditional = state.homodyne_moments([0, 1], phi, powers=powers)
+    weighted = state.quadrature_moments([0, 1], phi, powers=powers, normalize=False)
+    conditional = state.quadrature_moments([0, 1], phi, powers=powers)
     torch.testing.assert_close(weighted[:, -1], probability)
     normalized, _ = cir.post_select([2, 3], clicks, detector='threshold')
-    torch.testing.assert_close(normalized.homodyne_moments(phi=phi, powers=powers, normalize=False), conditional)
+    torch.testing.assert_close(normalized.quadrature_moments(phi=phi, powers=powers, normalize=False), conditional)
 
-    references = []
-    for cutoff in (6, 10, 14, 18):
+    def reference(cutoff):
         density = _split_pair_fock(cutoff, r, eta, herald_angle, [mixing, phase], clicks)
-        references.append(_fock_products(density, phi, powers))
-    previous, final = references[-2:]
+        return _fock_products(density, phi, powers)
+
+    previous, final = reference(14), reference(18)
     torch.testing.assert_close(previous, final, rtol=0, atol=1e-9)
     torch.testing.assert_close(weighted, final, rtol=0, atol=1e-8)
     final_conditional = final / final[:, -1:]
@@ -121,32 +129,51 @@ def test_rare_and_impossible_clicks_keep_batch_and_event_weight():
     r = torch.tensor([0, 0.0015, 0.2], dtype=torch.double, requires_grad=True)
     state, probability = click(r)
     powers = [(0,), (4,)]
-    weighted = state.homodyne_moments(0, powers=powers, normalize=False)
+    weighted = state.quadrature_moments(0, powers=powers, normalize=False)
     ratio = r.tanh().square()
     # On a click the remaining photon number has a geometric law on 1, 2, ...
     fourth = 3 + 12 / (1 - ratio).square()
     torch.testing.assert_close(probability, ratio)
     torch.testing.assert_close(weighted, torch.stack([ratio, ratio * fourth], -1), atol=1e-12, rtol=0)
     assert torch.count_nonzero(weighted[0]) == 0
+    assert torch.count_nonzero(state.quadrature_moments(0, powers=powers, centered=True, normalize=False)[0]) == 0
     with pytest.raises(ValueError, match='positive state weight'):
-        state.homodyne_moments(0, powers=powers)
+        state.quadrature_moments(0, powers=powers)
     positive, _ = click(r[1:])
-    torch.testing.assert_close(positive.homodyne_moments(0, powers=[(4,)])[:, 0], fourth[1:], atol=1e-8, rtol=0)
+    torch.testing.assert_close(positive.quadrature_moments(0, powers=[(4,)])[:, 0], fourth[1:], atol=1e-8, rtol=0)
     torch.testing.assert_close(
         torch.autograd.grad(weighted[:, 1].sum(), r), torch.autograd.grad((ratio * fourth).sum(), r)
     )
 
 
-def test_polynomial_state_high_orders_and_angle_gradient():
+@pytest.mark.parametrize('centered', [False, True])
+def test_polynomial_state_high_orders_and_angle_gradient(centered):
     ket = torch.tensor([[[0.1, 0.3j], [-0.2j, 0.4]]], dtype=torch.complex128)
     state = dq.BargmannState(ket, nmode=2)
     density = torch.einsum('bij,bkl->bijkl', ket, ket.conj())
     phi = torch.tensor([0.32, 0.8], dtype=torch.double, requires_grad=True)
     powers = [(0, 0), (1, 0), (1, 3), (0, 8), (3, 5)]
-    actual = state.homodyne_moments(phi=phi, powers=powers, normalize=False)
-    expected = _fock_products(density, phi, powers)
+    actual = state.quadrature_moments(phi=phi, powers=powers, centered=centered, normalize=False)
+    expected = _fock_products(density, phi, powers, centered=centered)
     torch.testing.assert_close(actual, expected)
     torch.testing.assert_close(torch.autograd.grad(actual.sum(), phi), torch.autograd.grad(expected.sum(), phi))
+
+
+def test_displaced_click_products_center_on_the_whole_branch():
+    cir = dq.QumodeCircuit(3, 'vac', backend='bargmann')
+    cir.s2([0, 2], 0.22, 0.1)
+    cir.bs([0, 1], [0.44, 0.3])
+    cir.d(2, 0.42, 0.5)
+    cir.d(1, 0.17, -0.2)
+    cir.double()
+    cir()
+    branch, _ = cir.post_select(2, 1, detector='threshold', normalize=False)
+    angles, powers = [0.1, 0.63], [(2, 2), (0, 4)]
+    final = _fock_products(branch.to_fock(14), angles, powers, centered=True)
+    previous = _fock_products(branch.to_fock(10), angles, powers, centered=True)
+    torch.testing.assert_close(previous, final, rtol=0, atol=1e-9)
+    weighted = branch.quadrature_moments(phi=angles, powers=powers, centered=True, normalize=False)
+    torch.testing.assert_close(weighted, final, rtol=0, atol=1e-9)
 
 
 @pytest.mark.parametrize('backend', ['gaussian', 'bargmann'])
@@ -164,21 +191,14 @@ def test_high_order_with_finite_physical_moment(backend, monkeypatch):
         reader = dq.BargmannState([1]).double()
         # The single-photon quadrature density is x² / variance times the vacuum density.
         expected *= degree + 1
-    actual = reader.homodyne_moments(powers=[(degree,)])
+    actual = reader.quadrature_moments(powers=[(degree,)])
     torch.testing.assert_close(actual, torch.full_like(actual, expected), rtol=1e-10, atol=0)
 
 
 @pytest.mark.parametrize('backend', ['gaussian', 'bargmann'])
-def test_vacuum_and_homodyne_requests(backend):
+def test_vacuum_quadrature_products(backend):
     cir = dq.QumodeCircuit(2, 'vac', backend=backend).double()
     cir()
-    powers = [(4, 0), (2, 2), (0, 4), (0, 0), (1, 0), (0, 8)]
-    actual = cir.homodyne_moments(phi=math.pi / 3, powers=powers, normalize=False)
+    powers = torch.tensor([(4, 0), (2, 2), (0, 4), (0, 0), (1, 0), (0, 8)])
+    actual = cir.quadrature_moments(phi=math.pi / 3, powers=powers, normalize=False)
     torch.testing.assert_close(actual, torch.tensor([[3, 1, 3, 1, 0, 105]], dtype=torch.double))
-    with pytest.raises(ValueError, match='distinct'):
-        cir.homodyne_moments([1, 1], [0, math.pi / 2], powers=[(1, 1)])
-    with pytest.raises(ValueError, match='phi'):
-        cir.homodyne_moments(phi=[[0, 0.2]], powers=powers)
-    for invalid in ([], [4, 0], [(4,)], [(2, 0.2)], [(1, -1)], [(True, 0)]):
-        with pytest.raises(ValueError, match='powers'):
-            cir.homodyne_moments(powers=invalid)

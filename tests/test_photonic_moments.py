@@ -32,6 +32,17 @@ def test_gaussian_moments_and_mode_order(backend, units, monkeypatch):
     expected = cov[:, indices, :][:, :, indices], mean[:, indices, :]
     for result, target in zip(actual.quadrature_moments([1, 0]), expected, strict=True):
         torch.testing.assert_close(result, target, atol=2e-8, rtol=2e-7)
+    angles = torch.tensor([0.3, -0.7], dtype=torch.double)
+    projection = torch.cat([angles.cos().diag(), angles.sin().diag()], dim=-1)
+    torch.testing.assert_close(
+        actual.quadrature_moments([1, 0], phi=angles),
+        (projection @ expected[0] @ projection.mT, projection @ expected[1]),
+        atol=2e-8,
+        rtol=2e-7,
+    )
+    if backend in ('fock', 'bosonic'):
+        with pytest.raises(NotImplementedError, match='powers'):
+            actual.quadrature_moments([1, 0], phi=angles, powers=[(2, 2)])
     second, first = actual.quadrature_moments([1, 0], centered=False, normalize=False)
     torch.testing.assert_close(second, expected[0] + expected[1] @ expected[1].mT, atol=2e-8, rtol=2e-7)
     torch.testing.assert_close(first, expected[1], atol=2e-8, rtol=2e-7)
@@ -91,6 +102,11 @@ def test_non_gaussian_moments_against_operator_matrices(backend, den_mat):
             cir.quadrature_moments(centered=centered, normalize=normalize),
             (scale * expected_second, scale * mean),
         )
+    direction = torch.tensor([[math.cos(0.3), 0, math.sin(0.3), 0]], dtype=torch.double)
+    torch.testing.assert_close(
+        cir.quadrature_moments(0, phi=0.3, centered=False, normalize=False),
+        (0.2 * direction @ second @ direction.mT, 0.2 * direction @ mean),
+    )
     number = annihilation.mH @ annihilation
     numbers = [torch.kron(number, eye), torch.kron(eye, number)]
     expected_mean = torch.stack([expectation(operator) for operator in numbers], -1)
@@ -275,6 +291,13 @@ def test_bargmann_moment_validation():
             state.quadrature_moments(wires)
     with pytest.raises(ValueError, match='phi'):
         state.quadrature_mean(phi=[0.0, 0.1, 0.2])
+    with pytest.raises(ValueError, match='distinct'):
+        state.quadrature_moments([1, 1], [0, math.pi / 2], powers=[(1, 1)])
+    with pytest.raises(ValueError, match='phi'):
+        state.quadrature_moments(phi=[[0, 0.2]], powers=[(2, 2)])
+    for invalid in ([], [4, 0], [(4,)], [(2, 0.2)], [(1, -1)], [(torch.tensor(True), 0)]):
+        with pytest.raises(ValueError, match='powers'):
+            state.quadrature_moments(powers=invalid)
     state = dq.BargmannState(torch.zeros(1, 2, dtype=torch.complex128), nmode=1)
     with pytest.raises(ValueError, match='positive'):
         state.photon_number_mean_var()

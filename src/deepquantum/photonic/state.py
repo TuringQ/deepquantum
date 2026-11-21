@@ -1,7 +1,7 @@
 """Quantum states"""
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, overload
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -16,6 +16,7 @@ from ..qmath import is_power, list_to_decimal, multi_kron
 from ..utils import apply_complex_fix
 from .bargmann import (
     BargmannPolyExp,
+    _annihilation_means,
     _apply_bargmann,
     _bargmann_derivative,
     _homodyne_moments,
@@ -28,8 +29,10 @@ from .bargmann import (
 )
 from .draw import GaussianGraphVisualizer
 from .qmath import (
-    _homodyne_inputs,
+    _moment_powers,
     _moment_wires,
+    _project_quadrature_moments,
+    _quadrature_angles,
     _quadrature_moments_ladder,
     cv_to_wigner,
     dirac_rep,
@@ -613,50 +616,87 @@ class BargmannState(nn.Module):
         """
         generating, weight = self._prepare_moments(wires)
         nwire = generating.nfree // 2
-        alpha = torch.stack([_bargmann_derivative(generating, (i + nwire,)) for i in range(nwire)], dim=-1)
+        alpha = _annihilation_means(generating)
         phi = torch.as_tensor(0.0 if phi is None else phi, dtype=weight.dtype, device=weight.device)
         if phi.numel() not in (1, nwire):
             raise ValueError('phi must be shared or have one angle per selected mode')
         value = (alpha * torch.exp(-1j * phi.reshape(1, -1))).real / weight[:, None]
         return (dqp.hbar**0.5 / dqp.kappa * value).unsqueeze(-1)
 
+    @overload
     def quadrature_moments(
-        self, wires: int | list[int] | None = None, *, centered: bool = True, normalize: bool = True
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        r"""Get ``xxpp`` quadrature moments without Fock truncation.
+        self,
+        wires: int | list[int] | None = None,
+        phi: Any = None,
+        *,
+        powers: None = None,
+        centered: bool | None = None,
+        normalize: bool = True,
+    ) -> tuple[torch.Tensor, torch.Tensor]: ...
 
-        These are the moments of the complete state, including non-Gaussian terms.
-        Let :math:`r` be the column vector of selected quadratures in ``xxpp`` order.
-        For state weight :math:`w=\operatorname{Tr}\rho`, define the normalized mean
-        :math:`\mu=\operatorname{Tr}(\rho r)/w` and covariance
-        :math:`V_{ij}=\langle\{\Delta r_i,\Delta r_j\}\rangle/2`, with :math:`\Delta r=r-\mu`.
+    @overload
+    def quadrature_moments(
+        self,
+        wires: int | list[int] | None = None,
+        phi: Any = None,
+        *,
+        powers: Sequence[Sequence[int]] | torch.Tensor,
+        centered: bool | None = None,
+        normalize: bool = True,
+    ) -> torch.Tensor: ...
 
-        Centering removes the mean contribution from the second moment.
-        Normalization divides the readout by the state weight.
-        With both options disabled, the result is linear in the input state:
+    def quadrature_moments(
+        self,
+        wires: int | list[int] | None = None,
+        phi: Any = None,
+        *,
+        powers: Sequence[Sequence[int]] | torch.Tensor | None = None,
+        centered: bool | None = None,
+        normalize: bool = True,
+    ) -> tuple[torch.Tensor, torch.Tensor] | torch.Tensor:
+        r"""Get quadrature moments of the complete Bargmann state without a Fock cutoff.
 
-        .. math::
+        For normalized mean :math:`\mu=\operatorname{Tr}(\rho r)/w` and state weight
+        :math:`w=\operatorname{Tr}\rho`, the default pair is :math:`(V,\mu)`, where
+        :math:`V_{ij}=\langle\{r_i-\mu_i,r_j-\mu_j\}\rangle/2`. The coordinates :math:`r`
+        use ``xxpp`` order, or one quadrature :math:`q_i=x_{w_i}\cos\phi_i+p_{w_i}\sin\phi_i`
+        per selected mode when ``phi`` is supplied.
 
-            M_{ij} = \tfrac12\operatorname{Tr}\!\left[\rho(r_i r_j+r_j r_i)\right],
-            \qquad m_i = \operatorname{Tr}(\rho r_i).
+        With ``powers``, each row :math:`k` selects the product :math:`O_k=\prod_i q_i^{k_i}`
+        of simultaneous Homodyne outcomes. With ``centered=True``, each factor uses
+        :math:`q_i-\langle q_i\rangle` about this state's normalized mean.
 
         Args:
-            wires: The indices of the modes to measure, in output order. Default: ``None`` (all modes)
-            centered: Return covariance instead of uncentered second moments.
-                The first-moment vector is retained in either case. Default: ``True``
-            normalize: Divide both returned tensors by the state weight.
-                Requires positive weight when enabled. Default: ``True``
+            wires: Distinct local modes in output order. Default: ``None`` (all modes)
+            phi: A shared angle in radians or one per selected wire. Omitting it selects ``xxpp`` for the
+                pair or the x quadrature on each wire for ``powers``.
+            powers: Rows of nonnegative exponents in wire order. Default: ``None`` (return the pair)
+            centered: Center the second moment of the pair or the requested products.
+                The pair always includes the first moment. Default: covariance for the pair,
+                raw moments for explicit powers
+            normalize: Divide by the state weight, which must then be positive for every batch entry.
+                Default: ``True``
 
         Returns:
-            Two tensors with shapes ``(batch, 2K, 2K)`` and ``(batch, 2K, 1)``,
-            where ``K=len(wires)``. Units follow the current ``hbar`` and ``kappa``.
-            The default is :math:`(V,\mu)`. With ``centered=False`` it is
-            :math:`(V+\mu\mu^T,\mu)`. With ``normalize=False``, both tensors retain the factor :math:`w`.
-            Zero-probability events then contribute zeros.
+            Without ``powers``, two tensors of shapes ``(batch, D, D)`` and ``(batch, D, 1)``,
+            where ``D`` counts the selected quadrature coordinates. With ``powers``, a real tensor
+            of shape ``(batch, len(powers))`` in request order. Both forms use current quadrature units.
+
+            With ``centered=False, normalize=False``, the pair gives the event-weighted symmetrized
+            second moment and first moment. Each requested product then gives
+            :math:`\operatorname{Tr}(\rho O_k)`. An all-zero row returns the state weight.
+            To retain the event probability in the state, also pass ``normalize=False`` to ``post_select``.
         """
         generating, weight = self._prepare_moments(wires, require_positive=normalize)
         nwire = generating.nfree // 2
-        alpha = torch.stack([_bargmann_derivative(generating, (i + nwire,)) for i in range(nwire)], dim=-1)
+        if centered is None:
+            centered = powers is None
+        if powers is not None:
+            angles = _quadrature_angles(phi, nwire, weight)
+            terms = _moment_powers(powers, nwire)
+            moments = _homodyne_moments(generating, angles, terms, weight, centered=centered)
+            return moments / weight[:, None] if normalize else moments
+        alpha = _annihilation_means(generating)
         normal, anomalous = [], []
         for i in range(nwire):
             normal.append(torch.stack([_bargmann_derivative(generating, (i, j + nwire)) for j in range(nwire)], -1))
@@ -665,40 +705,10 @@ class BargmannState(nn.Module):
             )
         normal = torch.stack(normal, dim=-2)
         anomalous = torch.stack(anomalous, dim=-2)
-        return _quadrature_moments_ladder(alpha, normal, anomalous, weight, centered=centered, normalize=normalize)
-
-    def homodyne_moments(
-        self,
-        wires: int | list[int] | None = None,
-        phi: Any = None,
-        *,
-        powers: Sequence[Sequence[int]] | torch.Tensor,
-        normalize: bool = True,
-    ) -> torch.Tensor:
-        r"""Get selected raw moments of simultaneous quadrature measurements without a Fock cutoff.
-
-        For each row :math:`k` of ``powers``, the observable is
-        :math:`O_k=\prod_i (x_{w_i}\cos\phi_i+p_{w_i}\sin\phi_i)^{k_i}`.
-        Distinct modes commute, so one row specifies a product from a single joint readout.
-
-        Args:
-            wires: Distinct local mode indices in the order used by ``phi`` and ``powers``.
-                Default: ``None`` (all modes)
-            phi: A shared angle in radians or one per selected mode. Default: ``None`` (zero)
-            powers: One row per requested moment, with one nonnegative integer exponent per selected mode.
-            normalize: Divide by the state weight, which must then be positive in every batch entry.
-                Default: ``True``
-
-        Returns:
-            Real tensor of shape ``(batch, len(powers))`` in request order and current quadrature units.
-            With ``normalize=False``, each column is :math:`\operatorname{Tr}(\rho O_k)`.
-            An all-zero row of powers returns the state weight, including zero for an impossible event.
-            To retain the event probability in the state, also pass ``normalize=False`` to ``post_select``.
-        """
-        generating, weight = self._prepare_moments(wires, require_positive=normalize)
-        angles, terms = _homodyne_inputs(phi, powers, generating.nfree // 2, weight)
-        moments = _homodyne_moments(generating, angles, terms)
-        return moments / weight[:, None] if normalize else moments
+        second, first = _quadrature_moments_ladder(
+            alpha, normal, anomalous, weight, centered=centered, normalize=normalize
+        )
+        return (second, first) if phi is None else _project_quadrature_moments(second, first, phi)
 
     def photon_number_mean_var(self, wires: int | list[int] | None = None) -> tuple[torch.Tensor, torch.Tensor]:
         r"""Get normalized photon-number expectation and variance without Fock truncation.

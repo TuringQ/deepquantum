@@ -677,16 +677,21 @@ def ladder_to_quadrature(tensor: torch.Tensor, symplectic: bool = False) -> torc
         return (omega @ tensor).real * dqp.hbar**0.5 / (2 * dqp.kappa)
 
 
+def _moment_index(value: Any) -> int:
+    """Read an integer wire index or exponent, rejecting booleans."""
+    if isinstance(value, bool) or (isinstance(value, torch.Tensor) and value.dtype == torch.bool):
+        raise TypeError('Expected an integer, got a boolean')
+    return operator_index(value)
+
+
 def _moment_wires(wires: int | list[int] | None, nmode: int) -> list[int]:
     """Validate distinct mode indices, preserving their readout order."""
     if wires is None:
         wires = list(range(nmode))
     elif not isinstance(wires, (list, tuple)):
         wires = [wires]
-    if any(isinstance(wire, bool) for wire in wires):
-        raise ValueError('wires must contain integer mode indices')
     try:
-        wires = [operator_index(wire) for wire in wires]
+        wires = [_moment_index(wire) for wire in wires]
     except TypeError as exc:
         raise ValueError('wires must contain integer mode indices') from exc
     if not wires or any(wire < 0 or wire >= nmode for wire in wires) or len(set(wires)) != len(wires):
@@ -694,10 +699,8 @@ def _moment_wires(wires: int | list[int] | None, nmode: int) -> list[int]:
     return wires
 
 
-def _homodyne_inputs(
-    phi: Any, powers: Sequence[Sequence[int]] | torch.Tensor, nwire: int, like: torch.Tensor
-) -> tuple[torch.Tensor, list[tuple[int, ...]]]:
-    """Get one angle per selected mode and one tuple of exponents per requested product."""
+def _quadrature_angles(phi: Any, nwire: int, like: torch.Tensor) -> torch.Tensor:
+    """Get one angle per selected mode at the precision and device of the state."""
     options = {'dtype': like.real.dtype, 'device': like.device}
     if isinstance(phi, (list, tuple)) and len(phi):
         # Stacking retains gradients of individual LO angles supplied in a list.
@@ -706,19 +709,34 @@ def _homodyne_inputs(
         angles = torch.as_tensor(0.0 if phi is None else phi, **options)
     if angles.ndim > 1 or angles.numel() not in (1, nwire):
         raise ValueError('phi must be a shared angle or one angle per selected wire')
+    return angles.expand(nwire)
+
+
+def _project_quadrature_moments(
+    second: torch.Tensor, first: torch.Tensor, phi: Any
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Project xxpp first and second moments onto one quadrature per selected mode."""
+    angles = _quadrature_angles(phi, first.shape[-2] // 2, first)
+    projection = torch.cat([angles.cos().diag(), angles.sin().diag()], dim=-1)
+    return projection @ second @ projection.mT, projection @ first
+
+
+def _moment_powers(powers: Sequence[Sequence[int]] | torch.Tensor, nwire: int) -> list[tuple[int, ...]]:
+    """Validate the exponents of each requested quadrature product, preserving row order."""
     if isinstance(powers, torch.Tensor):
         powers = powers.tolist()
     terms = []
     try:
         for row in powers:
-            if len(row) != nwire or any(isinstance(n, bool) or operator_index(n) < 0 for n in row):
+            term = tuple(map(_moment_index, row))
+            if len(term) != nwire or min(term) < 0:
                 raise ValueError('powers requires one nonnegative integer per selected wire in each row')
-            terms.append(tuple(map(operator_index, row)))
+            terms.append(term)
     except TypeError as exc:
         raise ValueError('powers must be rows of nonnegative integers') from exc
     if not terms:
         raise ValueError('powers must contain at least one row')
-    return angles.expand(nwire), terms
+    return terms
 
 
 def _wick_moments(cov: torch.Tensor, mean: torch.Tensor, powers: list[tuple[int, ...]]) -> torch.Tensor:

@@ -210,7 +210,7 @@ def test_native_loop_sources_batch_and_unconditional_memory():
     torch.testing.assert_close(state.quadrature_moments(), expected.quadrature_moments())
     torch.testing.assert_close(cir.quadrature_moments(), state.quadrature_moments([2, 4]))
     readout = {'phi': [0.1, 0.3], 'powers': [(2, 2)]}
-    torch.testing.assert_close(cir.homodyne_moments([1, 0], **readout), state.homodyne_moments([4, 2], **readout))
+    torch.testing.assert_close(cir.quadrature_moments([1, 0], **readout), state.quadrature_moments([4, 2], **readout))
     torch.testing.assert_close(cir.quadrature_mean(), state.quadrature_mean([2, 4]))
     actual_grad = torch.autograd.grad(state.photon_number_mean_var()[0].sum(), data, retain_graph=True)[0]
     expected_grad = torch.autograd.grad(expected.photon_number_mean_var()[0].sum(), data)[0]

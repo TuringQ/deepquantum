@@ -676,7 +676,20 @@ def _bargmann_derivative(polyexp: BargmannPolyExp, positions: tuple[int, ...]) -
     return values[(slice(None), *orders)] * math.sqrt(factorial)
 
 
-def _homodyne_moments(generating: BargmannPolyExp, angles: torch.Tensor, powers: list[tuple[int, ...]]) -> torch.Tensor:
+def _annihilation_means(generating: BargmannPolyExp) -> torch.Tensor:
+    r"""Read the unnormalized first moments :math:`\mathrm{Tr}(\rho a_i)` from the annihilation sources."""
+    annihilation = range(generating.nfree // 2, generating.nfree)
+    return torch.stack([_bargmann_derivative(generating, (i,)) for i in annihilation], dim=-1)
+
+
+def _homodyne_moments(
+    generating: BargmannPolyExp,
+    angles: torch.Tensor,
+    powers: list[tuple[int, ...]],
+    weight: torch.Tensor,
+    *,
+    centered: bool,
+) -> torch.Tensor:
     r"""Differentiate the quadrature generating function of a possibly non-Gaussian state.
 
     For distinct modes let :math:`q_i=d_i a_i^\dagger+d_i^*a_i`, with
@@ -689,6 +702,7 @@ def _homodyne_moments(generating: BargmannPolyExp, angles: torch.Tensor, powers:
 
     where the arguments of the normal generating function G are elementwise products.
     Auxiliary variables and their derivative coefficients retain their original order.
+    Centering multiplies this function by :math:`e^{-u^T\langle q\rangle}` using the mean of the whole state.
     """
     nwire = angles.numel()
     scale = dqp.hbar**0.5 / (2 * dqp.kappa)
@@ -700,6 +714,11 @@ def _homodyne_moments(generating: BargmannPolyExp, angles: torch.Tensor, powers:
     mat_a = sources.mT @ generating.mat_a @ sources
     mat_a.diagonal(dim1=-2, dim2=-1)[..., :nwire] += scale**2
     vec_b = generating.vec_b @ sources
+    if centered:
+        first = 2 * (_annihilation_means(generating) * phase.conj()).real
+        denominator = torch.where(weight == 0, torch.ones_like(weight), weight)
+        mean = first / denominator[:, None]
+        vec_b = vec_b - functional.pad(mean[:, None, :], (0, generating.naux))
     if not generating.naux:
         moments = _wick_moments(mat_a, vec_b, powers) * generating.coeff_c.unsqueeze(-1)
         return moments.sum(1).real
