@@ -1937,9 +1937,37 @@ print(second_event.shape, first_event.shape)  # (1, 2, 2)、(1, 2, 1)
 # %% [markdown]
 # 当前支持相移、分束器、MZI、任意无源酉变换、单模／双模压缩、位移、光损耗、OPA 和 DisplacementChannel，也支持 `HardwareModel` 中相应的控制噪声与光路损耗。
 # 直接输入 Fock 态或进行光子计数后选择可以得到非高斯态，Kerr 和三次相位等非高斯门尚未实现。
-# Bargmann 的 homodyne、线路级采样和正交基模扩展尚未支持。
+# Bargmann 的 `measure_homodyne` 采样、线路级采样和正交基模扩展尚未支持。
 # `thermal()`、`single_photon()` 和原生环路逐步演化的用法见下文。
 # 后选择的 `keep`、`submode` 和 `lo` 目前仅用于 Fock 后端。
+
+# %% [markdown]
+# ### 指定 Homodyne 角度的联合矩
+#
+# 线 2 的阈值探测器给出预报事件，保留的线 0、1 同时测量 $X=x_0$ 和 $Y=x_1\cos\theta+p_1\sin\theta$。
+# 给 `quadrature_moments` 传入两条线的角度，就得到这两个读数的协方差和均值。
+#
+# `powers` 的每一行给出按 `wires` 排列的指数，下面三列依次是同次读数的 $X^4$、$X^2Y^2$、$Y^4$ 的事件加权平均。
+# `(0, 0)` 对应恒等算符，可以追加这一行来读取事件概率。
+# 指定 `powers` 时默认求原始矩，显式传入 `centered=True` 可以读取相对于该分支均值的中心矩。
+# Gaussian 线路前向运行后也使用同一接口。
+
+# %%
+herald = dq.QumodeCircuit(3, 'vac', backend='bargmann', den_mat=True)
+herald.s2([0, 2], 0.22, 0.1)
+herald.bs([0, 1], [0.55, 0.2])
+herald.loss_t(2, 0.8)
+herald.double()
+herald()
+branch, p_click = herald.post_select(2, 1, detector='threshold', normalize=False)
+
+angles = [0.0, 0.63]
+cov_xy, mean_xy = branch.quadrature_moments([0, 1], phi=angles)
+powers = [(4, 0), (2, 2), (0, 4)]
+weighted = branch.quadrature_moments([0, 1], phi=angles, powers=powers, normalize=False)
+print(cov_xy.shape, mean_xy.shape)  # (1, 2, 2), (1, 2, 1)
+print(weighted.shape)  # (1, 3)
+print(weighted / p_click[:, None])  # 点击条件下的三个四阶矩
 
 # %% [markdown]
 # ### 光源、信道与 Fock 读出

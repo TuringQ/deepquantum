@@ -17,7 +17,7 @@ from torch.nn import functional
 
 import deepquantum.photonic as dqp
 
-from .qmath import quadrature_to_ladder
+from .qmath import _wick_moments, quadrature_to_ladder
 
 # Working-set bound for recurrence indices, coefficients and intermediates.
 _max_work_bytes = 256 * 1024**2
@@ -663,12 +663,68 @@ def _bargmann_derivative(polyexp: BargmannPolyExp, positions: tuple[int, ...]) -
     selected = sorted(set(positions))
     orders = tuple(positions.count(p) for p in selected)
     indices = selected + list(range(polyexp.nfree, polyexp.nvar))
-    reduced = BargmannPolyExp._from_tensors(
-        polyexp.mat_a[..., indices, :][..., indices], polyexp.vec_b[..., indices], polyexp.coeff_c
-    )
+    mat_a, vec_b = polyexp.mat_a[..., indices, :][..., indices], polyexp.vec_b[..., indices]
+    factorial = math.prod(math.factorial(order) for order in orders)
+    if factorial > torch.finfo(mat_a.real.dtype).max:
+        # Absorb sqrt(k!) into each source's k derivatives before evaluating the Hermite coefficients.
+        scales = [math.exp(math.lgamma(k + 1) / (2 * k)) for k in orders] + [1.0] * polyexp.naux
+        scale = mat_a.real.new_tensor(scales)
+        mat_a, vec_b = scale[:, None] * mat_a * scale, vec_b * scale
+        factorial = 1
+    reduced = BargmannPolyExp._from_tensors(mat_a, vec_b, polyexp.coeff_c)
     values = reduced.to_fock(tuple(order + 1 for order in orders))
-    factor = math.sqrt(math.prod(math.factorial(order) for order in orders))
-    return values[(slice(None), *orders)] * factor
+    return values[(slice(None), *orders)] * math.sqrt(factorial)
+
+
+def _annihilation_means(generating: BargmannPolyExp) -> torch.Tensor:
+    r"""Read the unnormalized first moments :math:`\mathrm{Tr}(\rho a_i)` from the annihilation sources."""
+    annihilation = range(generating.nfree // 2, generating.nfree)
+    return torch.stack([_bargmann_derivative(generating, (i,)) for i in annihilation], dim=-1)
+
+
+def _homodyne_moments(
+    generating: BargmannPolyExp,
+    angles: torch.Tensor,
+    powers: list[tuple[int, ...]],
+    weight: torch.Tensor,
+    *,
+    centered: bool,
+) -> torch.Tensor:
+    r"""Differentiate the quadrature generating function of a possibly non-Gaussian state.
+
+    For distinct modes let :math:`q_i=d_i a_i^\dagger+d_i^*a_i`, with
+    :math:`d_i=e^{i\phi_i}\sqrt{\hbar}/(2\kappa)`. Normal ordering gives
+
+    .. math::
+
+        \operatorname{Tr}(\rho e^{u^T q}) =
+        e^{\sum_i |d_i|^2 u_i^2/2} G(d u, d^* u),
+
+    where the arguments of the normal generating function G are elementwise products.
+    Auxiliary variables and their derivative coefficients retain their original order.
+    Centering multiplies this function by :math:`e^{-u^T\langle q\rangle}` using the mean of the whole state.
+    """
+    nwire = angles.numel()
+    scale = dqp.hbar**0.5 / (2 * dqp.kappa)
+    phase = scale * torch.exp(1j * angles)
+    sources = torch.cat([phase.diag(), phase.conj().diag()])
+    if generating.naux:
+        aux = torch.eye(generating.naux, device=phase.device, dtype=phase.dtype)
+        sources = torch.block_diag(sources, aux)
+    mat_a = sources.mT @ generating.mat_a @ sources
+    mat_a.diagonal(dim1=-2, dim2=-1)[..., :nwire] += scale**2
+    vec_b = generating.vec_b @ sources
+    if centered:
+        first = 2 * (_annihilation_means(generating) * phase.conj()).real
+        denominator = torch.where(weight == 0, torch.ones_like(weight), weight)
+        mean = first / denominator[:, None]
+        vec_b = vec_b - functional.pad(mean[:, None, :], (0, generating.naux))
+    if not generating.naux:
+        moments = _wick_moments(mat_a, vec_b, powers) * generating.coeff_c.unsqueeze(-1)
+        return moments.sum(1).real
+    projected = BargmannPolyExp._from_tensors(mat_a, vec_b, generating.coeff_c)
+    indices = [tuple(i for i, n in enumerate(row) for _ in range(n)) for row in powers]
+    return torch.stack([_bargmann_derivative(projected, term) for term in indices], dim=-1).real
 
 
 # Conditional Fock readout for Gaussian states

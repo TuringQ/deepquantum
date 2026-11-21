@@ -4,7 +4,8 @@ import itertools
 import math
 import warnings
 from collections import Counter
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
+from operator import index as operator_index
 from typing import Any
 
 import torch
@@ -674,6 +675,99 @@ def ladder_to_quadrature(tensor: torch.Tensor, symplectic: bool = False) -> torc
             return (omega @ tensor @ omega.mH).real * dqp.hbar / (4 * dqp.kappa**2)
     elif tensor.shape[-1] == 1:
         return (omega @ tensor).real * dqp.hbar**0.5 / (2 * dqp.kappa)
+
+
+def _moment_index(value: Any) -> int:
+    """Read an integer wire index or exponent, rejecting booleans."""
+    if isinstance(value, bool) or (isinstance(value, torch.Tensor) and value.dtype == torch.bool):
+        raise TypeError('Expected an integer, got a boolean')
+    return operator_index(value)
+
+
+def _moment_wires(wires: int | list[int] | None, nmode: int) -> list[int]:
+    """Validate distinct mode indices, preserving their readout order."""
+    if wires is None:
+        wires = list(range(nmode))
+    elif not isinstance(wires, (list, tuple)):
+        wires = [wires]
+    try:
+        wires = [_moment_index(wire) for wire in wires]
+    except TypeError as exc:
+        raise ValueError('wires must contain integer mode indices') from exc
+    if not wires or any(wire < 0 or wire >= nmode for wire in wires) or len(set(wires)) != len(wires):
+        raise ValueError('wires must contain distinct valid mode indices (one entry per mode in a joint readout)')
+    return wires
+
+
+def _quadrature_angles(phi: Any, nwire: int, like: torch.Tensor) -> torch.Tensor:
+    """Get one angle per selected mode at the precision and device of the state."""
+    options = {'dtype': like.real.dtype, 'device': like.device}
+    if isinstance(phi, (list, tuple)) and len(phi):
+        # Stacking retains gradients of individual LO angles supplied in a list.
+        angles = torch.stack([torch.as_tensor(angle, **options) for angle in phi])
+    else:
+        angles = torch.as_tensor(0.0 if phi is None else phi, **options)
+    if angles.ndim > 1 or angles.numel() not in (1, nwire):
+        raise ValueError('phi must be a shared angle or one angle per selected wire')
+    return angles.expand(nwire)
+
+
+def _project_quadrature_moments(
+    second: torch.Tensor, first: torch.Tensor, phi: Any
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Project xxpp first and second moments onto one quadrature per selected mode."""
+    angles = _quadrature_angles(phi, first.shape[-2] // 2, first)
+    projection = torch.cat([angles.cos().diag(), angles.sin().diag()], dim=-1)
+    return projection @ second @ projection.mT, projection @ first
+
+
+def _moment_powers(powers: Sequence[Sequence[int]] | torch.Tensor, nwire: int) -> list[tuple[int, ...]]:
+    """Validate the exponents of each requested quadrature product, preserving row order."""
+    if isinstance(powers, torch.Tensor):
+        powers = powers.tolist()
+    terms = []
+    try:
+        for row in powers:
+            term = tuple(map(_moment_index, row))
+            if len(term) != nwire or min(term) < 0:
+                raise ValueError('powers requires one nonnegative integer per selected wire in each row')
+            terms.append(term)
+    except TypeError as exc:
+        raise ValueError('powers must be rows of nonnegative integers') from exc
+    if not terms:
+        raise ValueError('powers must contain at least one row')
+    return terms
+
+
+def _wick_moments(cov: torch.Tensor, mean: torch.Tensor, powers: list[tuple[int, ...]]) -> torch.Tensor:
+    """Evaluate raw Gaussian moments by removing a single factor or a Wick pair from each product."""
+
+    def lower(order: tuple[int, ...], wire: int) -> tuple[int, ...]:
+        return order[:wire] + (order[wire] - 1,) + order[wire + 1 :]
+
+    # Follow only the lower orders needed by these requests, then evaluate them from the identity up.
+    zero = (0,) * mean.shape[-1]
+    pending = list(powers)
+    dependencies = {}
+    while pending:
+        order = pending.pop()
+        if order == zero or order in dependencies:
+            continue
+        i = next(j for j, count in enumerate(order) if count)
+        rest = lower(order, i)
+        pairs = [(j, count, lower(rest, j)) for j, count in enumerate(rest) if count]
+        dependencies[order] = i, rest, pairs
+        pending.append(rest)
+        pending.extend(other for _, _, other in pairs)
+
+    moments = {zero: mean.new_ones(mean.shape[:-1])}
+    for order in sorted(dependencies, key=sum):
+        i, rest, pairs = dependencies[order]
+        value = mean[..., i] * moments[rest]
+        for j, count, other in pairs:
+            value = value + count * cov[..., i, j] * moments[other]
+        moments[order] = value
+    return torch.stack([moments[order] for order in powers], dim=-1)
 
 
 def _quadrature_moments_from_raw(
