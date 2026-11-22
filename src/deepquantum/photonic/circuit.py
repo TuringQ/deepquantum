@@ -55,9 +55,13 @@ from .kensingtonian_ import kensingtonian
 from .measurement import Generaldyne, Homodyne
 from .operation import Channel, Delay, Gate, Operation
 from .qmath import (
+    _first_order_indices,
     _moment_powers,
+    _moment_weight,
     _moment_wires,
+    _project_quadrature_mean,
     _project_quadrature_moments,
+    _quadrature_angles,
     _quadrature_moments_from_raw,
     _wick_moments,
     align_shape,
@@ -736,8 +740,6 @@ class QumodeCircuit(Operation):
             )
         if self.mps or isinstance(self, DistributedQumodeCircuit):
             raise NotImplementedError('The Bargmann backend does not support MPS or distributed circuits')
-        if len(self.measurements) > 0:
-            raise NotImplementedError('Homodyne measurements are not supported by the Bargmann backend')
         if state is None:
             state = self.init_state
         elif not isinstance(state, BargmannState):
@@ -2565,78 +2567,72 @@ class QumodeCircuit(Operation):
             var = var.reshape(batch, nwire)
         return exp, var
 
+    def _quadrature_settings(self, wires: int | list[int] | None, phi: Any) -> tuple[list[int], Any]:
+        """Resolve terminal quadrature coordinates, preserving registration or query order."""
+        if wires is None and phi is None and self.measurements:
+            wires = [measurement.wires[0] for measurement in self.measurements]
+            phi = torch.cat([measurement.phi for measurement in self.measurements])
+        selected = _moment_wires(self.wires if wires is None else wires, self.nmode)
+        if self._with_delay and self.backend == 'bargmann':
+            selected = [self._unroll_dict[w][-1] for w in selected]
+        return selected, phi
+
     def quadrature_mean(
-        self, wires: int | list[int] | None = None, phi: Any | None = None, *, lo: Any = None
+        self, wires: int | list[int] | None = None, phi: Any = None, *, lo: Any = None, normalize: bool | None = None
     ) -> torch.Tensor:
         r"""Get the expectation value of the quadrature operator :math:`\hat{X}\cos\phi + \hat{P}\sin\phi`.
 
-        If ``self.measurements`` is empty, this method directly computes the quadrature expectation values
-        for the specified ``wires`` and ``phi``. If ``self.measurements`` is specified via ``self.homodyne``,
-        the wires and corresponding homodyne angles are inferred from the stored measurement instructions,
-        and the input arguments ``wires`` and ``phi`` are ignored.
-
-        Fock readout retains the state weight. Bargmann readout divides by the
-        state weight. Use ``quadrature_moments`` to select normalization explicitly.
+        Like ``quadrature_moments``, omitting both ``wires`` and ``phi`` uses the registered
+        Homodyne wires and angles in registration order. Supplying either starts an explicit query.
+        Only first moments are evaluated.
 
         Args:
-            wires: The wires to measure. It can be an integer or a list of integers specifying
-                the indices of the wires. Default: ``None`` (which means all wires are measured)
-            phi: The phi angles for quadrature operator :math:`\hat{X}\cos\phi + \hat{P}\sin\phi`. Default: ``None``
+            wires: Distinct spatial modes in output order. Default for an explicit query: all modes
+            phi: A shared angle in radians or one per selected wire. Default for an explicit query: zero
             lo: Local-oscillator coefficients in the common orthogonal basis, normalized per spatial mode.
                 Default: ``None`` (the first orthogonal basis mode)
+            normalize: Divide by the state weight, which must then be positive. Default: ``None``
+                (retain Fock and Bosonic weights, normalize Bargmann states). Gaussian states have unit weight.
 
         Returns:
             A tensor with shape ``(batch, len(wires), 1)``.
         """
+        if self.measurements and (wires is not None or phi is not None):
+            warnings.warn(
+                'Explicit wires or phi now override registered Homodyne settings in quadrature_mean(). '
+                'Omit both arguments to use the registered settings.',
+                stacklevel=2,
+            )
+        state = self._get_output_state()
+        wires, phi = self._quadrature_settings(wires, phi)
         if self._submode_circuit is not None:
             from .submode import _lo_view
 
-            selected = self.wires if wires is None else self._convert_indices(wires)
-            expanded = self._submode_circuit
             if self.basis and self.backend == 'fock':
                 raise NotImplementedError('Homodyne readout requires Fock state tensors (basis=False).')
-            view = _lo_view(expanded.result(), self.cutoff, selected, lo)
-            return view.quadrature_mean(phi=phi)
+            view = _lo_view(self._submode_circuit.result(), self.cutoff, wires, lo)
+            return view.quadrature_mean(phi=phi, normalize=normalize)
         if lo is not None:
             raise ValueError('Configure orthogonal basis modes before specifying local-oscillator coefficients.')
 
-        if len(self.measurements) == 0:
-            if wires is None:
-                wires = self.wires
-            wires = self._convert_indices(wires)
-            if phi is None:
-                phi = torch.zeros(len(wires))
-            elif not isinstance(phi, torch.Tensor):
-                phi = torch.tensor(phi)
-            if phi.numel() == 1:
-                phi = phi.reshape(-1).expand(len(wires))
-        else:
-            wires = []
-            phi = []
-            for mea in self.measurements:
-                wires = wires + mea.wires
-                phi.append(mea.phi)
-            phi = torch.cat(phi)
-        wires = self._convert_indices(wires)
-        assert len(wires) == len(phi), f'phi length {len(phi)} must match wires length {len(wires)}'
-        state = self._get_output_state()
         if self.backend == 'bargmann':
-            if self._with_delay:
-                wires = [self._unroll_dict[w][-1] for w in wires]
-            return state.quadrature_mean(wires, phi)
+            if normalize is None:
+                # Preserve the two-argument call and tensor angles for existing state subclasses.
+                return state.quadrature_mean(wires, _quadrature_angles(phi, len(wires), state.vec_b, flatten=True))
+            return state.quadrature_mean(wires, phi, normalize=normalize)
         if self.backend == 'fock':
             assert not self.basis
-            return quadrature_mean_fock(state, self.nmode, self.cutoff, wires, self.den_mat, phi=phi)
-        elif self.backend in ('gaussian', 'bosonic'):
-            wires = torch.tensor(wires)
-            idx = torch.cat([wires, wires + self.nmode])  # xxpp order
-            means = state[1][..., idx, :]
-            phi = phi.reshape(-1, 1)
-            mean = means[..., : len(wires), :] * torch.cos(phi) + means[..., len(wires) :, :] * torch.sin(phi)
-            if self.backend == 'bosonic':
-                weight = state[2].unsqueeze(-1).unsqueeze(-2)
-                mean = torch.sum(weight * mean, dim=1)
-        return mean
+            return quadrature_mean_fock(
+                state, self.nmode, self.cutoff, wires, self.den_mat, phi=phi, normalize=bool(normalize)
+            )
+        indices = wires + [w + self.nmode for w in wires]
+        first = state[1][..., indices, :]
+        if self.backend == 'bosonic':
+            weight = state[2]
+            first = (first * weight[..., None, None]).sum(1)
+            if normalize:
+                first = first / _moment_weight(weight.sum(-1), normalize=True)
+        return _project_quadrature_mean(first, _quadrature_angles(phi, len(wires), first, flatten=True))
 
     @overload
     def quadrature_moments(
@@ -2671,8 +2667,9 @@ class QumodeCircuit(Operation):
     ) -> tuple[torch.Tensor, torch.Tensor] | torch.Tensor:
         r"""Get a covariance and mean, or the moments of specified quadrature products.
 
-        The latest forward state supplies the optical quadratures independently of measurement instructions.
-        The default pair uses ``xxpp`` order.
+        With both ``wires`` and ``phi`` omitted, registered Homodyne settings select the
+        quadratures in registration order. Supplying either argument starts an explicit query.
+        With no registered settings or an explicit wire selection, the default pair uses ``xxpp`` order.
         Supply ``phi`` to select :math:`q_i=x_{w_i}\cos\phi_i+p_{w_i}\sin\phi_i` on each wire.
         On Gaussian and Bargmann states, ``powers=[(4, 0), (2, 2), (0, 4)]`` returns
         :math:`\langle q_0^4\rangle,\langle q_0^2 q_1^2\rangle,\langle q_1^4\rangle`.
@@ -2682,9 +2679,9 @@ class QumodeCircuit(Operation):
         and orthogonal basis modes are not supported.
 
         Args:
-            wires: Distinct spatial modes in output order. Default: ``None`` (all modes)
-            phi: A shared angle in radians or one per selected wire. Omitting it selects ``xxpp`` for the
-                pair or the x quadrature on each wire for ``powers``.
+            wires: Distinct spatial modes in output order. An explicit query defaults to all modes.
+            phi: A shared angle in radians or one per selected wire. An explicit query without angles uses
+                ``xxpp`` for the pair or the x quadrature on each wire for ``powers``.
             powers: Rows of nonnegative exponents in wire order. Default: ``None`` (return the pair)
             centered: Subtract the normalized mean from each factor in a product or in the second moment
                 of the pair. The pair always includes the first moment. Default: covariance for the pair,
@@ -2694,7 +2691,7 @@ class QumodeCircuit(Operation):
 
         Returns:
             Without ``powers``, a pair of shape ``(batch, D, D)``, ``(batch, D, 1)``, where ``D`` is twice
-            the selected mode count for ``xxpp`` or the selected mode count for specified angles.
+            the selected mode count for ``xxpp`` or the selected mode count for registered or specified angles.
             With ``powers``, a real tensor of shape ``(batch, len(powers))`` in request order.
             With ``normalize=False``, an all-zero row returns the state weight. Raw unnormalized
             moments add over mutually exclusive events. Units follow ``hbar`` and ``kappa``.
@@ -2705,26 +2702,30 @@ class QumodeCircuit(Operation):
             raise NotImplementedError('Fock quadrature moments require basis=False')
         if powers is not None and self.backend not in ('gaussian', 'bargmann'):
             raise NotImplementedError('quadrature_moments with powers requires a Gaussian or Bargmann state')
-        wires = self.wires if wires is None else wires
         if centered is None:
             centered = powers is None
         state = self._get_output_state()
+        wires, phi = self._quadrature_settings(wires, phi)
         if self.backend == 'bargmann':
-            if self._with_delay:
-                wires = [self._unroll_dict[w][-1] for w in _moment_wires(wires, self.nmode)]
             if phi is None and powers is None:
                 # Existing state subclasses can implement the original covariance/mean signature.
                 return state.quadrature_moments(wires, centered=centered, normalize=normalize)
             return state.quadrature_moments(wires, phi, powers=powers, centered=centered, normalize=normalize)
-        wires = _moment_wires(wires, self.nmode)
         if self.backend == 'fock':
             second, first = quadrature_moments_fock(
                 state, self.nmode, self.cutoff, wires, self.den_mat, centered=centered, normalize=normalize
             )
         else:
             indices = wires + [wire + self.nmode for wire in wires]
-            cov, mean = state[:2]
-            cov, mean = cov[..., indices, :][..., indices], mean[..., indices, :]
+            mean = state[1][..., indices, :]
+            if powers is not None:
+                terms = _moment_powers(powers, len(wires))
+                columns = _first_order_indices(terms)
+                if columns is not None:
+                    angles = _quadrature_angles(phi, len(wires), mean)
+                    first = _project_quadrature_mean(mean, angles)[:, columns, 0]
+                    return first * 0 if centered else first
+            cov = state[0][..., indices, :][..., indices]
             if self.backend == 'bosonic':
                 weight = state[2][..., None, None]
                 raw = ((cov + mean @ mean.mT) * weight).sum(1)
@@ -2736,7 +2737,7 @@ class QumodeCircuit(Operation):
                 cov, mean = _project_quadrature_moments(cov, mean, phi)
                 mean = mean.squeeze(-1)
                 # Centering cancels the displacement, including its gradient.
-                return _wick_moments(cov, mean * 0 if centered else mean, _moment_powers(powers, len(wires)))
+                return _wick_moments(cov, mean * 0 if centered else mean, terms)
             else:
                 second, first = (cov if centered else cov + mean @ mean.mT), mean
         return (second, first) if phi is None else _project_quadrature_moments(second, first, phi)

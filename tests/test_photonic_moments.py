@@ -10,6 +10,45 @@ import deepquantum.photonic as dqp
 
 
 @pytest.mark.parametrize('backend', ['fock', 'gaussian', 'bosonic', 'bargmann'])
+def test_registered_quadratures_and_explicit_queries(backend):
+    cir = dq.QumodeCircuit(3, 'vac', backend=backend, cutoff=6, basis=False)
+    cir.d(0, encode=True)
+    cir.d(2, 0.12, 0.5)
+    theta = torch.tensor(-0.32, dtype=torch.double, requires_grad=True)
+    cir.homodyne(2, phi=theta)
+    cir.homodyne_x(0)
+    cir.double()
+    cir(torch.tensor([[0.1, 0.3], [-0.2, 0.6]], dtype=torch.double))
+
+    # Build the independent projection from the complete xxpp pair in spatial order.
+    cov, mean = cir.quadrature_moments(wires=[0, 1, 2])
+    projected = mean.new_zeros(2, 6)
+    projected[0, 2], projected[0, 5], projected[1, 0] = theta.cos(), theta.sin(), 1
+    expected = projected @ mean
+    torch.testing.assert_close(cir.quadrature_moments(), (projected @ cov @ projected.mT, expected))
+    registered = cir.quadrature_mean().real
+    torch.testing.assert_close(registered, expected)
+    torch.testing.assert_close(
+        torch.autograd.grad(registered.sum(), theta)[0], torch.autograd.grad(expected.sum(), theta)[0]
+    )
+    if backend in ('gaussian', 'bargmann'):
+        powers = [(0, 1), (1, 0), (0, 1)]
+        torch.testing.assert_close(cir.quadrature_moments(powers=powers), expected[:, [1, 0, 1], 0])
+
+    with pytest.warns(UserWarning, match='override registered Homodyne'):
+        torch.testing.assert_close(cir.quadrature_mean(wires=0).real, mean[:, :1])
+    with pytest.warns(UserWarning, match='override registered Homodyne'):
+        explicit = cir.quadrature_mean(phi=[theta.reshape(1), 0.0, 0.0]).real
+    expected_x = mean[:, :3].clone()
+    expected_x[:, 0] = mean[:, 0] * theta.cos() + mean[:, 3] * theta.sin()
+    torch.testing.assert_close(explicit, expected_x)
+    torch.testing.assert_close(cir.quadrature_moments(phi=[theta, 0.0, 0.0])[1], expected_x)
+    torch.testing.assert_close(
+        torch.autograd.grad(explicit.sum(), theta)[0], torch.autograd.grad(expected_x.sum(), theta)[0]
+    )
+
+
+@pytest.mark.parametrize('backend', ['fock', 'gaussian', 'bosonic', 'bargmann'])
 @pytest.mark.parametrize('units', [(2.0, 2**-0.5), (1.3, 0.8)])
 def test_gaussian_moments_and_mode_order(backend, units, monkeypatch):
     monkeypatch.setattr(dqp, 'hbar', units[0])
@@ -111,15 +150,25 @@ def test_non_gaussian_moments_against_operator_matrices(backend, den_mat):
     numbers = [torch.kron(number, eye), torch.kron(eye, number)]
     expected_mean = torch.stack([expectation(operator) for operator in numbers], -1)
     expected_var = torch.stack([expectation(operator @ operator) for operator in numbers], -1) - expected_mean.square()
+    phi = torch.tensor([0.2, -0.4], dtype=torch.double)
+    quadrature = mean[:, :2, 0] * phi.cos() + mean[:, 2:, 0] * phi.sin()
+    for normalize in (False, True):
+        expected = quadrature if normalize else 0.2 * quadrature
+        torch.testing.assert_close(cir.quadrature_mean(phi=phi[:, None], normalize=normalize), expected.unsqueeze(-1))
+        if backend == 'bargmann':
+            terms = [(0, 1), (0, 1)]
+            for centered in (False, True):
+                products = state.quadrature_moments(phi=phi, powers=terms, normalize=normalize, centered=centered)
+                target = expected[:, [1, 1]]
+                torch.testing.assert_close(products, torch.zeros_like(target) if centered else target)
+    legacy = quadrature if backend == 'bargmann' else 0.2 * quadrature
+    torch.testing.assert_close(cir.quadrature_mean(phi=phi), legacy.unsqueeze(-1))
     if backend == 'bargmann':
         torch.testing.assert_close(state.photon_number_mean_var(), (expected_mean, expected_var))
     else:
         first = 0.2 * expected_mean
         variance = 0.2 * (expected_var + expected_mean.square()) - first.square()
         torch.testing.assert_close(cir.photon_number_mean_var(), (first, variance))
-        phi = torch.tensor([0.2, -0.4], dtype=torch.double)
-        expected_quadrature = mean[:, :2, 0] * phi.cos() + mean[:, 2:, 0] * phi.sin()
-        torch.testing.assert_close(cir.quadrature_mean(phi=phi), 0.2 * expected_quadrature.unsqueeze(-1))
 
 
 @pytest.mark.parametrize('backend', ['fock', 'gaussian', 'bosonic', 'bargmann'])
@@ -209,6 +258,8 @@ def test_bosonic_moments_include_between_component_covariance():
     second, first = cir.quadrature_moments(centered=False, normalize=False)
     torch.testing.assert_close(second, 0.1 * (expected_cov + expected_mean @ expected_mean.mT))
     torch.testing.assert_close(first, 0.1 * expected_mean)
+    torch.testing.assert_close(cir.quadrature_mean(normalize=True).real, expected_mean[:, :1])
+    torch.testing.assert_close(cir.quadrature_mean().real, first[:, :1])
 
 
 @pytest.mark.parametrize('backend', ['fock', 'bargmann'])
@@ -228,6 +279,9 @@ def test_threshold_weighted_moments_add_over_events(backend):
         contributions.append(readout.quadrature_moments(centered=False, normalize=False))
         if click:
             assert probability[0] == 0
+            assert torch.count_nonzero(readout.quadrature_mean(normalize=False)[0]) == 0
+            with pytest.raises(ValueError, match='positive'):
+                readout.quadrature_mean(normalize=True)
             for centered in (False, True):
                 moments = readout.quadrature_moments(centered=centered, normalize=False)
                 assert all(torch.count_nonzero(value[0]) == 0 for value in moments)

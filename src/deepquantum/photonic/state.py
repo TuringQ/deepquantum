@@ -29,10 +29,12 @@ from .bargmann import (
 )
 from .draw import GaussianGraphVisualizer
 from .qmath import (
+    _first_order_indices,
     _moment_powers,
     _moment_wires,
     _project_quadrature_moments,
     _quadrature_angles,
+    _quadrature_mean_ladder,
     _quadrature_moments_ladder,
     cv_to_wigner,
     dirac_rep,
@@ -603,25 +605,22 @@ class BargmannState(nn.Module):
             raise ValueError('Normalized moments require a positive state weight')
         return _moment_generating(density.polyexp, wires), weight
 
-    def quadrature_mean(self, wires: int | list[int] | None = None, phi: Any = None) -> torch.Tensor:
-        r"""Get the normalized expectation of :math:`\hat{x}\cos\phi+\hat{p}\sin\phi` without Fock truncation.
+    def quadrature_mean(
+        self, wires: int | list[int] | None = None, phi: Any = None, *, normalize: bool = True
+    ) -> torch.Tensor:
+        r"""Get the expectation of :math:`\hat{x}\cos\phi+\hat{p}\sin\phi` without Fock truncation.
 
         Args:
             wires: The indices of the modes to measure, in output order. Default: ``None`` (all modes)
             phi: The quadrature angle in radians, shared or one per selected mode. Default: ``None`` (zero)
+            normalize: Divide by the state weight, which must then be positive. Default: ``True``
 
         Returns:
             Real tensor of shape ``(batch, len(wires), 1)`` in the current ``hbar`` and ``kappa`` units.
-            The state weight must be positive.
         """
-        generating, weight = self._prepare_moments(wires)
-        nwire = generating.nfree // 2
-        alpha = _annihilation_means(generating)
-        phi = torch.as_tensor(0.0 if phi is None else phi, dtype=weight.dtype, device=weight.device)
-        if phi.numel() not in (1, nwire):
-            raise ValueError('phi must be shared or have one angle per selected mode')
-        value = (alpha * torch.exp(-1j * phi.reshape(1, -1))).real / weight[:, None]
-        return (dqp.hbar**0.5 / dqp.kappa * value).unsqueeze(-1)
+        generating, weight = self._prepare_moments(wires, require_positive=normalize)
+        first = _quadrature_mean_ladder(_annihilation_means(generating), phi)
+        return first / weight[:, None, None] if normalize else first
 
     @overload
     def quadrature_moments(
@@ -694,7 +693,14 @@ class BargmannState(nn.Module):
         if powers is not None:
             angles = _quadrature_angles(phi, nwire, weight)
             terms = _moment_powers(powers, nwire)
-            moments = _homodyne_moments(generating, angles, terms, weight, centered=centered)
+            columns = _first_order_indices(terms)
+            if columns is None:
+                moments = _homodyne_moments(generating, angles, terms, weight, centered=centered)
+            else:
+                first = _quadrature_mean_ladder(_annihilation_means(generating, columns), angles[columns])
+                moments = first.squeeze(-1)
+                if centered:
+                    moments = moments * 0
             return moments / weight[:, None] if normalize else moments
         alpha = _annihilation_means(generating)
         normal, anomalous = [], []

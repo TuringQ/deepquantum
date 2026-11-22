@@ -676,10 +676,17 @@ def _bargmann_derivative(polyexp: BargmannPolyExp, positions: tuple[int, ...]) -
     return values[(slice(None), *orders)] * math.sqrt(factorial)
 
 
-def _annihilation_means(generating: BargmannPolyExp) -> torch.Tensor:
+def _annihilation_means(generating: BargmannPolyExp, wires: list[int] | None = None) -> torch.Tensor:
     r"""Read the unnormalized first moments :math:`\mathrm{Tr}(\rho a_i)` from the annihilation sources."""
-    annihilation = range(generating.nfree // 2, generating.nfree)
-    return torch.stack([_bargmann_derivative(generating, (i,)) for i in annihilation], dim=-1)
+    nwire = generating.nfree // 2
+    if not generating.naux:
+        # Each Gaussian term contributes its coefficient times its linear annihilation source.
+        linear = generating.vec_b[..., nwire:]
+        if wires is not None:
+            linear = linear[..., wires]
+        return (generating.coeff_c.unsqueeze(-1) * linear).sum(1)
+    selected = range(nwire) if wires is None else wires
+    return torch.stack([_bargmann_derivative(generating, (nwire + i,)) for i in selected], dim=-1)
 
 
 def _homodyne_moments(

@@ -699,17 +699,25 @@ def _moment_wires(wires: int | list[int] | None, nmode: int) -> list[int]:
     return wires
 
 
-def _quadrature_angles(phi: Any, nwire: int, like: torch.Tensor) -> torch.Tensor:
-    """Get one angle per selected mode at the precision and device of the state."""
+def _quadrature_angles(phi: Any, nwire: int, like: torch.Tensor, *, flatten: bool = False) -> torch.Tensor:
+    """Get one angle per selected mode, optionally flattening legacy mean-readout inputs."""
     options = {'dtype': like.real.dtype, 'device': like.device}
     if isinstance(phi, (list, tuple)) and len(phi):
-        # Stacking retains gradients of individual LO angles supplied in a list.
-        angles = torch.stack([torch.as_tensor(angle, **options) for angle in phi])
+        values = [torch.as_tensor(angle, **options) for angle in phi]
+        angles = torch.stack([value.squeeze() for value in values] if flatten else values)
     else:
         angles = torch.as_tensor(0.0 if phi is None else phi, **options)
+    if flatten and angles.ndim > 1:
+        angles = angles.flatten()
     if angles.ndim > 1 or angles.numel() not in (1, nwire):
         raise ValueError('phi must be a shared angle or one angle per selected wire')
     return angles.expand(nwire)
+
+
+def _project_quadrature_mean(first: torch.Tensor, angles: torch.Tensor) -> torch.Tensor:
+    """Rotate xxpp means along the selected angles without allocating a projection matrix."""
+    x, p = first.chunk(2, dim=-2)
+    return x * angles.cos()[:, None] + p * angles.sin()[:, None]
 
 
 def _project_quadrature_moments(
@@ -719,6 +727,13 @@ def _project_quadrature_moments(
     angles = _quadrature_angles(phi, first.shape[-2] // 2, first)
     projection = torch.cat([angles.cos().diag(), angles.sin().diag()], dim=-1)
     return projection @ second @ projection.mT, projection @ first
+
+
+def _quadrature_mean_ladder(alpha: torch.Tensor, phi: Any) -> torch.Tensor:
+    """Rotate annihilation means into quadrature units, retaining their state weight."""
+    angles = _quadrature_angles(phi, alpha.shape[-1], alpha, flatten=True)
+    mean = (alpha * torch.exp(-1j * angles)).real
+    return (dqp.hbar**0.5 / dqp.kappa * mean).unsqueeze(-1)
 
 
 def _moment_powers(powers: Sequence[Sequence[int]] | torch.Tensor, nwire: int) -> list[tuple[int, ...]]:
@@ -737,6 +752,13 @@ def _moment_powers(powers: Sequence[Sequence[int]] | torch.Tensor, nwire: int) -
     if not terms:
         raise ValueError('powers must contain at least one row')
     return terms
+
+
+def _first_order_indices(powers: list[tuple[int, ...]]) -> list[int] | None:
+    """Return the requested mean columns in order if every product has degree one."""
+    if all(sum(row) == 1 for row in powers):
+        return [row.index(1) for row in powers]
+    return None
 
 
 def _wick_moments(cov: torch.Tensor, mean: torch.Tensor, powers: list[tuple[int, ...]]) -> torch.Tensor:
@@ -770,6 +792,15 @@ def _wick_moments(cov: torch.Tensor, mean: torch.Tensor, powers: list[tuple[int,
     return torch.stack([moments[order] for order in powers], dim=-1)
 
 
+def _moment_weight(weight: torch.Tensor, normalize: bool) -> torch.Tensor:
+    """Validate and broadcast the state weight over quadrature coordinates."""
+    if not bool(torch.isfinite(weight).all()):
+        raise ValueError('Moments require a finite state weight')
+    if normalize and bool((weight.real <= 0).any()):
+        raise ValueError('Normalized moments require a positive state weight')
+    return weight.real[..., None, None]
+
+
 def _quadrature_moments_from_raw(
     second: torch.Tensor,
     first: torch.Tensor,
@@ -779,11 +810,7 @@ def _quadrature_moments_from_raw(
     normalize: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Center and normalize weighted quadrature moments independently."""
-    if not bool(torch.isfinite(weight).all()):
-        raise ValueError('Moments require a finite state weight')
-    if normalize and bool((weight.real <= 0).any()):
-        raise ValueError('Normalized moments require a positive state weight')
-    weight = weight.real[..., None, None]
+    weight = _moment_weight(weight, normalize)
     if centered:
         # A zero-probability event contributes zero to unnormalized centered moments.
         denominator = torch.where(weight == 0, torch.ones_like(weight), weight)
@@ -947,16 +974,16 @@ def quadrature_mean_fock(
     wires: list[int],
     den_mat: bool = False,
     *,
-    phi: torch.Tensor | None = None,
+    phi: Any = None,
+    normalize: bool = False,
 ) -> torch.Tensor:
     """Get the rotated quadrature expectation for Fock state tensors.
 
     ``phi`` is shared or gives one angle per selected mode, with zero as the default.
     Only adjacent Fock coherences contribute, so no state rotation is needed.
-    The result has shape ``(batch, len(wires), 1)`` and retains the state weight.
+    The result has shape ``(batch, len(wires), 1)``. Set ``normalize=True`` to divide by the state weight.
     """
-    coef = 2 * dqp.kappa**2 / dqp.hbar
-    factor = torch.sqrt(torch.arange(1, cutoff, device=state.device, dtype=state.real.dtype) / 2)
+    factor = torch.arange(1, cutoff, device=state.device, dtype=state.real.dtype).sqrt()
     mean = []
     if den_mat:
         state = state.reshape(-1, cutoff**nmode, cutoff**nmode)
@@ -980,9 +1007,11 @@ def quadrature_mean_fock(
             cn1 = state_i[:, 1:, ...]  # n+1
             term = factor * (cn.conj() * cn1)
             mean.append(term.sum(dim=tuple(range(1, nmode + 1))))
-    phi = torch.as_tensor(0.0 if phi is None else phi, dtype=state.real.dtype, device=state.device)
-    mean = (torch.stack(mean, dim=-1) * torch.exp(-1j * phi)).real
-    return (2 * coef ** (-0.5) * mean).unsqueeze(-1)
+    first = _quadrature_mean_ladder(torch.stack(mean, dim=-1), phi)
+    if normalize:
+        weight = state.diagonal(dim1=-2, dim2=-1).sum(-1) if den_mat else state.abs().square().flatten(1).sum(-1)
+        first = first / _moment_weight(weight, normalize=True)
+    return first
 
 
 def takagi(a: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
