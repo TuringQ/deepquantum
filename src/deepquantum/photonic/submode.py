@@ -12,6 +12,7 @@ from torch.utils._pytree import register_pytree_node
 
 import deepquantum.photonic as dqp
 
+from .bargmann import BargmannPolyExp, _project_spatial_pnr, _project_threshold
 from .channel import DisplacementChannel, OPA, PhotonLoss
 from .circuit import QumodeCircuit
 from .gate import (
@@ -32,15 +33,21 @@ from .gate import (
 from .hardware import HardwareModel, Loss, _PluginBinding
 from .qmath import (
     _convolve_counts,
+    _fock_annihilation_means,
     _fock_conditional_blocks,
     _fock_isometry,
+    _fock_state_weight,
     _group_count_axes,
+    _moment_weight,
     _normalize_coefficients,
+    _project_quadrature_moments,
+    _quadrature_mean_ladder,
     fock_combinations,
     group_probabilities,
+    quadrature_moments_fock,
 )
 from .source import SinglePhotonSource, Submodes
-from .state import BosonicState, FockState, GaussianState
+from .state import BargmannState, BosonicState, FockState, GaussianState
 
 _PASSIVE = (BeamSplitter, BeamSplitterPhi, BeamSplitterSingle, BeamSplitterTheta, MZI, PhaseShift, UAnyGate, PhotonLoss)
 _ACTIVE = (Squeezing, Squeezing2, Displacement, DisplacementPosition, DisplacementMomentum, OPA, DisplacementChannel)
@@ -56,6 +63,7 @@ class SubmodeResult:
     For partially coupled groups, ``data`` contains joint block states and ``partition``
     gives the basis-mode indices in each block.
     Gaussian data contain [cov, mean]. Fock state tensors may be pure or mixed.
+    Bargmann data are a native state or a tuple of states indexed by ``blocks``.
     Bosonic and Fock basis outputs use joint data. Fock basis data are a transfer matrix
     when ``is_prob`` is ``None``.
     """
@@ -91,11 +99,45 @@ class SubmodeResult:
         ]
 
     def to_joint(self) -> Any:
-        """Return ordinary backend tensors, explicitly allocating a joint state if needed."""
+        """Return the joint backend state in spatial-then-basis order, forming a tensor product if needed."""
         if not self.factorized:
             return self.data
         blocks, states = zip(*self._factors(), strict=True)
         return _join_states(states, blocks, self.nmode, self.nsubmode, self.backend, self.den_mat)
+
+    def _bargmann_condition(
+        self,
+        wires: tuple[int, ...],
+        photons: tuple[int, ...],
+        detector: str,
+        *,
+        keep: list[int] | None = None,
+        submode: int | None = None,
+        lo: Any = None,
+    ) -> tuple[BargmannState, torch.Tensor]:
+        """Project spatial counts without resolving which basis mode supplied each photon."""
+        joint = self.to_joint()
+        if detector == 'threshold' and any(n not in (0, 1) for n in photons):
+            raise ValueError('Threshold outcomes must be 0 or 1')
+        groups = [[w * self.nsubmode + k for k in range(self.nsubmode)] for w in wires]
+        if self.nsubmode == 1:
+            state = joint._post_select(wires, photons, detector)
+        elif detector == 'pnrd':
+            state = joint._new(_project_spatial_pnr(joint.to_dm().polyexp, groups, photons), den_mat=True)
+        elif detector == 'threshold':
+            state = joint._new(_project_threshold(joint.to_dm().polyexp, joint.nmode, groups, photons), den_mat=True)
+        else:
+            raise NotImplementedError('Bargmann spatial counts support PNR and threshold detectors.')
+        probability = state.norm()
+        if keep is None:
+            return state, probability
+        remaining = [w for w in range(self.nmode) if w not in wires]
+        positions = [remaining.index(w) for w in keep]
+        if lo is not None:
+            reduced = SubmodeResult(state, len(remaining), self.nsubmode, 'bargmann', state.den_mat, False)
+            return _bargmann_lo_state(reduced, positions, lo), probability
+        basis = range(self.nsubmode) if submode is None else [submode]
+        return state._marginal([w * self.nsubmode + k for w in positions for k in basis]), probability
 
 
 register_pytree_node(
@@ -176,6 +218,11 @@ def _join_states(states, blocks, nmode, nsubmode, backend, den_mat):
     labels = [(w, k) for block in blocks for w in range(nmode) for k in block]
     order = [labels.index((w, k)) for w in range(nmode) for k in range(nsubmode)]
     total = nmode * nsubmode
+    if backend == 'bargmann':
+        joint = states[0]
+        for state in states[1:]:
+            joint = joint.tensor_product(state)
+        return joint.reorder(order)
     if backend == 'gaussian':
         covs, means = zip(*states, strict=True)
         sizes = [cov.shape[-1] for cov in covs]
@@ -239,28 +286,102 @@ def _profile_rotations(coefficients):
 
 def _lo_coefficients(lo, nwire, nsubmode, reference):
     """Normalize LO coefficients in the common orthogonal basis for each measured spatial mode."""
+    dtype = torch.complex128 if reference.dtype in (torch.float64, torch.complex128) else torch.complex64
     if lo is None:
-        coefficients = reference.new_zeros(nwire, nsubmode)
+        coefficients = reference.new_zeros(nwire, nsubmode, dtype=dtype)
         coefficients[:, 0] = 1
-    else:
-        coefficients = torch.as_tensor(lo, device=reference.device)
-        if coefficients.ndim == 1:
-            coefficients = coefficients.unsqueeze(0).expand(nwire, -1)
-        if coefficients.ndim != 2 or coefficients.shape[0] != nwire or not 0 < coefficients.shape[1] <= nsubmode:
-            raise ValueError(
-                'lo must be a coefficient vector or one row per selected spatial wire, in the common orthogonal basis.'
-            )
-        coefficients = coefficients.to(
-            torch.complex128 if reference.dtype in (torch.float64, torch.complex128) else torch.complex64
+        return coefficients
+    coefficients = torch.as_tensor(lo, device=reference.device, dtype=dtype)
+    if coefficients.ndim == 1:
+        coefficients = coefficients.unsqueeze(0).expand(nwire, -1)
+    if coefficients.ndim != 2 or coefficients.shape[0] != nwire or not 0 < coefficients.shape[1] <= nsubmode:
+        raise ValueError(
+            'lo must be a coefficient vector or one row per selected spatial wire, in the common orthogonal basis.'
         )
-        if not torch.isfinite(coefficients).all() or (coefficients.abs().amax(dim=-1) == 0).any():
-            raise ValueError('LO coefficient rows must be finite and nonzero.')
-        coefficients = torch.nn.functional.pad(
-            _normalize_coefficients(coefficients), (0, nsubmode - coefficients.shape[1])
-        )
-    return coefficients.to(
-        torch.complex128 if reference.dtype in (torch.float64, torch.complex128) else torch.complex64
+    if not torch.isfinite(coefficients).all() or (coefficients.abs().amax(dim=-1) == 0).any():
+        raise ValueError('LO coefficient rows must be finite and nonzero.')
+    return torch.nn.functional.pad(_normalize_coefficients(coefficients), (0, nsubmode - coefficients.shape[1]))
+
+
+def _lo_xp_projection(embedding: torch.Tensor) -> torch.Tensor:
+    """Project xxpp coordinates onto modes with annihilators b = embedding.conj() @ a."""
+    return torch.cat(
+        [torch.cat([embedding.real, embedding.imag], -1), torch.cat([-embedding.imag, embedding.real], -1)], -2
     )
+
+
+def _fock_lo_moments(
+    result: SubmodeResult, cutoff: int, wires: list[int], phi: Any, lo: Any, normalize: bool, centered: bool | None
+) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+    """Project saved Fock moments linearly, preserving occupations at the cutoff boundary."""
+    factors = result._factors()
+    coefficients = _lo_coefficients(lo, len(wires), result.nsubmode, factors[0][1])
+    first, covariance, mass = 0, 0, 1
+    for block, state in factors:
+        nmode = result.nmode * len(block)
+        selected = [w * len(block) + k for w in wires for k in range(len(block))]
+        weight = _fock_state_weight(state, nmode, cutoff, result.den_mat)
+        safe = torch.where(weight == 0, 1, weight)
+        profile = coefficients[:, list(block)]
+        if centered is None:
+            alpha = _fock_annihilation_means(state, nmode, cutoff, selected, result.den_mat)
+            alpha = (profile.conj() * alpha.reshape(-1, *profile.shape)).sum(-1)
+            first = first + alpha / safe[:, None]
+        else:
+            cov, mean = quadrature_moments_fock(state, nmode, cutoff, selected, result.den_mat, normalize=False)
+            projection = _lo_xp_projection(torch.block_diag(*profile.unbind()))
+            first = first + (projection @ mean) / safe[:, None, None]
+            covariance = covariance + (projection @ cov @ projection.mT) / safe[:, None, None]
+        mass = mass * weight
+    weight = _moment_weight(mass, normalize)
+    if centered is None:
+        mean = _quadrature_mean_ladder(first, phi)
+        return mean if normalize else weight * mean
+    if not centered:
+        covariance = covariance + first @ first.mT
+    if not normalize:
+        covariance, first = weight * covariance, weight * first
+    return (covariance, first) if phi is None else _project_quadrature_moments(covariance, first, phi)
+
+
+def _bargmann_lo_state(result: SubmodeResult, wires: list[int], lo: Any) -> BargmannState:
+    """Trace unobserved modes in each block, then rotate each retained wire into its LO basis."""
+    factors = result._factors()
+    coefficients = _lo_coefficients(lo, len(wires), result.nsubmode, factors[0][1].mat_a)
+    active = (
+        list(range(result.nsubmode))
+        if coefficients.requires_grad
+        else coefficients.abs().sum(0).nonzero().flatten().tolist()
+    )
+    states, blocks = [], []
+    weight = None
+    for block, state in factors:
+        kept = [k for k in block if k in active]
+        if kept:
+            selected = [w * len(block) + block.index(k) for w in wires for k in kept]
+            states.append(state._marginal(selected))
+            blocks.append([active.index(k) for k in kept])
+        else:
+            mass = state.norm()
+            weight = mass if weight is None else weight * mass
+    state = _join_states(states, blocks, len(wires), len(active), 'bargmann', result.den_mat)
+    # Complete each LO column by a unitary rank-one update. Choosing the sign keeps
+    # the denominator away from zero, including for a trainable coordinate vector.
+    profile = coefficients[:, active]
+    eye = torch.eye(len(active), dtype=profile.dtype, device=profile.device)
+    sign = torch.where(profile[:, :1].real >= 0, -1, 1)
+    delta = profile - sign * eye[0]
+    unitary = sign[..., None] * (
+        eye - delta.unsqueeze(-1) * delta.conj().unsqueeze(-2) / (1 - sign * profile[:, :1].conj()).unsqueeze(-1)
+    )
+    state = state._transform_modes(torch.block_diag(*unitary.mH.unbind()))
+    state = state._marginal([i * len(active) for i in range(len(wires))])
+    if weight is not None:
+        state = state.to_dm()
+        poly = state.polyexp.expand_batch(max(len(weight), state.polyexp.batch_size))
+        coeff = poly.coeff_c * weight.reshape(-1, *([1] * (poly.coeff_c.ndim - 1)))
+        state = state._new(BargmannPolyExp._from_tensors(poly.mat_a, poly.vec_b, coeff))
+    return state
 
 
 def _lo_view(result, cutoff, wires, lo=None):
@@ -281,9 +402,7 @@ def _lo_view(result, cutoff, wires, lo=None):
             for i, wire in enumerate(wires):
                 embedding[i, wire * len(block) : (wire + 1) * len(block)] = amplitude[i]
             # b_g = ell^dagger a: x_g = Re(ell) x + Im(ell) p.
-            projection = torch.cat(
-                [torch.cat([embedding.real, embedding.imag], -1), torch.cat([-embedding.imag, embedding.real], -1)], -2
-            ).to(state[0])
+            projection = _lo_xp_projection(embedding).to(state[0])
             cov = cov + projection @ state[0] @ projection.mT
             mean = mean + projection.to(state[1].dtype) @ state[1]
         data = [cov, mean] + ([factors[0][1][2]] if result.backend == 'bosonic' else [])
@@ -312,8 +431,22 @@ def _lo_view(result, cutoff, wires, lo=None):
         data = _fock_conditional_blocks(data, n, cutoff, [], [i * len(active) for i in range(len(wires))], den_mat=True)
         data = data.reshape([-1] + [cutoff] * (2 * len(wires)))
     view = QumodeCircuit(len(wires), 'vac', cutoff=cutoff, backend=result.backend, basis=False, den_mat=True)
-    view.state = data
+    view.__dict__['state'] = data
     return view
+
+
+def _spatial_counts(final_state: Any, nmode: int) -> list[int]:
+    """Validate one unresolved nonnegative photon count per spatial output."""
+    counts = final_state.state if isinstance(final_state, FockState) else torch.as_tensor(final_state)
+    if (
+        counts.ndim != 1
+        or len(counts) != nmode
+        or counts.is_complex()
+        or (counts < 0).any()
+        or (counts != counts.long()).any()
+    ):
+        raise ValueError('Specify one nonnegative integer count per spatial output.')
+    return counts.long().tolist()
 
 
 def _clone_operation(op, wires, nmode):
@@ -374,8 +507,6 @@ class _SubmodeCircuit(QumodeCircuit):
         """Embed spatial inputs and configure joint or independent orthogonal-basis evolution."""
         if parent.mps or parent._with_delay:
             raise NotImplementedError('Submode expansion does not support MPS; unroll delays with global_circuit().')
-        if parent.measurements:
-            raise NotImplementedError('Use measure_homodyne() without conditional homodyne operations for submodes.')
         model = parent.hardware_model if parent.hardware_model is not None else HardwareModel()
         d = (
             nsubmode
@@ -398,7 +529,7 @@ class _SubmodeCircuit(QumodeCircuit):
             from .state import combine_bosonic_states
 
             source = combine_bosonic_states(parent._bosonic_states, cutoff=parent.cutoff)
-        if not isinstance(source, (FockState, GaussianState, BosonicState)):
+        if not isinstance(source, (FockState, GaussianState, BosonicState, BargmannState)):
             if parent.backend == 'fock':
                 source = FockState(source, parent.nmode, parent.cutoff, parent.basis, parent.den_mat)
             else:
@@ -412,11 +543,18 @@ class _SubmodeCircuit(QumodeCircuit):
             if isinstance(binding.plugin, Submodes):
                 input_modes.update(dict.fromkeys(wires, binding.plugin))
         for wire, preparation in parent.sources.items():
-            if isinstance(preparation, SinglePhotonSource) and preparation.is_pure and not parent.den_mat:
+            if (
+                parent.backend == 'fock'
+                and isinstance(preparation, SinglePhotonSource)
+                and preparation.is_pure
+                and not parent.den_mat
+            ):
                 profile = Submodes(torch.ones(preparation.components.shape[0]))
                 profile.components = torch.view_as_real(preparation.coefficients.resolve_conj()).unsqueeze(0)
                 input_modes[int(wire)] = profile
-        reference = source.state if parent.backend == 'fock' else source.cov
+        reference = (
+            source.mat_a if parent.backend == 'bargmann' else source.state if parent.backend == 'fock' else source.cov
+        )
         dtype = torch.complex128 if reference.dtype in (torch.float64, torch.complex128) else torch.complex64
         default = torch.zeros(d, dtype=dtype, device=reference.device)
         default[0] = 1
@@ -430,7 +568,9 @@ class _SubmodeCircuit(QumodeCircuit):
                 for wire in parent.wires
             ]
         )
-        if factorized:
+        if parent.backend == 'bargmann':
+            initial = source._transform_modes(torch.block_diag(*profiles.unsqueeze(-1).unbind()))
+        elif factorized:
             initial = source.state if parent.backend == 'fock' else [source.cov, source.mean]
         elif parent.backend == 'fock':
             if parent.basis:
@@ -454,15 +594,17 @@ class _SubmodeCircuit(QumodeCircuit):
             ]
             if parent.backend == 'bosonic':
                 initial.append(source.weight)
-        # Isometric vacuum embedding preserves Gaussian purity; do not re-test it
-        # inside vmap or rebuild state metadata with data-dependent validation.
-        initial_state = copy(source)
-        initial_state._buffers = source._buffers.copy()
-        initial_state.nmode = nmode
-        if parent.backend == 'fock':
-            initial_state.state = initial
+        if isinstance(initial, BargmannState):
+            initial_state = initial
         else:
-            initial_state.cov, initial_state.mean = initial[:2]
+            # The vacuum embedding preserves the input metadata, including Gaussian purity.
+            initial_state = copy(source)
+            initial_state._buffers = source._buffers.copy()
+            initial_state.nmode = nmode
+            if parent.backend == 'fock':
+                initial_state.state = initial
+            else:
+                initial_state.cov, initial_state.mean = initial[:2]
         super().__init__(
             nmode,
             initial_state,
@@ -488,6 +630,10 @@ class _SubmodeCircuit(QumodeCircuit):
 
     def forward(self, data=None, state=None, is_prob=None, detector=None, sort=True):
         """Run the expanded circuit and store its backend output."""
+        if self.backend == 'bargmann':
+            (result,) = _evolve_bargmann_blocks([self], self.parent, self.hardware_model, data)
+            self.__dict__['state'] = result
+            return result
         if self.backend == 'fock':
             result = self._forward_fock(data, state, is_prob, sort)
             if not self.basis and result.ndim == self.nmode * (2 if self.den_mat else 1) + self.factorized:
@@ -657,7 +803,7 @@ class _SubmodeCircuit(QumodeCircuit):
         if basis:
             for wire, modes in self.input_modes.items():
                 state = self._rotate(state, modes, wire, run)
-        if self.den_mat:
+        if self.den_mat or self.backend == 'bargmann':
             for wire, preparation in self.parent.sources.items():
                 if isinstance(preparation, SinglePhotonSource):
                     wire = int(wire)
@@ -793,10 +939,7 @@ class _SubmodeCircuit(QumodeCircuit):
 
     def get_spatial_prob(self, final_state):
         """Return the probability of total photon counts at the spatial outputs."""
-        counts = final_state.state if isinstance(final_state, FockState) else torch.as_tensor(final_state)
-        if counts.ndim != 1 or len(counts) != len(self.groups) or (counts < 0).any() or (counts != counts.long()).any():
-            raise ValueError('Specify one nonnegative integer count per spatial output.')
-        counts = counts.tolist()
+        counts = _spatial_counts(final_state, len(self.groups))
         if self.factorized:
             return self._factor_probability(counts)
         partitions = [fock_combinations(self.nsubmode, n, self.cutoff) for n in counts]
@@ -888,6 +1031,8 @@ class _SubmodeCircuit(QumodeCircuit):
     def spatial_photon_number_mean_var(self, wires: int | list[int] | None) -> tuple[torch.Tensor, torch.Tensor]:
         """Return spatial photon-number mean and variance with shape ``(batch, len(wires))``."""
         selected = self.parent.wires if wires is None else self.parent._convert_indices(wires)
+        if self.backend == 'bargmann':
+            return self.state._photon_number_groups([self.groups[w] for w in selected])
         if self.factorized:
             if self.backend == 'gaussian':
                 mean, variance = self.readout_view().photon_number_mean_var(selected)
@@ -958,6 +1103,14 @@ def _expand_submodes(parent, state=None):
     model = parent.hardware_model if parent.hardware_model is not None else HardwareModel()
     photons = [s for s in parent.sources.values() if isinstance(s, SinglePhotonSource)]
     d = max([model.nsubmode] + [s.components.shape[0] for s in photons])
+    if parent.backend == 'bargmann':
+        state = parent.init_state if state is None else state
+        if not isinstance(state, BargmannState):
+            state = BargmannState(state, nmode=parent.nmode, cutoff=parent.cutoff, den_mat=parent.den_mat)
+        if parent.den_mat:
+            state = state.to_dm()
+        elif state.den_mat:
+            raise ValueError('A density-matrix state requires den_mat=True')
     # Preserve the batched native-kernel path for operations diagonal in the common orthogonal basis.
     profiles = [b.plugin for b in model.bindings.values() if isinstance(b.plugin, Submodes)]
     if (
@@ -965,7 +1118,7 @@ def _expand_submodes(parent, state=None):
         or parent.basis
         and parent.backend == 'fock'
         or parent.backend == 'bosonic'
-        or (not photons and all(p.components is None for p in profiles))
+        or (parent.backend != 'bargmann' and not photons and all(p.components is None for p in profiles))
     ):
         return _SubmodeCircuit(parent, state, nsubmode=d)
     components = [{k} for k in range(d)]
@@ -998,6 +1151,26 @@ def _expand_submodes(parent, state=None):
     return _SubmodeBlocks(parent, state, blocks, initial_support)
 
 
+def _evolve_bargmann_blocks(
+    circuits: list[_SubmodeCircuit], parent: QumodeCircuit, model: HardwareModel, data: torch.Tensor | None
+) -> list[BargmannState]:
+    """Evolve native blocks with paired input batches and one physical hardware realization."""
+    initial = [cir.init_state for cir in circuits]
+    run = model._new_run('bargmann', parent.wires)
+    if data is None or not parent.ndata or data.ndim == 1:
+        parent.encode(data if parent.ndata else None)
+        return [cir._execute(state, run=run) for cir, state in zip(circuits, initial, strict=True)]
+    if data.ndim != 2 or not len(data) or any(state.polyexp.batch_size not in (1, len(data)) for state in initial):
+        raise ValueError('Expected a nonempty batch of controls compatible with the spatial input batch.')
+    collected = [[] for _ in circuits]
+    for i, row in enumerate(data):
+        parent.encode(row)
+        for cir, state, outputs in zip(circuits, initial, collected, strict=True):
+            sample = state if state.polyexp.batch_size == 1 else state._select_batch(i)
+            outputs.append(cir._execute(sample, run=run))
+    return [BargmannState._cat_batch(outputs) for outputs in collected]
+
+
 class _SubmodeBlocks:
     """Small execution plan for independent groups of coupled orthogonal basis modes."""
 
@@ -1011,13 +1184,15 @@ class _SubmodeBlocks:
         model = parent.hardware_model if parent.hardware_model is not None else HardwareModel()
         self.model = model
         source = parent.init_state if state is None else state
-        if not isinstance(source, (FockState, GaussianState)):
+        if not isinstance(source, (FockState, GaussianState, BargmannState)):
             source = (
                 FockState(source, parent.nmode, parent.cutoff, parent.basis, parent.den_mat)
                 if parent.backend == 'fock'
                 else GaussianState(source, parent.nmode, parent.cutoff)
             )
-        reference = source.state if parent.backend == 'fock' else source.cov
+        reference = (
+            source.mat_a if parent.backend == 'bargmann' else source.state if parent.backend == 'fock' else source.cov
+        )
         resolved = model._bind(parent.operators)
         for block in blocks:
             view = copy(parent)
@@ -1066,6 +1241,8 @@ class _SubmodeBlocks:
                     view.sources[wire] = narrowed
             if initial_support <= set(block):
                 initial = source
+            elif parent.backend == 'bargmann':
+                initial = BargmannState('vac', parent.nmode, parent.cutoff, parent.den_mat).to(reference.real)
             elif parent.backend == 'fock':
                 initial = FockState('vac', parent.nmode, parent.cutoff, basis=False, den_mat=parent.den_mat).to(
                     reference.real
@@ -1079,6 +1256,15 @@ class _SubmodeBlocks:
 
     def forward(self, data=None):
         """Evolve independent blocks with one shared realization of hardware controls."""
+        if self.backend == 'bargmann':
+            states = _evolve_bargmann_blocks(self.circuits, self.parent, self.model, data)
+            # A higher-precision gate may act on only one block. Native tensor products
+            # and the spatial LO must then use that precision across the complete state.
+            dtype = max(states, key=lambda state: state.mat_a.element_size()).mat_a.dtype
+            self.state = tuple(s if s.mat_a.dtype == dtype else s._new(s.polyexp.to(dtype=dtype)) for s in states)
+            for cir, state in zip(self.circuits, self.state, strict=True):
+                cir.__dict__['state'] = state
+            return self.state
         initial = [
             cir.tensor_rep(cir.init_state.state)
             if self.backend == 'fock'
@@ -1152,15 +1338,7 @@ class _SubmodeBlocks:
 
     def get_spatial_prob(self, final_state):
         """Return the probability of total photon counts at the spatial outputs."""
-        counts = final_state.state if isinstance(final_state, FockState) else torch.as_tensor(final_state)
-        if (
-            counts.ndim != 1
-            or len(counts) != self.parent.nmode
-            or (counts < 0).any()
-            or (counts != counts.long()).any()
-        ):
-            raise ValueError('Specify one nonnegative integer count per spatial output.')
-        counts = counts.tolist()
+        counts = _spatial_counts(final_state, self.parent.nmode)
         result = self._probability(self.parent.wires, counts)
         if any(n >= size for n, size in zip(counts, result.shape[1:], strict=True)):
             return result.new_zeros(result.shape[0])
@@ -1200,7 +1378,7 @@ class _SubmodeBlocks:
     def spatial_photon_number_mean_var(self, wires: int | list[int] | None) -> tuple[torch.Tensor, torch.Tensor]:
         """Return spatial photon-number mean and variance with shape ``(batch, len(wires))``."""
         selected = self.parent.wires if wires is None else self.parent._convert_indices(wires)
-        if self.backend == 'gaussian':
+        if self.backend in ('gaussian', 'bargmann'):
             moments = [cir.spatial_photon_number_mean_var(selected) for cir in self.circuits]
             return tuple(sum(value[j] for value in moments) for j in range(2))
         total_mass, mean, variance = 1, 0, 0

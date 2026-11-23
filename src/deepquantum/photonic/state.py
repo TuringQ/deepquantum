@@ -530,6 +530,20 @@ class BargmannState(nn.Module):
             order += [wire + self.nmode for wire in wires]
         return self._new(self.polyexp.reorder(order))
 
+    def _transform_modes(self, isometry: torch.Tensor) -> 'BargmannState':
+        r"""Substitute :math:`z_{\rm in}=U^T z_{\rm out}` for a passive basis change or vacuum embedding."""
+        transform = isometry.to(self.mat_a)
+        if self.den_mat:
+            transform = torch.block_diag(transform, transform.conj())
+        if self.polyexp.naux:
+            identity = torch.eye(self.polyexp.naux, dtype=transform.dtype, device=transform.device)
+            transform = torch.block_diag(transform, identity)
+        return self._new(
+            BargmannPolyExp._from_tensors(
+                transform @ self.mat_a @ transform.mT, (transform @ self.vec_b.unsqueeze(-1)).squeeze(-1), self.coeff_c
+            )
+        )
+
     def partial_trace(self, wires: int | list[int]) -> 'BargmannState':
         """Trace out modes analytically, returning a density state without normalizing its weight.
 
@@ -541,6 +555,15 @@ class BargmannState(nn.Module):
         density = self.to_dm()
         polyexp = density.polyexp.contract([(wire, wire + self.nmode) for wire in wires])
         return density._new(polyexp)
+
+    def _marginal(self, keep: list[int]) -> 'BargmannState':
+        """Retain the specified modes in order, tracing the rest without renormalizing."""
+        if keep == list(range(self.nmode)):
+            return self
+        order = {w: i for i, w in enumerate(sorted(keep))}
+        discard = [w for w in range(self.nmode) if w not in order]
+        state = self.partial_trace(discard) if discard else self
+        return state if keep == sorted(keep) else state.reorder([order[w] for w in keep])
 
     def _replace_modes(self, wires: list[int], replacement: 'BargmannState') -> 'BargmannState':
         """Reset selected modes to an independent preparation, preserving the incoming weight."""
@@ -563,7 +586,7 @@ class BargmannState(nn.Module):
             polyexp = _project_pnr(self.polyexp, self.nmode, self.den_mat, positions, photons)
             return self._new(polyexp)
         elif detector == 'threshold':
-            polyexp = _project_threshold(self.to_dm().polyexp, self.nmode, positions, photons)
+            polyexp = _project_threshold(self.to_dm().polyexp, self.nmode, [[p] for p in positions], photons)
             return self._new(polyexp, den_mat=True)
         raise NotImplementedError(f'Bargmann post-selection does not support detector={detector!r}')
 
@@ -729,12 +752,27 @@ class BargmannState(nn.Module):
             ``(mean, var)``, each with shape ``(batch, len(wires))``.
             The state weight must be positive.
         """
+        wires = _moment_wires(wires, self.nmode)
+        return self._photon_number_groups([[wire] for wire in wires])
+
+    def _photon_number_groups(self, groups: list[list[int]]) -> tuple[torch.Tensor, torch.Tensor]:
+        """Read the mean and variance of the sum of photon numbers in each group."""
+        wires = [w for group in groups for w in group]
         generating, weight = self._prepare_moments(wires)
-        nwire = generating.nfree // 2
+        nwire = len(wires)
         mean, factorial = [], []
-        for i in range(nwire):
-            mean.append(_bargmann_derivative(generating, (i, i + nwire)))
-            factorial.append(_bargmann_derivative(generating, (i, i, i + nwire, i + nwire)))
+        start = 0
+        for group in groups:
+            indices = range(start, start + len(group))
+            mean.append(sum(_bargmann_derivative(generating, (i, i + nwire)) for i in indices))
+            factorial.append(
+                sum(
+                    (1 if i == j else 2) * _bargmann_derivative(generating, (i, j, i + nwire, j + nwire))
+                    for i in indices
+                    for j in range(i, indices.stop)
+                )
+            )
+            start = indices.stop
         mean = torch.stack(mean, dim=-1).real / weight[:, None]
         factorial = torch.stack(factorial, dim=-1).real / weight[:, None]
         return mean, factorial + mean - mean.square()

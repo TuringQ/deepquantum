@@ -967,6 +967,42 @@ def photon_number_mean_var_fock(
     return torch.stack(num_exp_list, dim=-1), torch.stack(var_list, dim=-1)
 
 
+def _fock_annihilation_means(
+    state: torch.Tensor, nmode: int, cutoff: int, wires: list[int], den_mat: bool
+) -> torch.Tensor:
+    """Read the unnormalized annihilation mean from adjacent number coherences on each wire."""
+    factor = torch.arange(1, cutoff, device=state.device, dtype=state.real.dtype).sqrt()
+    mean = []
+    if den_mat:
+        state = state.reshape(-1, cutoff**nmode, cutoff**nmode)
+        for wire in wires:
+            trace_lst = [i for i in range(nmode) if i != wire]
+            reduced_dm = partial_trace(state, nmode, trace_lst, cutoff)  # (batch, cutoff, cutoff)
+            reduced_dm = reduced_dm.reshape(-1, cutoff, cutoff)
+            off_diag = reduced_dm.diagonal(offset=-1, dim1=1, dim2=2)  # rho_{n+1, n}
+            term = factor * off_diag
+            mean.append(term.sum(dim=1))
+    else:
+        factor = factor.view([1, -1] + [1] * (nmode - 1))
+        for wire in wires:
+            pm_shape = list(range(1, nmode + 1))
+            pm_shape.remove(wire + 1)
+            pm_shape = [0] + [wire + 1] + pm_shape
+            state_i = state.permute(pm_shape)
+            cn = state_i[:, :-1, ...]  # n
+            cn1 = state_i[:, 1:, ...]  # n+1
+            term = factor * (cn.conj() * cn1)
+            mean.append(term.sum(dim=tuple(range(1, nmode + 1))))
+    return torch.stack(mean, dim=-1)
+
+
+def _fock_state_weight(state: torch.Tensor, nmode: int, cutoff: int, den_mat: bool) -> torch.Tensor:
+    """Return the retained trace or squared norm in each Fock batch entry."""
+    if den_mat:
+        return state.reshape(-1, cutoff**nmode, cutoff**nmode).diagonal(dim1=-2, dim2=-1).sum(-1).real
+    return state.reshape(-1, cutoff**nmode).abs().square().sum(-1)
+
+
 def quadrature_mean_fock(
     state: torch.Tensor,
     nmode: int,
@@ -983,34 +1019,10 @@ def quadrature_mean_fock(
     Only adjacent Fock coherences contribute, so no state rotation is needed.
     The result has shape ``(batch, len(wires), 1)``. Set ``normalize=True`` to divide by the state weight.
     """
-    factor = torch.arange(1, cutoff, device=state.device, dtype=state.real.dtype).sqrt()
-    mean = []
-    if den_mat:
-        state = state.reshape(-1, cutoff**nmode, cutoff**nmode)
-        for wire in wires:
-            trace_lst = [i for i in range(nmode) if i != wire]
-            reduced_dm = partial_trace(state, nmode, trace_lst, cutoff)  # (batch, cutoff, cutoff)
-            reduced_dm = reduced_dm.reshape(-1, cutoff, cutoff)
-            off_diag = reduced_dm.diagonal(offset=-1, dim1=1, dim2=2)  # rho_{n+1, n}
-            term = factor * off_diag
-            mean.append(term.sum(dim=1))
-    else:
-        if state.ndim == nmode:
-            state = state.unsqueeze(0)
-        factor = factor.view([1, -1] + [1] * (nmode - 1))
-        for wire in wires:
-            pm_shape = list(range(1, nmode + 1))
-            pm_shape.remove(wire + 1)
-            pm_shape = [0] + [wire + 1] + pm_shape
-            state_i = state.permute(pm_shape)
-            cn = state_i[:, :-1, ...]  # n
-            cn1 = state_i[:, 1:, ...]  # n+1
-            term = factor * (cn.conj() * cn1)
-            mean.append(term.sum(dim=tuple(range(1, nmode + 1))))
-    first = _quadrature_mean_ladder(torch.stack(mean, dim=-1), phi)
+    state = state.reshape([-1] + [cutoff] * nmode * (2 if den_mat else 1))
+    first = _quadrature_mean_ladder(_fock_annihilation_means(state, nmode, cutoff, wires, den_mat), phi)
     if normalize:
-        weight = state.diagonal(dim1=-2, dim2=-1).sum(-1) if den_mat else state.abs().square().flatten(1).sum(-1)
-        first = first / _moment_weight(weight, normalize=True)
+        first = first / _moment_weight(_fock_state_weight(state, nmode, cutoff, den_mat), normalize=True)
     return first
 
 

@@ -265,12 +265,10 @@ def test_replacing_hardware_model_invalidates_output():
     torch.testing.assert_close(probability, torch.tensor([0.5]))
 
 
-def test_bargmann_hardware_rejects_unsupported_state_layouts():
+def test_bargmann_hardware_loss_requires_density_state():
     pure = dq.QumodeCircuit(1, [1], cutoff=2, backend='bargmann')
     with pytest.raises(NotImplementedError, match='den_mat=True'):
         pure.set_hardware_model(dqp.HardwareModel().output().loss(t=0.25))
-    with pytest.raises(NotImplementedError, match='Orthogonal-basis submodes'):
-        pure.set_hardware_model(dqp.HardwareModel().input(0).submodes([0.8, 0.6]))
 
 
 @pytest.mark.parametrize('den_mat', [False, True])

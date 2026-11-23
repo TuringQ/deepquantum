@@ -17,7 +17,7 @@ from torch.nn import functional
 
 import deepquantum.photonic as dqp
 
-from .qmath import _wick_moments, quadrature_to_ladder
+from .qmath import _wick_moments, fock_combinations, quadrature_to_ladder
 
 # Working-set bound for recurrence indices, coefficients and intermediates.
 _max_work_bytes = 256 * 1024**2
@@ -588,8 +588,46 @@ def _project_pnr(
     return polyexp
 
 
+def _project_spatial_pnr(
+    polyexp: BargmannPolyExp, groups: list[list[int]], photons: tuple[int, ...]
+) -> BargmannPolyExp:
+    """Sum density kernels incoherently over occupations with the requested spatial totals."""
+    remaining = list(range(polyexp.nfree // 2))
+    for group, count in zip(groups, photons, strict=True):
+        nmode = len(remaining)
+        positions = tuple(remaining.index(w) for w in group)
+        kept = [i for i in range(nmode) if i not in positions]
+        remaining = [remaining[i] for i in kept]
+        if count == 0 or len(group) == 1:
+            polyexp = _project_pnr(polyexp, nmode, True, positions, (count,) + (0,) * (len(group) - 1))
+            continue
+        # Sort occupations so all partitions share compact derivative bounds on ket and bra.
+        rank = min(count, len(group))
+        bounds = tuple(count // (i + 1) + 1 for i in range(rank)) * 2
+        nterms = math.comb(count + len(group) - 1, count)
+        existing = kept + [nmode + i for i in kept] + list(range(polyexp.nfree, polyexp.nvar))
+        size = len(existing) + len(bounds)
+        elements = size**2 + size + math.prod(polyexp.aux_shape + bounds)
+        if nterms * polyexp.batch_size * polyexp.nlin * elements * polyexp.mat_a.element_size() > _max_work_bytes:
+            raise MemoryError('Spatial PNR conditioning exceeds the Bargmann working-set limit')
+        matrices, vectors, coefficients = [], [], []
+        for pattern in fock_combinations(len(group), count):
+            order = sorted(range(len(group)), key=pattern.__getitem__, reverse=True)[:rank]
+            measured = [positions[k] for k in order]
+            indices = existing + measured + [nmode + i for i in measured]
+            selector = polyexp.coeff_c.new_zeros(bounds)
+            selector[tuple(pattern[k] for k in order) * 2] = 1
+            matrices.append(polyexp.mat_a[..., indices, :][..., indices])
+            vectors.append(polyexp.vec_b[..., indices])
+            coefficients.append(polyexp.coeff_c.reshape(*polyexp.coeff_c.shape, *([1] * len(bounds))) * selector)
+        polyexp = BargmannPolyExp._from_tensors(
+            torch.cat(matrices, dim=1), torch.cat(vectors, dim=1), torch.cat(coefficients, dim=1)
+        )
+    return polyexp
+
+
 def _project_threshold(
-    polyexp: BargmannPolyExp, nmode: int, positions: tuple[int, ...], clicks: tuple[int, ...]
+    polyexp: BargmannPolyExp, nmode: int, groups: list[list[int]], clicks: tuple[int, ...]
 ) -> BargmannPolyExp:
     r"""Condition a density kernel on ideal threshold outcomes and discard measured modes.
 
@@ -602,16 +640,16 @@ def _project_threshold(
     Here the same expansion retains the conditional density operator instead
     of tracing every mode to obtain only its probability.
     """
-    vacuum = tuple(wire for wire, click in zip(positions, clicks, strict=True) if click == 0)
+    vacuum = tuple(wire for group, click in zip(groups, clicks, strict=True) if click == 0 for wire in group)
     polyexp = _project_pnr(polyexp, nmode, True, vacuum, (0,) * len(vacuum))
     remaining = [wire for wire in range(nmode) if wire not in vacuum]
-    for wire, click in zip(positions, clicks, strict=True):
+    for group, click in zip(groups, clicks, strict=True):
         if not click:
             continue
-        pos = remaining.index(wire)
+        positions = tuple(remaining.index(wire) for wire in group)
         nmode = len(remaining)
-        traced = polyexp.contract([(pos, pos + nmode)])
-        projected = _project_pnr(polyexp, nmode, True, (pos,), (0,))
+        traced = polyexp.contract([(pos, pos + nmode) for pos in positions])
+        projected = _project_pnr(polyexp, nmode, True, positions, (0,) * len(group))
         size = traced.mat_a.numel() + traced.vec_b.numel() + traced.coeff_c.numel()
         if 2 * size * traced.mat_a.element_size() > _max_work_bytes:
             raise ValueError('Threshold conditioning exceeds the Bargmann working-set limit')
@@ -620,7 +658,7 @@ def _project_threshold(
             torch.cat([traced.vec_b, projected.vec_b], dim=1),
             torch.cat([traced.coeff_c, -projected.coeff_c], dim=1),
         )
-        remaining.remove(wire)
+        remaining = [wire for wire in remaining if wire not in group]
     return polyexp
 
 

@@ -884,7 +884,13 @@ print(cir_photon.get_prob([1, 1]))
 # `submode` 与 `lo` 二选一，均省略时保留全部正交基模。
 #
 # 这里在输出 1 探测到一个光子，保留输出 0 中与第一路输入同形的本振模式，再做 Homodyne。
-# 直接测量含正交基模的线路时，也可以调用 `cir.measure_homodyne(..., lo=..., phi=...)`。
+# 在含正交基模的线路上，`quadrature_mean` 和 `quadrature_moments` 都读取本振选中的模式。
+#
+# 例如在 Gaussian 或 Bargmann 线路上，`cir.quadrature_moments([0, 1], [0, 0.63], powers=[(2, 2)], lo=[0.8, 0.6j])` 用同一复数本振模式在两条线取联合四阶矩，返回形状为 `(batch, 1)`。
+#
+# 二维 `lo` 按所选空间线的顺序逐行设置，每行自动归一化。
+#
+# Fock、Gaussian 和 Bosonic 线路还可以调用 `cir.measure_homodyne(..., lo=..., phi=...)` 采样。
 # `lo` 默认选择第一个正交基模，`phi` 是额外的 quadrature 测量角度。
 
 # %%
@@ -1939,9 +1945,13 @@ print(second_event.shape, first_event.shape)  # (1, 2, 2)、(1, 2, 1)
 # %% [markdown]
 # 当前支持相移、分束器、MZI、任意无源酉变换、单模／双模压缩、位移、光损耗、OPA 和 DisplacementChannel，也支持 `HardwareModel` 中相应的控制噪声与光路损耗。
 # 直接输入 Fock 态或进行光子计数后选择可以得到非高斯态，Kerr 和三次相位等非高斯门尚未实现。
-# Bargmann 的 `measure_homodyne` 采样、线路级采样和正交基模扩展尚未支持。
+# 带正交基模的 Bargmann 线路返回 `SubmodeResult`，`to_joint()` 按空间端口、再按基模排列联合 `BargmannState`。
+#
+# 在线路上用 `get_prob([1, 1])` 读取基模不分辨的两端符合概率。
+#
+# Bargmann 的有限 shots 采样尚未实现。
 # `thermal()`、`single_photon()` 和原生环路逐步演化的用法见下文。
-# 后选择的 `keep`、`submode` 和 `lo` 目前仅用于 Fock 后端。
+# Fock 线路和带正交基模的 Bargmann 线路均可在后选择时用 `keep` 选保留端口，用 `submode` 选一个基模或用 `lo` 选其相干叠加。
 
 # %% [markdown]
 # ### 指定 Homodyne 角度的联合矩
