@@ -940,6 +940,351 @@ def photon_number_mean_var_fock(
     return torch.stack(num_exp_list, dim=-1), torch.stack(var_list, dim=-1)
 
 
+def _resolve_photon_moment_options(
+    powers: Sequence[Sequence[int]] | torch.Tensor | None,
+    normal_ordered: bool,
+    centered: bool | None,
+) -> bool:
+    """Validate and resolve the ``centered`` flag for photon-number moments."""
+    if normal_ordered and centered:
+        raise ValueError('normal_ordered and centered cannot both be True')
+    if centered is None:
+        return powers is None and not normal_ordered
+    return centered
+
+
+def _stirling_second(max_order: int) -> list[list[int]]:
+    """Return Stirling numbers of the second kind ``S[k][j]`` for ``0 <= j <= k <= max_order``."""
+    table = [[0] * (k + 1) for k in range(max_order + 1)]
+    table[0][0] = 1
+    for k in range(1, max_order + 1):
+        table[k][k] = 1
+        for j in range(1, k):
+            table[k][j] = j * table[k - 1][j] + table[k - 1][j - 1]
+    return table
+
+
+def _required_factorial_orders(
+    powers: list[tuple[int, ...]],
+    *,
+    normal_ordered: bool,
+    centered: bool,
+) -> list[tuple[int, ...]]:
+    """Collect the unique normal-ordered factorial multi-indices needed for the requested powers."""
+    if normal_ordered:
+        return list(dict.fromkeys(powers))
+    nwire = len(powers[0])
+    raw_orders: dict[tuple[int, ...], None] = {}
+    if centered:
+        zero = (0,) * nwire
+        raw_orders[zero] = None
+        for i in range(nwire):
+            if any(row[i] > 0 for row in powers):
+                unit = tuple(1 if j == i else 0 for j in range(nwire))
+                raw_orders[unit] = None
+        for row in powers:
+            ranges = [range(c + 1) if c else (0,) for c in row]
+            for sub in itertools.product(*ranges):
+                raw_orders[sub] = None
+    else:
+        for row in powers:
+            raw_orders[row] = None
+    factorial_orders: dict[tuple[int, ...], None] = {}
+    for order in raw_orders:
+        ranges = [range(1, c + 1) if c else (0,) for c in order]
+        for sub in itertools.product(*ranges):
+            factorial_orders[sub] = None
+    return list(factorial_orders)
+
+
+def _combine_factorial_moments(
+    factorial_map: dict[tuple[int, ...], torch.Tensor],
+    powers: list[tuple[int, ...]],
+    weight: torch.Tensor,
+    *,
+    normal_ordered: bool,
+    centered: bool,
+    normalize: bool,
+) -> torch.Tensor:
+    """Convert unnormalized normal-ordered factorial moments to requested raw, factorial, or centered moments."""
+    if not bool(torch.isfinite(weight).all()):
+        raise ValueError('Moments require a finite state weight')
+    if normalize and bool((weight.real <= 0).any()):
+        raise ValueError('Normalized moments require a positive state weight')
+    weight_real = weight.real
+    if normal_ordered:
+        result = torch.stack([factorial_map[row].real for row in powers], dim=-1)
+        return result / weight_real[:, None] if normalize else result
+    max_order = max((max(row, default=0) for row in powers), default=0)
+    stirling = _stirling_second(max_order)
+    raw_map: dict[tuple[int, ...], torch.Tensor] = {}
+
+    def eval_raw(order: tuple[int, ...]) -> torch.Tensor:
+        if order not in raw_map:
+            ranges = [range(1, c + 1) if c else (0,) for c in order]
+            acc = None
+            for sub in itertools.product(*ranges):
+                coef = 1
+                for c, j in zip(order, sub, strict=True):
+                    if c:
+                        coef *= stirling[c][j]
+                term = factorial_map[sub].real * coef
+                acc = term if acc is None else acc + term
+            raw_map[order] = acc
+        return raw_map[order]
+
+    if not centered:
+        result = torch.stack([eval_raw(row) for row in powers], dim=-1)
+        return result / weight_real[:, None] if normalize else result
+
+    nwire = len(powers[0])
+    safe_weight = torch.where(weight_real == 0, torch.ones_like(weight_real), weight_real)
+    means: dict[int, torch.Tensor] = {}
+    for i in range(nwire):
+        if any(row[i] > 0 for row in powers):
+            unit = tuple(1 if j == i else 0 for j in range(nwire))
+            means[i] = eval_raw(unit) / safe_weight
+    centered_values = []
+    for row in powers:
+        ranges = [range(c + 1) if c else (0,) for c in row]
+        acc = None
+        for sub in itertools.product(*ranges):
+            coef = 1
+            for c, r in zip(row, sub, strict=True):
+                if c:
+                    coef *= math.comb(c, r)
+            term = eval_raw(sub) * coef
+            for i, (c, r) in enumerate(zip(row, sub, strict=True)):
+                diff = c - r
+                if diff:
+                    term = term * (-means[i]) ** diff
+            acc = term if acc is None else acc + term
+        centered_values.append(acc)
+    result = torch.stack(centered_values, dim=-1)
+    return result / weight_real[:, None] if normalize else result
+
+
+def _photon_number_moments_from_raw(
+    second: torch.Tensor,
+    first: torch.Tensor,
+    weight: torch.Tensor,
+    *,
+    normal_ordered: bool = False,
+    centered: bool = True,
+    normalize: bool = True,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Convert unnormalized raw 2nd and 1st photon-number moments to covariance, raw, or normal-ordered form."""
+    if not bool(torch.isfinite(weight).all()):
+        raise ValueError('Moments require a finite state weight')
+    if normalize and bool((weight.real <= 0).any()):
+        raise ValueError('Normalized moments require a positive state weight')
+    weight_real = weight.real
+    if normal_ordered:
+        second = second - first.diag_embed()
+    elif centered:
+        denominator = torch.where(weight_real == 0, torch.ones_like(weight_real), weight_real)
+        second = second - first.unsqueeze(-1) * (first / denominator[:, None]).unsqueeze(-2)
+    if normalize:
+        second = second / weight_real[:, None, None]
+        first = first / weight_real[:, None]
+    return second, first
+
+
+def _gaussian_photon_number_moments_2nd(cov: torch.Tensor, mean: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Compute raw 2nd-order photon-number matrix and 1st-order mean for reduced ``xxpp`` Gaussian components."""
+    nwire = cov.shape[-1] // 2
+    scale = cov.new_tensor(dqp.hbar / (4 * dqp.kappa**2))
+    v = (cov / scale).to(mean.dtype)
+    mu = mean.squeeze(-1) / scale.sqrt()
+    vx = v[..., :nwire, :nwire]
+    vp = v[..., nwire:, nwire:]
+    vxp = v[..., :nwire, nwire:]
+    vpx = v[..., nwire:, :nwire]
+    mux = mu[..., :nwire]
+    mup = mu[..., nwire:]
+    first = 0.25 * (vx.diagonal(dim1=-2, dim2=-1) + vp.diagonal(dim1=-2, dim2=-1) + mux.square() + mup.square() - 2)
+    frob_sq = vx.square() + vp.square() + vxp.square() + vpx.square()
+    disp = (
+        mux.unsqueeze(-1) * vx * mux.unsqueeze(-2)
+        + mux.unsqueeze(-1) * vxp * mup.unsqueeze(-2)
+        + mup.unsqueeze(-1) * vpx * mux.unsqueeze(-2)
+        + mup.unsqueeze(-1) * vp * mup.unsqueeze(-2)
+    )
+    eye = torch.eye(nwire, dtype=v.dtype, device=v.device)
+    cov_n = 0.125 * frob_sq + 0.25 * disp - 0.25 * eye
+    raw_second = cov_n + first.unsqueeze(-1) * first.unsqueeze(-2)
+    return raw_second, first
+
+
+def _gaussian_ladder_normal_params(cov: torch.Tensor, mean: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Build normal-ordered ladder generating parameters ``(mat_a, vec_b)`` in ``(a^+, a)`` order."""
+    nwire = cov.shape[-1] // 2
+    cov_ladder = quadrature_to_ladder(cov)
+    eye = torch.eye(2 * nwire, dtype=cov_ladder.dtype, device=cov_ladder.device)
+    normal = cov_ladder - 0.5 * eye
+    mat_a = torch.cat([normal[..., nwire:, :], normal[..., :nwire, :]], dim=-2)
+    mean_ladder = quadrature_to_ladder(mean).squeeze(-1)
+    vec_b = torch.cat([mean_ladder[..., nwire:], mean_ladder[..., :nwire]], dim=-1)
+    return mat_a, vec_b
+
+
+def photon_number_moments_gaussian(
+    cov: torch.Tensor,
+    mean: torch.Tensor,
+    wires: list[int],
+    *,
+    powers: list[tuple[int, ...]] | None = None,
+    normal_ordered: bool = False,
+    centered: bool = True,
+    normalize: bool = True,
+) -> tuple[torch.Tensor, torch.Tensor] | torch.Tensor:
+    """Get 2nd-order or arbitrary higher-order photon-number moments for Gaussian states."""
+    if cov.ndim == 2:
+        cov = cov.unsqueeze(0)
+    if mean.ndim == 2:
+        mean = mean.unsqueeze(0)
+    nmode = cov.shape[-1] // 2
+    indices = wires + [wire + nmode for wire in wires]
+    cov = cov[..., indices, :][..., indices]
+    mean = mean[..., indices, :]
+    weight = cov.new_ones(cov.shape[0])
+    if powers is None:
+        raw_second, first = _gaussian_photon_number_moments_2nd(cov, mean)
+        return _photon_number_moments_from_raw(
+            raw_second, first, weight, normal_ordered=normal_ordered, centered=centered, normalize=normalize
+        )
+    factorial_orders = _required_factorial_orders(powers, normal_ordered=normal_ordered, centered=centered)
+    mat_a, vec_b = _gaussian_ladder_normal_params(cov, mean)
+    paired = [order + order for order in factorial_orders]
+    vals = _wick_moments(mat_a, vec_b, paired)
+    fmap = {order: vals[..., idx] for idx, order in enumerate(factorial_orders)}
+    return _combine_factorial_moments(
+        fmap, powers, weight, normal_ordered=normal_ordered, centered=centered, normalize=normalize
+    )
+
+
+def photon_number_moments_bosonic(
+    cov: torch.Tensor,
+    mean: torch.Tensor,
+    weight: torch.Tensor,
+    wires: list[int],
+    *,
+    powers: list[tuple[int, ...]] | None = None,
+    normal_ordered: bool = False,
+    centered: bool = True,
+    normalize: bool = True,
+) -> tuple[torch.Tensor, torch.Tensor] | torch.Tensor:
+    """Get 2nd-order or arbitrary higher-order photon-number moments for Bosonic states."""
+    batch = max(cov.shape[0], mean.shape[0], weight.shape[0])
+    ncomb = weight.shape[1]
+    cov = cov.expand(batch, ncomb, -1, -1)
+    mean = mean.expand(batch, ncomb, -1, -1)
+    weight = weight.expand(batch, ncomb)
+    nmode = cov.shape[-1] // 2
+    indices = wires + [wire + nmode for wire in wires]
+    cov = cov[..., indices, :][..., indices].reshape(batch * ncomb, 2 * len(wires), 2 * len(wires))
+    mean = mean[..., indices, :].reshape(batch * ncomb, 2 * len(wires), 1)
+    total_weight = weight.sum(-1).real
+    if powers is None:
+        raw_c, first_c = _gaussian_photon_number_moments_2nd(cov, mean)
+        raw_c = raw_c.reshape(batch, ncomb, len(wires), len(wires))
+        first_c = first_c.reshape(batch, ncomb, len(wires))
+        raw_second = (raw_c * weight[..., None, None]).sum(1).real
+        first = (first_c * weight[..., None]).sum(1).real
+        return _photon_number_moments_from_raw(
+            raw_second, first, total_weight, normal_ordered=normal_ordered, centered=centered, normalize=normalize
+        )
+    factorial_orders = _required_factorial_orders(powers, normal_ordered=normal_ordered, centered=centered)
+    mat_a, vec_b = _gaussian_ladder_normal_params(cov, mean)
+    paired = [order + order for order in factorial_orders]
+    vals = _wick_moments(mat_a, vec_b, paired).reshape(batch, ncomb, len(factorial_orders))
+    weighted = (vals * weight[..., None]).sum(1)
+    fmap = {order: weighted[..., idx] for idx, order in enumerate(factorial_orders)}
+    return _combine_factorial_moments(
+        fmap, powers, total_weight, normal_ordered=normal_ordered, centered=centered, normalize=normalize
+    )
+
+
+def photon_number_moments_fock(
+    state: torch.Tensor,
+    nmode: int,
+    cutoff: int,
+    wires: list[int],
+    den_mat: bool = False,
+    *,
+    powers: list[tuple[int, ...]] | None = None,
+    normal_ordered: bool = False,
+    centered: bool = True,
+    normalize: bool = True,
+) -> tuple[torch.Tensor, torch.Tensor] | torch.Tensor:
+    """Get 2nd-order or arbitrary higher-order photon-number moments from Fock state tensors."""
+    if den_mat:
+        rho = state.reshape(-1, cutoff**nmode, cutoff**nmode)
+        prob = torch.diagonal(rho, dim1=1, dim2=2).reshape([-1] + [cutoff] * nmode).real
+    else:
+        if state.ndim == nmode:
+            state = state.unsqueeze(0)
+        prob = state.real.square() + state.imag.square() if state.is_complex() else state.square()
+    unselected = [i + 1 for i in range(nmode) if i not in wires]
+    if unselected:
+        prob = prob.sum(dim=unselected)
+    kept = [i for i in range(nmode) if i in wires]
+    perm = [0] + [kept.index(w) + 1 for w in wires]
+    prob = prob.permute(perm)
+    nwire = len(wires)
+    weight = prob.flatten(1).sum(-1)
+    if not bool(torch.isfinite(weight).all()):
+        raise ValueError('Moments require a finite state weight')
+    if normalize and bool((weight <= 0).any()):
+        raise ValueError('Normalized moments require a positive state weight')
+    num = torch.arange(cutoff, dtype=prob.dtype, device=prob.device)
+
+    def marginal(active: list[int]) -> torch.Tensor:
+        traced = [axis + 1 for axis in range(nwire) if axis not in active]
+        return prob.sum(dim=traced) if traced else prob
+
+    first = torch.stack([(marginal([i]) * num).sum(-1) for i in range(nwire)], dim=-1)
+    if powers is None:
+        raw_second = prob.new_zeros(prob.shape[0], nwire, nwire)
+        num_sq = num.square()
+        for i in range(nwire):
+            raw_second[:, i, i] = (marginal([i]) * num_sq).sum(-1)
+            for j in range(i + 1, nwire):
+                p_ij = marginal([i, j])
+                val = (p_ij * (num[:, None] * num[None, :])).sum(dim=(-2, -1))
+                raw_second[:, i, j] = val
+                raw_second[:, j, i] = val
+        return _photon_number_moments_from_raw(
+            raw_second, first, weight, normal_ordered=normal_ordered, centered=centered, normalize=normalize
+        )
+
+    safe_weight = torch.where(weight == 0, torch.ones_like(weight), weight)
+    means = first / safe_weight[:, None]
+    values = []
+    for row in powers:
+        active = [i for i, k in enumerate(row) if k > 0]
+        if not active:
+            values.append(weight)
+            continue
+        p_act = marginal(active)
+        for wire in reversed(active):
+            k = row[wire]
+            if normal_ordered:
+                factor = torch.ones_like(num)
+                for m in range(k):
+                    factor = factor * (num - m)
+                p_act = (p_act * factor).sum(dim=-1)
+            elif centered:
+                factor = (num[None, :] - means[:, wire : wire + 1]) ** k
+                shape = [p_act.shape[0]] + [1] * (p_act.ndim - 2) + [cutoff]
+                p_act = (p_act * factor.reshape(shape)).sum(dim=-1)
+            else:
+                p_act = (p_act * (num**k)).sum(dim=-1)
+        values.append(p_act)
+    result = torch.stack(values, dim=-1)
+    return result / weight[:, None] if normalize else result
+
+
 def quadrature_mean_fock(
     state: torch.Tensor,
     nmode: int,

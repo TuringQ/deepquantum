@@ -95,8 +95,9 @@ Photonic TDM:
 
 Photonic measurement and probabilities:
 
-- Moment readouts preserve the batch axis: `quadrature_mean` returns `(batch, K, 1)`, and `photon_number_mean_var` returns two `(batch, K)` tensors. The two legacy Fock readouts retain the truncated state weight. `quadrature_moments` provides explicit normalization control.
+- Moment readouts preserve the batch axis: `quadrature_mean` returns `(batch, K, 1)`, and `photon_number_mean_var` returns two `(batch, K)` tensors. The two legacy Fock readouts retain the truncated state weight. `quadrature_moments` and `photon_number_moments` provide explicit normalization control.
 - `quadrature_moments(wires, phi=...)` returns the covariance and mean along one angle per wire. On Gaussian and Bargmann circuits and `BargmannState`, adding `powers` returns the requested products as `(batch, len(powers))`. Products default to raw moments. With `normalize=False`, an all-zero row returns the branch weight.
+- `photon_number_moments(wires=None, *, powers=None, normal_ordered=False, centered=None, normalize=True)` returns 2nd-order `(second, mean)` with shapes `(batch, K, K)` and `(batch, K)` (covariance by default, or normally ordered $G^{(2)}_{ij}$ when `normal_ordered=True`), or arbitrary higher-order sparse moments `(batch, len(powers))` on Gaussian, Bargmann, Bosonic and Fock (`basis=False`) states. `normal_ordered=True` and `centered=True` are mutually exclusive.
 - `QumodeCircuit.measure(shots=1024, with_prob=False, wires=None, detector=None, mcmc=False)` returns Fock-state keyed dictionaries, or a list for batched state/data.
 - Gaussian `measure(..., mcmc=True)` and Fock `measure(..., mcmc=True)` are documented for sampling when full probabilities are expensive.
 - `measure_homodyne(shots=..., wires=...)` returns quadrature samples and stores collapsed states in `state_measured` when measurement operations were added with `homodyne`, `homodyne_x`, or `homodyne_p`. Use `lo` to select a local-oscillator mode and `phi` for an additional quadrature angle.

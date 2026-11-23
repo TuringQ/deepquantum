@@ -21,6 +21,7 @@ from .bargmann import (
     _bargmann_derivative,
     _homodyne_moments,
     _moment_generating,
+    _photon_number_moments,
     _project_pnr,
     _project_threshold,
     fock_to_bargmann,
@@ -34,6 +35,7 @@ from .qmath import (
     _project_quadrature_moments,
     _quadrature_angles,
     _quadrature_moments_ladder,
+    _resolve_photon_moment_options,
     cv_to_wigner,
     dirac_rep,
     fock_to_wigner,
@@ -732,6 +734,82 @@ class BargmannState(nn.Module):
         mean = torch.stack(mean, dim=-1).real / weight[:, None]
         factorial = torch.stack(factorial, dim=-1).real / weight[:, None]
         return mean, factorial + mean - mean.square()
+
+    @overload
+    def photon_number_moments(
+        self,
+        wires: int | list[int] | None = None,
+        *,
+        powers: None = None,
+        normal_ordered: bool = False,
+        centered: bool | None = None,
+        normalize: bool = True,
+    ) -> tuple[torch.Tensor, torch.Tensor]: ...
+
+    @overload
+    def photon_number_moments(
+        self,
+        wires: int | list[int] | None = None,
+        *,
+        powers: Sequence[Sequence[int]] | torch.Tensor,
+        normal_ordered: bool = False,
+        centered: bool | None = None,
+        normalize: bool = True,
+    ) -> torch.Tensor: ...
+
+    def photon_number_moments(
+        self,
+        wires: int | list[int] | None = None,
+        *,
+        powers: Sequence[Sequence[int]] | torch.Tensor | None = None,
+        normal_ordered: bool = False,
+        centered: bool | None = None,
+        normalize: bool = True,
+    ) -> tuple[torch.Tensor, torch.Tensor] | torch.Tensor:
+        r"""Get 2nd-order or arbitrary higher-order photon-number moments without a Fock cutoff.
+
+        Without ``powers``, returns ``(second, mean)`` with shapes ``(batch, K, K)`` and
+        ``(batch, K)`` in the requested wire order:
+
+        - ``normal_ordered=False, centered=True`` (default): covariance
+          :math:`\operatorname{Cov}(\hat n_i,\hat n_j)` and mean :math:`\langle\hat n_i\rangle`.
+        - ``normal_ordered=False, centered=False``: raw second moment
+          :math:`\langle\hat n_i\hat n_j\rangle` and mean.
+        - ``normal_ordered=True``: normally ordered correlation
+          :math:`G^{(2)}_{ij}=\langle\hat a_i^\dagger\hat a_j^\dagger\hat a_i\hat a_j\rangle`
+          (the numerator of :math:`g^{(2)}_{ij}`) and mean.
+
+        With ``powers``, each row :math:`k` returns :math:`\langle\prod_i \hat n_i^{k_i}\rangle`
+        (or :math:`\langle\prod_i (\hat a_i^\dagger)^{k_i}\hat a_i^{k_i}\rangle` when
+        ``normal_ordered=True``, or :math:`\langle\prod_i (\hat n_i-\langle\hat n_i\rangle)^{k_i}\rangle`
+        when ``centered=True``), with shape ``(batch, len(powers))``.
+
+        Args:
+            wires: Distinct local modes in output order. Default: ``None`` (all modes)
+            powers: Rows of nonnegative integer exponents in wire order. Default: ``None``
+            normal_ordered: Compute normally ordered factorial moments instead of ordinary photon-number
+                moments. Mutually exclusive with ``centered=True``. Default: ``False``
+            centered: Center around normalized mode means. Defaults to ``True`` for the default
+                2nd-order pair when ``normal_ordered=False``, and ``False`` otherwise.
+            normalize: Divide by the state weight, which must then be positive for every batch entry.
+                Default: ``True``
+
+        Returns:
+            ``(second, mean)`` when ``powers is None``, or a real tensor of shape
+            ``(batch, len(powers))`` when ``powers`` is provided.
+        """
+        resolved_centered = _resolve_photon_moment_options(powers, normal_ordered, centered)
+        generating, weight = self._prepare_moments(wires, require_positive=normalize)
+        nwire = generating.nfree // 2
+        terms = None if powers is None else _moment_powers(powers, nwire)
+        return _photon_number_moments(
+            generating,
+            terms,
+            weight,
+            normal_ordered=normal_ordered,
+            centered=resolved_centered,
+            normalize=normalize,
+        )
 
     def to_fock(self, cutoff: int | None = None) -> torch.Tensor:
         """Get the Fock state tensor.

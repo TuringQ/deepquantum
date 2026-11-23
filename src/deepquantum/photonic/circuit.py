@@ -59,6 +59,7 @@ from .qmath import (
     _moment_wires,
     _project_quadrature_moments,
     _quadrature_moments_from_raw,
+    _resolve_photon_moment_options,
     _wick_moments,
     align_shape,
     fock_combinations,
@@ -66,6 +67,9 @@ from .qmath import (
     permanent,
     photon_number_mean_var_cv,
     photon_number_mean_var_fock,
+    photon_number_moments_bosonic,
+    photon_number_moments_fock,
+    photon_number_moments_gaussian,
     product_factorial,
     quadrature_mean_fock,
     quadrature_moments_fock,
@@ -2564,6 +2568,125 @@ class QumodeCircuit(Operation):
             exp = exp.reshape(batch, nwire)
             var = var.reshape(batch, nwire)
         return exp, var
+
+    @overload
+    def photon_number_moments(
+        self,
+        wires: int | list[int] | None = None,
+        *,
+        powers: None = None,
+        normal_ordered: bool = False,
+        centered: bool | None = None,
+        normalize: bool = True,
+    ) -> tuple[torch.Tensor, torch.Tensor]: ...
+
+    @overload
+    def photon_number_moments(
+        self,
+        wires: int | list[int] | None = None,
+        *,
+        powers: Sequence[Sequence[int]] | torch.Tensor,
+        normal_ordered: bool = False,
+        centered: bool | None = None,
+        normalize: bool = True,
+    ) -> torch.Tensor: ...
+
+    def photon_number_moments(
+        self,
+        wires: int | list[int] | None = None,
+        *,
+        powers: Sequence[Sequence[int]] | torch.Tensor | None = None,
+        normal_ordered: bool = False,
+        centered: bool | None = None,
+        normalize: bool = True,
+    ) -> tuple[torch.Tensor, torch.Tensor] | torch.Tensor:
+        r"""Get 2nd-order photon-number correlations or arbitrary higher-order photon-number moments.
+
+        Dispatches by backend to compute exact photon-number moments (PNR operator semantics, not
+        threshold/click counts) from the latest forward state:
+
+        - ``bargmann``: exact generating-function derivatives without Fock truncation (supports
+          non-Gaussian states and Bargmann TDM spatial outputs).
+        - ``gaussian``: :math:`O(K^2)` closed-form 2nd-order correlations; exact ladder Wick
+          recurrence for arbitrary higher-order ``powers`` without Fock truncation.
+        - ``bosonic``: weighted sum over Gaussian components, centered and normalized on the
+          full state.
+        - ``fock`` (``basis=False``): direct diagonal probability contractions up to ``cutoff``.
+
+        Without ``powers``, returns ``(second, mean)`` of shapes ``(batch, K, K)`` and
+        ``(batch, K)`` in wire order: covariance by default, raw :math:`\langle\hat n_i\hat n_j\rangle`
+        when ``centered=False``, or normally ordered :math:`G^{(2)}_{ij}=\langle\hat a_i^\dagger
+        \hat a_j^\dagger\hat a_i\hat a_j\rangle` when ``normal_ordered=True``.
+        With ``powers``, returns a real tensor of shape ``(batch, len(powers))``.
+
+        Args:
+            wires: Distinct spatial modes in output order. Default: ``None`` (all modes)
+            powers: Rows of nonnegative integer exponents in wire order. Default: ``None``
+            normal_ordered: Compute normally ordered factorial moments
+                :math:`\langle\prod_i (\hat a_i^\dagger)^{k_i}\hat a_i^{k_i}\rangle`.
+                Mutually exclusive with ``centered=True``. Default: ``False``
+            centered: Center around normalized mode means. Defaults to ``True`` for the default
+                2nd-order pair when ``normal_ordered=False``, and ``False`` otherwise.
+            normalize: Divide by the state weight, which must then be positive for every batch entry.
+                Default: ``True``
+
+        Returns:
+            ``(second, mean)`` when ``powers is None``, or a real tensor of shape
+            ``(batch, len(powers))`` when ``powers`` is provided.
+        """
+        if self.mps or (self._with_delay and self.backend != 'bargmann') or self._submode_circuit is not None:
+            raise NotImplementedError('photon_number_moments does not support MPS, TDM or orthogonal basis modes')
+        if self.backend == 'fock' and self.basis:
+            raise NotImplementedError('Fock photon-number moments require basis=False')
+        resolved_centered = _resolve_photon_moment_options(powers, normal_ordered, centered)
+        wires = self.wires if wires is None else wires
+        state = self._get_output_state()
+        if self.backend == 'bargmann':
+            if self._with_delay:
+                wires = [self._unroll_dict[w][-1] for w in _moment_wires(wires, self.nmode)]
+            return state.photon_number_moments(
+                wires,
+                powers=powers,
+                normal_ordered=normal_ordered,
+                centered=resolved_centered,
+                normalize=normalize,
+            )
+        selected = _moment_wires(wires, self.nmode)
+        terms = None if powers is None else _moment_powers(powers, len(selected))
+        if self.backend == 'fock':
+            return photon_number_moments_fock(
+                state,
+                self.nmode,
+                self.cutoff,
+                selected,
+                self.den_mat,
+                powers=terms,
+                normal_ordered=normal_ordered,
+                centered=resolved_centered,
+                normalize=normalize,
+            )
+        if self.backend == 'gaussian':
+            return photon_number_moments_gaussian(
+                state[0],
+                state[1],
+                selected,
+                powers=terms,
+                normal_ordered=normal_ordered,
+                centered=resolved_centered,
+                normalize=normalize,
+            )
+        if self.backend == 'bosonic':
+            return photon_number_moments_bosonic(
+                state[0],
+                state[1],
+                state[2],
+                selected,
+                powers=terms,
+                normal_ordered=normal_ordered,
+                centered=resolved_centered,
+                normalize=normalize,
+            )
+        raise NotImplementedError(f'photon_number_moments does not support backend {self.backend!r}')
 
     def quadrature_mean(
         self, wires: int | list[int] | None = None, phi: Any | None = None, *, lo: Any = None

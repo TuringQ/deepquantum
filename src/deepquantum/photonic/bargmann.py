@@ -17,7 +17,13 @@ from torch.nn import functional
 
 import deepquantum.photonic as dqp
 
-from .qmath import _wick_moments, quadrature_to_ladder
+from .qmath import (
+    _combine_factorial_moments,
+    _photon_number_moments_from_raw,
+    _required_factorial_orders,
+    _wick_moments,
+    quadrature_to_ladder,
+)
 
 # Working-set bound for recurrence indices, coefficients and intermediates.
 _max_work_bytes = 256 * 1024**2
@@ -725,6 +731,70 @@ def _homodyne_moments(
     projected = BargmannPolyExp._from_tensors(mat_a, vec_b, generating.coeff_c)
     indices = [tuple(i for i, n in enumerate(row) for _ in range(n)) for row in powers]
     return torch.stack([_bargmann_derivative(projected, term) for term in indices], dim=-1).real
+
+
+def _photon_number_moments(
+    generating: BargmannPolyExp,
+    powers: list[tuple[int, ...]] | None,
+    weight: torch.Tensor,
+    *,
+    normal_ordered: bool,
+    centered: bool,
+    normalize: bool,
+) -> tuple[torch.Tensor, torch.Tensor] | torch.Tensor:
+    r"""Evaluate 2nd-order or arbitrary higher-order photon-number moments from ``G(s, t)``.
+
+    Differentiating the normal-ordered generating function ``G(s, t) = Tr[rho e^{s^T a^+} e^{t^T a}]``
+    ``k_i`` times with respect to both ``s_i`` and ``t_i`` yields the exact factorial moment
+    :math:`\operatorname{Tr}[\rho \prod_i (a_i^\dagger)^{k_i} a_i^{k_i}]` without a Fock cutoff.
+    """
+    nwire = generating.nfree // 2
+
+    def eval_factorial(orders: list[tuple[int, ...]]) -> dict[tuple[int, ...], torch.Tensor]:
+        if not generating.naux:
+            paired = [order + order for order in orders]
+            vals = (_wick_moments(generating.mat_a, generating.vec_b, paired) * generating.coeff_c.unsqueeze(-1)).sum(1)
+            return {order: vals[..., idx] for idx, order in enumerate(orders)}
+        result: dict[tuple[int, ...], torch.Tensor] = {}
+        for order in orders:
+            positions = tuple(i for i, k in enumerate(order) for _ in range(k)) + tuple(
+                i + nwire for i, k in enumerate(order) for _ in range(k)
+            )
+            result[order] = (
+                weight.to(generating.dtype) if not positions else _bargmann_derivative(generating, positions)
+            )
+        return result
+
+    if powers is None:
+        orders: list[tuple[int, ...]] = []
+        unit_orders = [tuple(1 if j == i else 0 for j in range(nwire)) for i in range(nwire)]
+        sq_orders = [tuple(2 if j == i else 0 for j in range(nwire)) for i in range(nwire)]
+        orders.extend(unit_orders)
+        orders.extend(sq_orders)
+        pair_orders: dict[tuple[int, int], tuple[int, ...]] = {}
+        for i in range(nwire):
+            for j in range(i + 1, nwire):
+                pair = tuple(1 if m in (i, j) else 0 for m in range(nwire))
+                pair_orders[(i, j)] = pair
+                orders.append(pair)
+        fmap = eval_factorial(orders)
+        first = torch.stack([fmap[u].real for u in unit_orders], dim=-1)
+        raw_second = first.new_zeros(first.shape[0], nwire, nwire)
+        for i in range(nwire):
+            raw_second[:, i, i] = fmap[sq_orders[i]].real + first[:, i]
+            for j in range(i + 1, nwire):
+                val = fmap[pair_orders[(i, j)]].real
+                raw_second[:, i, j] = val
+                raw_second[:, j, i] = val
+        return _photon_number_moments_from_raw(
+            raw_second, first, weight, normal_ordered=normal_ordered, centered=centered, normalize=normalize
+        )
+
+    factorial_orders = _required_factorial_orders(powers, normal_ordered=normal_ordered, centered=centered)
+    fmap = eval_factorial(factorial_orders)
+    return _combine_factorial_moments(
+        fmap, powers, weight, normal_ordered=normal_ordered, centered=centered, normalize=normalize
+    )
 
 
 # Conditional Fock readout for Gaussian states
