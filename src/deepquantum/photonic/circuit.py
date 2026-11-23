@@ -96,7 +96,7 @@ from .torontonian_ import torontonian
 from .utils import _chunk_capacity
 
 if TYPE_CHECKING:
-    from .submode import _SubmodeCircuit
+    from .submode import _SubmodeBlocks, _SubmodeCircuit
 
 
 class QumodeCircuit(Operation):
@@ -373,8 +373,9 @@ class QumodeCircuit(Operation):
         Args:
             data: The input data for the ``encoders``. Default: ``None``
             state: The initial state override. On a delay circuit it may include the entire concurrent state,
-                including the spatial inputs. Mutually exclusive with ``memory`` and source preparations.
-                Default: ``None``
+                including the spatial inputs. With submodes, supply a spatial input or a native concurrent
+                state in the circuit's common orthogonal basis. Mutually exclusive with ``memory`` and
+                source preparations. Default: ``None``
             is_prob: For Fock backend, whether to return probabilities or amplitudes.
                 With ``basis=True``, set ``None`` to return the unitary matrix.
                 For Gaussian (Bosonic) backend, whether to return probabilities or the final Gaussian (Bosonic) state.
@@ -387,6 +388,8 @@ class QumodeCircuit(Operation):
                 Default: ``True``
             stepwise: Whether to use the forward function of each operator for Gaussian backend. Default: ``False``
             memory: The state of the modes in the delay loops, in increasing concurrent wire order.
+                With submodes, include all orthogonal basis modes of each loop position in basis order.
+                The joint state retains correlations and its original weight across steps.
                 Gaussian accepts ``[cov, mean]`` or ``GaussianState``. Bargmann accepts a ``BargmannState``
                 and uses the circuit's default Fock readout cutoff. Use the same dtype and device as the fresh
                 spatial inputs from ``init_state`` and any declared sources.
@@ -409,41 +412,40 @@ class QumodeCircuit(Operation):
                 raise ValueError('Supply either state or memory, not both.')
             if not self._with_delay or self.backend not in ('gaussian', 'bargmann'):
                 raise ValueError('memory requires a Gaussian or Bargmann circuit with delay loops.')
-            if use_submodes:
-                raise NotImplementedError('Loop memory with submodes requires global_circuit().')
         if self.sources:
             if self._with_delay and self.backend not in ('gaussian', 'bargmann'):
                 raise NotImplementedError('Unroll source preparations with global_circuit() before execution.')
             if state is not None:
                 raise ValueError('Use either source preparations or a forward state override.')
             state = self._prepare_sources(defer_photons=use_submodes)
-        if memory is not None:
-            state = self._join_tdm_memory(memory, self.init_state if state is None else state)
         if use_submodes:
             from .submode import _build_submode_circuit
 
             if is_prob:
                 self._reject_unsupported_bargmann_readout('is_prob=True')
             if self._with_delay:
-                raise NotImplementedError(
-                    'Use tdm_substate() for output marginals or global_circuit() for full evolution with submodes.'
-                )
-            submode_circuit = _build_submode_circuit(self, state)
+                if self.backend not in ('gaussian', 'bargmann'):
+                    raise NotImplementedError('Use global_circuit() for delay circuits with submodes on this backend.')
+                submode_circuit, result = self._forward_tdm_submodes(data, state, memory)
+            else:
+                submode_circuit = _build_submode_circuit(self, state)
+                if self.backend == 'fock' and self.basis:
+                    if is_prob is False:
+                        raise ValueError(
+                            'Readout without resolving orthogonal basis modes sums probabilities; use is_prob=True.'
+                        )
+                    submode_circuit(data, is_prob=is_prob, sort=sort)
+                else:
+                    submode_circuit(data)
+                result = submode_circuit.result()
             # Keep this execution result out of the registered/trainable module tree.
             self.__dict__['_submode_circuit'] = submode_circuit
-            if self.backend == 'fock' and self.basis:
-                if is_prob is False:
-                    raise ValueError(
-                        'Readout without resolving orthogonal basis modes sums probabilities; use is_prob=True.'
-                    )
-                submode_circuit(data, is_prob=is_prob, sort=sort)
-            else:
-                submode_circuit(data)
-            result = submode_circuit.result()
-            if is_prob:
-                result = submode_circuit.spatial_probabilities(detector)
             self.state = result
-            return result
+            if is_prob:
+                self.state = self._spatial_submode_readout().spatial_probabilities(detector)
+            return self.state
+        if memory is not None:
+            state = self._join_tdm_memory(memory, self.init_state if state is None else state)
         if self.backend == 'fock':
             return self._forward_fock(data, state, is_prob, sort)
         if self.backend in ('gaussian', 'bosonic'):
@@ -785,6 +787,76 @@ class QumodeCircuit(Operation):
         self.__dict__['state'] = result
         return result
 
+    def _forward_tdm_submodes(
+        self,
+        data: torch.Tensor | None,
+        state: Any,
+        memory: GaussianState | Sequence[torch.Tensor] | BargmannState | None,
+    ) -> 'tuple[_SubmodeCircuit | _SubmodeBlocks, dqp.SubmodeResult]':
+        """Evolve one TDM step, keeping any supplied joint memory in its common orthogonal basis."""
+        from .submode import _build_submode_circuit, _tdm_submode_inputs
+
+        if self.backend == 'gaussian' and isinstance(state, (list, tuple)):
+            state = GaussianState(list(state), cutoff=self.cutoff)
+        concurrent = isinstance(state, (GaussianState, BargmannState)) and state.nmode != self.nmode
+        plan = _build_submode_circuit(self, None if concurrent else state, joint=memory is not None or concurrent)
+        nmode = self._nmode_tdm
+        if concurrent:
+            if state.nmode != nmode * plan.nsubmode:
+                raise ValueError(f'A concurrent state must contain all {nmode * plan.nsubmode} orthogonal basis modes.')
+            if self.backend == 'bargmann':
+                if isinstance(state, BargmannState) and self.den_mat:
+                    state = state.to_dm()
+                joint = BargmannState(state, den_mat=self.den_mat, cutoff=self.cutoff)
+            elif isinstance(state, GaussianState):
+                joint = [state.cov, state.mean]
+            else:
+                raise ValueError('A Gaussian circuit requires Gaussian moments for the concurrent state.')
+            inputs = [(tuple(range(plan.nsubmode)), plan, joint)]
+        else:
+            inputs = []
+            for block, view, fresh in _tdm_submode_inputs(plan):
+                loops = memory
+                if loops is None:
+                    like = fresh if isinstance(fresh, BargmannState) else view.init_state
+                    loops = self._tdm_vacuum((nmode - self.nmode) * len(block), like)
+                elif isinstance(loops, BargmannState) and isinstance(fresh, BargmannState):
+                    fresh, loops = BargmannState._common_dtype((fresh, loops))
+                inputs.append((block, view, self._join_tdm_memory(loops, fresh, len(block))))
+        spatial = [self._unroll_dict[w][-1] for w in self.wires]
+        run = self.hardware_model._new_run(self.backend, spatial) if self.hardware_model is not None else None
+        states, blocks = [], []
+        for block, view, joint in inputs:
+            joint = self._evolve_mapped_modes(
+                joint, data if self.ndata else None, spatial, nmode, submodes=view, run=run
+            )
+            states.append(self._shift_state(joint, nsubmode=len(block)))
+            blocks.append(block)
+        if data is not None and self.ndata and data.ndim == 2:
+            self.encode(data[-1])
+        if self.backend == 'bargmann':
+            states = BargmannState._common_dtype(states)
+        return plan, dqp.SubmodeResult._from_blocks(states, tuple(blocks), nmode, self.backend, self.den_mat)
+
+    def _spatial_submode_readout(self) -> '_SubmodeCircuit | _SubmodeBlocks | None':
+        """Return the spatial readout circuit, tracing out TDM loop modes on the first readout."""
+        plan = self._submode_circuit
+        if plan is not None and self._with_delay and plan.state is None:
+            from .submode import _basis_wires
+
+            result = self._get_output_state()
+            spatial = [self._unroll_dict[w][-1] for w in self.wires]
+            states = tuple(
+                self._tdm_marginal(state, _basis_wires(spatial, len(block))) for block, state in result._factors()
+            )
+            if result.factorized:
+                plan.state = states
+                for view, state in zip(plan.circuits, states, strict=True):
+                    view.__dict__['state'] = state
+            else:
+                plan.__dict__['state'] = states[0]
+        return plan
+
     def _tdm_vacuum(
         self, nmode: int, like: GaussianState | BargmannState | None = None
     ) -> list[torch.Tensor] | BargmannState:
@@ -797,17 +869,26 @@ class QumodeCircuit(Operation):
         return [cov.unsqueeze(0), ref.new_zeros(1, 2 * nmode, 1)]
 
     def _join_tdm_memory(
-        self, memory: GaussianState | Sequence[torch.Tensor] | BargmannState, inputs: GaussianState | BargmannState
+        self,
+        memory: GaussianState | Sequence[torch.Tensor] | BargmannState,
+        inputs: GaussianState | list[torch.Tensor] | BargmannState,
+        nsubmode: int = 1,
     ) -> list[torch.Tensor] | BargmannState:
         """Place the loop memory and independent spatial inputs in concurrent wire order."""
-        nloop = self._nmode_tdm - self.nmode
+        nloop = (self._nmode_tdm - self.nmode) * nsubmode
         spatial = [self._unroll_dict[w][-1] for w in self.wires]
         loops = list(self._tdm_loop_map())
+        if nsubmode > 1:
+            from .submode import _basis_wires
+
+            spatial, loops = _basis_wires(spatial, nsubmode), _basis_wires(loops, nsubmode)
         if self.backend == 'bargmann':
             if not isinstance(memory, BargmannState) or memory.nmode != nloop:
                 raise ValueError(f'memory must be a BargmannState containing only the {nloop} delay modes.')
             order = spatial + loops
-            return inputs._tensor_product(memory, [order.index(w) for w in range(self._nmode_tdm)])
+            if memory.den_mat and not self.den_mat:
+                raise ValueError('A Bargmann kernel representing a density operator requires den_mat=True')
+            return inputs._tensor_product(memory, [order.index(w) for w in range(len(order))])
         if isinstance(memory, GaussianState):
             memory = [memory.cov, memory.mean]
         if not (
@@ -818,9 +899,11 @@ class QumodeCircuit(Operation):
             and memory[1].shape[-2:] == (2 * nloop, 1)
         ):
             raise ValueError(f'memory must contain Gaussian moments of the {nloop} delay modes only.')
-        if any(x.dtype != inputs.cov.dtype or x.device != inputs.cov.device for x in memory):
+        if isinstance(inputs, GaussianState):
+            inputs = [inputs.cov, inputs.mean]
+        if any(x.dtype != inputs[0].dtype or x.device != inputs[0].device for x in memory):
             raise ValueError('memory must have the same dtype and device as the spatial inputs.')
-        return self._join_gaussian_modes(memory, [inputs.cov, inputs.mean], loops, spatial)
+        return self._join_gaussian_modes(memory, inputs, loops, spatial)
 
     @staticmethod
     def _join_gaussian_modes(
@@ -1256,7 +1339,7 @@ class QumodeCircuit(Operation):
         self, time_steps: range | torch.Tensor, wires: list[int], data: torch.Tensor | None, window: int | None
     ) -> 'Generator[list[torch.Tensor] | BargmannState | dqp.SubmodeResult, None, None]':
         """Propagate the loop modes and retained outputs, with one state per independent basis block."""
-        from .submode import _basis_wires, _tdm_submode_inputs
+        from .submode import _basis_wires, _build_submode_circuit, _tdm_submode_inputs
 
         loop_map = self._tdm_loop_map()
         nloop = len(loop_map)
@@ -1264,7 +1347,7 @@ class QumodeCircuit(Operation):
         fresh = self._tdm_vacuum(self.nmode)
         if self.sources:
             fresh = self._prepare_sources(fresh, defer_photons=use_submodes)
-        inputs = _tdm_submode_inputs(self, fresh) if use_submodes else [((0,), None, fresh)]
+        inputs = _tdm_submode_inputs(_build_submode_circuit(self, fresh)) if use_submodes else [((0,), None, fresh)]
         blocks = tuple(block for block, _, _ in inputs)
         states = [self._tdm_vacuum(nloop * len(block)) for block in blocks]
 
@@ -1508,7 +1591,7 @@ class QumodeCircuit(Operation):
         return cir
 
     def _shift_state(
-        self, state: list[torch.Tensor] | BargmannState, nstep: int = 1, reverse: bool = False
+        self, state: list[torch.Tensor] | BargmannState, nstep: int = 1, reverse: bool = False, *, nsubmode: int = 1
     ) -> list[torch.Tensor] | BargmannState:
         """Shift the state according to ``nstep``, which is equivalent to shifting the TDM circuit."""
         idx_shift = []
@@ -1521,11 +1604,15 @@ class QumodeCircuit(Operation):
                         idx_shift.extend(shift_func(idx, -nstep))
                     else:
                         idx_shift.extend(shift_func(idx, nstep))
+        if nsubmode > 1:
+            from .submode import _basis_wires
+
+            idx_shift = _basis_wires(idx_shift, nsubmode)
         if isinstance(state, BargmannState):
             return state.reorder(idx_shift)
         cov, mean = state
-        idx_shift = torch.tensor(idx_shift)
-        idx_shift = torch.cat([idx_shift, idx_shift + self._nmode_tdm])
+        idx_shift = torch.tensor(idx_shift, device=cov.device)
+        idx_shift = torch.cat([idx_shift, idx_shift + cov.shape[-1] // 2])
         cov = cov[..., idx_shift[:, None], idx_shift]
         mean = mean[..., idx_shift, :]
         return [cov, mean]
@@ -1744,16 +1831,16 @@ class QumodeCircuit(Operation):
             refer_state: The initial Fock basis state or the final Gaussian state. Default: ``None``
             unitary: The unitary matrix. Default: ``None`` (the ideal circuit unitary)
         """
-        if self._submode_circuit is not None:
+        if (submode_circuit := self._spatial_submode_readout()) is not None:
             if refer_state is not None or unitary is not None:
                 raise ValueError('Submode probabilities use the most recent forward state.')
             if self.backend == 'bargmann':
                 from .submode import _spatial_counts
 
                 counts = tuple(_spatial_counts(final_state, self.nmode))
-                _, weight = self._submode_circuit.result()._bargmann_condition(tuple(self.wires), counts, self.detector)
+                _, weight = submode_circuit.result()._bargmann_condition(tuple(self.wires), counts, self.detector)
                 return self._event_weight(weight)
-            return self._submode_circuit.get_spatial_prob(final_state)
+            return submode_circuit.get_spatial_prob(final_state)
         self._reject_unsupported_bargmann_readout('get_prob()')
         threshold = self.backend == 'gaussian' and self.detector == 'threshold'
         if not isinstance(final_state, torch.Tensor):
@@ -2154,8 +2241,8 @@ class QumodeCircuit(Operation):
         See https://arxiv.org/pdf/2108.01622 for MCMC.
         """
         self._reject_unsupported_bargmann_readout('measure()')
-        if self._submode_circuit is not None:
-            return self._submode_circuit.measure_spatial(shots, with_prob, wires, detector, mcmc)
+        if (submode_circuit := self._spatial_submode_readout()) is not None:
+            return submode_circuit.measure_spatial(shots, with_prob, wires, detector, mcmc)
         assert self.backend in ('fock', 'gaussian'), 'Currently Fock measurement is not supported in Bosonic backend'
         if self.state is None:
             return
@@ -2594,8 +2681,8 @@ class QumodeCircuit(Operation):
         Returns:
             Two tensors with shape ``(batch, len(wires))`` for the mean and variance.
         """
-        if self._submode_circuit is not None:
-            return self._submode_circuit.spatial_photon_number_mean_var(wires)
+        if (submode_circuit := self._spatial_submode_readout()) is not None:
+            return submode_circuit.spatial_photon_number_mean_var(wires)
 
         if self.state is None:
             return
@@ -2649,7 +2736,7 @@ class QumodeCircuit(Operation):
             wires = [measurement.wires[0] for measurement in self.measurements]
             phi = torch.cat([measurement.phi for measurement in self.measurements])
         selected = _moment_wires(self.wires if wires is None else wires, self.nmode)
-        if self._with_delay and self.backend == 'bargmann':
+        if self._with_delay and self.backend == 'bargmann' and self._submode_circuit is None:
             selected = [self._unroll_dict[w][-1] for w in selected]
         return selected, phi
 
@@ -2664,7 +2751,8 @@ class QumodeCircuit(Operation):
         lo: Any,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor] | None:
         """Read one LO mode per selected spatial wire. An omitted centering flag requests only the mean."""
-        if self._submode_circuit is None:
+        submode_circuit = self._spatial_submode_readout()
+        if submode_circuit is None:
             if lo is not None:
                 raise ValueError('Configure orthogonal basis modes before specifying local-oscillator coefficients.')
             return None
@@ -2672,7 +2760,7 @@ class QumodeCircuit(Operation):
             raise NotImplementedError('Homodyne readout requires Fock state tensors (basis=False).')
         from .submode import _bargmann_lo_state, _fock_lo_moments, _lo_view
 
-        result = self._submode_circuit.result()
+        result = submode_circuit.result()
         if self.backend == 'fock':
             return _fock_lo_moments(
                 result, self.cutoff, wires, phi, centered=centered, normalize=bool(normalize), lo=lo
@@ -2927,7 +3015,8 @@ class QumodeCircuit(Operation):
                 On Fock and Bargmann circuits with submodes, each number sums over all orthogonal basis modes.
                 With ``detector='threshold'``, use 0 for vacuum and 1 for one or more photons.
             keep: Unmeasured spatial modes to retain, in output order, on Fock circuits or Bargmann circuits
-                with orthogonal basis modes.
+                with orthogonal basis modes. On a Bargmann delay circuit with submodes, these indices refer
+                to the concurrent wires of the one-step joint state.
                 Other unmeasured modes are traced out. Default: ``None`` (all unmeasured modes)
             detector: Use ``'pnrd'`` for photon-number-resolving detection, ``'threshold'`` for ideal
                 on/off detection, or ``'click'`` for multiplexed click-counting detection.
@@ -3018,7 +3107,7 @@ class QumodeCircuit(Operation):
 
     def _get_output_state(
         self,
-    ) -> torch.Tensor | BargmannState | list[torch.Tensor] | tuple[torch.Tensor, ...]:
+    ) -> 'torch.Tensor | BargmannState | dqp.SubmodeResult | list[torch.Tensor] | tuple[torch.Tensor, ...]':
         """Get the quantum state retained by the latest forward pass."""
         state = self.state if self._state_raw is None else self._state_raw
         if state is None:
@@ -3139,7 +3228,7 @@ class QumodeCircuit(Operation):
             if self._submode_circuit is None:
                 input_weight = self._get_output_state().norm()
             else:
-                input_weight = math.prod(block.norm() for _, block in self._submode_circuit.result()._factors())
+                input_weight = math.prod(block.norm() for _, block in self._get_output_state()._factors())
             safe_weight = torch.where(input_weight > 0, input_weight, torch.ones_like(input_weight))
             info['input_weight'] = input_weight
             info['conditional_probability'] = torch.where(
@@ -3161,7 +3250,11 @@ class QumodeCircuit(Operation):
         from .qmath import _photon_count_condition
 
         wires, photons = list(wires), list(photons)
-        keep = [w for w in self.wires if w not in wires] if keep is None else self._convert_indices(keep)
+        nmode = self._nmode_tdm if self._with_delay else self.nmode
+        if keep is None:
+            keep = [w for w in range(nmode) if w not in wires]
+        else:
+            keep = _moment_wires(keep, nmode) if self._with_delay else self._convert_indices(keep)
         if not keep or len(set(keep)) != len(keep) or set(keep) & set(wires):
             raise ValueError('Retain at least one unmeasured spatial wire.')
         submode_circuit = self._submode_circuit
@@ -3173,7 +3266,7 @@ class QumodeCircuit(Operation):
         if submode is not None and (type(submode) is not int or not 0 <= submode < d):
             raise ValueError('submode must index the common submode basis.')
         if self.backend == 'bargmann':
-            state, probability = submode_circuit.result()._bargmann_condition(
+            state, probability = self._get_output_state()._bargmann_condition(
                 tuple(wires), tuple(photons), detector, keep=keep, submode=submode, lo=lo
             )
             return state, probability, tuple(keep)
@@ -3235,7 +3328,7 @@ class QumodeCircuit(Operation):
                 states, x samples for Fock states). Specify an angle for single-quadrature homodyne outcomes.
         """
         self._reject_unsupported_bargmann_readout('measure_homodyne()')
-        if self._submode_circuit is not None:
+        if (submode_circuit := self._spatial_submode_readout()) is not None:
             from .submode import _lo_view
 
             if self.measurements:
@@ -3245,7 +3338,7 @@ class QumodeCircuit(Operation):
             selected = self.wires if wires is None else self._convert_indices(wires)
             if self.basis and self.backend == 'fock':
                 raise NotImplementedError('Homodyne readout requires Fock state tensors (basis=False).')
-            view = _lo_view(self._submode_circuit.result(), self.cutoff, selected, lo)
+            view = _lo_view(submode_circuit.result(), self.cutoff, selected, lo)
             if self.hardware_model is not None and self.hardware_model._has_terminal_homodyne:
                 self._validate_hardware_model(self.hardware_model)
                 return view._measure_homodyne_hardware(shots, view.wires, phi, self.hardware_model, selected)

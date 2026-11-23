@@ -2020,7 +2020,7 @@ print(source_output.to_fock().shape)  # (1, 6, 6, 6, 6)
 # 对带延时环的 `QumodeCircuit`，第一次调用 `cir()` 时环内为真空。
 # 要从指定环内态继续，调用 `cir(memory=memory)`。
 # 每个时间步的空间输入由 `init_state` 和声明的光源独立准备。
-# `memory` 只含环内模式，模式数等于所有延时环的 `ntau` 之和，与覆盖初态的 `state` 参数互斥。
+# `memory` 只含环内模式，与覆盖初态的 `state` 参数互斥。
 # 返回的联合态包含当前空间输出和环内模式，环内模式已经按下一时间步的顺序排列。
 #
 # 在 Bargmann 后端，对所有空间输出做 `post_select` 后，返回态可以直接作为下一步的 `memory`。
@@ -2053,3 +2053,19 @@ for window_state in cir_native_loop.tdm_substate(slice(3), window=2):
 # 只测部分端口时，返回态还包含未测输出。
 # `return_info=True` 返回的 `remaining_wires` 按返回态的模式顺序列出它们在原联合态中的编号，可据此迹掉其余空间输出，再回送环内态。
 #
+
+# %% [markdown]
+# 在同一线路上给 OPA 配置两个正交基模后，单步演化返回 `SubmodeResult`。
+# 计数器只报告两个基模的总光子数，`post_select` 保留与该总数相容的所有分配。
+# 此例的延时环有两个时间位置，返回的 `BargmannState` 依次包含第一个位置的两个基模和第二个位置的两个基模。
+# 把它整体传入下一步，即可保留这些模式之间的相关性。
+#
+
+# %%
+cir_native_loop.set_hardware_model(dqp.HardwareModel().opa(0).submodes(relative_r=[1, 0.4]))
+cir_native_loop.double()
+cir_native_loop()
+memory, p1 = cir_native_loop.post_select(0, 1, normalize=False)
+cir_native_loop(memory=memory)
+memory, p10 = cir_native_loop.post_select(0, 0, normalize=False)
+print(memory.nmode, p1, p10)  # 4 个环内模式、P(1)、P(1, 0)

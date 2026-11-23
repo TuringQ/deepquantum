@@ -333,6 +333,80 @@ def test_gaussian_loop_accepts_homodyne_memory_in_next_step_order():
     )
 
 
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann'])
+def test_submode_loop_memory_order_matches_six_explicit_modes(backend):
+    def prepare(nmode):
+        cir = dq.QumodeCircuit(nmode, 'vac', backend='gaussian')
+        if nmode >= 4:
+            cir.s2([0, 1], 0.31, 0.2)  # correlated basis modes in the first loop position
+            cir.d(2, 0.21, -0.4)  # distinguishes the second loop position
+        if nmode != 4:
+            cir.d(nmode - 2 if nmode == 6 else 0, 0.17, 0.3)  # fresh spatial input in basis mode 0
+        return cir.double()()
+
+    spatial, memory, concurrent = (prepare(n) for n in (1, 4, 6))
+    cir = dq.QumodeCircuit(1, spatial, backend=backend, den_mat=True)
+    cir.delay(0, ntau=2, inputs=[0.53, 0.16])
+    cir.set_hardware_model(dqp.HardwareModel().input(0).submodes([1, 0]))
+    cir.double()
+    reference = dq.QumodeCircuit(6, concurrent, backend='gaussian')
+    for k in (0, 1):
+        reference.bs_theta([k, 4 + k], 0.53)
+        reference.ps(k, 0.16)
+    cov, mean = reference.double()()
+    order = torch.tensor([2, 3, 0, 1, 4, 5])  # next-step order swaps the two loop positions
+    idx = torch.cat([order, order + 6])
+    expected = [cov[:, idx[:, None], idx], mean[:, idx]]
+    if backend == 'bargmann':
+        memory, concurrent = (dq.BargmannState(x, den_mat=True) for x in (memory, concurrent))
+    for result in (cir(memory=memory), cir(state=concurrent)):
+        assert (result.nmode, result.nsubmode, result.factorized) == (3, 2, False)
+        joint = result.to_joint()
+        moments = list(joint.quadrature_moments()) if backend == 'bargmann' else joint
+        torch.testing.assert_close(moments, expected, atol=1e-12, rtol=0)
+    # A terminal readout on spatial wire 0 observes the chosen basis mode at the output.
+    torch.testing.assert_close(cir.quadrature_mean(0, phi=0, lo=[0, 1]), mean[:, [5]])
+    with pytest.raises(ValueError, match='4 delay modes'):
+        cir(memory=concurrent)
+
+
+@pytest.mark.parametrize('detector', ['pnrd', 'threshold'])
+def test_bargmann_submode_loop_keeps_joint_event_weight_and_correlations(detector):
+    cir = dq.QumodeCircuit(1, 'vac', backend='bargmann', den_mat=True, detector=detector, cutoff=2)
+    cir.s(0, encode=True)
+    cir.delay(0, ntau=1, inputs=[0.5, 0.1])
+    cir.set_hardware_model(dqp.HardwareModel().s(0).submodes(relative_r=[1, 0.4]))
+    cir.double()
+    full = cir.global_circuit(2)
+    data = torch.tensor([[0.20, 0.12], [0.31, -0.17]], dtype=torch.double, requires_grad=True)
+
+    result = cir(data)
+    assert result.partition == ((0,), (1,))
+    output_probability = cir.get_prob([1])
+    memory, p1 = cir.post_select(0, 1, normalize=False)
+    torch.testing.assert_close(p1, output_probability)
+    assert memory.nmode == 2 and memory.den_mat
+    if detector == 'pnrd':
+        # The observed photon leaves odd parity in its partner loop mode. Both loops cannot be empty.
+        torch.testing.assert_close(memory.to_fock(1).flatten(), torch.zeros_like(p1).to(torch.cdouble))
+        for k in (0, 1):
+            assert (memory.partial_trace([k]).to_fock(1).flatten().real > 0.1 * p1).all()
+
+    assert cir(data, memory=memory).partition == ((0, 1),)
+    final, p10, info = cir.post_select(0, 0, normalize=False, return_info=True)
+    assert info['remaining_wires'] == (0,)
+    torch.testing.assert_close(info['input_weight'], p1)
+    torch.testing.assert_close(info['conditional_probability'], p10 / p1)
+    full(data.repeat(1, 2))
+    oracle, weight = full.post_select(cir.tdm_output_wires(2).flatten(), [1, 0], normalize=False)
+    torch.testing.assert_close(p10, weight, atol=1e-12, rtol=0)
+    torch.testing.assert_close(final.to_fock(3), oracle.to_fock(3), atol=1e-12, rtol=0)
+    args = dict(wires=[0, 1], phi=[0, 0.3], powers=[(2, 2)], normalize=False)
+    actual, expected = (s.quadrature_moments(**args) for s in (final, oracle))
+    torch.testing.assert_close(actual, expected, atol=1e-12, rtol=0)
+    torch.testing.assert_close(torch.autograd.grad(actual.sum(), data), torch.autograd.grad(expected.sum(), data))
+
+
 def test_bargmann_single_photon_windows_match_global_density():
     cir = dq.QumodeCircuit(1, 'vac', backend='bargmann', cutoff=1)
     cir.single_photon(0)
@@ -353,6 +427,25 @@ def test_bargmann_single_photon_windows_match_global_density():
         assert isinstance(window, dq.BargmannState) and window.den_mat and window.cutoff == 1
         torch.testing.assert_close(window.to_fock(3), expected(times))
     torch.testing.assert_close(cir.tdm_substate([2, 0]).to_fock(3), expected([2, 0]))
+
+
+def test_submode_loop_reprepares_photon_after_post_selection():
+    coeff = torch.tensor([0.8, 0.6j], dtype=torch.cdouble)
+    theta = torch.tensor(0.67, dtype=torch.double)
+    cir = dq.QumodeCircuit(1, 'vac', backend='bargmann', den_mat=True, cutoff=1)
+    cir.single_photon(0, coefficients=coeff)
+    cir.delay(0, ntau=1, inputs=[theta, 0.22])
+    cir.double()
+    cir()
+    memory, p1 = cir.post_select(0, 1, normalize=False)
+    # Detect the first photon, then leave the entire second photon in the loop.
+    cir(memory=memory)
+    memory, p10 = cir.post_select(0, 0, normalize=False)
+    torch.testing.assert_close(p1, theta.cos().square().reshape(1))
+    torch.testing.assert_close(p10, p1 * theta.sin().square())
+    ket = coeff.new_zeros(2, 2)
+    ket[1, 0], ket[0, 1] = coeff
+    torch.testing.assert_close(memory.to_fock(2)[0], p10 * torch.einsum('ij,kl->ijkl', ket, ket.conj()))
 
 
 def test_tdm_submode_single_photon_coherences_and_source_gradient():
@@ -382,8 +475,9 @@ def test_tdm_submode_single_photon_coherences_and_source_gradient():
 
 
 @pytest.mark.parametrize('backend', ['gaussian', 'bargmann'])
+@pytest.mark.parametrize('feedback', [False, True], ids=['output-marginal', 'loop-memory'])
 @pytest.mark.skipif(not torch.backends.mps.is_available(), reason='MPS is not available')
-def test_tdm_submode_mps_control_gradients_match_cpu(backend):
+def test_tdm_submode_mps_control_gradients_match_cpu(backend, feedback):
     def readout(device):
         cir = dq.QumodeCircuit(2, 'vac', backend=backend, den_mat=True)
         cir.s(0, encode=True)
@@ -396,7 +490,16 @@ def test_tdm_submode_mps_control_gradients_match_cpu(backend):
         cir.set_hardware_model(dqp.HardwareModel().s(0).submodes(relative_r=[1, 0.6]))
         cir.to(device)
         data = torch.linspace(0.07, 0.32, cir.ndata, device=device).reshape(1, -1).requires_grad_()
-        joint = cir.tdm_substate([1, 0], data=data).to_joint()
+        if feedback:
+            joint = cir(data).to_joint()
+            if backend == 'bargmann':
+                memory, _ = cir.post_select([0, 1], [1, 0], normalize=False)
+            else:
+                idx = [0, 1, 6, 7]  # first loop position, both basis modes in xxpp order
+                memory = [joint[0][:, idx][:, :, idx], joint[1][:, idx]]
+            joint = cir(data, memory=memory).to_joint()
+        else:
+            joint = cir.tdm_substate([1, 0], data=data).to_joint()
         cov, mean = joint.quadrature_moments() if backend == 'bargmann' else joint
         (grad,) = torch.autograd.grad(cov.square().sum() + mean.sum(), data)
         return tuple(x.detach().cpu() for x in (cov, mean, grad))

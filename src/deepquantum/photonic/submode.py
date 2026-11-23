@@ -60,6 +60,7 @@ class SubmodeResult:
     """Circuit output in a common orthogonal basis.
 
     ``nmode`` counts spatial modes and ``nsubmode`` counts basis modes per spatial mode.
+    A single TDM step includes both spatial outputs and loop positions in concurrent wire order.
     In a TDM output marginal, each selected (time, wire) pair counts as one spatial mode.
     ``partition`` gives the basis-mode indices evolved together in each independent group.
     ``to_joint()`` returns the full state in spatial-then-basis order, taking the tensor product
@@ -1143,7 +1144,9 @@ def _slice_profiles(modes, block):
     return result
 
 
-def _build_submode_circuit(parent: QumodeCircuit, state: Any = None) -> '_SubmodeCircuit | _SubmodeBlocks':
+def _build_submode_circuit(
+    parent: QumodeCircuit, state: Any = None, *, joint: bool = False
+) -> '_SubmodeCircuit | _SubmodeBlocks':
     """Build the submode circuit, grouping basis modes coupled by inputs or operations."""
     model = parent.hardware_model if parent.hardware_model is not None else HardwareModel()
     photons = [s for s in parent.sources.values() if isinstance(s, SinglePhotonSource)]
@@ -1159,7 +1162,8 @@ def _build_submode_circuit(parent: QumodeCircuit, state: Any = None) -> '_Submod
     # Preserve the batched native-kernel path for operations diagonal in the common orthogonal basis.
     profiles = [b.plugin for b in model.bindings.values() if isinstance(b.plugin, Submodes)]
     if (
-        d == 1
+        joint
+        or d == 1
         or parent.basis
         and parent.backend == 'fock'
         or parent.backend == 'bosonic'
@@ -1170,7 +1174,7 @@ def _build_submode_circuit(parent: QumodeCircuit, state: Any = None) -> '_Submod
             and all(p.components is None for p in profiles)
         )
     ):
-        return _SubmodeCircuit(parent, state, nsubmode=d)
+        return _SubmodeCircuit(parent, state, nsubmode=d, joint=joint)
     components = [{k} for k in range(d)]
 
     def connect(indices):
@@ -1202,10 +1206,9 @@ def _build_submode_circuit(parent: QumodeCircuit, state: Any = None) -> '_Submod
 
 
 def _tdm_submode_inputs(
-    parent: QumodeCircuit, fresh: list[torch.Tensor] | BargmannState
+    plan: '_SubmodeCircuit | _SubmodeBlocks',
 ) -> list[tuple[tuple[int, ...], _SubmodeCircuit, list[torch.Tensor] | BargmannState]]:
     """Prepare independent spatial inputs and the optical operations for each basis block."""
-    plan = _build_submode_circuit(parent, fresh)
     groups = (
         zip(plan.blocks, plan.circuits, strict=True)
         if isinstance(plan, _SubmodeBlocks)
@@ -1252,6 +1255,7 @@ class _SubmodeBlocks:
         self.nsubmode = sum(map(len, blocks))
         self.factorized = True
         self.circuits = []
+        self.state = None
         model = parent.hardware_model if parent.hardware_model is not None else HardwareModel()
         self.model = model
         source = parent.init_state if state is None else state
