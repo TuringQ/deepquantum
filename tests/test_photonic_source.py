@@ -40,10 +40,10 @@ def _run_joint(circuit, data=None):
     from deepquantum.photonic.submode import _SubmodeCircuit
 
     source = circuit._prepare_sources() if circuit.sources else None
-    expanded = _SubmodeCircuit(circuit, source, joint=True)
-    circuit.__dict__['_submode_circuit'] = expanded
-    expanded(data)
-    circuit.state = expanded.result()
+    joint_circuit = _SubmodeCircuit(circuit, source, joint=True)
+    circuit.__dict__['_submode_circuit'] = joint_circuit
+    joint_circuit(data)
+    circuit.state = joint_circuit.result()
     return circuit.state
 
 
@@ -85,15 +85,18 @@ def test_spatial_hom_and_loss(dtype, basis, den_mat):
         assert readout.measure_homodyne(8, wires=0, phi=0.3).shape == (8,)
 
 
+@pytest.mark.parametrize('backend', ['fock', 'bargmann'])
 @pytest.mark.parametrize('den_mat', [False, True])
-def test_input_isometry_preserves_number_coherences(den_mat):
+def test_input_isometry_preserves_number_coherences(backend, den_mat):
     initial = torch.tensor([[2**-0.5, 0, 2**-0.5]])
     if den_mat:
         initial = initial.unsqueeze(-1) * initial.unsqueeze(-2)
-    cir = dqp.QumodeCircuit(1, initial, cutoff=3, basis=False, den_mat=den_mat)
+    cir = dqp.QumodeCircuit(1, initial, cutoff=3, backend=backend, basis=False, den_mat=den_mat)
     cir.set_hardware_model(dqp.HardwareModel().input(0).submodes([0.6j, 0.8]))
     cir.to(torch.double)
     state = cir().to_joint()
+    if backend == 'bargmann':
+        state = state.to_fock(3)
     ket = torch.zeros(3, 3, dtype=torch.cdouble)
     ket[0, 0] = 2**-0.5
     ket[2, 0] = 2**-0.5 * (0.6j) ** 2
@@ -443,7 +446,7 @@ def test_active_complex_profile_and_spatial_moments(active):
     torch.testing.assert_close(grad, ref)
 
 
-def test_global_tdm_expansion_and_source_placement():
+def test_unrolled_tdm_circuit_preserves_source_placement():
     cir = dqp.QumodeCircuit(1, 'vac', backend='gaussian')
     cir.thermal(0, nbar=0.02)
     cir.s(0, r=0.3, theta=0.2)
@@ -466,8 +469,11 @@ def test_global_tdm_expansion_and_source_placement():
         expected = reference.global_circuit(3).to(torch.double)()
         indices = main + k
         torch.testing.assert_close(actual[0][:, indices[:, None], indices], expected[0])
-    with pytest.raises(NotImplementedError, match='Streaming'):
-        cir.tdm_substate([0, 2])
+    selected = (2 * cir.tdm_output_wires(3)[[0, 2]] + torch.arange(2)).flatten()
+    idx = torch.cat([selected, selected + 2 * n])
+    streamed = cir.double().tdm_substate([0, 2])
+    assert streamed.partition == ((0,), (1,))
+    torch.testing.assert_close(streamed.to_joint(), [actual[0][:, idx[:, None], idx], actual[1][:, idx]])
 
 
 @pytest.mark.parametrize(
@@ -553,7 +559,7 @@ def test_partial_blocks_match_joint_state_conditioning_and_gradients(backend, de
     assert sum(partial.measure(5, wires=0).values()) == 5
 
 
-@pytest.mark.parametrize('backend', ['gaussian', 'bosonic', 'fock'])
+@pytest.mark.parametrize('backend', ['gaussian', 'bosonic', 'fock', 'bargmann'])
 def test_lo_projection_matches_displaced_wavepacket(backend):
     cir = dqp.QumodeCircuit(1, 'vac', cutoff=8, backend=backend, basis=False)
     cir.d(0, r=0.2, theta=0.3)
@@ -566,8 +572,14 @@ def test_lo_projection_matches_displaced_wavepacket(backend):
         torch.testing.assert_close(
             cir.quadrature_mean(0, 0.2, lo=3 * lo).squeeze().real, expected, atol=1e-8, rtol=1e-6
         )
-    samples = cir.measure_homodyne(8, wires=0, lo=profile, phi=0.2)
-    assert samples.shape == (8,) and torch.isfinite(samples).all()
+        cov, mean = cir.quadrature_moments(0, 0.2, lo=lo)
+        torch.testing.assert_close(
+            cov.squeeze(), expected.new_tensor(dqp.hbar / (4 * dqp.kappa**2)), atol=1e-8, rtol=1e-6
+        )
+        torch.testing.assert_close(mean.squeeze(), expected, atol=1e-8, rtol=1e-6)
+    if backend != 'bargmann':
+        samples = cir.measure_homodyne(8, wires=0, lo=profile, phi=0.2)
+        assert samples.shape == (8,) and torch.isfinite(samples).all()
 
 
 @pytest.mark.parametrize('backend', ['gaussian', 'fock'])
@@ -604,3 +616,136 @@ def test_partial_blocks_encoded_batch_and_module_vmap(backend):
             torch.testing.assert_close(outputs[i], expected)
         else:
             torch.testing.assert_close([x[i] for x in outputs], expected)
+
+
+@pytest.mark.parametrize('partial', [False, True])
+def test_bargmann_lo_products_match_gaussian_circuit_with_explicit_basis_modes(partial):
+    cir = dqp.QumodeCircuit(2, 'vac', backend='bargmann', den_mat=True)
+    cir.s2([0, 1], 0.21, 0.3)
+    cir.d(0, 0.22, -0.1)
+    cir.ps(1, encode=True)
+    cir.homodyne(1, 0.4)
+    cir.homodyne(0, -0.2)
+    ratios = [1.0, 0.4, 0.2]
+    model = dqp.HardwareModel().s2().submodes(relative_r=ratios)
+    if partial:
+        model.d().submodes([0.8, 0, 0.6j])
+    model.output().loss(t=0.81)
+    cir.set_hardware_model(model)
+    controls = torch.tensor([[0.17], [0.51]])
+    result = cir.double()(controls)
+    assert result.partition == (((0, 2), (1,)) if partial else ((0,), (1,), (2,)))
+
+    explicit = dqp.QumodeCircuit(6, 'vac', backend='gaussian')
+    for k, ratio in enumerate(ratios):
+        explicit.s2([k, k + 3], 0.21 * ratio, 0.3)
+        explicit.ps(k + 3, encode=True)
+    explicit.d(0, 0.22 * (0.8 if partial else 1), -0.1)
+    if partial:
+        explicit.d(2, 0.22 * 0.6, math.pi / 2 - 0.1)
+    for w in range(6):
+        explicit.loss_t(w, 0.81)
+    cov, mean = explicit.double()(controls.expand(-1, 3))
+    torch.testing.assert_close(result.to_joint().quadrature_moments(), (cov, mean))
+    lo = torch.tensor([[0.3j, 0.7, 0.2], [1, 0, 0]], dtype=torch.cdouble, requires_grad=True)
+    rows = lo / lo.norm(dim=1, keepdim=True) * torch.exp(1j * torch.tensor([[0.4], [-0.2]]))
+    coeff = torch.block_diag(rows[1], rows[0]).flip(0)
+    projection = torch.cat([coeff.real, coeff.imag], dim=1)
+    mu = (projection @ mean).squeeze(-1)
+    vx, vy = (projection @ cov @ projection.mT).diagonal(dim1=-2, dim2=-1).unbind(-1)
+    cross = (projection @ cov @ projection.mT)[:, 0, 1]
+    x, y = mu.unbind(-1)
+    reference = (vx + x.square()) * (vy + y.square()) + 4 * x * y * cross + 2 * cross.square()
+    products = cir.quadrature_moments(powers=[(2, 2), (0, 0)], lo=lo)
+    torch.testing.assert_close(products, torch.stack([reference, torch.ones_like(reference)], dim=-1))
+    torch.testing.assert_close(cir.quadrature_mean(lo=lo).squeeze(-1), mu)
+    torch.testing.assert_close(torch.autograd.grad(products.sum(), lo)[0], torch.autograd.grad(reference.sum(), lo)[0])
+
+
+@pytest.mark.parametrize('overlap', [0.0, 0.8, 1.0])
+def test_bargmann_unresolved_hom(overlap):
+    cir = dqp.QumodeCircuit(2, 'vac', backend='bargmann')
+    cir.single_photon(0)
+    cir.single_photon(1, [overlap * 1j, math.sqrt(1 - overlap**2)])
+    cir.bs([0, 1], [math.pi / 4, 0.0])
+    cir.double()()
+    coincidence = (1 - overlap**2) / 2
+    torch.testing.assert_close(cir.get_prob([1, 1]), torch.tensor([coincidence]))
+    torch.testing.assert_close(cir.get_prob([0, 2]), torch.tensor([(1 - coincidence) / 2]))
+    mean, variance = cir.photon_number_mean_var()
+    torch.testing.assert_close(mean, torch.ones_like(mean))
+    torch.testing.assert_close(variance, torch.full_like(variance, 1 - coincidence))
+
+
+def test_bargmann_unresolved_mixed_source_and_weighted_lo_match_fock():
+    theta = torch.tensor(0.38, requires_grad=True)
+    circuits = []
+    for backend in ('bargmann', 'fock'):
+        cir = dqp.QumodeCircuit(2, 'vac', cutoff=3, backend=backend, basis=False, den_mat=True)
+        cir.single_photon(0, factor=[[1, 0.2j], [0.4j, 0.6]])
+        cir.single_photon(1, [0.8j, 0.6])
+        cir.bs([0, 1], [theta, 0.2])
+        cir.loss_t(0, 0.74)
+        cir.double()()
+        circuits.append(cir)
+    native, fock = circuits
+    for detector, count in [('pnrd', 2), ('threshold', 1)]:
+        for selection in ({'lo': [0.3, 0.7j]}, {'submode': 1}, {}):
+            settings = dict(keep=1, detector=detector, normalize=False, **selection)
+            state, weight, info = native.post_select(0, count, return_info=True, **settings)
+            density, reference = fock.post_select(0, count, **settings)
+            torch.testing.assert_close(state.to_fock(3), density.state)
+            torch.testing.assert_close(weight, reference)
+            torch.testing.assert_close(info['input_weight'], torch.ones_like(weight))
+            assert info['remaining_wires'] == (1,) and state.den_mat and info['representation'] == 'dm'
+            if 'lo' in selection:
+                a = torch.diag(torch.arange(1, 7).sqrt(), diagonal=1) * torch.exp(torch.tensor(-0.31j))
+                fourth = torch.linalg.matrix_power(a + a.mH, 4)[:3, :3]
+                exact = torch.einsum('bij,ji->b', density.state, fourth).real
+                moments = state.quadrature_moments(0, 0.31, powers=[(4,), (0,)], normalize=False)
+                torch.testing.assert_close(moments, torch.stack([exact, reference], dim=-1), atol=1e-10, rtol=0)
+    torch.testing.assert_close(
+        torch.autograd.grad(weight.sum(), theta)[0], torch.autograd.grad(reference.sum(), theta)[0]
+    )
+
+
+def test_fock_lo_variance_at_occupied_cutoff():
+    # Each basis mode holds at most one photon. Both photons can bunch in a rotated LO mode.
+    for backend in ('fock', 'bargmann'):
+        cir = dqp.QumodeCircuit(2, 'vac', cutoff=2, backend=backend, basis=False)
+        cir.single_photon(0, [1, 0])
+        cir.single_photon(1, [0, 1])
+        cir.bs([0, 1], [math.pi / 4, 0.0])
+        cir.double()()
+        cov, mean = cir.quadrature_moments(wires=0, phi=0, lo=[1, 1j])
+        torch.testing.assert_close(cov, torch.full_like(cov, 2.0))
+        torch.testing.assert_close(mean, torch.zeros_like(mean))
+
+
+@pytest.mark.parametrize('backend', ['fock', 'bargmann'])
+def test_submode_lo_preserves_unobserved_block_weight(backend):
+    ket = torch.tensor([[1e-5, 0], [0, 0]], dtype=torch.cdouble)
+    cir = dqp.QumodeCircuit(1, 'vac', backend=backend, cutoff=2, basis=False)
+    cir.s(0, 0.0, 0.0)
+    cir.set_hardware_model(dqp.HardwareModel().s(0).submodes(relative_r=[1, 0.5]))
+    cir.double()(state=dqp.FockState(ket, nmode=1, basis=False))
+    second, first = cir.quadrature_moments(0, phi=0.2, normalize=False, lo=[0, 1])
+    expected = ket.abs().square().sum(-1)
+    torch.testing.assert_close(second[:, 0, 0], expected, atol=1e-24, rtol=1e-12)
+    torch.testing.assert_close(first[:, 0, 0], torch.zeros_like(expected))
+    if backend == 'bargmann':
+        moments = cir.quadrature_moments(0, powers=[(0,), (4,)], normalize=False, lo=[0, 1])
+        torch.testing.assert_close(moments, torch.stack([expected, 3 * expected], -1), atol=1e-24, rtol=1e-12)
+    with pytest.raises(ValueError, match='positive'):
+        cir.quadrature_moments(0, lo=[0, 1])
+
+
+def test_bargmann_promotes_untouched_blocks_to_joint_precision():
+    vacuum = dqp.BargmannState('vac', nmode=1).float()
+    cir = dqp.QumodeCircuit(1, vacuum)
+    cir.d(0, torch.tensor(0.2, dtype=torch.double), 0.3)
+    cir.set_hardware_model(dqp.HardwareModel().d().submodes([1, 0]))
+    joint = cir().to_joint()
+    assert joint.mat_a.dtype == torch.cdouble
+    value = cir.quadrature_mean(0, 0.3, lo=[1, 1]).squeeze()
+    torch.testing.assert_close(value, torch.tensor(math.sqrt(2) * 0.2))

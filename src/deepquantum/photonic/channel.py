@@ -13,6 +13,7 @@ from ..qmath import evolve_state
 from .bargmann import BargmannPolyExp, _gaussian_bargmann
 from .gate import BeamSplitterSingle, Displacement
 from .operation import Channel
+from .qmath import _times_i
 
 
 def _loss_to_theta(inputs: Any, convention: str) -> torch.Tensor | None:
@@ -118,7 +119,7 @@ class DisplacementChannel(Channel):
     @property
     def coherent_amplitude(self) -> torch.Tensor:
         """Complex auxiliary amplitude, whose squared magnitude is its mean photon number."""
-        return self.amplitude * torch.exp(1j * self.phase)
+        return self.amplitude * torch.exp(_times_i(self.phase))
 
     @property
     def t(self) -> torch.Tensor:
@@ -179,9 +180,9 @@ class OPA(Channel):
     The internal parameters are ``r``, ``theta`` and ``loss_theta``.
     See https://arxiv.org/abs/2606.02524v1 Eq.(16) and Methods, Internal Loss.
 
-    Gaussian and Bosonic states use :math:`X` and :math:`Y` directly. Bargmann density states
-    use the analytic channel kernel. Fock density states use its projected
-    superoperator, with four local axes of length ``cutoff``. Output weight
+    Gaussian and Bosonic states use :math:`X` and :math:`Y` directly. The Bargmann backend
+    contracts the channel kernel with the kernel of the density operator. For a Fock density matrix,
+    the projected channel superoperator has four local axes of length ``cutoff``. Output weight
     above the cutoff is discarded without renormalization.
 
     ``HardwareModel.opa().submodes(relative_r=...)`` sets fixed orthogonal gain

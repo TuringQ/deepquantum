@@ -266,10 +266,10 @@ def test_noise_overrides_in_streaming_unrolling_and_measurement():
     cir.set_hardware_model(model)
     assert_state_close(cir(), ref())
     actual = cir.tdm_substate([1, 3])
-    expanded = ref.global_circuit(4)
-    expected = expanded()
+    unrolled = ref.global_circuit(4)
+    expected = unrolled()
     outputs = cir.tdm_output_wires(4)[[1, 3]].flatten()
-    indices = torch.cat([outputs, outputs + expanded.nmode])
+    indices = torch.cat([outputs, outputs + unrolled.nmode])
     assert_state_close(actual, [expected[0][:, indices[:, None], indices], expected[1][:, indices]])
     assert_state_close(cir.global_circuit(4)(), expected)
     torch.manual_seed(7)
@@ -625,23 +625,23 @@ def test_invalid_parameters_bindings_and_backend():
 def test_unrolled_bindings_follow_objects_and_reject_removal():
     cir = circuit()
     cir.set_hardware_model(dqp.HardwareModel().ps(1).theta.gaussian(mu=0.07, sigma=0, name='phase'))
-    expanded = cir.global_circuit(2)
-    cloned = deepcopy(expanded)
+    unrolled = cir.global_circuit(2)
+    cloned = deepcopy(unrolled)
     assert cloned.hardware_model.bindings.phase.bound_ops <= set(cloned.operators)
     assert_state_close(cloned.global_circuit(1)(), cloned())
     ref = cir.global_circuit(2, use_deepcopy=True)
-    for target in [expanded, ref]:
+    for target in [unrolled, ref]:
         target.operators.insert(0, dqp.PhaseShift(torch.tensor(0.1), nmode=4, wires=1))
         target.operators[0], target.operators[1] = target.operators[1], target.operators[0]
     for gate in ref.hardware_model.bindings.phase.bound_ops:
         gate.init_para(gate.theta + 0.07)
     ref.set_hardware_model(None)
-    assert_state_close(expanded(), ref())
-    selected = next(iter(expanded.hardware_model.bindings.phase.bound_ops))
-    index = next(i for i, gate in enumerate(expanded.operators) if gate is selected)
-    expanded.operators[index] = dqp.PhaseShift(torch.tensor(0.2), nmode=4, wires=selected.wires)
+    assert_state_close(unrolled(), ref())
+    selected = next(iter(unrolled.hardware_model.bindings.phase.bound_ops))
+    index = next(i for i, gate in enumerate(unrolled.operators) if gate is selected)
+    unrolled.operators[index] = dqp.PhaseShift(torch.tensor(0.2), nmode=4, wires=selected.wires)
     with pytest.raises(ValueError, match='removed or replaced'):
-        expanded()
+        unrolled()
 
 
 @pytest.mark.parametrize('gate_type', [op for op in _PARAMETERS if op is not dqp.Homodyne])
@@ -765,9 +765,9 @@ def test_tdm_homodyne_and_global_mapping(backend):
 
     cir, ref = template(0), template(0.03)
     cir.set_hardware_model(dqp.HardwareModel().gaussian(mu=0.03, sigma=0).delay().ps().after.loss(t=0.9))
-    expanded = cir.global_circuit(3)
-    binding = next(iter(expanded.hardware_model.bindings.values()))
-    assert set(expanded.measurements) <= binding.bound_ops
+    unrolled = cir.global_circuit(3)
+    binding = next(iter(unrolled.hardware_model.bindings.values()))
+    assert set(unrolled.measurements) <= binding.bound_ops
     torch.manual_seed(6)
     actual = cir(nstep=3)
     torch.manual_seed(6)

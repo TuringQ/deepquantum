@@ -29,10 +29,12 @@ from .bargmann import (
 )
 from .draw import GaussianGraphVisualizer
 from .qmath import (
+    _first_order_indices,
     _moment_powers,
     _moment_wires,
     _project_quadrature_moments,
     _quadrature_angles,
+    _quadrature_mean_ladder,
     _quadrature_moments_ladder,
     cv_to_wigner,
     dirac_rep,
@@ -52,7 +54,7 @@ class FockState(nn.Module):
         nmode: The number of modes in the state. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         basis: Whether the state is a Fock basis state or not. Default: ``True``
-        den_mat: Whether to use density matrix representation. Only valid for Fock state tensor. Default: ``False``
+        den_mat: Whether to use density matrix representation. Applies when ``basis=False``. Default: ``False``
     """
 
     def __init__(
@@ -304,7 +306,8 @@ class BargmannState(nn.Module):
 
     The buffers ``mat_a``, ``vec_b`` and ``coeff_c`` store the coefficients of a
     :class:`BargmannPolyExp`. A ket on ``M`` modes has ``M`` free variables in local mode order.
-    A density matrix has ``2M`` free variables, with ket variables followed by bra variables:
+    With ``den_mat=True``, the kernel of the density operator has ``2M`` free variables,
+    with ket variables followed by bra variables:
 
     .. math::
 
@@ -327,7 +330,7 @@ class BargmannState(nn.Module):
         nmode: The number of modes in the state. Required for Fock tensor inputs. Default: ``None``
         cutoff: The Fock space truncation for readout. It does not truncate Bargmann evolution.
             Default: ``None`` (which means 5)
-        den_mat: Whether to use density matrix representation. Default: ``False``
+        den_mat: Whether to use density matrix representation. Default: ``False`` (a ket)
 
     Note:
         Gaussian moments are converted at their input precision. Use float64 moments for
@@ -359,7 +362,7 @@ class BargmannState(nn.Module):
             if nmode is None:
                 nmode = state.nfree // 2 if den_mat else state.nfree
             if state.nfree != (2 * nmode if den_mat else nmode):
-                raise ValueError('The representation must have one free variable per mode (two for density matrices)')
+                raise ValueError('The kernel needs one free variable per mode for a ket or two for a density operator')
             return state, nmode
         if isinstance(state, str):
             if state not in ('vac', 'zeros'):
@@ -415,7 +418,7 @@ class BargmannState(nn.Module):
         return fock_to_bargmann(tensor, nvar), nmode
 
     def _from_fock_basis(self, pattern: list[int]) -> BargmannPolyExp:
-        """Construct a Fock basis ket or density matrix in Bargmann form."""
+        """Construct the Bargmann kernel of a Fock basis ket or its projector."""
         if any(n < 0 for n in pattern):
             raise ValueError('Photon numbers must be nonnegative')
         pattern = pattern * (2 if self.den_mat else 1)
@@ -446,6 +449,12 @@ class BargmannState(nn.Module):
         return self._new(BargmannPolyExp._from_tensors(self.mat_a[sl], self.vec_b[sl], self.coeff_c[sl]))
 
     @staticmethod
+    def _common_dtype(states: Sequence['BargmannState']) -> tuple['BargmannState', ...]:
+        """Promote independent kernels to their common precision before forming a tensor product."""
+        dtype = max(states, key=lambda state: state.mat_a.element_size()).mat_a.dtype
+        return tuple(s if s.mat_a.dtype == dtype else s._new(s.polyexp.to(dtype=dtype)) for s in states)
+
+    @staticmethod
     def _cat_batch(states: list['BargmannState']) -> 'BargmannState':
         """Concatenate states with identical structure along the batch axis."""
         first = states[0]
@@ -471,7 +480,7 @@ class BargmannState(nn.Module):
         return self._new(polyexp)
 
     def apply_channel(self, kernel: BargmannPolyExp, wires: list[int]) -> 'BargmannState':
-        """Apply a quantum channel to a density matrix.
+        """Apply a quantum channel to the Bargmann kernel of a density operator.
 
         Args:
             kernel: The Bargmann representation of the channel, ordered as ket output, bra output,
@@ -479,7 +488,7 @@ class BargmannState(nn.Module):
             wires: The indices of the modes that the quantum operation acts on.
         """
         if not self.den_mat:
-            raise ValueError('Channels require the density-matrix representation; use den_mat=True')
+            raise ValueError('Bargmann channels act on density operators and require den_mat=True')
         pos = list(wires)
         if len(set(pos)) != len(pos) or any(w < 0 or w >= self.nmode for w in pos):
             raise ValueError('wires must contain distinct local mode indices')
@@ -487,7 +496,7 @@ class BargmannState(nn.Module):
         return self._new(polyexp)
 
     def to_dm(self) -> 'BargmannState':
-        r"""Convert a ket to :math:`|\psi\rangle\langle\psi|`, returning a density matrix unchanged."""
+        r"""Get the kernel of the density operator, forming :math:`|\psi\rangle\langle\psi|` for a ket."""
         if self.den_mat:
             return self
         polyexp = self.polyexp
@@ -520,7 +529,7 @@ class BargmannState(nn.Module):
         return self._new(polyexp, den_mat=first.den_mat)
 
     def reorder(self, wires: list[int]) -> 'BargmannState':
-        """Permute modes so new mode :math:`i` is old mode ``wires[i]``, including both density axes."""
+        """Permute modes so new mode :math:`i` is old mode ``wires[i]``, reordering both ket and bra variables."""
         if sorted(wires) != list(range(self.nmode)):
             raise ValueError('wires must be a permutation of all modes')
         order = list(wires)
@@ -528,8 +537,22 @@ class BargmannState(nn.Module):
             order += [wire + self.nmode for wire in wires]
         return self._new(self.polyexp.reorder(order))
 
+    def _transform_modes(self, isometry: torch.Tensor) -> 'BargmannState':
+        r"""Substitute :math:`z_{\rm in}=U^T z_{\rm out}` for a passive basis change or vacuum embedding."""
+        transform = isometry.to(self.mat_a)
+        if self.den_mat:
+            transform = torch.block_diag(transform, transform.conj())
+        if self.polyexp.naux:
+            identity = torch.eye(self.polyexp.naux, dtype=transform.dtype, device=transform.device)
+            transform = torch.block_diag(transform, identity)
+        return self._new(
+            BargmannPolyExp._from_tensors(
+                transform @ self.mat_a @ transform.mT, (transform @ self.vec_b.unsqueeze(-1)).squeeze(-1), self.coeff_c
+            )
+        )
+
     def partial_trace(self, wires: int | list[int]) -> 'BargmannState':
-        """Trace out modes analytically, returning a density state without normalizing its weight.
+        """Trace out modes analytically and return the kernel of the reduced density operator with its original weight.
 
         Remaining modes retain their relative order and are numbered consecutively.
         """
@@ -539,6 +562,15 @@ class BargmannState(nn.Module):
         density = self.to_dm()
         polyexp = density.polyexp.contract([(wire, wire + self.nmode) for wire in wires])
         return density._new(polyexp)
+
+    def _marginal(self, keep: list[int]) -> 'BargmannState':
+        """Retain the specified modes in order, tracing the rest without renormalizing."""
+        if keep == list(range(self.nmode)):
+            return self
+        order = {w: i for i, w in enumerate(sorted(keep))}
+        discard = [w for w in range(self.nmode) if w not in order]
+        state = self.partial_trace(discard) if discard else self
+        return state if keep == sorted(keep) else state.reorder([order[w] for w in keep])
 
     def _replace_modes(self, wires: list[int], replacement: 'BargmannState') -> 'BargmannState':
         """Reset selected modes to an independent preparation, preserving the incoming weight."""
@@ -561,12 +593,12 @@ class BargmannState(nn.Module):
             polyexp = _project_pnr(self.polyexp, self.nmode, self.den_mat, positions, photons)
             return self._new(polyexp)
         elif detector == 'threshold':
-            polyexp = _project_threshold(self.to_dm().polyexp, self.nmode, positions, photons)
+            polyexp = _project_threshold(self.to_dm().polyexp, self.nmode, [[p] for p in positions], photons)
             return self._new(polyexp, den_mat=True)
         raise NotImplementedError(f'Bargmann post-selection does not support detector={detector!r}')
 
     def norm(self) -> torch.Tensor:
-        r"""Get the squared norm :math:`\langle\psi|\psi\rangle` of a ket or the trace of a density matrix.
+        r"""Get the squared norm :math:`\langle\psi|\psi\rangle` of a ket or the trace of a density operator.
 
         Computed by Gaussian integration, independently of any Fock cutoff.
         A nonfinite result :math:`z` or :math:`|\operatorname{Im}z|>100\epsilon(1+|\operatorname{Re}z|)`
@@ -603,25 +635,22 @@ class BargmannState(nn.Module):
             raise ValueError('Normalized moments require a positive state weight')
         return _moment_generating(density.polyexp, wires), weight
 
-    def quadrature_mean(self, wires: int | list[int] | None = None, phi: Any = None) -> torch.Tensor:
-        r"""Get the normalized expectation of :math:`\hat{x}\cos\phi+\hat{p}\sin\phi` without Fock truncation.
+    def quadrature_mean(
+        self, wires: int | list[int] | None = None, phi: Any = None, *, normalize: bool = True
+    ) -> torch.Tensor:
+        r"""Get the expectation of :math:`\hat{x}\cos\phi+\hat{p}\sin\phi` without Fock truncation.
 
         Args:
             wires: The indices of the modes to measure, in output order. Default: ``None`` (all modes)
             phi: The quadrature angle in radians, shared or one per selected mode. Default: ``None`` (zero)
+            normalize: Divide by the state weight, which must then be positive. Default: ``True``
 
         Returns:
             Real tensor of shape ``(batch, len(wires), 1)`` in the current ``hbar`` and ``kappa`` units.
-            The state weight must be positive.
         """
-        generating, weight = self._prepare_moments(wires)
-        nwire = generating.nfree // 2
-        alpha = _annihilation_means(generating)
-        phi = torch.as_tensor(0.0 if phi is None else phi, dtype=weight.dtype, device=weight.device)
-        if phi.numel() not in (1, nwire):
-            raise ValueError('phi must be shared or have one angle per selected mode')
-        value = (alpha * torch.exp(-1j * phi.reshape(1, -1))).real / weight[:, None]
-        return (dqp.hbar**0.5 / dqp.kappa * value).unsqueeze(-1)
+        generating, weight = self._prepare_moments(wires, require_positive=normalize)
+        first = _quadrature_mean_ladder(_annihilation_means(generating), phi)
+        return first / weight[:, None, None] if normalize else first
 
     @overload
     def quadrature_moments(
@@ -694,7 +723,14 @@ class BargmannState(nn.Module):
         if powers is not None:
             angles = _quadrature_angles(phi, nwire, weight)
             terms = _moment_powers(powers, nwire)
-            moments = _homodyne_moments(generating, angles, terms, weight, centered=centered)
+            columns = _first_order_indices(terms)
+            if columns is None:
+                moments = _homodyne_moments(generating, angles, terms, weight, centered=centered)
+            else:
+                first = _quadrature_mean_ladder(_annihilation_means(generating, columns), angles[columns])
+                moments = first.squeeze(-1)
+                if centered:
+                    moments = moments * 0
             return moments / weight[:, None] if normalize else moments
         alpha = _annihilation_means(generating)
         normal, anomalous = [], []
@@ -723,12 +759,27 @@ class BargmannState(nn.Module):
             ``(mean, var)``, each with shape ``(batch, len(wires))``.
             The state weight must be positive.
         """
+        wires = _moment_wires(wires, self.nmode)
+        return self._photon_number_groups([[wire] for wire in wires])
+
+    def _photon_number_groups(self, groups: list[list[int]]) -> tuple[torch.Tensor, torch.Tensor]:
+        """Read the mean and variance of the sum of photon numbers in each group."""
+        wires = [w for group in groups for w in group]
         generating, weight = self._prepare_moments(wires)
-        nwire = generating.nfree // 2
+        nwire = len(wires)
         mean, factorial = [], []
-        for i in range(nwire):
-            mean.append(_bargmann_derivative(generating, (i, i + nwire)))
-            factorial.append(_bargmann_derivative(generating, (i, i, i + nwire, i + nwire)))
+        start = 0
+        for group in groups:
+            indices = range(start, start + len(group))
+            mean.append(sum(_bargmann_derivative(generating, (i, i + nwire)) for i in indices))
+            factorial.append(
+                sum(
+                    (1 if i == j else 2) * _bargmann_derivative(generating, (i, j, i + nwire, j + nwire))
+                    for i in indices
+                    for j in range(i, indices.stop)
+                )
+            )
+            start = indices.stop
         mean = torch.stack(mean, dim=-1).real / weight[:, None]
         factorial = torch.stack(factorial, dim=-1).real / weight[:, None]
         return mean, factorial + mean - mean.square()
