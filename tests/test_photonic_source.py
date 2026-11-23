@@ -469,8 +469,11 @@ def test_unrolled_tdm_circuit_preserves_source_placement():
         expected = reference.global_circuit(3).to(torch.double)()
         indices = main + k
         torch.testing.assert_close(actual[0][:, indices[:, None], indices], expected[0])
-    with pytest.raises(NotImplementedError, match='Streaming'):
-        cir.tdm_substate([0, 2])
+    selected = (2 * cir.tdm_output_wires(3)[[0, 2]] + torch.arange(2)).flatten()
+    idx = torch.cat([selected, selected + 2 * n])
+    streamed = cir.double().tdm_substate([0, 2])
+    assert streamed.partition == ((0,), (1,))
+    torch.testing.assert_close(streamed.to_joint(), [actual[0][:, idx[:, None], idx], actual[1][:, idx]])
 
 
 @pytest.mark.parametrize(

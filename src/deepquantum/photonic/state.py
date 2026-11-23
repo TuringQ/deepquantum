@@ -449,6 +449,12 @@ class BargmannState(nn.Module):
         return self._new(BargmannPolyExp._from_tensors(self.mat_a[sl], self.vec_b[sl], self.coeff_c[sl]))
 
     @staticmethod
+    def _common_dtype(states: Sequence['BargmannState']) -> tuple['BargmannState', ...]:
+        """Promote independent kernels to their common precision before forming a tensor product."""
+        dtype = max(states, key=lambda state: state.mat_a.element_size()).mat_a.dtype
+        return tuple(s if s.mat_a.dtype == dtype else s._new(s.polyexp.to(dtype=dtype)) for s in states)
+
+    @staticmethod
     def _cat_batch(states: list['BargmannState']) -> 'BargmannState':
         """Concatenate states with identical structure along the batch axis."""
         first = states[0]

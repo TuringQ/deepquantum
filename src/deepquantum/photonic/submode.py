@@ -2,6 +2,7 @@
 
 import itertools
 from collections import Counter
+from collections.abc import Iterable, Sequence
 from copy import copy
 from dataclasses import dataclass, replace
 from typing import Any
@@ -30,7 +31,8 @@ from .gate import (
     Squeezing2,
     UAnyGate,
 )
-from .hardware import HardwareModel, Loss, _PluginBinding
+from .hardware import HardwareModel, Loss, _HardwareRun, _PluginBinding
+from .operation import Delay, Operation
 from .qmath import (
     _convolve_counts,
     _fock_annihilation_means,
@@ -58,6 +60,7 @@ class SubmodeResult:
     """Circuit output in a common orthogonal basis.
 
     ``nmode`` counts spatial modes and ``nsubmode`` counts basis modes per spatial mode.
+    In a TDM output marginal, each selected (time, wire) pair counts as one spatial mode.
     ``partition`` gives the basis-mode indices evolved together in each independent group.
     ``to_joint()`` returns the full state in spatial-then-basis order, taking the tensor product
     of independent groups when needed. With explicit ``blocks``, ``data`` holds one state per block.
@@ -75,6 +78,24 @@ class SubmodeResult:
     den_mat: bool
     factorized: bool
     blocks: tuple[tuple[int, ...], ...] = ()
+
+    @classmethod
+    def _from_blocks(
+        cls, states: Sequence, blocks: tuple[tuple[int, ...], ...], nmode: int, backend: str, den_mat: bool
+    ) -> 'SubmodeResult':
+        """Wrap one joint state or an ordered collection of independent blocks."""
+        if backend == 'bargmann':
+            den_mat = states[0].den_mat
+        factorized = len(blocks) > 1
+        return cls(
+            tuple(states) if factorized else states[0],
+            nmode,
+            sum(map(len, blocks)),
+            backend,
+            den_mat,
+            factorized,
+            blocks if factorized else (),
+        )
 
     @property
     def partition(self):
@@ -148,6 +169,11 @@ register_pytree_node(
     ),
     lambda values, context: SubmodeResult(values[0], *context),
 )
+
+
+def _basis_wires(spatial: Sequence[int], size: int) -> list[int]:
+    """Map spatial wires to their consecutive indices in one orthogonal-basis block."""
+    return [w * size + k for w in spatial for k in range(size)]
 
 
 def _post_select_spatial(
@@ -484,7 +510,7 @@ class _SubmodeOperation(nn.Module):
         object.__setattr__(self, 'circuit', circuit)
         self._parameters = operation._parameters.copy()
         self._buffers = operation._buffers.copy()
-        self.wires = operation.wires if circuit.factorized else [k for w in operation.wires for k in circuit.groups[w]]
+        self.wires = operation.wires if circuit.factorized else _basis_wires(operation.wires, circuit.nsubmode)
         self.modes, self.run = modes, run
 
     def forward(self, state):
@@ -507,8 +533,6 @@ class _SubmodeCircuit(QumodeCircuit):
         """Embed spatial inputs and configure joint or independent orthogonal-basis evolution."""
         if parent.mps:
             raise NotImplementedError('Circuits with orthogonal basis modes do not support MPS.')
-        if parent._with_delay:
-            raise NotImplementedError('Unroll delays with global_circuit() before evolving orthogonal basis modes.')
         model = parent.hardware_model if parent.hardware_model is not None else HardwareModel()
         d = (
             nsubmode
@@ -625,7 +649,11 @@ class _SubmodeCircuit(QumodeCircuit):
         self.ndata = parent.ndata
         self._bindings = model._bind(parent.operators)
         self._rotations = {}
-        if any(not isinstance(op, _PASSIVE + _ACTIVE + (Barrier,)) for op in parent.operators):
+        if any(
+            not isinstance(gate, _PASSIVE + _ACTIVE + (Barrier,))
+            for op in parent.operators
+            for gate in (op.gates if isinstance(op, Delay) else (op,))
+        ):
             raise NotImplementedError(
                 'Circuits with submodes support passive optics, squeezing, displacement, OPA and loss.'
             )
@@ -688,7 +716,10 @@ class _SubmodeCircuit(QumodeCircuit):
         if modes.components is None or not len(modes.relative_r):
             return state
         if modes not in self._rotations:
-            self._rotations[modes] = _profile_rotations(modes.coefficients)
+            components = (
+                modes.components.to(state[0].real) if self.backend in ('gaussian', 'bosonic') else modes.components
+            )
+            self._rotations[modes] = _profile_rotations(torch.view_as_complex(components.contiguous()))
         rotations = reversed(self._rotations[modes]) if inverse else self._rotations[modes]
         for local, matrix in rotations:
             wires = [wire * self.nsubmode + k for k in local]
@@ -696,7 +727,7 @@ class _SubmodeCircuit(QumodeCircuit):
             # inside vmap. The compiled matrix is unitary by construction.
             gate = UAnyGate(
                 torch.eye(len(wires), dtype=matrix.dtype, device=matrix.device),
-                self.nmode,
+                run.nmode,
                 wires=wires,
                 cutoff=self.cutoff,
                 den_mat=self.den_mat,
@@ -723,7 +754,7 @@ class _SubmodeCircuit(QumodeCircuit):
 
         def scaled_gate(wires, ratio):
             """Scale gain or drive while retaining the device loss on every basis mode."""
-            gate = _clone_operation(op, wires, self.nmode)
+            gate = _clone_operation(op, wires, run.nmode)
             for name in controls:
                 gate._parameters.pop(name, None)
                 gate._buffers[name] = getattr(op, name) * ratio
@@ -748,7 +779,7 @@ class _SubmodeCircuit(QumodeCircuit):
         count = self.nsubmode if not active or uniform_loss else 1 if modes is None else len(modes.relative_r)
         for k in range(count):
             wires = [w * self.nsubmode + k for w in op.wires]
-            gate = scaled_gate(wires, ratios[k]) if active else _clone_operation(op, wires, self.nmode)
+            gate = scaled_gate(wires, ratios[k]) if active else _clone_operation(op, wires, run.nmode)
             state = self._primitive(gate, state, run)
         if modes is not None:
             for wire in op.wires:
@@ -781,14 +812,14 @@ class _SubmodeCircuit(QumodeCircuit):
             torch.stack([mean] + [torch.zeros_like(mean)] * (self.nsubmode - 1)).flatten(0, 1),
         ]
 
-    def _io(self, state, run, where):
+    def _io(self, state, run, where, spatial):
         """Apply spatial input or output loss to the corresponding orthogonal basis modes."""
-        for binding, wires in self.hardware_model._io_bindings(self.parent.wires, where):
+        for binding, wires in self.hardware_model._io_bindings(spatial, where):
             plugin = binding.plugin
             if isinstance(plugin, Submodes):
                 continue
             if isinstance(plugin, Loss):
-                selected = tuple(wires) if self.factorized else tuple(k for wire in wires for k in self.groups[wire])
+                selected = tuple(wires) if self.factorized else tuple(_basis_wires(wires, self.nsubmode))
                 state = plugin(state, replace(run, wires=selected))
             else:
                 raise NotImplementedError('Submode input/output plugins support mode coefficients and loss.')
@@ -805,25 +836,36 @@ class _SubmodeCircuit(QumodeCircuit):
         if basis:
             for wire, modes in self.input_modes.items():
                 state = self._rotate(state, modes, wire, run)
+        state = self._prepare_photons(state, run)
+        gates = ((op, op) for op in self.parent.operators)
+        state = self._apply_optics(state, run, self.parent.wires, gates)
+        if state is None:
+            state = torch.eye(self.nmode, dtype=torch.cfloat)
+        return state
+
+    def _prepare_photons(self, state: Any, run: _HardwareRun) -> Any:
+        """Prepare single photons on the fresh spatial inputs in this basis block."""
         if self.den_mat or self.backend == 'bargmann':
             for wire, preparation in self.parent.sources.items():
                 if isinstance(preparation, SinglePhotonSource):
-                    wire = int(wire)
-                    state = preparation(state, replace(run, wires=tuple(self.groups[wire])))
-        state = self._io(state, run, 'input')
-        for op in self.parent.operators:
-            bindings = self._bindings.get(op, ())
+                    state = preparation(state, replace(run, wires=tuple(self.groups[int(wire)])))
+        return state
+
+    def _apply_optics(
+        self, state: Any, run: _HardwareRun, spatial: list[int], gates: Iterable[tuple[Operation, Operation]]
+    ) -> Any:
+        """Apply I/O plugins and mapped gates using bindings on the original operations."""
+        state = self._io(state, run, 'input', spatial)
+        for source, op in gates:
+            bindings = self._bindings.get(source, ())
             modes = next((b.plugin for b, _ in bindings if isinstance(b.plugin, Submodes)), None)
             if any(
                 binding.where in ('before', 'after') and not isinstance(binding.plugin, Loss) for binding, _ in bindings
             ):
                 raise NotImplementedError('Submode gate boundaries support loss.')
             lifted = _SubmodeOperation(op, self, modes, run)
-            state = self.hardware_model._apply_operation(state, lifted, run, bindings, source=op)
-        state = self._io(state, run, 'output')
-        if state is None:
-            state = torch.eye(self.nmode, dtype=torch.cfloat)
-        return state
+            state = self.hardware_model._apply_operation(state, lifted, run, bindings, source=source)
+        return self._io(state, run, 'output', spatial)
 
     def _get_unitary(self, _operators, _model=None):
         """Compute the unitary in the orthogonal mode basis for the parent's current controls."""
@@ -1091,10 +1133,11 @@ def _slice_profiles(modes, block):
     rows = [i for i, support in enumerate(modes.supports) if support and set(support) <= set(block)]
     result = copy(modes)
     result._buffers = modes._buffers.copy()
-    coefficients = modes.coefficients
-    size = max(block, default=-1) + 1
-    coefficients = torch.nn.functional.pad(coefficients, (0, max(0, size - coefficients.shape[-1])))
-    result.components = torch.view_as_real(coefficients[rows][:, list(block)].resolve_conj())
+    if modes.components is not None:
+        coefficients = modes.coefficients
+        size = max(block, default=-1) + 1
+        coefficients = torch.nn.functional.pad(coefficients, (0, max(0, size - coefficients.shape[-1])))
+        result.components = torch.view_as_real(coefficients[rows][:, list(block)].resolve_conj())
     result.relative_r = modes.relative_r[rows]
     result.supports = tuple(tuple(block.index(k) for k in modes.supports[i]) for i in rows)
     return result
@@ -1120,7 +1163,12 @@ def _build_submode_circuit(parent: QumodeCircuit, state: Any = None) -> '_Submod
         or parent.basis
         and parent.backend == 'fock'
         or parent.backend == 'bosonic'
-        or (parent.backend != 'bargmann' and not photons and all(p.components is None for p in profiles))
+        or (
+            not parent._with_delay
+            and parent.backend != 'bargmann'
+            and not photons
+            and all(p.components is None for p in profiles)
+        )
     ):
         return _SubmodeCircuit(parent, state, nsubmode=d)
     components = [{k} for k in range(d)]
@@ -1151,6 +1199,27 @@ def _build_submode_circuit(parent: QumodeCircuit, state: Any = None) -> '_Submod
     if len(blocks) == 1:
         return _SubmodeCircuit(parent, state, nsubmode=d, joint=True)
     return _SubmodeBlocks(parent, state, blocks, initial_support)
+
+
+def _tdm_submode_inputs(
+    parent: QumodeCircuit, fresh: list[torch.Tensor] | BargmannState
+) -> list[tuple[tuple[int, ...], _SubmodeCircuit, list[torch.Tensor] | BargmannState]]:
+    """Prepare independent spatial inputs and the optical operations for each basis block."""
+    plan = _build_submode_circuit(parent, fresh)
+    groups = (
+        zip(plan.blocks, plan.circuits, strict=True)
+        if isinstance(plan, _SubmodeBlocks)
+        else [(tuple(range(plan.nsubmode)), plan)]
+    )
+    inputs = []
+    for block, view in groups:
+        state = view.init_state
+        if isinstance(state, BargmannState):
+            state = view._prepare_photons(state, view.hardware_model._new_run(view.backend, view.wires))
+        else:
+            state = [state.cov, state.mean]
+        inputs.append((block, view, state))
+    return inputs
 
 
 def _evolve_bargmann_blocks(
@@ -1218,7 +1287,8 @@ class _SubmodeBlocks:
             if 0 not in block:
                 empty = _slice_profiles(Submodes(relative_r=torch.ones(self.nsubmode)), ())
                 empty.components = reference.real.new_zeros(0, len(block), 2)
-                for i, op in enumerate(parent.operators):
+                gates = (gate for op in parent.operators for gate in (op.gates if isinstance(op, Delay) else (op,)))
+                for i, op in enumerate(gates):
                     if isinstance(op, _ACTIVE) and not any(
                         isinstance(b.plugin, Submodes) for b, _ in resolved.get(op, ())
                     ):
@@ -1262,8 +1332,7 @@ class _SubmodeBlocks:
             states = _evolve_bargmann_blocks(self.circuits, self.parent, self.model, data)
             # A higher-precision gate may act on only one block. Native tensor products
             # and the spatial LO must then use that precision across the complete state.
-            dtype = max(states, key=lambda state: state.mat_a.element_size()).mat_a.dtype
-            self.state = tuple(s if s.mat_a.dtype == dtype else s._new(s.polyexp.to(dtype=dtype)) for s in states)
+            self.state = BargmannState._common_dtype(states)
             for cir, state in zip(self.circuits, self.state, strict=True):
                 cir.__dict__['state'] = state
             return self.state
@@ -1316,9 +1385,7 @@ class _SubmodeBlocks:
 
     def result(self):
         """Wrap the saved block states with their orthogonal-basis partition."""
-        return SubmodeResult(
-            self.state, self.parent.nmode, self.nsubmode, self.backend, self.den_mat, True, self.blocks
-        )
+        return SubmodeResult._from_blocks(self.state, self.blocks, self.parent.nmode, self.backend, self.den_mat)
 
     def _probability(self, wires, limits=None):
         """Convolve spatial photon-count distributions across independent blocks."""

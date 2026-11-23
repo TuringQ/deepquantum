@@ -20,6 +20,11 @@ from .draw import plot_wigner
 from .utils import mem_to_chunksize
 
 
+def _times_i(value: torch.Tensor) -> torch.Tensor:
+    """Multiply by the imaginary unit in the input's promoted dtype, including during MPS backward."""
+    return value * value.new_tensor(1j, dtype=torch.result_type(value, 1j))
+
+
 def _normalize_coefficients(value: torch.Tensor) -> torch.Tensor:
     """Normalize nonzero coefficient rows without squaring their original scale."""
     magnitude = torch.maximum(value.real.abs(), value.imag.abs()) if value.is_complex() else value.abs()

@@ -10,7 +10,7 @@ from copy import copy, deepcopy
 from dataclasses import replace
 from functools import partial
 from operator import index as operator_index
-from typing import Any, overload
+from typing import Any, TYPE_CHECKING, overload
 
 import numpy as np
 import torch
@@ -94,6 +94,9 @@ from .state import (
 )
 from .torontonian_ import torontonian
 from .utils import _chunk_capacity
+
+if TYPE_CHECKING:
+    from .submode import _SubmodeCircuit
 
 
 class QumodeCircuit(Operation):
@@ -421,6 +424,10 @@ class QumodeCircuit(Operation):
 
             if is_prob:
                 self._reject_unsupported_bargmann_readout('is_prob=True')
+            if self._with_delay:
+                raise NotImplementedError(
+                    'Use tdm_substate() for output marginals or global_circuit() for full evolution with submodes.'
+                )
             submode_circuit = _build_submode_circuit(self, state)
             # Keep this execution result out of the registered/trainable module tree.
             self.__dict__['_submode_circuit'] = submode_circuit
@@ -1153,7 +1160,7 @@ class QumodeCircuit(Operation):
         data: torch.Tensor | None = None,
         *,
         window: None = None,
-    ) -> list[torch.Tensor] | BargmannState: ...
+    ) -> 'list[torch.Tensor] | BargmannState | dqp.SubmodeResult': ...
 
     @overload
     def tdm_substate(
@@ -1163,7 +1170,7 @@ class QumodeCircuit(Operation):
         data: torch.Tensor | None = None,
         *,
         window: int,
-    ) -> Generator[list[torch.Tensor] | BargmannState, None, None]: ...
+    ) -> 'Generator[list[torch.Tensor] | BargmannState | dqp.SubmodeResult, None, None]': ...
 
     def tdm_substate(
         self,
@@ -1172,7 +1179,10 @@ class QumodeCircuit(Operation):
         data: torch.Tensor | None = None,
         *,
         window: int | None = None,
-    ) -> list[torch.Tensor] | BargmannState | Generator[list[torch.Tensor] | BargmannState, None, None]:
+    ) -> (
+        'list[torch.Tensor] | BargmannState | dqp.SubmodeResult '
+        '| Generator[list[torch.Tensor] | BargmannState | dqp.SubmodeResult, None, None]'
+    ):
         r"""Get a joint TDM output state or iterate over windows on a Gaussian or Bargmann circuit.
 
         With ``window=None``, return the joint state in the supplied time and wire
@@ -1184,7 +1194,6 @@ class QumodeCircuit(Operation):
         cyclically when the selected outputs extend beyond the input sequence.
         As in ``global_circuit``, the loop modes and incoming spatial modes start in vacuum,
         irrespective of ``init_state``. Declared sources prepare fresh spatial inputs at every step.
-        Orthogonal basis modes require ``global_circuit``.
 
         Window iteration retains the delay modes and recent outputs with their
         cross correlations. Readout does not condition the circulating memory.
@@ -1208,8 +1217,9 @@ class QumodeCircuit(Operation):
             With :math:`K` selected modes, Gaussian returns ``[cov, mean]`` with shapes
             :math:`(B, 2K, 2K)` and :math:`(B, 2K, 1)` in ``xxpp`` order, where :math:`B` is the batch size.
             Bargmann returns a :class:`BargmannState` representing the reduced density operator.
-            With ``window`` set, the iterator yields the same type at each requested time. Modes follow
-            time then wire order; times within a window are chronological.
+            With orthogonal basis modes, return a ``SubmodeResult`` with one spatial output per
+            selected (time, wire) pair. Its ``to_joint()`` orders modes by time, wire, then basis index.
+            Window iteration yields the same type at each selected time, with chronological times in each window.
         """
         if isinstance(time_steps, slice):
             start = 0 if time_steps.start is None else time_steps.start
@@ -1244,44 +1254,78 @@ class QumodeCircuit(Operation):
 
     def _tdm_substates(
         self, time_steps: range | torch.Tensor, wires: list[int], data: torch.Tensor | None, window: int | None
-    ) -> Generator[list[torch.Tensor] | BargmannState, None, None]:
-        """Retain the joint state of the loop modes and the requested output modes."""
+    ) -> 'Generator[list[torch.Tensor] | BargmannState | dqp.SubmodeResult, None, None]':
+        """Propagate the loop modes and retained outputs, with one state per independent basis block."""
+        from .submode import _basis_wires, _tdm_submode_inputs
+
         loop_map = self._tdm_loop_map()
         nloop = len(loop_map)
-        loop_wires = list(range(nloop))
-        state = self._tdm_vacuum(nloop)
+        use_submodes = self._uses_submodes
         fresh = self._tdm_vacuum(self.nmode)
         if self.sources:
-            fresh = self._prepare_sources(fresh)
+            fresh = self._prepare_sources(fresh, defer_photons=use_submodes)
+        inputs = _tdm_submode_inputs(self, fresh) if use_submodes else [((0,), None, fresh)]
+        blocks = tuple(block for block, _, _ in inputs)
+        states = [self._tdm_vacuum(nloop * len(block)) for block in blocks]
+
+        def marginal(keep: list[int]) -> list[list[torch.Tensor] | BargmannState]:
+            """Retain the same spatial outputs, in the same order, in every block."""
+            return [
+                self._tdm_marginal(state, keep if len(block) == 1 else _basis_wires(keep, len(block)))
+                for state, block in zip(states, blocks, strict=True)
+            ]
+
+        def output(keep: list[int]) -> 'list[torch.Tensor] | BargmannState | dqp.SubmodeResult':
+            """Package the requested reduced states with their basis layout."""
+            values = marginal(keep)
+            if not use_submodes:
+                return values[0]
+            if self.backend == 'bargmann':
+                values = BargmannState._common_dtype(values)
+            return dqp.SubmodeResult._from_blocks(values, blocks, len(keep), self.backend, self.den_mat)
+
         times = time_steps if isinstance(time_steps, range) else time_steps.tolist()
         selected = times if isinstance(times, range) else set(times)
         last = times[-1] if isinstance(times, range) else max(times)
         nretained = 0
         for step in range(last + 1):
-            # Mode order: loop modes (fixed wire indices), retained outputs, new spatial inputs.
+            # Each block stores loop modes, retained outputs, then new spatial inputs.
             if window is not None and nretained == window * len(wires):
-                state = self._tdm_marginal(state, loop_wires + list(range(nloop + len(wires), nloop + nretained)))
+                states = marginal(list(range(nloop)) + list(range(nloop + len(wires), nloop + nretained)))
                 nretained -= len(wires)
             old_nmode = nloop + nretained
             spatial = list(range(old_nmode, old_nmode + self.nmode))
-            if isinstance(state, BargmannState):
-                joint = state.tensor_product(fresh)
-            else:
-                joint = self._join_gaussian_modes(state, fresh, list(range(old_nmode)), spatial)
             controls = None if data is None else data[:, step % data.shape[1]]
-            # Do not leave encoded values on the circuit while a window iterator is paused.
+            run = self.hardware_model._new_run(self.backend, spatial) if self.hardware_model is not None else None
             with self._preserve_encoders() if controls is not None else nullcontext():
-                joint = self._evolve_mapped_modes(joint, controls, spatial, old_nmode + self.nmode, step, loop_map)
+                for i, (_, view, spatial_input) in enumerate(inputs):
+                    joint = self._append_tdm_inputs(states[i], spatial_input)
+                    states[i] = self._evolve_mapped_modes(
+                        joint, controls, spatial, old_nmode + self.nmode, step, loop_map, submodes=view, run=run
+                    )
             keep = list(range(old_nmode))
             if window is not None or step in selected:
                 keep.extend(spatial[w] for w in wires)
                 nretained += len(wires)
-            state = self._tdm_marginal(joint, keep)
+            states = marginal(keep)
             if window is not None and step in selected:
-                yield self._tdm_marginal(state, list(range(nloop, nloop + nretained)))
+                yield output(list(range(nloop, nloop + nretained)))
         if window is None:
             offsets = {time: nloop + i * len(wires) for i, time in enumerate(sorted(times))}
-            yield self._tdm_marginal(state, [offsets[t] + i for t in times for i in range(len(wires))])
+            yield output([offsets[t] + i for t in times for i in range(len(wires))])
+
+    @staticmethod
+    def _append_tdm_inputs(
+        state: list[torch.Tensor] | BargmannState, fresh: list[torch.Tensor] | BargmannState
+    ) -> list[torch.Tensor] | BargmannState:
+        """Append fresh independent inputs after the loop modes and retained outputs in a basis block."""
+        if isinstance(state, BargmannState):
+            if state.mat_a.dtype != fresh.mat_a.dtype:
+                state, fresh = BargmannState._common_dtype((state, fresh))
+            return state.tensor_product(fresh)
+        previous = state[0].shape[-1] // 2
+        total = previous + fresh[0].shape[-1] // 2
+        return QumodeCircuit._join_gaussian_modes(state, fresh, list(range(previous)), list(range(previous, total)))
 
     @staticmethod
     def _tdm_marginal(state: list[torch.Tensor] | BargmannState, keep: list[int]) -> list[torch.Tensor] | BargmannState:
@@ -1301,8 +1345,6 @@ class QumodeCircuit(Operation):
         data: torch.Tensor | None,
     ) -> tuple[list[int], torch.Tensor | None]:
         """Prepare the wiring, spatial selection and encoded sequence for TDM readout."""
-        if self._uses_submodes:
-            raise NotImplementedError('Streaming submodes are not supported; use global_circuit().')
         self._prepare_unroll_dict()
         if self.hardware_model is not None:
             self._validate_hardware_model(self.hardware_model)
@@ -1349,15 +1391,29 @@ class QumodeCircuit(Operation):
         nmode: int,
         step: int = 0,
         loop_map: dict[int, int] | None = None,
+        *,
+        submodes: '_SubmodeCircuit | None' = None,
+        run: _HardwareRun | None = None,
     ) -> list[torch.Tensor] | BargmannState:
         """Apply the optical circuit at the mapped wires, sharing hardware samples across a data batch."""
-        model = self.hardware_model
-        run = model._new_run(self.backend, spatial) if model is not None else None
+        model = self.hardware_model if submodes is None else submodes.hardware_model
+        if model is not None and run is None:
+            run = model._new_run(self.backend, spatial)
+        if submodes is not None:
+            run = replace(run, nmode=nmode * submodes.nsubmode)
 
         def evolve(
             controls: torch.Tensor | None, sample: list[torch.Tensor] | BargmannState
         ) -> list[torch.Tensor] | BargmannState:
             self.encode(controls)
+            if submodes is not None:
+                from .submode import _clone_operation
+
+                gates = (
+                    (op, _clone_operation(op, wires, nmode))
+                    for _, op, wires in self._mapped_gates(spatial, step, loop_map)
+                )
+                return submodes._apply_optics(sample, run, spatial, gates)
             operators = self._unroll_operators(spatial, nmode, step, loop_map)
             if model is None:
                 return operators(sample)

@@ -13,6 +13,7 @@ from ..qmath import evolve_state
 from .bargmann import BargmannPolyExp, _gaussian_bargmann
 from .gate import BeamSplitterSingle, Displacement
 from .operation import Channel
+from .qmath import _times_i
 
 
 def _loss_to_theta(inputs: Any, convention: str) -> torch.Tensor | None:
@@ -118,7 +119,7 @@ class DisplacementChannel(Channel):
     @property
     def coherent_amplitude(self) -> torch.Tensor:
         """Complex auxiliary amplitude, whose squared magnitude is its mean photon number."""
-        return self.amplitude * torch.exp(1j * self.phase)
+        return self.amplitude * torch.exp(_times_i(self.phase))
 
     @property
     def t(self) -> torch.Tensor:

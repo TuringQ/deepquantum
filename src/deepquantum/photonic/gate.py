@@ -13,7 +13,7 @@ from ..qmath import is_unitary
 from ..utils import apply_complex_fix
 from .bargmann import BargmannPolyExp, _gaussian_bargmann, passive_bargmann
 from .operation import Delay, Gate
-from .qmath import ladder_ops
+from .qmath import _times_i, ladder_ops
 
 
 class SingleGate(Gate):
@@ -155,7 +155,7 @@ class PhaseShift(SingleGate):
         theta = self.inputs_to_tensor(theta)
         if self.inv_mode:
             theta = -theta
-        return torch.exp(1j * theta).reshape(1, 1)
+        return torch.exp(_times_i(theta)).reshape(1, 1)
 
     def update_matrix(self) -> torch.Tensor:
         """Update the local unitary matrix acting on creation operators."""
@@ -292,9 +292,8 @@ class BeamSplitter(DoubleGate):
         theta, phi = self.inputs_to_tensor([theta, phi])
         cos = torch.cos(theta) + 0j
         sin = torch.sin(theta) + 0j
-        e_m_ip = torch.exp(-1j * phi)
-        e_ip = torch.exp(1j * phi)
-        return torch.stack([cos, -e_m_ip * sin, e_ip * sin, cos]).reshape(2, 2)
+        i_phi = _times_i(phi)
+        return torch.stack([cos, -torch.exp(-i_phi) * sin, torch.exp(i_phi) * sin, cos]).reshape(2, 2)
 
     def update_matrix(self) -> torch.Tensor:
         """Update the local unitary matrix acting on creation operators."""
@@ -453,9 +452,9 @@ class MZI(BeamSplitter):
         theta, phi = self.inputs_to_tensor([theta, phi])
         cos = torch.cos(theta / 2) + 0j
         sin = torch.sin(theta / 2) + 0j
-        e_it = torch.exp(1j * theta / 2)
-        e_ip = torch.exp(1j * phi)
-        mat = 1j * e_it * torch.stack([e_ip * sin, cos, e_ip * cos, -sin]).reshape(2, 2)
+        e_it = torch.exp(_times_i(theta) / 2)
+        e_ip = torch.exp(_times_i(phi))
+        mat = _times_i(e_it) * torch.stack([e_ip * sin, cos, e_ip * cos, -sin]).reshape(2, 2)
         if not self.phi_first:
             mat = mat.T
         return mat
@@ -714,7 +713,8 @@ class BeamSplitterSingle(BeamSplitter):
         cos = torch.cos(theta / 2) + 0j
         sin = torch.sin(theta / 2) + 0j
         if self.convention == 'rx':
-            return torch.stack([cos, 1j * sin, 1j * sin, cos]).reshape(2, 2)
+            i_sin = _times_i(sin)
+            return torch.stack([cos, i_sin, i_sin, cos]).reshape(2, 2)
         elif self.convention == 'ry':
             return torch.stack([cos, -sin, sin, cos]).reshape(2, 2)
         elif self.convention == 'h':
@@ -1024,7 +1024,7 @@ class Squeezing(SingleGate):
                 \right].
         """
         r, theta = self.inputs_to_tensor([self.r, self.theta])
-        phase = torch.exp(1j * theta)
+        phase = torch.exp(_times_i(theta))
         tanh = torch.tanh(r) + 0j
         sech = 1 / torch.cosh(r) + 0j
         mat_a = torch.stack([-phase * tanh, sech, sech, tanh / phase]).reshape(2, 2)
@@ -1209,7 +1209,7 @@ class Squeezing2(DoubleGate):
                 \right].
         """
         r, theta = self.inputs_to_tensor([self.r, self.theta])
-        phase = torch.exp(1j * theta)
+        phase = torch.exp(_times_i(theta))
         tanh = torch.tanh(r) + 0j
         sech = 1 / torch.cosh(r) + 0j
         zero = torch.zeros_like(sech)
@@ -1384,7 +1384,7 @@ class Displacement(SingleGate):
                 \exp\!\left(\alpha z - \bar\alpha w + zw\right).
         """
         r, theta = self.inputs_to_tensor([self.r, self.theta])
-        alpha = r * torch.exp(1j * theta)
+        alpha = r * torch.exp(_times_i(theta))
         zero, one = torch.zeros_like(alpha), torch.ones_like(alpha)
         mat_a = torch.stack([zero, one, one, zero]).reshape(2, 2)
         vec_b = torch.stack([alpha, -alpha.conj()])
