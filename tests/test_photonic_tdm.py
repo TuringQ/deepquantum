@@ -106,8 +106,8 @@ def test_tdm_substate_windows_and_gradients_match_global_circuit(encoded, hardwa
             torch.testing.assert_close(value, initial[name])
     unrolled = cir.global_circuit(nstep)
     unrolled.double()
-    expanded_data = None if data is None else data[:, torch.arange(nstep) % data.shape[1]].flatten(1)
-    cov, mean = unrolled(expanded_data)
+    unrolled_data = None if data is None else data[:, torch.arange(nstep) % data.shape[1]].flatten(1)
+    cov, mean = unrolled(unrolled_data)
     references = []
     selected = list(range(nstep))[time_steps] if isinstance(time_steps, slice) else time_steps
     for step, output in zip(selected, outputs, strict=True):
@@ -348,7 +348,7 @@ def test_bargmann_single_photon_windows_match_global_density():
         order = sorted(selected)
         return marginal.reorder([order.index(w) for w in selected]).to_fock(3)
 
-    # Even a ket circuit returns a reduced density matrix. Cutoff=1 must not remove source photons.
+    # A partial trace of the ket returns a density operator. Source photons survive the default readout cutoff of 1.
     for window, times in zip(cir.tdm_substate([0, 2], window=2), [[0], [1, 2]], strict=True):
         assert isinstance(window, dq.BargmannState) and window.den_mat and window.cutoff == 1
         torch.testing.assert_close(window.to_fock(3), expected(times))

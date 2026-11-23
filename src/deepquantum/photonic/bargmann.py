@@ -323,7 +323,7 @@ def vacuum_bargmann(
     """Get the vacuum kernel :math:`F=1` on ``nvar`` free variables.
 
     Args:
-        nvar: The number of free variables, one per mode for a ket or two per mode for a density matrix.
+        nvar: The number of free variables, one per mode for a ket or two per mode for a density operator.
         dtype: The complex dtype of the coefficients. Default: ``torch.cfloat``
         device: The device of the coefficients. Default: ``None``
     """
@@ -445,7 +445,7 @@ def _gaussian_bargmann(mat_a: torch.Tensor, vec_b: torch.Tensor, coeff_c: torch.
 def gaussian_channel_to_bargmann(
     matrix_x: torch.Tensor, matrix_y: torch.Tensor, displacement: torch.Tensor | None = None
 ) -> BargmannPolyExp:
-    r"""Convert a local affine Gaussian channel to its Bargmann density kernel.
+    r"""Construct the Bargmann kernel of a local affine Gaussian channel.
 
     In ``xxpp`` order the covariance and mean transform as
     :math:`V' = XVX^T + Y` and :math:`\mu' = X\mu + d`. For :math:`N` modes let
@@ -567,8 +567,8 @@ def _project_pnr(
 ) -> BargmannPolyExp:
     """Project validated modes onto Fock outcomes by converting free variables to auxiliary variables.
 
-    Existing auxiliary axes precede the new measured axes. Density matrices project
-    both ket and bra variables. Retained variables keep their original order.
+    Existing auxiliary axes precede the new measured axes. For a density operator, the projection
+    acts on both ket and bra variables. Retained variables keep their original order.
     No Fock expansion or normalization of retained modes is performed.
     """
     measured = list(positions)

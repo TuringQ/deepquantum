@@ -114,8 +114,11 @@ class QumodeCircuit(Operation):
         backend: Use ``'fock'`` for Fock backend, ``'gaussian'`` for Gaussian backend,
             ``'bosonic'`` for Bosonic backend or ``'bargmann'`` for Bargmann backend. Default: ``'fock'``
         basis: Whether to use the representation of Fock basis state for the initial state. Default: ``True``
-        den_mat: Whether to use density matrix representation. It applies to Fock and Bargmann states
-            and Gaussian conditional outputs. Gaussian evolution uses covariance and mean. Default: ``False``
+        den_mat: Whether to use density matrix representation. Fock state tensors store the matrix elements
+            and Bargmann states store the analytic kernel of the density operator. Gaussian evolution uses
+            covariance and mean. For Gaussian PNR post-selection, ``True`` returns a Fock density matrix and
+            ``False`` returns a ket for a pure input. Threshold post-selection always returns a density operator.
+            Default: ``False``
         detector: The default detector for Gaussian probabilities and sampling, and for photon-counting
             post-selection on Fock, Gaussian and Bargmann backends. Use ``'pnrd'`` for the
             photon-number-resolving detector, ``'threshold'`` for the threshold detector,
@@ -158,8 +161,8 @@ class QumodeCircuit(Operation):
         self._lossy = False
         self._nloss = 0
         # Fock basis state
-        self._is_batch_expanded = False  # whether to expand batched states (add a mode) to align photon numbers
-        self._init_state_forward = None  # prepared initial state in forward() (init_state + nloss + batch expansion)
+        self._has_batch_padding_mode = False  # an uncoupled mode equalizes photon totals in a batch
+        self._init_state_forward = None  # includes any loss-environment modes and batch padding mode
         self._out_fock_basis = None  # the output Fock basis states
         self._reset_fock_basis = True  # whether to recompute the output Fock basis states in forward()
         self._init_state_sample = None  # for _sample_mcmc_fock()
@@ -176,9 +179,15 @@ class QumodeCircuit(Operation):
         self.hardware_model = None
         self.sources = nn.ModuleDict()
 
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Restore the Fock batch padding flag on previously saved circuits."""
+        if '_is_batch_expanded' in state:
+            state['_has_batch_padding_mode'] = state.pop('_is_batch_expanded')
+        super().__setstate__(state)
+
     @property
     def _uses_submodes(self) -> bool:
-        """Whether the hardware or a prepared photon requires a spatial basis expansion."""
+        """Whether the configured hardware or single-photon sources require evolution in an orthogonal mode basis."""
         return (
             self.hardware_model is not None
             and self.hardware_model._has_submodes
@@ -391,41 +400,41 @@ class QumodeCircuit(Operation):
         self._prepare_unroll_dict()
         if self.hardware_model is not None:
             self._validate_hardware_model(self.hardware_model)
-        expand = self._uses_submodes
+        use_submodes = self._uses_submodes
         if memory is not None:
             if state is not None:
                 raise ValueError('Supply either state or memory, not both.')
             if not self._with_delay or self.backend not in ('gaussian', 'bargmann'):
                 raise ValueError('memory requires a Gaussian or Bargmann circuit with delay loops.')
-            if expand:
+            if use_submodes:
                 raise NotImplementedError('Loop memory with submodes requires global_circuit().')
         if self.sources:
             if self._with_delay and self.backend not in ('gaussian', 'bargmann'):
                 raise NotImplementedError('Unroll source preparations with global_circuit() before execution.')
             if state is not None:
                 raise ValueError('Use either source preparations or a forward state override.')
-            state = self._prepare_sources(defer_photons=expand)
+            state = self._prepare_sources(defer_photons=use_submodes)
         if memory is not None:
             state = self._join_tdm_memory(memory, self.init_state if state is None else state)
-        if expand:
-            from .submode import _expand_submodes
+        if use_submodes:
+            from .submode import _build_submode_circuit
 
             if is_prob:
                 self._reject_unsupported_bargmann_readout('is_prob=True')
-            expanded = _expand_submodes(self, state)
+            submode_circuit = _build_submode_circuit(self, state)
             # Keep this execution result out of the registered/trainable module tree.
-            self.__dict__['_submode_circuit'] = expanded
+            self.__dict__['_submode_circuit'] = submode_circuit
             if self.backend == 'fock' and self.basis:
                 if is_prob is False:
                     raise ValueError(
                         'Readout without resolving orthogonal basis modes sums probabilities; use is_prob=True.'
                     )
-                expanded(data, is_prob=is_prob, sort=sort)
+                submode_circuit(data, is_prob=is_prob, sort=sort)
             else:
-                expanded(data)
-            result = expanded.result()
+                submode_circuit(data)
+            result = submode_circuit.result()
             if is_prob:
-                result = expanded.spatial_probabilities(detector)
+                result = submode_circuit.spatial_probabilities(detector)
             self.state = result
             return result
         if self.backend == 'fock':
@@ -480,7 +489,7 @@ class QumodeCircuit(Operation):
                     data = data.cpu()
         # preprocessing of batched initial states
         if self.basis:
-            self._is_batch_expanded = False  # reset
+            self._has_batch_padding_mode = False  # reset
             state = self._prepare_init_state(state, reset_fock_basis=self._reset_fock_basis)
             self._init_state_forward = state
         if self.ndata == 0:
@@ -576,7 +585,7 @@ class QumodeCircuit(Operation):
         assert final_states.shape[-1] == state.shape[-1], (
             'Output Fock basis no longer matches the circuit. Call set_fock_basis() again.'
         )
-        if self._is_batch_expanded:
+        if self._has_batch_padding_mode:
             unitary = torch.block_diag(unitary, torch.eye(1, dtype=unitary.dtype, device=unitary.device))
         nphoton = int(final_states[0].sum())
         sub_mats = vmap(sub_matrix, in_dims=(None, None, 0))(unitary, state, final_states, nphoton=nphoton)
@@ -759,7 +768,7 @@ class QumodeCircuit(Operation):
             raise ValueError('The number of modes of the state does not match the circuit')
         if state.den_mat != self.den_mat:
             if not self.den_mat:
-                raise ValueError('A density-matrix state requires den_mat=True')
+                raise ValueError('A Bargmann kernel representing a density operator requires den_mat=True')
             state = state.to_dm()
         spatial = [self._unroll_dict[w][-1] for w in self.wires] if self._with_delay else self.wires
         result = self._evolve_mapped_modes(state, data if self.ndata else None, spatial, state.nmode)
@@ -979,7 +988,7 @@ class QumodeCircuit(Operation):
     def _prepare_init_state(
         self, state: torch.Tensor, reset_fock_basis: bool = False, nloss: int | None = None
     ) -> torch.Tensor:
-        """Check and expand the Fock state if necessary."""
+        """Append vacuum modes for loss and a padding mode for unequal photon totals in a batch."""
         if nloss is None:
             self._nloss = sum(isinstance(op, PhotonLoss) for op in self.operators)
             if self.hardware_model is not None:
@@ -996,10 +1005,9 @@ class QumodeCircuit(Operation):
                 state = torch.cat([state, state.new_zeros(state.shape[0], nloss)], dim=-1)
             nphotons = torch.sum(state, dim=-1, keepdim=True)
             max_photon = torch.max(nphotons).item()
-            # expand the Fock state if the photon number is not conserved
             if any(nphoton < max_photon for nphoton in nphotons):
                 state = torch.cat([state, max_photon - nphotons], dim=-1)
-                self._is_batch_expanded = True
+                self._has_batch_padding_mode = True
             if reset_fock_basis:
                 self._out_fock_basis = self._get_all_fock_basis(state[0])
         return state
@@ -1199,7 +1207,7 @@ class QumodeCircuit(Operation):
         Returns:
             With :math:`K` selected modes, Gaussian returns ``[cov, mean]`` with shapes
             :math:`(B, 2K, 2K)` and :math:`(B, 2K, 1)` in ``xxpp`` order, where :math:`B` is the batch size.
-            Bargmann returns a :class:`BargmannState` density matrix obtained by exact partial trace.
+            Bargmann returns a :class:`BargmannState` representing the reduced density operator.
             With ``window`` set, the iterator yields the same type at each requested time. Modes follow
             time then wire order; times within a window are chronological.
         """
@@ -1383,7 +1391,7 @@ class QumodeCircuit(Operation):
             yield op_location, gate, gate_wires
 
     def global_circuit(self, nstep: int, use_deepcopy: bool = False) -> 'QumodeCircuit':
-        """Get the global circuit given the number of time steps.
+        """Unroll the delay loops into a circuit spanning ``nstep`` time steps.
 
         Note:
             The initial state of the global circuit is always the vacuum state.
@@ -1622,8 +1630,8 @@ class QumodeCircuit(Operation):
         """Get the ideal transfer amplitude between the final state and the initial state.
 
         Note:
-            When states are expanded due to photon loss or batched initial states,
-            the amplitudes of the reduced states can not be added, please try ``get_prob`` instead.
+            Use ``get_prob`` to sum probabilities over occupations of loss-environment modes or the
+            uncoupled mode used to equalize photon totals across a batch.
 
         Args:
             final_state: The final Fock basis state.
@@ -1713,7 +1721,7 @@ class QumodeCircuit(Operation):
                 assert unitary.ndim == 2, 'The unitary matrix must be 2D'
             if refer_state is None:
                 refer_state = self._prepare_init_state(self.init_state.state, nloss=unitary.shape[-1] - self.nmode)
-            if self._is_batch_expanded:
+            if self._has_batch_padding_mode:
                 identity = torch.eye(1, dtype=unitary.dtype, device=unitary.device)
                 unitary = torch.block_diag(unitary, identity)
             nmode = final_state.shape[-1]
@@ -1723,14 +1731,14 @@ class QumodeCircuit(Operation):
                 wires = list(range(nmode))
                 nphoton_final = torch.sum(final_state, dim=-1)
                 max_photon = torch.sum(refer_state, dim=-1).max().item()
-                nmode_expand = refer_state.shape[-1] - nmode
-                expand_state = torch.tensor(
-                    fock_combinations(nmode_expand, max_photon - nphoton_final),
+                n_unobserved = refer_state.shape[-1] - nmode
+                unobserved_occupations = torch.tensor(
+                    fock_combinations(n_unobserved, max_photon - nphoton_final),
                     dtype=torch.long,
                     device=final_state.device,
                 )
-                final_state = final_state.reshape(-1, nmode).expand(expand_state.shape[0], -1)
-                final_states = torch.cat([final_state, expand_state], dim=-1)
+                final_state = final_state.reshape(-1, nmode).expand(unobserved_occupations.shape[0], -1)
+                final_states = torch.cat([final_state, unobserved_occupations], dim=-1)
                 if refer_state.ndim == 1:
                     rst = self._measure_fock_unitary_helper(refer_state, unitary, wires, final_states)
                 else:
@@ -1755,7 +1763,7 @@ class QumodeCircuit(Operation):
             unitary: The unitary matrix. Default: ``None``
         """
         if init_state is None:  # when mcmc
-            nmode = self.nmode + self._nloss + self._is_batch_expanded
+            nmode = self.nmode + self._nloss + self._has_batch_padding_mode
             init_state = FockState(state=self._init_state_sample, nmode=nmode, cutoff=self.cutoff, basis=self.basis)
         if unitary is None:  # when mcmc
             unitary = self._unitary
@@ -2144,7 +2152,7 @@ class QumodeCircuit(Operation):
             init_state = init_state.unsqueeze(0)
         batch_init = init_state.shape[0]
         unitary = self.state
-        if self._is_batch_expanded:
+        if self._has_batch_padding_mode:
             identity = torch.eye(1, dtype=self.state.dtype, device=self.state.device)
             unitary = vmap(torch.block_diag, in_dims=(0, None))(self.state, identity)
         all_results = []
@@ -2594,10 +2602,10 @@ class QumodeCircuit(Operation):
         wires: list[int],
         phi: Any,
         *,
+        powers: Sequence[Sequence[int]] | torch.Tensor | None = None,
+        centered: bool | None = None,
         normalize: bool | None,
         lo: Any,
-        centered: bool | None = None,
-        powers: Sequence[Sequence[int]] | torch.Tensor | None = None,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor] | None:
         """Read one LO mode per selected spatial wire. An omitted centering flag requests only the mean."""
         if self._submode_circuit is None:
@@ -2610,7 +2618,9 @@ class QumodeCircuit(Operation):
 
         result = self._submode_circuit.result()
         if self.backend == 'fock':
-            return _fock_lo_moments(result, self.cutoff, wires, phi, lo, bool(normalize), centered)
+            return _fock_lo_moments(
+                result, self.cutoff, wires, phi, centered=centered, normalize=bool(normalize), lo=lo
+            )
         if self.backend == 'bargmann':
             view = _bargmann_lo_state(result, wires, lo)
             normalize = True if normalize is None else normalize
@@ -2748,7 +2758,7 @@ class QumodeCircuit(Operation):
         wires, phi = self._quadrature_settings(wires, phi)
         if (
             selected := self._submode_quadratures(
-                wires, phi, normalize=normalize, lo=lo, centered=centered, powers=powers
+                wires, phi, powers=powers, centered=centered, normalize=normalize, lo=lo
             )
         ) is not None:
             return selected
@@ -2860,7 +2870,8 @@ class QumodeCircuit(Operation):
             photons: The selected photon numbers, one nonnegative integer per measured spatial mode.
                 On Fock and Bargmann circuits with submodes, each number sums over all orthogonal basis modes.
                 With ``detector='threshold'``, use 0 for vacuum and 1 for one or more photons.
-            keep: Unmeasured spatial modes to retain, in output order, on Fock circuits or expanded Bargmann circuits.
+            keep: Unmeasured spatial modes to retain, in output order, on Fock circuits or Bargmann circuits
+                with orthogonal basis modes.
                 Other unmeasured modes are traced out. Default: ``None`` (all unmeasured modes)
             detector: Use ``'pnrd'`` for photon-number-resolving detection, ``'threshold'`` for ideal
                 on/off detection, or ``'click'`` for multiplexed click-counting detection.
@@ -2887,8 +2898,8 @@ class QumodeCircuit(Operation):
             event weight, such as a joint probability in a chain of post-selections.
             Gaussian kets require pure inputs. Bargmann outputs use consecutive local
             mode indices. ``info['remaining_wires']`` lists the original spatial wires, or the wire indices
-            in the single-step joint state on a Bargmann delay circuit. Expanded Bargmann outputs retain all basis
-            modes in spatial-then-basis order unless ``submode`` or ``lo`` selects one per wire.
+            in the single-step joint state on a Bargmann delay circuit. With orthogonal basis modes, a Bargmann
+            output retains them all in spatial-then-basis order unless ``submode`` or ``lo`` selects one per wire.
 
             ``probability_in_cutoff`` and ``retained_fraction`` report the unnormalized
             finite-output weight and its fraction of the event weight. They are ``None`` for
@@ -2900,10 +2911,10 @@ class QumodeCircuit(Operation):
         detector = self.detector if detector is None else detector.lower()
         if self.backend == 'fock' and self.basis:
             raise NotImplementedError('Fock post_select requires basis=False')
-        expanded_bargmann = self.backend == 'bargmann' and self._submode_circuit is not None
+        bargmann_with_submodes = self.backend == 'bargmann' and self._submode_circuit is not None
         if (
             self.backend != 'fock'
-            and not expanded_bargmann
+            and not bargmann_with_submodes
             and (keep is not None or submode is not None or lo is not None)
         ):
             raise NotImplementedError(
@@ -2931,7 +2942,7 @@ class QumodeCircuit(Operation):
                 state = BargmannState([cov, mean], den_mat=True)._post_select(wires, photons, detector)
                 probability = state.norm()
                 state = state.to_fock(cutoff)
-        elif expanded_bargmann:
+        elif bargmann_with_submodes:
             state, probability, remaining = self._post_select_spatial(
                 wires, photons, keep, detector, submode=submode, lo=lo
             )
@@ -3097,8 +3108,8 @@ class QumodeCircuit(Operation):
         keep = [w for w in self.wires if w not in wires] if keep is None else self._convert_indices(keep)
         if not keep or len(set(keep)) != len(keep) or set(keep) & set(wires):
             raise ValueError('Retain at least one unmeasured spatial wire.')
-        expanded = self._submode_circuit
-        d = 1 if expanded is None else expanded.nsubmode
+        submode_circuit = self._submode_circuit
+        d = 1 if submode_circuit is None else submode_circuit.nsubmode
         if self.backend == 'fock' and detector == 'pnrd' and any(n > d * (self.cutoff - 1) for n in photons):
             raise ValueError('Photon numbers must lie within the simulated Fock space')
         if lo is not None and submode is not None:
@@ -3106,7 +3117,7 @@ class QumodeCircuit(Operation):
         if submode is not None and (type(submode) is not int or not 0 <= submode < d):
             raise ValueError('submode must index the common submode basis.')
         if self.backend == 'bargmann':
-            state, probability = expanded.result()._bargmann_condition(
+            state, probability = submode_circuit.result()._bargmann_condition(
                 tuple(wires), tuple(photons), detector, keep=keep, submode=submode, lo=lo
             )
             return state, probability, tuple(keep)
@@ -3119,14 +3130,14 @@ class QumodeCircuit(Operation):
             retained = (coefficients.abs().sum(0) != 0).nonzero().flatten().tolist()
         selected = [w * d + k for w in keep for k in retained]
         measured = [[w * d + k for k in range(d)] for w in wires]
-        if expanded is not None and expanded.factorized:
+        if submode_circuit is not None and submode_circuit.factorized:
             from .submode import _post_select_spatial
 
             density, probability = _post_select_spatial(
-                expanded.result(), self.cutoff, wires, photons, keep, detector, retained_submodes=retained
+                submode_circuit.result(), self.cutoff, wires, photons, keep, detector, retained_submodes=retained
             )
         else:
-            state = self._get_output_state() if expanded is None else expanded.state
+            state = self._get_output_state() if submode_circuit is None else submode_circuit.state
             if not isinstance(state, torch.Tensor) or not state.is_complex():
                 raise ValueError('Run the circuit to obtain a Fock state tensor before post-selection.')
             density, probability = _photon_count_condition(
@@ -3176,10 +3187,9 @@ class QumodeCircuit(Operation):
                     'Use terminal measure_homodyne() without conditional operations for submodes.'
                 )
             selected = self.wires if wires is None else self._convert_indices(wires)
-            expanded = self._submode_circuit
             if self.basis and self.backend == 'fock':
                 raise NotImplementedError('Homodyne readout requires Fock state tensors (basis=False).')
-            view = _lo_view(expanded.result(), self.cutoff, selected, lo)
+            view = _lo_view(self._submode_circuit.result(), self.cutoff, selected, lo)
             if self.hardware_model is not None and self.hardware_model._has_terminal_homodyne:
                 self._validate_hardware_model(self.hardware_model)
                 return view._measure_homodyne_hardware(shots, view.wires, phi, self.hardware_model, selected)
@@ -3371,7 +3381,9 @@ class QumodeCircuit(Operation):
         if self.backend == 'bargmann' and not self.den_mat:
             raise NotImplementedError('Thermal Bargmann inputs require den_mat=True')
         if self.mps or self.backend == 'fock' and (self.basis or not self.den_mat):
-            raise NotImplementedError('Thermal inputs require Gaussian, Bosonic or Fock density states.')
+            raise NotImplementedError(
+                'Thermal inputs require a circuit without MPS. Use basis=False, den_mat=True for Fock density matrices.'
+            )
         source = ThermalSource(nbar, purity=purity, requires_grad=requires_grad)
         for wire in self._convert_indices(wires):
             self.sources[str(wire)] = source
@@ -3448,7 +3460,7 @@ class QumodeCircuit(Operation):
                 photon = state.new_zeros(self.cutoff)
                 photon[1] = 1
                 state = torch.tensordot(vacuum, photon, dims=0).movedim(-1, wire + 1)
-            # One-photon density matrices are installed directly after submode expansion.
+            # Single-photon sources prepare their density operators in the orthogonal mode basis.
         if self.backend == 'fock':
             source.state = state
         else:
@@ -4120,7 +4132,7 @@ class QumodeCircuit(Operation):
         The `inputs` corresponds to `theta` of the loss channel.
         """
         if (self.backend == 'fock' and not self.basis) or self.backend == 'bargmann':
-            assert self.den_mat, 'Please use the density matrix representation'
+            assert self.den_mat, 'Photon loss on this state requires den_mat=True'
         self._lossy = True
         self._nloss += 1
         requires_grad = not encode
@@ -4135,7 +4147,7 @@ class QumodeCircuit(Operation):
         The `inputs` corresponds to the transmittance of the loss channel.
         """
         if (self.backend == 'fock' and not self.basis) or self.backend == 'bargmann':
-            assert self.den_mat, 'Please use the density matrix representation'
+            assert self.den_mat, 'Photon loss on this state requires den_mat=True'
         self._lossy = True
         self._nloss += 1
         requires_grad = not encode
@@ -4163,7 +4175,7 @@ class QumodeCircuit(Operation):
         The `inputs` corresponds to the probability of loss with the unit of dB and is positive.
         """
         if (self.backend == 'fock' and not self.basis) or self.backend == 'bargmann':
-            assert self.den_mat, 'Please use the density matrix representation'
+            assert self.den_mat, 'Photon loss on this state requires den_mat=True'
         self._lossy = True
         self._nloss += 1
         requires_grad = not encode

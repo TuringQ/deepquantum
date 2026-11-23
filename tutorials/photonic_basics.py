@@ -733,7 +733,7 @@ print(cov.shape, mean.shape)
 # 优化器更新的是内部 ``theta``，不是初始化时传入的 ``t/db``，因此有限实数角度对应的透射率始终在 $[0,1]$ 内。
 # 绑定模型后，通过 ``cir.parameters()`` 将这些参数交给优化器。
 #
-# 损耗支持 Gaussian、Bosonic、Fock 基矢，以及 Fock 和 Bargmann 密度矩阵表示（``den_mat=True``，Fock 还需 ``basis=False``）。
+# 损耗支持 Gaussian、Bosonic、Fock 基矢、Fock 密度矩阵（`basis=False, den_mat=True`）和密度算符的 Bargmann 核（`den_mat=True`）。
 # 暂不支持 Fock 纯态张量、MPS 和分布式纯态。
 # ``cir.set_hardware_model(None)`` 可移除模型，但会保留手动插入的通道。
 
@@ -820,7 +820,7 @@ print(cov_opa_tdm.shape, mean_opa_tdm.shape)  # (1, 4, 4), (1, 4, 1)
 # `model.delay().opa(index=0)` 选择环内 OPA，`before/after.loss(...)` 设置完整器件前后的外部损耗。
 #
 # 支持 Gaussian、Bosonic、TDM 全局展开及带 Homodyne 测量的逐步演化；`tdm_substate()` 支持 Gaussian 和 Bargmann。
-# OPA 支持 Bargmann 密度核与 Fock 密度矩阵，Fock 线路设置 `basis=False, den_mat=True`。
+# OPA 也支持 Fock 密度矩阵（`basis=False, den_mat=True`）和密度算符的 Bargmann 核（`den_mat=True`）。
 # Bargmann 演化不截断，Fock 路径在每个信道输出处保留指定 cutoff 内的矩阵元，不自动归一化。
 # `model.opa().submodes(relative_r=[1, 0.3])` 设置各正交基模的增益比例，也可传入正交系数行。
 # `relative_r` 只缩放增益，所有正交基模共享器件分布损耗，包括零增益模式。
@@ -879,16 +879,16 @@ cir_photon.double()()
 print(cir_photon.get_prob([1, 1]))
 
 # %% [markdown]
-# `post_select` 对指定空间输出的总光子数做 PNR 后选择，返回归一化的 Fock 密度矩阵态和事件概率。
+# `post_select` 对指定空间输出的总光子数做 PNR 后选择，在本例中返回用 Fock 密度矩阵表示的条件态和事件概率。
 # `keep` 指定保留的空间模式，`submode` 指定保留的正交基模，`lo` 则指定要保留的本振模式系数。
 # `submode` 与 `lo` 二选一，均省略时保留全部正交基模。
 #
 # 这里在输出 1 探测到一个光子，保留输出 0 中与第一路输入同形的本振模式，再做 Homodyne。
 # 在含正交基模的线路上，`quadrature_mean` 和 `quadrature_moments` 都读取本振选中的模式。
 #
-# 例如在 Gaussian 或 Bargmann 线路上，`cir.quadrature_moments([0, 1], [0, 0.63], powers=[(2, 2)], lo=[0.8, 0.6j])` 用同一复数本振模式在两条线取联合四阶矩，返回形状为 `(batch, 1)`。
+# 例如在 Gaussian 或 Bargmann 线路上，`cir.quadrature_moments([0, 1], [0, 0.63], powers=[(2, 2)], lo=[0.8, 0.6j])` 在线路 0 和 1 上用同一个复数本振模式读取联合四阶矩，返回形状为 `(batch, 1)`。
 #
-# 二维 `lo` 按所选空间线的顺序逐行设置，每行自动归一化。
+# 二维 `lo` 的每一行对应 `wires` 中同一位置的空间模式，每行自动归一化。
 #
 # Fock、Gaussian 和 Bosonic 线路还可以调用 `cir.measure_homodyne(..., lo=..., phi=...)` 采样。
 # `lo` 默认选择第一个正交基模，`phi` 是额外的 quadrature 测量角度。
@@ -907,7 +907,7 @@ print(probability_source, samples_source.shape)  # 事件概率和 (5,)
 # `amplitude` 是耦合前辅助光的实数振幅，平均光子数为 `amplitude**2`，`phase` 的单位为弧度。
 # 默认 `convention='t'`，`t` 表示信号功率透射率，例如 `amplitude=3.0, t=0.99` 对应位移振幅 0.3。
 # 使用 `convention='loss_theta'` 时，`t` 参数改为内部角度，透射率为 `cos(loss_theta / 2)**2`。
-# 支持 Gaussian、Bosonic 和 Fock 密度矩阵（`basis=False, den_mat=True`）。
+# 支持 Gaussian、Bosonic、Fock 密度矩阵（`basis=False, den_mat=True`）和密度算符的 Bargmann 核（`den_mat=True`）。
 #
 # `model.d_channel().amplitude`、`.phase` 和 `.loss_theta` 配置控制误差，`.submodes(c)` 设置辅助光模式。
 # `encode=True` 读取 `[amplitude, phase, t]`，第三项按 `convention` 解释。
@@ -1565,7 +1565,7 @@ cir_global.draw(unroll=True)  # draw global circuit
 
 # %% [markdown]
 # `tdm_substate(time_steps, wires=None, data=None, window=None)` 读取指定时间片和空间端口的联合输出态。
-# Gaussian 返回 `[cov, mean]`，Bargmann 返回约化密度态 `BargmannState`。
+# Gaussian 返回 `[cov, mean]`，Bargmann 返回表示约化密度算符的 `BargmannState`。
 # 默认按给定的时间片顺序、再按 `wires` 顺序排列输出，例如 `time_steps=[3, 1], wires=[1, 0]` 的前两个模式分别是时间片 3 的端口 1 和 0。
 # 时间片编号从 0 开始且不能重复。
 # 切片必须有终点，步长为正。
@@ -1580,7 +1580,7 @@ cir_global.draw(unroll=True)  # draw global circuit
 # 需要接续条件态时，使用下文的 `cir(memory=...)`。
 # `data` 的形状为 `(ntimes, ndata)` 或 `(batch, ntimes, ndata)`，第 `t` 步读取时间轴上索引为 `t % ntimes` 的数据。
 # 下面的 Gaussian 示例中，窗口填满后，`cov_window[0, 0, 1]` 给出相邻两个时间片的 x 分量协方差。
-# 一个空间端口含多个正交基模时，使用 `global_circuit` 展开后读出。
+# 一个空间端口含多个正交基模时，用 `global_circuit(nstep)` 按时间步展开，再从联合输出中选取所需的空间端口和正交基模。
 #
 
 # %%
@@ -1866,8 +1866,8 @@ print(info_bargmann['remaining_wires'])  # (1,)
 # 使用 `normalize=False` 可保留未归一化条件态，连续后选择时返回的事件权重包含前面各次事件的权重。
 # Gaussian 和 Bargmann 的事件概率不依赖输出 `cutoff`，有限截断的读出张量仍可能缺少高光子数部分，不能据此重新解释事件概率。
 #
-# 在 Bargmann 后端中，光损耗需要密度矩阵表示。
-# 下面将条件态转换为密度矩阵，进行位移和损耗演化，最后读取 Fock 密度矩阵。
+# 在 Bargmann 后端，光损耗作用于密度算符的解析核。
+# 下面用 `to_dm()` 构造条件纯态的密度算符，在 Bargmann 中完成位移和损耗演化，再用 `to_fock(8)` 读取 Fock 密度矩阵。
 
 # %%
 cir_bargmann_readout = dq.QumodeCircuit(1, heralded_bargmann.to_dm(), backend='bargmann')
@@ -1886,11 +1886,12 @@ print(rho_bargmann.diagonal(dim1=-2, dim2=-1).real.sum(-1))  # 截断内的迹�
 # 默认 `detector=None` 沿用 `cir.detector`，显式传入探测器类型只覆盖本次后选择，不改变线路设置。
 # 探测器命名统一使用 `pnrd`、`threshold` 和 `click`，其中 `click` 表示多路阈值探测器的点击计数，当前尚不支持它的后选择。
 # 参数顺序是 `wires, photons, keep, detector`，其余选项使用关键字指定。
-# 阈值条件态统一描述密度算符：Fock 和 Gaussian 后端返回 Fock 基底的矩阵元，Bargmann 后端仍返回可继续演化的解析密度核 `BargmannState`。
+# 阈值条件态由密度算符描述。
+# Fock 和 Gaussian 返回它在 Fock 基底下的矩阵元，Bargmann 返回持有解析核的 `BargmannState`，可以继续演化。
 # Bargmann 用部分迹减去真空投影表示点击，每个点击最多将表示项数加倍。
 # 低概率事件容易受到相减误差影响，建议在演化前使用 `cir.double()`，并检查数值精度。
 #
-# 线路的 `quadrature_mean()` 和 `quadrature_moments()` 在省略 `wires` 和 `phi` 时沿用已注册的 Homodyne 线序和角度。
+# 线路的 `quadrature_mean()` 和 `quadrature_moments()` 在省略 `wires` 和 `phi` 时按已注册 Homodyne 的线路顺序和角度读出。
 #
 # 传入任一参数即可单独指定本次读出，例如 `cir.quadrature_moments(wires=cir.wires)` 按 xxpp 顺序返回完整的 `(cov, mean)`，并保留 batch 轴。
 # 这些矩描述原有非高斯态，不将其转换成高斯态。
@@ -1956,8 +1957,8 @@ print(second_event.shape, first_event.shape)  # (1, 2, 2)、(1, 2, 1)
 # %% [markdown]
 # ### 指定 Homodyne 角度的联合矩
 #
-# 线 2 的阈值探测器给出预报事件，保留的线 0、1 同时测量 $X=x_0$ 和 $Y=x_1\cos\theta+p_1\sin\theta$。
-# 给 `quadrature_moments` 传入两条线的角度，就得到这两个读数的协方差和均值。
+# 线路 2 上的阈值探测器给出预报事件，在保留的线路 0 和 1 上同时测量 $X=x_0$ 和 $Y=x_1\cos\theta+p_1\sin\theta$。
+# 给 `quadrature_moments` 传入这两条线路的角度，就得到这两个读数的协方差和均值。
 #
 # `powers` 的每一行给出按 `wires` 排列的指数，下面三列依次是同次读数的 $X^4$、$X^2Y^2$、$Y^4$ 的事件加权平均。
 # `(0, 0)` 对应恒等算符，可以追加这一行来读取事件概率。
@@ -1986,8 +1987,9 @@ print(weighted / p_click[:, None])  # 点击条件下的三个四阶矩
 #
 # `thermal(wires, nbar=...)` 在指定空间输入制备热态，需要 `den_mat=True`。
 # `single_photon(wires)` 为每个选中的空间输入制备一个光子。
-# Bargmann 后端每个空间输入支持一个正交基模。
-# 光源只作用于输入端，纯态制备要求目标模式原为真空。
+# `coefficients` 指定这个光子在各正交基模上的复振幅，`density_matrix` 可指定同一基底下的混合单光子。
+# 光源作用于输入端。
+# 若用 ket 表示线路状态，制备前所选模式须为真空。
 #
 # OPA 和 DisplacementChannel 使用同一 Gaussian 信道到 Bargmann 核的转换。
 # 光子门和信道都可用 `op.get_superoperator()` 取得作用于 Fock 密度矩阵的局部超算符。
@@ -2038,8 +2040,8 @@ for window_state in cir_native_loop.tdm_substate(slice(3), window=2):
 
 # %% [markdown]
 # 阈值事件使用 `detector='threshold'`。
-# 条件态是密度矩阵，继续演化时使用 `den_mat=True`。
-# 若不筛选测量结果，可用 `joint.partial_trace(cir_native_loop.tdm_output_wires(1)[0].tolist())` 迹掉当前空间输出，取得无条件环内密度态。
+# Bargmann 用解析核表示阈值事件的条件密度算符，继续演化时使用 `den_mat=True`。
+# 若不筛选测量结果，可用 `joint.partial_trace(cir_native_loop.tdm_output_wires(1)[0].tolist())` 迹掉当前空间输出，得到环内模式的无条件约化态。
 #
 # 只测部分端口时，返回态还包含未测输出。
 # `return_info=True` 返回的 `remaining_wires` 按返回态的模式顺序列出它们在原联合态中的编号，可据此迹掉其余空间输出，再回送环内态。

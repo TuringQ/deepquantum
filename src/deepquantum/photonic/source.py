@@ -169,7 +169,7 @@ class ThermalSource(nn.Module):
     Fock preparation requires density matrices and retains the unnormalized cutoff projection,
     with trace :math:`1-[\bar n/(1+\bar n)]^C` per mode at cutoff :math:`C`.
     The internal parameter is :math:`\sqrt{\bar n}`.
-    Bargmann preparation requires density matrices and uses the full thermal kernel without truncation.
+    Bargmann preparation uses the kernel of the thermal density operator with ``den_mat=True``.
     See https://arxiv.org/pdf/1110.3234v1 Eq.(27).
 
     Args:
@@ -239,7 +239,10 @@ class ThermalSource(nn.Module):
             noise = torch.diag((1 - mask) * vacuum * (2 * self.nbar.to(cov) + 1))
             return [cov * mask[:, None] * mask[None, :] + noise, mean * mask[:, None]] + state[2:]
         if run.backend != 'fock' or run.basis:
-            raise NotImplementedError('ThermalSource requires Gaussian, Bosonic or Fock density states.')
+            raise NotImplementedError(
+                'ThermalSource supports Gaussian and Bosonic states, Fock density matrices and '
+                'Bargmann kernels of density operators.'
+            )
         cutoff = state.shape[-1]
         nbar = self.nbar.to(state.real)
         q = nbar / (1 + nbar)
@@ -253,9 +256,9 @@ class SinglePhotonSource(nn.Module):
     r"""Pure or mixed single-photon input in an orthogonal basis.
 
     ``QumodeCircuit.single_photon`` prepares independent spatial inputs before all gates.
-    Mixed inputs require density matrices. Pure Fock state tensors require vacuum on the selected inputs.
-    Bargmann density states are reset
-    by partial trace, while ket preparations require vacuum on the selected inputs.
+    A mixed single photon requires ``den_mat=True`` (and ``basis=False`` on Fock).
+    For a Fock density matrix or the Bargmann kernel of a density operator, preparation traces out the
+    selected modes and inserts the single photon. Fock ket tensors and Bargmann kets require vacuum there.
     Specify at most one of ``coefficients``, ``density_matrix`` and ``factor``.
     Trainable parameters are the real and imaginary components of the coefficients or factor.
     A supplied density matrix is first factorized.
@@ -343,9 +346,7 @@ class SinglePhotonSource(nn.Module):
             factor = _normalize_coefficients(factor.flatten()).reshape_as(factor).to(state.mat_a)
             nmode, rank = len(run.wires), factor.shape[1]
             if factor.shape[0] > nmode or not state.den_mat and not self.is_pure:
-                raise ValueError(
-                    'The Bargmann input needs the full source basis and a density state for mixed photons.'
-                )
+                raise ValueError('The Bargmann input needs the full source basis and den_mat=True for mixed photons.')
             naux = 2 if state.den_mat else 1
             nfree = nmode * naux
             cross = factor.new_zeros(rank, nfree, naux)

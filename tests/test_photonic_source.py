@@ -40,10 +40,10 @@ def _run_joint(circuit, data=None):
     from deepquantum.photonic.submode import _SubmodeCircuit
 
     source = circuit._prepare_sources() if circuit.sources else None
-    expanded = _SubmodeCircuit(circuit, source, joint=True)
-    circuit.__dict__['_submode_circuit'] = expanded
-    expanded(data)
-    circuit.state = expanded.result()
+    joint_circuit = _SubmodeCircuit(circuit, source, joint=True)
+    circuit.__dict__['_submode_circuit'] = joint_circuit
+    joint_circuit(data)
+    circuit.state = joint_circuit.result()
     return circuit.state
 
 
@@ -446,7 +446,7 @@ def test_active_complex_profile_and_spatial_moments(active):
     torch.testing.assert_close(grad, ref)
 
 
-def test_global_tdm_expansion_and_source_placement():
+def test_unrolled_tdm_circuit_preserves_source_placement():
     cir = dqp.QumodeCircuit(1, 'vac', backend='gaussian')
     cir.thermal(0, nbar=0.02)
     cir.s(0, r=0.3, theta=0.2)
@@ -616,7 +616,7 @@ def test_partial_blocks_encoded_batch_and_module_vmap(backend):
 
 
 @pytest.mark.parametrize('partial', [False, True])
-def test_bargmann_lo_products_against_expanded_gaussian(partial):
+def test_bargmann_lo_products_match_gaussian_circuit_with_explicit_basis_modes(partial):
     cir = dqp.QumodeCircuit(2, 'vac', backend='bargmann', den_mat=True)
     cir.s2([0, 1], 0.21, 0.3)
     cir.d(0, 0.22, -0.1)

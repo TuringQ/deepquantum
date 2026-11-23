@@ -219,10 +219,10 @@ def test_terminal_tdm_rules_survive_unrolling():
     model.homodyne(0).readout(gain=1.2, bias=0.4)
     cir.set_hardware_model(model)
     cir.double()
-    expanded = cir.global_circuit(2)
-    expanded()
+    unrolled = cir.global_circuit(2)
+    unrolled()
     output = cir.tdm_output_wires(2).flatten().tolist()
-    ref = deepcopy(expanded)
+    ref = deepcopy(unrolled)
     ref.hardware_model = None
     state = ref.state
     for wire in output:
@@ -231,7 +231,7 @@ def test_terminal_tdm_rules_survive_unrolling():
     torch.manual_seed(6)
     expected = 1.2 * ref.measure_homodyne(5, output, phi=0.3) + 0.4
     torch.manual_seed(6)
-    torch.testing.assert_close(expanded.measure_homodyne(5, output, phi=0.3), expected)
+    torch.testing.assert_close(unrolled.measure_homodyne(5, output, phi=0.3), expected)
 
 
 def test_conditional_kernel_noise_gradient_and_vmap():

@@ -231,11 +231,11 @@ def test_opa_tdm_streaming_unrolling_and_parameter_sharing(encode_loop, gain_db)
     cir.double()
     data = torch.linspace(0.1, 0.8, 2 * 3 * cir.ndata, dtype=torch.double).reshape(2, -1).requires_grad_()
     streamed = cir.tdm_substate([0, 2], data=data.reshape(2, 3, -1))
-    expanded = cir.global_circuit(3).double()
-    expanded.hardware_model.manual_seed(9)
-    cov, mean = expanded(data)
+    unrolled = cir.global_circuit(3).double()
+    unrolled.hardware_model.manual_seed(9)
+    cov, mean = unrolled(data)
     outputs = cir.tdm_output_wires(3)[[0, 2]].flatten()
-    indices = torch.cat([outputs, outputs + expanded.nmode])
+    indices = torch.cat([outputs, outputs + unrolled.nmode])
     expected = [cov[:, indices[:, None], indices], mean[:, indices]]
     torch.testing.assert_close(streamed, expected)
     variables = (data, *loop_opa.parameters())
@@ -244,9 +244,9 @@ def test_opa_tdm_streaming_unrolling_and_parameter_sharing(encode_loop, gain_db)
         torch.autograd.grad(expected[0].square().sum(), variables),
     )
     if not encode_loop:
-        expanded_opa = [op for op in expanded.operators if isinstance(op, dqp.OPA)][1::2]
+        unrolled_opas = [op for op in unrolled.operators if isinstance(op, dqp.OPA)][1::2]
         for name, parameter in loop_opa.named_parameters():
-            assert all(getattr(op, name) is parameter for op in expanded_opa)
+            assert all(getattr(op, name) is parameter for op in unrolled_opas)
         copied = cir.global_circuit(3, use_deepcopy=True)
         copied_opa = next(op for op in copied.operators if isinstance(op, dqp.OPA) and op.requires_grad)
         assert all(getattr(copied_opa, name) is not value for name, value in loop_opa.named_parameters())

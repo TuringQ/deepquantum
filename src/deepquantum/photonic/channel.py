@@ -179,9 +179,9 @@ class OPA(Channel):
     The internal parameters are ``r``, ``theta`` and ``loss_theta``.
     See https://arxiv.org/abs/2606.02524v1 Eq.(16) and Methods, Internal Loss.
 
-    Gaussian and Bosonic states use :math:`X` and :math:`Y` directly. Bargmann density states
-    use the analytic channel kernel. Fock density states use its projected
-    superoperator, with four local axes of length ``cutoff``. Output weight
+    Gaussian and Bosonic states use :math:`X` and :math:`Y` directly. The Bargmann backend
+    contracts the channel kernel with the kernel of the density operator. For a Fock density matrix,
+    the projected channel superoperator has four local axes of length ``cutoff``. Output weight
     above the cutoff is discarded without renormalization.
 
     ``HardwareModel.opa().submodes(relative_r=...)`` sets fixed orthogonal gain

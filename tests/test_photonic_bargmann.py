@@ -265,7 +265,7 @@ def test_replacing_hardware_model_invalidates_output():
     torch.testing.assert_close(probability, torch.tensor([0.5]))
 
 
-def test_bargmann_hardware_loss_requires_density_state():
+def test_bargmann_hardware_loss_requires_den_mat():
     pure = dq.QumodeCircuit(1, [1], cutoff=2, backend='bargmann')
     with pytest.raises(NotImplementedError, match='den_mat=True'):
         pure.set_hardware_model(dqp.HardwareModel().output().loss(t=0.25))

@@ -1312,7 +1312,8 @@ def fock_to_wigner(
         wire: The Wigner function for the given wire.
         nmode: The mode number of the Fock state.
         cutoff: The Fock space truncation.
-        den_mat: Whether to use density matrix representation. Only valid for Fock state tensor. Default: ``False``
+        den_mat: Whether to use density matrix representation. Use ``True`` for a Fock density matrix input.
+            Default: ``False``
         xrange: The range of quadrature x. Default: 10
         prange: The range of quadrature p. Default: 10
         npoints: The number of discretization points for quadratures. Default: 100

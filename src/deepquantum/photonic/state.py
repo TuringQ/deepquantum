@@ -54,7 +54,7 @@ class FockState(nn.Module):
         nmode: The number of modes in the state. Default: ``None``
         cutoff: The Fock space truncation. Default: ``None``
         basis: Whether the state is a Fock basis state or not. Default: ``True``
-        den_mat: Whether to use density matrix representation. Only valid for Fock state tensor. Default: ``False``
+        den_mat: Whether to use density matrix representation. Applies when ``basis=False``. Default: ``False``
     """
 
     def __init__(
@@ -306,7 +306,8 @@ class BargmannState(nn.Module):
 
     The buffers ``mat_a``, ``vec_b`` and ``coeff_c`` store the coefficients of a
     :class:`BargmannPolyExp`. A ket on ``M`` modes has ``M`` free variables in local mode order.
-    A density matrix has ``2M`` free variables, with ket variables followed by bra variables:
+    With ``den_mat=True``, the kernel of the density operator has ``2M`` free variables,
+    with ket variables followed by bra variables:
 
     .. math::
 
@@ -329,7 +330,7 @@ class BargmannState(nn.Module):
         nmode: The number of modes in the state. Required for Fock tensor inputs. Default: ``None``
         cutoff: The Fock space truncation for readout. It does not truncate Bargmann evolution.
             Default: ``None`` (which means 5)
-        den_mat: Whether to use density matrix representation. Default: ``False``
+        den_mat: Whether to use density matrix representation. Default: ``False`` (a ket)
 
     Note:
         Gaussian moments are converted at their input precision. Use float64 moments for
@@ -361,7 +362,7 @@ class BargmannState(nn.Module):
             if nmode is None:
                 nmode = state.nfree // 2 if den_mat else state.nfree
             if state.nfree != (2 * nmode if den_mat else nmode):
-                raise ValueError('The representation must have one free variable per mode (two for density matrices)')
+                raise ValueError('The kernel needs one free variable per mode for a ket or two for a density operator')
             return state, nmode
         if isinstance(state, str):
             if state not in ('vac', 'zeros'):
@@ -417,7 +418,7 @@ class BargmannState(nn.Module):
         return fock_to_bargmann(tensor, nvar), nmode
 
     def _from_fock_basis(self, pattern: list[int]) -> BargmannPolyExp:
-        """Construct a Fock basis ket or density matrix in Bargmann form."""
+        """Construct the Bargmann kernel of a Fock basis ket or its projector."""
         if any(n < 0 for n in pattern):
             raise ValueError('Photon numbers must be nonnegative')
         pattern = pattern * (2 if self.den_mat else 1)
@@ -473,7 +474,7 @@ class BargmannState(nn.Module):
         return self._new(polyexp)
 
     def apply_channel(self, kernel: BargmannPolyExp, wires: list[int]) -> 'BargmannState':
-        """Apply a quantum channel to a density matrix.
+        """Apply a quantum channel to the Bargmann kernel of a density operator.
 
         Args:
             kernel: The Bargmann representation of the channel, ordered as ket output, bra output,
@@ -481,7 +482,7 @@ class BargmannState(nn.Module):
             wires: The indices of the modes that the quantum operation acts on.
         """
         if not self.den_mat:
-            raise ValueError('Channels require the density-matrix representation; use den_mat=True')
+            raise ValueError('Bargmann channels act on density operators and require den_mat=True')
         pos = list(wires)
         if len(set(pos)) != len(pos) or any(w < 0 or w >= self.nmode for w in pos):
             raise ValueError('wires must contain distinct local mode indices')
@@ -489,7 +490,7 @@ class BargmannState(nn.Module):
         return self._new(polyexp)
 
     def to_dm(self) -> 'BargmannState':
-        r"""Convert a ket to :math:`|\psi\rangle\langle\psi|`, returning a density matrix unchanged."""
+        r"""Get the kernel of the density operator, forming :math:`|\psi\rangle\langle\psi|` for a ket."""
         if self.den_mat:
             return self
         polyexp = self.polyexp
@@ -522,7 +523,7 @@ class BargmannState(nn.Module):
         return self._new(polyexp, den_mat=first.den_mat)
 
     def reorder(self, wires: list[int]) -> 'BargmannState':
-        """Permute modes so new mode :math:`i` is old mode ``wires[i]``, including both density axes."""
+        """Permute modes so new mode :math:`i` is old mode ``wires[i]``, reordering both ket and bra variables."""
         if sorted(wires) != list(range(self.nmode)):
             raise ValueError('wires must be a permutation of all modes')
         order = list(wires)
@@ -545,7 +546,7 @@ class BargmannState(nn.Module):
         )
 
     def partial_trace(self, wires: int | list[int]) -> 'BargmannState':
-        """Trace out modes analytically, returning a density state without normalizing its weight.
+        """Trace out modes analytically and return the kernel of the reduced density operator with its original weight.
 
         Remaining modes retain their relative order and are numbered consecutively.
         """
@@ -591,7 +592,7 @@ class BargmannState(nn.Module):
         raise NotImplementedError(f'Bargmann post-selection does not support detector={detector!r}')
 
     def norm(self) -> torch.Tensor:
-        r"""Get the squared norm :math:`\langle\psi|\psi\rangle` of a ket or the trace of a density matrix.
+        r"""Get the squared norm :math:`\langle\psi|\psi\rangle` of a ket or the trace of a density operator.
 
         Computed by Gaussian integration, independently of any Fock cutoff.
         A nonfinite result :math:`z` or :math:`|\operatorname{Im}z|>100\epsilon(1+|\operatorname{Re}z|)`

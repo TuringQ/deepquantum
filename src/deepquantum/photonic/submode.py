@@ -1,4 +1,4 @@
-"""Submode expansion and unresolved readout of spatial photonic circuits."""
+"""Photonic circuit evolution in an orthogonal mode basis and spatial readout."""
 
 import itertools
 from collections import Counter
@@ -57,11 +57,11 @@ _ACTIVE = (Squeezing, Squeezing2, Displacement, DisplacementPosition, Displaceme
 class SubmodeResult:
     """Circuit output in a common orthogonal basis.
 
-    ``nmode`` counts spatial modes. Joint data use spatial-then-basis-mode order.
-    Factorized data have leading ``(batch, nsubmode)`` axes, with each factor containing
-    all spatial modes. ``to_joint()`` constructs their tensor product.
-    For partially coupled groups, ``data`` contains joint block states and ``partition``
-    gives the basis-mode indices in each block.
+    ``nmode`` counts spatial modes and ``nsubmode`` counts basis modes per spatial mode.
+    ``partition`` gives the basis-mode indices evolved together in each independent group.
+    ``to_joint()`` returns the full state in spatial-then-basis order, taking the tensor product
+    of independent groups when needed. With explicit ``blocks``, ``data`` holds one state per block.
+    Factorized Gaussian or Fock tensors without explicit blocks have leading ``(batch, nsubmode)`` axes.
     Gaussian data contain [cov, mean]. Fock state tensors may be pure or mixed.
     Bargmann data are a native state or a tuple of states indexed by ``blocks``.
     Bosonic and Fock basis outputs use joint data. Fock basis data are a transfer matrix
@@ -311,7 +311,7 @@ def _lo_xp_projection(embedding: torch.Tensor) -> torch.Tensor:
 
 
 def _fock_lo_moments(
-    result: SubmodeResult, cutoff: int, wires: list[int], phi: Any, lo: Any, normalize: bool, centered: bool | None
+    result: SubmodeResult, cutoff: int, wires: list[int], phi: Any, *, centered: bool | None, normalize: bool, lo: Any
 ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
     """Project saved Fock moments linearly, preserving occupations at the cutoff boundary."""
     factors = result._factors()
@@ -505,8 +505,10 @@ class _SubmodeCircuit(QumodeCircuit):
 
     def __init__(self, parent: QumodeCircuit, state: Any = None, *, nsubmode=None, joint=False):
         """Embed spatial inputs and configure joint or independent orthogonal-basis evolution."""
-        if parent.mps or parent._with_delay:
-            raise NotImplementedError('Submode expansion does not support MPS; unroll delays with global_circuit().')
+        if parent.mps:
+            raise NotImplementedError('Circuits with orthogonal basis modes do not support MPS.')
+        if parent._with_delay:
+            raise NotImplementedError('Unroll delays with global_circuit() before evolving orthogonal basis modes.')
         model = parent.hardware_model if parent.hardware_model is not None else HardwareModel()
         d = (
             nsubmode
@@ -537,7 +539,7 @@ class _SubmodeCircuit(QumodeCircuit):
                     source, parent.nmode, parent.cutoff
                 )
         if source.nmode != parent.nmode:
-            raise ValueError('Provide a spatial input state before submode expansion.')
+            raise ValueError('Provide one input mode per spatial wire.')
         input_modes = {}
         for binding, wires in model._io_bindings(parent.wires, 'input'):
             if isinstance(binding.plugin, Submodes):
@@ -625,11 +627,11 @@ class _SubmodeCircuit(QumodeCircuit):
         self._rotations = {}
         if any(not isinstance(op, _PASSIVE + _ACTIVE + (Barrier,)) for op in parent.operators):
             raise NotImplementedError(
-                'Submode expansion supports passive optics, squeezing, displacement, OPA and loss.'
+                'Circuits with submodes support passive optics, squeezing, displacement, OPA and loss.'
             )
 
     def forward(self, data=None, state=None, is_prob=None, detector=None, sort=True):
-        """Run the expanded circuit and store its backend output."""
+        """Run the circuit in the orthogonal mode basis and store its backend output."""
         if self.backend == 'bargmann':
             (result,) = _evolve_bargmann_blocks([self], self.parent, self.hardware_model, data)
             self.__dict__['state'] = result
@@ -654,7 +656,7 @@ class _SubmodeCircuit(QumodeCircuit):
         self.parent.encode(data)
 
     def _prepare_init_state(self, state, reset_fock_basis=False, nloss=None):
-        """Prepare the expanded input and allocate its required loss environments."""
+        """Prepare the Fock input in the orthogonal mode basis and allocate vacuum modes for loss."""
         if nloss is None:
             nloss = self.nsubmode * (
                 sum(isinstance(op, PhotonLoss) for op in self.parent.operators)
@@ -780,7 +782,7 @@ class _SubmodeCircuit(QumodeCircuit):
         ]
 
     def _io(self, state, run, where):
-        """Apply input or output loss to the corresponding expanded spatial wires."""
+        """Apply spatial input or output loss to the corresponding orthogonal basis modes."""
         for binding, wires in self.hardware_model._io_bindings(self.parent.wires, where):
             plugin = binding.plugin
             if isinstance(plugin, Submodes):
@@ -793,7 +795,7 @@ class _SubmodeCircuit(QumodeCircuit):
         return state
 
     def _execute(self, state, basis=False, run=None):
-        """Evolve expanded inputs with the parent operations and shared hardware controls."""
+        """Evolve the orthogonal basis modes with the parent operations and shared hardware controls."""
         if run is None:
             run = self.hardware_model._new_run(self.backend, range(self.nmode), basis)
         else:
@@ -824,7 +826,7 @@ class _SubmodeCircuit(QumodeCircuit):
         return state
 
     def _get_unitary(self, _operators, _model=None):
-        """Compute the expanded mode unitary for the parent circuit's current controls."""
+        """Compute the unitary in the orthogonal mode basis for the parent's current controls."""
         # Parent hooks pass these arguments; this view executes the compiled parent circuit.
         return self._execute(None, basis=True)
 
@@ -838,7 +840,7 @@ class _SubmodeCircuit(QumodeCircuit):
         return result.squeeze(0)
 
     def _forward_helper_gaussian(self, data=None, state=None, _stepwise=True):
-        """Evolve one encoded Gaussian state through the expanded operations."""
+        """Evolve one encoded Gaussian state in the orthogonal mode basis."""
         # The parent CV hook supplies a flag; submode operations always execute stepwise.
         self.encode(data)
         state = [self.init_state.cov, self.init_state.mean] if state is None else state
@@ -993,7 +995,7 @@ class _SubmodeCircuit(QumodeCircuit):
                 samples = patterns.reshape(batch, self.nsubmode, shots, len(selected)).sum(1)
             else:
                 # Existing Gaussian samplers work on a batch of independent blocks.
-                # Shuffle expanded count dictionaries so their ordering cannot correlate blocks.
+                # Shuffle the shots independently before combining counts from different blocks.
                 resolved = self.readout_view().measure(shots, False, selected, 'pnrd', mcmc)
                 resolved = [resolved] if isinstance(resolved, dict) else resolved
                 draws = []
@@ -1098,8 +1100,8 @@ def _slice_profiles(modes, block):
     return result
 
 
-def _expand_submodes(parent, state=None):
-    """Group orthogonal basis modes connected by nonzero input or operation coefficients."""
+def _build_submode_circuit(parent: QumodeCircuit, state: Any = None) -> '_SubmodeCircuit | _SubmodeBlocks':
+    """Build the submode circuit, grouping basis modes coupled by inputs or operations."""
     model = parent.hardware_model if parent.hardware_model is not None else HardwareModel()
     photons = [s for s in parent.sources.values() if isinstance(s, SinglePhotonSource)]
     d = max([model.nsubmode] + [s.components.shape[0] for s in photons])
@@ -1110,7 +1112,7 @@ def _expand_submodes(parent, state=None):
         if parent.den_mat:
             state = state.to_dm()
         elif state.den_mat:
-            raise ValueError('A density-matrix state requires den_mat=True')
+            raise ValueError('A Bargmann kernel representing a density operator requires den_mat=True')
     # Preserve the batched native-kernel path for operations diagonal in the common orthogonal basis.
     profiles = [b.plugin for b in model.bindings.values() if isinstance(b.plugin, Submodes)]
     if (
