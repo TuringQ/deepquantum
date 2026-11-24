@@ -122,13 +122,12 @@ class QumodeCircuit(Operation):
             covariance and mean. For Gaussian PNR post-selection, ``True`` returns a Fock density matrix and
             ``False`` returns a ket for a pure input. Threshold post-selection always returns a density operator.
             Default: ``False``
-        detector: The default detector for Gaussian probabilities and sampling, and for photon-counting
-            post-selection on Fock, Gaussian and Bargmann backends. Use ``'pnrd'`` for the
-            photon-number-resolving detector, ``'threshold'`` for the threshold detector,
-            or ``'click'`` for the click-counting detector. Click-counting post-selection is not implemented.
+        detector: Use ``'pnrd'`` for the photon-number-resolving detector,
+            ``'threshold'`` for the threshold detector, or ``'click'`` for the click-counting detector.
+            This sets the default for Gaussian probabilities and sampling and for photon-counting post-selection
+            on Fock, Gaussian and Bargmann backends. Post-selection supports ``'pnrd'`` and ``'threshold'``.
+            For ``'click'``, each mode has ``cutoff - 1`` threshold detectors and ``cutoff`` possible outcomes.
             Default: ``'pnrd'``
-            For ``'click'``, ``cutoff`` is the number of single-mode click-count outcomes, so the
-            number of internal threshold detectors is ``cutoff - 1``.
         name: The name of the circuit. Default: ``None``
         mps: Whether to use matrix product state representation. Default: ``False``
         chi: The bond dimension for matrix product state representation. Default: ``None``
@@ -381,9 +380,11 @@ class QumodeCircuit(Operation):
                 For Gaussian (Bosonic) backend, whether to return probabilities or the final Gaussian (Bosonic) state.
                 Bargmann returns a native state or a ``SubmodeResult`` when orthogonal basis modes are configured.
                 It supports state evolution with ``is_prob=None``. Default: ``None``
-            detector: For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector,
+            detector: Use ``'pnrd'`` for the photon-number-resolving detector,
                 ``'threshold'`` for the threshold detector, or ``'click'`` for the click-counting detector.
-                Default: ``None``
+                For ``is_prob=True`` on a Gaussian circuit without submodes, an explicit value sets ``self.detector``.
+                Spatial probability tables with submodes support ``'pnrd'``.
+                Default: ``None`` (which means ``self.detector``)
             sort: Whether to sort dictionary of Fock basis states in the descending order of probabilities.
                 Default: ``True``
             stepwise: Whether to use the forward function of each operator for Gaussian backend. Default: ``False``
@@ -657,9 +658,10 @@ class QumodeCircuit(Operation):
             data: The input data for the ``encoders``. Default: ``None``
             state: The initial state for the photonic quantum circuit. Default: ``None``
             is_prob: Whether to return probabilities or the final Gaussian (Bosonic) state. Default: ``None``
-            detector: Use ``'pnrd'`` for the photon-number-resolving detector or
+            detector: Use ``'pnrd'`` for the photon-number-resolving detector,
                 ``'threshold'`` for the threshold detector, or ``'click'`` for the click-counting detector.
-                Only valid when ``is_prob`` is ``True``. Default: ``None``
+                For Gaussian probabilities (``is_prob=True``), an explicit value sets ``self.detector``.
+                Default: ``None`` (which means ``self.detector``)
             stepwise: Whether to use the forward function of each operator. Default: ``False``
 
         Returns:
@@ -929,9 +931,9 @@ class QumodeCircuit(Operation):
             cov: The covariance matrices of the Gaussian states.
             mean: The displacement vectors of the Gaussian states.
             weight: The weights of the Gaussian states. Default: ``None``
-            detector: Use ``'pnrd'`` for the photon-number-resolving detector or
+            detector: Use ``'pnrd'`` for the photon-number-resolving detector,
                 ``'threshold'`` for the threshold detector, or ``'click'`` for the click-counting detector.
-                Default: ``None``
+                An explicit value sets ``self.detector``. Default: ``None`` (which means ``self.detector``)
         """
         assert weight is None, 'Currently Fock probability is not supported in Bosonic backend'
         shape_cov = cov.shape
@@ -1893,7 +1895,7 @@ class QumodeCircuit(Operation):
         elif self.backend == 'gaussian':
             if refer_state is None:
                 refer_state = self._get_output_state()
-            return self._get_prob_gaussian(final_state, refer_state)
+            return self._get_prob_gaussian(final_state, refer_state, self.detector)
 
     def _get_prob_fock(
         self, final_state: Any, init_state: Any = None, unitary: torch.Tensor | None = None
@@ -1920,16 +1922,14 @@ class QumodeCircuit(Operation):
         prob = torch.abs(amplitude) ** 2
         return prob
 
-    def _get_prob_gaussian(self, final_state: Any, state: Any = None) -> torch.Tensor:
+    def _get_prob_gaussian(self, final_state: Any, state: Any, detector: str) -> torch.Tensor:
         """Get probabilities of one or multiple final states for Gaussian backend."""
         if not isinstance(final_state, torch.Tensor):
             final_state = torch.tensor(final_state, dtype=torch.long)
         assert final_state.ndim in (1, 2)
         is_single = final_state.ndim == 1
         final_states = final_state.unsqueeze(0) if is_single else final_state
-        if state is None:
-            cov, mean = self._cov, self._mean
-        elif isinstance(state, (list, tuple)) and all(isinstance(x, torch.Tensor) for x in state):
+        if isinstance(state, (list, tuple)) and all(isinstance(x, torch.Tensor) for x in state):
             cov, mean = state
         else:
             if not isinstance(state, GaussianState):
@@ -1940,7 +1940,7 @@ class QumodeCircuit(Operation):
         mean = mean.reshape(-1, 2 * nmode, 1)
         order = None
         event_groups = None
-        if self.detector in ('pnrd', 'threshold'):
+        if detector in ('pnrd', 'threshold'):
             if len(final_states) > 1:
                 # Each group has one Hafnian or Torontonian matrix size, shared by all input chunks.
                 totals, order = final_states.sum(-1).sort()
@@ -1951,7 +1951,7 @@ class QumodeCircuit(Operation):
                 nphoton = int(final_states[0].sum())
                 final_states = final_states.to(cov.device)
                 event_groups = ((final_states, nphoton),)
-        probs = self._get_probs_gaussian_state_batch(final_states, cov, mean, event_groups)
+        probs = self._get_probs_gaussian_state_batch(final_states, cov, mean, detector, event_groups)
         if order is not None:
             probs = probs[:, order.argsort().to(cov.device)]
         if len(cov) == 1:
@@ -1965,32 +1965,31 @@ class QumodeCircuit(Operation):
         final_states: torch.Tensor,
         cov: torch.Tensor,
         mean: torch.Tensor,
+        detector: str,
         event_groups: tuple[tuple[torch.Tensor, int], ...] | None,
     ) -> torch.Tensor:
         """Evaluate common event patterns for each input, keeping its purity and displacement branches."""
-        get_probs = partial(
-            self._get_probs_gaussian_helper, final_states, detector=self.detector, event_groups=event_groups
-        )
+        get_probs = partial(self._get_probs_gaussian_helper, final_states, detector=detector, event_groups=event_groups)
         if len(cov) == len(mean) == 1:
             return get_probs(cov[0], mean[0]).unsqueeze(0)
         batch_get_probs = vmap(get_probs)
         if len(cov) != len(mean):
-            if self.detector == 'threshold':
+            if detector == 'threshold':
                 return batch_get_probs(cov, mean, loop=True)
             # External moments have historically been paired by covariance row.
             return torch.stack([get_probs(c, mean[i]) for i, c in enumerate(cov)])
 
-        if self.detector == 'threshold':
+        if detector == 'threshold':
             state_groups = {(False, True): range(len(cov))}
             entry_bytes = 2 * cov.element_size()
         else:
             displaced = mean.ne(0).any(dim=(-2, -1))
-            pure = GaussianState._purity_mask(cov) if self.detector == 'pnrd' else torch.zeros_like(displaced)
+            pure = GaussianState._purity_mask(cov) if detector == 'pnrd' else torch.zeros_like(displaced)
             state_groups = defaultdict(list)
             for row, (purity, loop) in enumerate(torch.stack([pure, displaced], dim=-1).tolist()):
                 state_groups[purity, loop].append(row)
             # The Hafnian promotes its subset matrices to complex128. Click counting uses real quadratures.
-            entry_bytes = torch.cdouble.itemsize if self.detector == 'pnrd' else cov.element_size()
+            entry_bytes = torch.cdouble.itemsize if detector == 'pnrd' else cov.element_size()
 
         if len(state_groups) == len(cov):
             # Each branch has one input and the groups are already in input order.
@@ -2005,7 +2004,7 @@ class QumodeCircuit(Operation):
             counts = [(total, len(group)) for group, total in event_groups]
         blocks = []
         for (purity, loop), rows in state_groups.items():
-            chunk_size = self._gaussian_prob_chunk_size(capacity, cov.shape[-1] // 2, counts, purity)
+            chunk_size = self._gaussian_prob_chunk_size(capacity, cov.shape[-1] // 2, counts, detector, purity)
             whole_batch = len(rows) == len(cov)
             if whole_batch and len(rows) <= chunk_size:
                 return batch_get_probs(cov, mean, purity=purity, loop=loop)
@@ -2024,19 +2023,21 @@ class QumodeCircuit(Operation):
             probs = probs[order.argsort()]
         return probs
 
-    def _gaussian_prob_chunk_size(self, capacity: int, nmode: int, counts: list[tuple[int, int]], pure: bool) -> int:
+    def _gaussian_prob_chunk_size(
+        self, capacity: int, nmode: int, counts: list[tuple[int, int]], detector: str, pure: bool
+    ) -> int:
         """Size an input chunk for the largest intermediate over sequential event groups."""
         elements = (2 * nmode) ** 2
         for total, nevent in counts:
             k = (total + 1) // 2 if pure else total
-            if self.detector == 'threshold' and k:
+            if detector == 'threshold' and k:
                 # Torontonian subsets of size j run together. C(k,j) * (2*j)**2 peaks at j = k//2 + 1.
                 j = k // 2 + 1
                 elements = max(elements, nevent * math.comb(k, j) * (2 * j) ** 2)
             else:
                 # Once one input fills the budget, larger exponents still give a single-input chunk.
                 subsets = 2 ** min(k, capacity.bit_length())
-                if self.detector == 'click' and k > nmode:
+                if detector == 'click' and k > nmode:
                     k = nmode
                     subsets = min(subsets, self.cutoff ** min(k, capacity.bit_length()))
                 elements = max(elements, nevent * subsets * (2 * k) ** 2)
@@ -2233,9 +2234,11 @@ class QumodeCircuit(Operation):
                 Default: ``False``
             wires: The wires to measure. It can be an integer or a list of integers specifying
                 the indices of the wires. Default: ``None`` (which means all wires are measured)
-            detector: For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector or
+            detector: Use ``'pnrd'`` for the photon-number-resolving detector,
                 ``'threshold'`` for the threshold detector, or ``'click'`` for the click-counting detector.
-                Default: ``None``
+                When sampling a Gaussian state, an explicit value applies only to this readout.
+                A precomputed probability dictionary uses its original detector. Spatial sampling with submodes
+                supports ``'pnrd'``. Default: ``None`` (which means ``self.detector``)
             mcmc: Whether to use MCMC sampling method. Default: ``False``
 
         See https://arxiv.org/pdf/2108.01622 for MCMC.
@@ -2502,11 +2505,11 @@ class QumodeCircuit(Operation):
             if with_prob:
                 for k in samples_i:
                     if mcmc:
-                        prob = self._get_prob_gaussian(k, [cov[i], mean[i]])
+                        prob = self._get_prob_gaussian(k, [cov[i], mean[i]], detector)
                     else:
                         wires_ = torch.tensor(wires, device=cov.device)
                         idx = torch.cat([wires_, wires_ + self.nmode])
-                        prob = self._get_prob_gaussian(k, [cov[i][idx[:, None], idx], mean[i][idx, :]])
+                        prob = self._get_prob_gaussian(k, [cov[i][idx[:, None], idx], mean[i][idx, :]], detector)
                     samples_i[k] = samples_i[k], prob
             for key in samples_i:
                 state_b = [key[wire] for wire in wires] if mcmc else list(key)
@@ -2524,40 +2527,29 @@ class QumodeCircuit(Operation):
 
     def _sample_mcmc_gaussian(self, shots: int, cov: torch.Tensor, mean: torch.Tensor, detector: str, num_chain: int):
         """Sample the output states for Gaussian backend via SC-MCMC method."""
-        self._cov = cov
-        self._mean = mean
-        self.detector = detector
-        if detector == 'threshold' and not torch.allclose(mean, torch.zeros_like(mean)):
-            # For the displaced state, aggregate PNRD detector samples to derive threshold detector results
-            self.detector = 'pnrd'
-            merged_samples_pnrd = sample_sc_mcmc(
-                prob_func=self._get_prob_gaussian,
-                proposal_sampler=self._proposal_sampler,
-                shots=shots,
-                num_chain=num_chain,
-            )
-            merged_samples = defaultdict(int)
-            for key in list(merged_samples_pnrd.keys()):
-                key_threshold = (torch.tensor(key) != 0).int()
-                key_threshold = tuple(key_threshold.tolist())
-                merged_samples[key_threshold] += merged_samples_pnrd[key]
-            self.detector = 'threshold'
-        else:
-            merged_samples = sample_sc_mcmc(
-                prob_func=self._get_prob_gaussian,
-                proposal_sampler=self._proposal_sampler,
-                shots=shots,
-                num_chain=num_chain,
-            )
-        return merged_samples
+        # For displaced threshold measurements, draw photon numbers and group all nonzero counts as clicks.
+        threshold_from_pnrd = detector == 'threshold' and not torch.allclose(mean, torch.zeros_like(mean))
+        sample_detector = 'pnrd' if threshold_from_pnrd else detector
+        samples = sample_sc_mcmc(
+            prob_func=partial(self._get_prob_gaussian, state=(cov, mean), detector=sample_detector),
+            proposal_sampler=partial(self._proposal_sampler, detector=sample_detector),
+            shots=shots,
+            num_chain=num_chain,
+        )
+        if threshold_from_pnrd:
+            clicks = defaultdict(int)
+            for photons, count in samples.items():
+                clicks[tuple(int(n != 0) for n in photons)] += count
+            return clicks
+        return samples
 
-    def _proposal_sampler(self):
+    def _proposal_sampler(self, detector: str = 'pnrd') -> tuple[int, ...]:
         """The proposal sampler for MCMC sampling."""
         if self.backend == 'fock':
             assert self.basis, 'Currently NOT supported.'
             sample = self._out_fock_basis[torch.randint(0, len(self._out_fock_basis), (1,))[0]]
         elif self.backend == 'gaussian':
-            sample = self._generate_rand_sample(self.detector)
+            sample = self._generate_rand_sample(detector)
         return tuple(sample.tolist())
 
     def _generate_rand_sample(self, detector: str = 'pnrd'):
@@ -2571,8 +2563,9 @@ class QumodeCircuit(Operation):
 
         Args:
             wires: The wires to measure. It can be a list of integers specifying the indices of the wires.
-            detector: For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector or
+            detector: Use ``'pnrd'`` for the photon-number-resolving detector,
                 ``'threshold'`` for the threshold detector, or ``'click'`` for the click-counting detector.
+                Applies to Gaussian sampling.
 
         Returns:
             Tensor of shape (batch, nwire).
@@ -3018,10 +3011,8 @@ class QumodeCircuit(Operation):
                 with orthogonal basis modes. On a Bargmann delay circuit with submodes, these indices refer
                 to the concurrent wires of the one-step joint state.
                 Other unmeasured modes are traced out. Default: ``None`` (all unmeasured modes)
-            detector: Use ``'pnrd'`` for photon-number-resolving detection, ``'threshold'`` for ideal
-                on/off detection, or ``'click'`` for multiplexed click-counting detection.
-                An explicit value overrides the circuit detector for this readout.
-                Click-counting post-selection is not implemented.
+            detector: Use ``'pnrd'`` for the photon-number-resolving detector or
+                ``'threshold'`` for the threshold detector. An explicit value applies only to this readout.
                 Default: ``None`` (which means ``self.detector``)
             cutoff: The Fock space truncation for readout. Fock outputs cannot exceed the simulated cutoff.
                 For Bargmann, it sets the default cutoff of the returned state without truncating it.

@@ -14,6 +14,24 @@ def double_precision():
     torch.set_default_dtype(previous)
 
 
+@pytest.mark.parametrize('mcmc', [True, False])
+def test_gaussian_measure_detector_override(mcmc):
+    alpha = torch.tensor(0.9)
+    cir = dqp.QumodeCircuit(1, 'vac', cutoff=5, backend='gaussian', detector='pnrd')
+    cir.d(0, r=alpha)
+    cir.double()
+    cir()
+    vacuum = torch.exp(-alpha.square())
+    single_photon = alpha.square() * vacuum
+    torch.testing.assert_close(cir.get_prob([1]), single_photon)
+
+    torch.manual_seed(7)
+    results = cir.measure(shots=16, with_prob=True, detector='threshold', mcmc=mcmc)
+    torch.testing.assert_close(cir.get_prob([1]), single_photon)
+    _, click_probability = results[dqp.FockState([1])]
+    torch.testing.assert_close(click_probability, 1 - vacuum)
+
+
 @pytest.mark.parametrize('backend', ['gaussian', 'bosonic', 'fock'])
 @pytest.mark.parametrize('phi', [None, 0.3])
 def test_terminal_detector_matches_manual_optics_and_seed(backend, phi):
