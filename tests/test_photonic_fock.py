@@ -9,20 +9,23 @@ from deepquantum.photonic.qmath import product_factorial, sample_homodyne_fock
 from deepquantum.qmath import evolve_state
 
 
-def test_photon_loss_density_coherences_match_kraus():
+@pytest.mark.parametrize('convention,value', [('t', 0.64), ('theta', 4.0)])
+def test_photon_loss_density_coherences_match_kraus(convention, value):
     cutoff = 4
     gen = torch.Generator().manual_seed(24)
     ket = torch.randn(2, cutoff**2, dtype=torch.cdouble, generator=gen)
     ket = ket / ket.norm(dim=1, keepdim=True)
     rho = (ket[:, :, None] * ket.conj()[:, None, :]).reshape(2, *([cutoff] * 4)).requires_grad_()
-    t = torch.tensor(0.64, dtype=torch.double, requires_grad=True)
-    direct = dqp.PhotonLoss(t, nmode=2, wires=1, cutoff=cutoff, convention='t')(rho)
-    kraus = dqp.PhotonLoss(2 * t.sqrt().acos(), nmode=2, wires=1, cutoff=cutoff)(rho)
-    torch.testing.assert_close(direct, kraus)
+    control = torch.tensor(value, dtype=torch.double, requires_grad=True)
+    loss = dqp.PhotonLoss(control, nmode=2, wires=1, cutoff=cutoff, convention=convention)
+    direct = loss(rho)
+    operators = loss.update_matrix_state()
+    expected = torch.einsum('lam,bimjn,lcn->biajc', operators, rho, operators.conj())
+    torch.testing.assert_close(direct, expected)
     probe = torch.randn(rho.shape, dtype=rho.dtype, generator=gen)
     torch.testing.assert_close(
-        torch.autograd.grad((probe * direct).real.sum(), (t, rho)),
-        torch.autograd.grad((probe * kraus).real.sum(), (t, rho)),
+        torch.autograd.grad((probe * direct).real.sum(), (control, rho)),
+        torch.autograd.grad((probe * expected).real.sum(), (control, rho)),
     )
 
 

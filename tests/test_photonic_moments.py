@@ -44,8 +44,21 @@ def test_loss_gradients_at_unit_transmittance(backend, method, values):
         torch.testing.assert_close(derivative, target, atol=3e-9, rtol=1e-8)
 
 
+def test_small_loss_angle_adds_vacuum_noise_to_squeezed_quadrature():
+    cov = torch.diag(torch.tensor([1e-3, 1e3], dtype=torch.double))
+    angle = cov.new_tensor(1e-8)
+    cir = dq.QumodeCircuit(1, [cov, cov.new_zeros(2, 1)], backend='gaussian')
+    cir.loss(0, angle)
+    cir.double()
+    cir()
+    variance, _ = cir.quadrature_moments(0, phi=0.0)
+    vacuum = dqp.hbar / (4 * dqp.kappa**2)
+    expected = cov[0, 0] + (vacuum - cov[0, 0]) * (angle / 2).sin().square()
+    torch.testing.assert_close(variance.squeeze() - cov[0, 0], expected - cov[0, 0], atol=0, rtol=1e-12)
+
+
 @pytest.mark.parametrize('convention,value', [('t', 1.0), ('db', 0.0)])
-def test_loss_control_and_angle_checkpoint(convention, value):
+def test_loss_control_and_angle_optimizer(convention, value):
     control = torch.tensor(value, dtype=torch.double, requires_grad=True)
     loss = dqp.PhotonLoss(control, convention=convention)
     state = [torch.eye(2, dtype=torch.double), torch.ones(2, 1, dtype=torch.double)]
@@ -57,11 +70,13 @@ def test_loss_control_and_angle_checkpoint(convention, value):
     other = control.new_tensor(0.64 if convention == 't' else -10 * math.log10(0.64))
     updated = torch.func.functional_call(loss, {'gate.' + convention: other}, (state,), strict=True)
     torch.testing.assert_close(updated[1], torch.full_like(state[1], 0.8))
+    restored = dqp.PhotonLoss(convention=convention).double()
+    restored.load_state_dict(loss.state_dict())
+    torch.testing.assert_close(restored(state), loss(state))
 
     # The optimizer uses the signed angle, including angles beyond pi.
     trainable = dqp.PhotonLoss(control, convention=convention, requires_grad=True)
     assert dict(trainable.named_parameters()) == {'gate.theta': trainable.theta}
-    trainable.load_state_dict(loss.state_dict())
     torch.testing.assert_close(trainable.theta, loss.theta)
     trainable.load_state_dict({'gate.theta': control.new_tensor(4.0)})
     optimizer = torch.optim.SGD(trainable.parameters(), lr=0.1)
@@ -69,9 +84,8 @@ def test_loss_control_and_angle_checkpoint(convention, value):
     mean.backward()
     torch.testing.assert_close(trainable.theta.grad, -(trainable.theta / 2).sin() / 2)
     optimizer.step()
-    loss.load_state_dict(trainable.state_dict())
-    torch.testing.assert_close(loss(state)[1], trainable(state)[1])
-    assert loss(state)[1][0, 0] < 0
+    torch.testing.assert_close(trainable(state)[1], (trainable.theta / 2).cos() * state[1])
+    assert trainable(state)[1][0, 0] < 0
 
 
 @pytest.mark.parametrize('backend', ['fock', 'gaussian', 'bosonic', 'bargmann'])
