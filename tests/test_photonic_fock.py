@@ -9,6 +9,23 @@ from deepquantum.photonic.qmath import product_factorial, sample_homodyne_fock
 from deepquantum.qmath import evolve_state
 
 
+def test_photon_loss_density_coherences_match_kraus():
+    cutoff = 4
+    gen = torch.Generator().manual_seed(24)
+    ket = torch.randn(2, cutoff**2, dtype=torch.cdouble, generator=gen)
+    ket = ket / ket.norm(dim=1, keepdim=True)
+    rho = (ket[:, :, None] * ket.conj()[:, None, :]).reshape(2, *([cutoff] * 4)).requires_grad_()
+    t = torch.tensor(0.64, dtype=torch.double, requires_grad=True)
+    direct = dqp.PhotonLoss(t, nmode=2, wires=1, cutoff=cutoff, convention='t')(rho)
+    kraus = dqp.PhotonLoss(2 * t.sqrt().acos(), nmode=2, wires=1, cutoff=cutoff)(rho)
+    torch.testing.assert_close(direct, kraus)
+    probe = torch.randn(rho.shape, dtype=rho.dtype, generator=gen)
+    torch.testing.assert_close(
+        torch.autograd.grad((probe * direct).real.sum(), (t, rho)),
+        torch.autograd.grad((probe * kraus).real.sum(), (t, rho)),
+    )
+
+
 @pytest.mark.parametrize('gate_type,wires,inputs', [(dqp.BeamSplitter, [2, 0], [0.41, -0.57]), (dqp.Kerr, [1], 0.23)])
 def test_local_gate_superoperator_matches_density_evolution(gate_type, wires, inputs):
     nmode, cutoff = 3, 3

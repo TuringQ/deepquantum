@@ -9,6 +9,71 @@ import deepquantum as dq
 import deepquantum.photonic as dqp
 
 
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann', 'fock'])
+@pytest.mark.parametrize('method,values', [('loss_t', [1.0, 0.64]), ('loss_db', [0.0, 1.0]), ('loss', [0.0, 4.0])])
+def test_loss_gradients_at_unit_transmittance(backend, method, values):
+    # A displaced thermal state has <x> = 1, Var(x) = 1 + 2*nbar before loss.
+    nbar = 0.1
+    cir = dq.QumodeCircuit(1, 'vac', cutoff=14, backend=backend, basis=False, den_mat=True)
+    cir.thermal(0, nbar=torch.tensor(nbar, dtype=torch.double))
+    cir.d(0, 0.5, 0.0)
+    getattr(cir, method)(0, encode=True)
+    cir.to(torch.double)
+    data = torch.tensor(values, dtype=torch.double).reshape(-1, 1).requires_grad_()
+    state = cir(data)
+    variance, mean = cir.quadrature_moments(0, phi=0.0)
+    if backend == 'gaussian':
+        vacuum = cir.get_prob([0])
+    else:
+        rho = state.to_fock(1) if backend == 'bargmann' else state
+        vacuum = rho[:, 0, 0].real
+
+    control = data.flatten()
+    if method == 'loss':
+        field = (control / 2).cos()
+        power = field.square()
+    else:
+        power = control if method == 'loss_t' else 10 ** (-control / 10)
+        field = power.sqrt()
+    thermal = 1 + nbar * power
+    expected = [field, 1 + 2 * nbar * power, (-0.25 * power / thermal).exp() / thermal]
+    for value, reference in zip([mean, variance, vacuum], expected, strict=True):
+        torch.testing.assert_close(value.flatten().real, reference, atol=3e-9, rtol=1e-8)
+        derivative = torch.autograd.grad(value.real.sum(), data, retain_graph=True)[0]
+        target = torch.autograd.grad(reference.sum(), data, retain_graph=True)[0]
+        torch.testing.assert_close(derivative, target, atol=3e-9, rtol=1e-8)
+
+
+@pytest.mark.parametrize('convention,value', [('t', 1.0), ('db', 0.0)])
+def test_loss_control_and_angle_checkpoint(convention, value):
+    control = torch.tensor(value, dtype=torch.double, requires_grad=True)
+    loss = dqp.PhotonLoss(control, convention=convention)
+    state = [torch.eye(2, dtype=torch.double), torch.ones(2, 1, dtype=torch.double)]
+    target = 0.5 if convention == 't' else -math.log(10) / 20
+    for _ in range(2):
+        mean = loss(state)[1][0, 0]
+        torch.testing.assert_close(torch.autograd.grad(mean, control)[0], control.new_tensor(target))
+        loss.load_state_dict(loss.state_dict())
+    other = control.new_tensor(0.64 if convention == 't' else -10 * math.log10(0.64))
+    updated = torch.func.functional_call(loss, {'gate.' + convention: other}, (state,), strict=True)
+    torch.testing.assert_close(updated[1], torch.full_like(state[1], 0.8))
+
+    # The optimizer uses the signed angle, including angles beyond pi.
+    trainable = dqp.PhotonLoss(control, convention=convention, requires_grad=True)
+    assert dict(trainable.named_parameters()) == {'gate.theta': trainable.theta}
+    trainable.load_state_dict(loss.state_dict())
+    torch.testing.assert_close(trainable.theta, loss.theta)
+    trainable.load_state_dict({'gate.theta': control.new_tensor(4.0)})
+    optimizer = torch.optim.SGD(trainable.parameters(), lr=0.1)
+    mean = trainable(state)[1][0, 0]
+    mean.backward()
+    torch.testing.assert_close(trainable.theta.grad, -(trainable.theta / 2).sin() / 2)
+    optimizer.step()
+    loss.load_state_dict(trainable.state_dict())
+    torch.testing.assert_close(loss(state)[1], trainable(state)[1])
+    assert loss(state)[1][0, 0] < 0
+
+
 @pytest.mark.parametrize('backend', ['fock', 'gaussian', 'bosonic', 'bargmann'])
 def test_registered_quadratures_and_explicit_queries(backend):
     cir = dq.QumodeCircuit(3, 'vac', backend=backend, cutoff=6, basis=False)

@@ -322,6 +322,50 @@ class OPA(Channel):
         return f'wires={self.wires}, r={self.r.item()}, theta={self.theta.item()}, transmittance={self.t.item()}'
 
 
+class _PowerLossCoupler(BeamSplitterSingle):
+    """Expose the beam-splitter angle while evolving from a supplied power transmittance."""
+
+    def init_para(self, inputs: Any = None, *, convention: str = 'theta') -> None:
+        """Keep the supplied physical control, or the random initial angle until data is encoded."""
+        name = 'angle' if inputs is None or convention == 'theta' else convention
+        self._set_control(name, self.inputs_to_tensor(inputs))
+        self.update_matrix()
+        self.update_transform_xp()
+
+    def _set_control(self, name: str, value: torch.Tensor) -> None:
+        for coordinate in ('angle', 't', 'db'):
+            self.register_buffer(coordinate, value if coordinate == name else None)
+
+    @property
+    def power(self) -> torch.Tensor | None:
+        if self.angle is not None:
+            return None
+        power = self.t if self.db is None else 10 ** (-self.db / 10)
+        # Encoded inputs outside the physical domain propagate NaN, including under vmap.
+        return torch.where((power >= 0) & (power <= 1), power, float('nan'))
+
+    @property
+    def theta(self) -> torch.Tensor:
+        return self.angle if self.angle is not None else 2 * self.power.sqrt().acos()
+
+    def _load_from_state_dict(self, state_dict, prefix, *args):
+        if prefix + 'theta' in state_dict:
+            theta = state_dict.pop(prefix + 'theta')
+            if self.angle is None and ((theta >= 0) & (theta <= torch.pi)).all():
+                power = torch.where(theta == torch.pi, 0.0, (theta / 2).cos().square())
+                name = 't' if self.db is None else 'db'
+                state_dict[prefix + name] = power if name == 't' else -10 * power.log10()
+            else:
+                state_dict[prefix + 'angle'] = theta
+        for name in ('angle', 't', 'db'):
+            if prefix + name in state_dict and getattr(self, name) is None:
+                self._set_control(name, torch.empty_like(next(self.buffers())))
+                break
+        super()._load_from_state_dict(state_dict, prefix, *args)
+        self.update_matrix()
+        self.update_transform_xp()
+
+
 class PhotonLoss(Channel):
     r"""Photon loss channel on single mode.
 
@@ -332,7 +376,8 @@ class PhotonLoss(Channel):
 
        \hat{a}_{\text{out}} = \cos(\theta/2)\hat{a}_{\text{in}} + \sin(\theta/2)\hat{b}_{\text{vac}}
 
-    The power transmittance is :math:`T=\cos^2(\theta/2)`.
+    The power transmittance is :math:`T=\cos^2(\theta/2)`. Fixed and encoded power or dB inputs
+    act directly on the reduced state. A trainable coupler uses the angle as its optimizer parameter.
 
     Args:
         inputs: The parameter of the channel. Default: ``None``
@@ -358,10 +403,11 @@ class PhotonLoss(Channel):
         assert convention in ('theta', 't', 'db'), 'Invalid convention'
         self.convention = convention
         self.requires_grad = requires_grad
-        theta = self._inputs_to_theta(inputs)
+        theta = _loss_to_theta(inputs, convention)
         if convention == 't' and theta is not None and (theta.is_complex() or not bool(torch.isfinite(theta).all())):
             raise ValueError('Loss transmittance must be real, finite and lie in [0, 1]')
-        self.gate = BeamSplitterSingle(
+        coupler = _PowerLossCoupler if convention != 'theta' and not requires_grad else BeamSplitterSingle
+        self.gate = coupler(
             inputs=theta,
             nmode=self.nmode + 1,
             wires=self.wires + [self.nmode],
@@ -370,6 +416,8 @@ class PhotonLoss(Channel):
             convention='h',
             requires_grad=requires_grad,
         )
+        if isinstance(self.gate, _PowerLossCoupler) and inputs is not None:
+            self.gate._set_control(convention, self.gate.inputs_to_tensor(inputs))
         self.npara = 1
 
     @property
@@ -379,7 +427,14 @@ class PhotonLoss(Channel):
     @property
     def t(self):
         """Transmittance."""
-        return torch.cos(self.theta / 2) ** 2
+        return self._transmission()[1]
+
+    def _transmission(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return field and power transmittance in the active control coordinate."""
+        if (power := getattr(self.gate, 'power', None)) is not None:
+            return power.sqrt(), power
+        field = torch.cos(self.theta / 2)
+        return field, field.square()
 
     @property
     def db(self):
@@ -388,11 +443,19 @@ class PhotonLoss(Channel):
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        self.gate.init_para(self._inputs_to_theta(inputs))
+        if isinstance(self.gate, _PowerLossCoupler):
+            self.gate.init_para(inputs, convention=self.convention)
+        else:
+            self.gate.init_para(_loss_to_theta(inputs, self.convention))
 
-    def _inputs_to_theta(self, inputs: Any = None) -> torch.Tensor | None:
-        """Convert inputs under the chosen convention to the internal loss theta."""
-        return _loss_to_theta(inputs, self.convention)
+    def _load_from_state_dict(self, state_dict, prefix, *args):
+        # An angle-parameterized optimizer can also start from a fixed physical control.
+        if not isinstance(self.gate, _PowerLossCoupler):
+            for name in ('angle', 't', 'db'):
+                if (value := state_dict.pop(prefix + 'gate.' + name, None)) is not None:
+                    state_dict[prefix + 'gate.theta'] = value if name == 'angle' else _loss_to_theta(value, name)
+                    break
+        super()._load_from_state_dict(state_dict, prefix, *args)
 
     @staticmethod
     def _apply_unitary(
@@ -422,17 +485,35 @@ class PhotonLoss(Channel):
         """Update the local Kraus matrices acting on Fock state density matrices."""
         return self.get_matrix_state(self.theta)
 
+    def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply vacuum loss, summing over the same lost photons on ket and bra."""
+        if (power := getattr(self.gate, 'power', None)) is None:
+            return super().op_den_mat(x)
+        # Each lost photon contributes 1 - T to the density matrix. Taking its
+        # square root separately in each Kraus amplitude is singular at T = 1.
+        wire = self.wires[0]
+        axes = (wire + 1, wire + self.nmode + 1)
+        rho = x.movedim(axes, (-2, -1))
+        power = power.reshape(())
+        levels = torch.arange(self.cutoff, device=power.device)
+        weight = power.sqrt().pow(levels[:, None] + levels)
+        result = weight * rho
+        for lost in range(1, self.cutoff):
+            factor = (levels[lost:].to(power) / lost).sqrt()
+            weight = weight[:-1, :-1] * factor[:, None] * factor * (1 - power)
+            term = rho[..., lost:, lost:] * weight
+            result = result + torch.nn.functional.pad(term, (0, lost, 0, lost))
+        return result.movedim((-2, -1), axes)
+
     def update_transform_xy(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Update the local transformation matrices X and Y acting on Gaussian states.
 
         See https://arxiv.org/pdf/quant-ph/0503237 Eq.(4.19), Eq.(4.20)
         """
-        g_t_sqrt = self.theta.new_ones(2).diag() * torch.cos(self.theta / 2)
-        g_t = self.theta.new_ones(2).diag() * torch.cos(self.theta / 2) ** 2
-        identity = self.theta.new_ones(2).diag()
-        sigma_h = self.theta.new_ones(2).diag() * dqp.hbar / (4 * dqp.kappa**2)
-        matrix_x = g_t_sqrt
-        matrix_y = (identity - g_t) @ sigma_h
+        field, power = self._transmission()
+        identity = torch.eye(2, dtype=power.dtype, device=power.device)
+        matrix_x = field * identity
+        matrix_y = (1 - power) * identity * dqp.hbar / (4 * dqp.kappa**2)
         self.matrix_x = matrix_x.detach()
         self.matrix_y = matrix_y.detach()
         return matrix_x, matrix_y
@@ -450,8 +531,8 @@ class PhotonLoss(Channel):
         """
         if len(self.wires) != 1:
             raise NotImplementedError('PhotonLoss acts on a single mode')
-        transmittance = self.t
-        amplitude = torch.cos(self.theta / 2) + 0j
+        amplitude, transmittance = self._transmission()
+        amplitude = amplitude + 0j
         transmittance = transmittance + 0j
         zero = torch.zeros_like(transmittance)
         loss = 1 - transmittance
