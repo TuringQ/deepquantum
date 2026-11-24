@@ -77,7 +77,11 @@ def test_post_select_circuit_detector_and_override(backend):
     _, probability = cir.post_select(0, 1, detector='PNRD')
     torch.testing.assert_close(probability, (1 - q) * q, atol=2e-8, rtol=2e-7)
     assert cir.detector == 'threshold'
+    cir(detector='PNRD')
     cir.detector = 'click'
+    _, probability = cir.post_select(0, 1)
+    torch.testing.assert_close(probability, (1 - q) * q, atol=2e-8, rtol=2e-7)
+    cir()
     with pytest.raises(NotImplementedError, match='Click-counting'):
         cir.post_select(0, 1)
     _, probability = cir.post_select(0, 1, detector='threshold')

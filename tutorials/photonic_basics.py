@@ -1345,16 +1345,19 @@ print(photon_mean, photon_var)
 # 通过设置 `is_prob=True` 参数可以得到对应的Fock态概率分布，`detector='pnrd'` 表示使用粒子数分辨探测器，`detector='threshold'` 表示使用阈值探测器。
 
 # %%
-state = cir(is_prob=True, detector='threshold')  # 线路演化后得到的高斯态用协方差矩阵和平均值刻画
+state = cir(is_prob=True, detector='threshold')  # 每个模式的 0/1 点击图样及其概率
 print(state)
 
 # %% [markdown]
 # 4. 高斯线路的采样
 
 # %% [markdown]
-# 当计算了末态的概率分布时，使用对应的概率分布进行采样。
-# 当只得到末态的协方差和平均值时，通过设置`mcmc=True`使用马尔科夫链蒙特卡洛方法进行采样，设置`mcmc=False` 表示使用链式法则(chain-rule)方法进行采样，默认设置为`False`。
-# `'pnrd'`表示单光子分辨探测器，默认设为`'pnrd'`，`'threshold'`表示阈值探测器。
+# 每次 `forward` 默认使用 `cir.detector`，显式传入的 `detector` 决定这次输出的读出方式。
+# 返回高斯态和返回概率表时都遵循这一约定。
+#
+# `measure` 默认沿用本次输出的探测器，也可以为这一次采样指定 `detector`。
+# 已有对应探测器的概率表时，直接从表中采样。
+# 其余情况从已保存的高斯末态采样，默认使用链式法则，`mcmc=True` 使用马尔科夫链蒙特卡洛方法。
 
 # %%
 cir = dq.QumodeCircuit(nmode=2, init_state='vac', cutoff=3, backend='gaussian')
@@ -1890,7 +1893,7 @@ print(rho_bargmann.diagonal(dim1=-2, dim2=-1).real.sum(-1))  # 截断内的迹�
 # ### 阈值后选择与低阶矩
 #
 # `post_select(wires, photons, detector='threshold')` 按未点击（0）或点击（1，至少一个光子）进行条件读出。
-# 默认 `detector=None` 沿用 `cir.detector`，显式传入探测器类型只覆盖本次后选择，不改变线路设置。
+# `detector=None` 沿用最近一次 `forward` 为输出选定的探测器，显式传入的探测器只用于本次后选择。
 # 探测器命名统一使用 `pnrd`、`threshold` 和 `click`，其中 `click` 表示多路阈值探测器的点击计数，当前尚不支持它的后选择。
 # 参数顺序是 `wires, photons, keep, detector`，其余选项使用关键字指定。
 # 阈值条件态由密度算符描述。

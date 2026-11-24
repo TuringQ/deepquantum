@@ -639,7 +639,6 @@ class _SubmodeCircuit(QumodeCircuit):
             backend=parent.backend,
             basis=parent.basis,
             den_mat=parent.den_mat,
-            detector=parent.detector,
         )
         object.__setattr__(self, 'parent', parent)
         self.factorized = factorized
@@ -950,9 +949,8 @@ class _SubmodeCircuit(QumodeCircuit):
             prob = prob.reshape(-1, self.nsubmode, *prob.shape[1:])
         return prob
 
-    def spatial_probabilities(self, detector=None):
+    def spatial_probabilities(self, detector='pnrd'):
         """Return PNR probabilities after summing counts over orthogonal basis modes."""
-        detector = self.detector if detector is None else detector
         if detector != 'pnrd':
             raise NotImplementedError('Unresolved submode readout currently supports PNR detection.')
         if isinstance(self.state, dict):
@@ -1023,7 +1021,6 @@ class _SubmodeCircuit(QumodeCircuit):
 
     def measure_spatial(self, shots, with_prob, wires, detector, mcmc):
         """Sample spatial photon counts without resolving orthogonal basis modes."""
-        detector = self.detector if detector is None else detector
         if detector != 'pnrd':
             raise NotImplementedError('Submode readout currently supports PNR detection.')
         selected = self.parent.wires if wires is None else self.parent._convert_indices(wires)
@@ -1403,9 +1400,9 @@ class _SubmodeBlocks:
             accumulated = values if accumulated is None else _convolve_counts(accumulated, values, limits)
         return accumulated
 
-    def spatial_probabilities(self, detector=None):
+    def spatial_probabilities(self, detector='pnrd'):
         """Return PNR probabilities after summing counts over orthogonal basis modes."""
-        if (self.parent.detector if detector is None else detector) != 'pnrd':
+        if detector != 'pnrd':
             raise NotImplementedError('Submode readout currently supports PNR detection.')
         return group_probabilities(self._probability(self.parent.wires), [[w] for w in self.parent.wires])
 
@@ -1419,7 +1416,7 @@ class _SubmodeBlocks:
 
     def measure_spatial(self, shots, with_prob, wires, detector, mcmc):
         """Sample spatial photon counts without resolving orthogonal basis modes."""
-        if (self.parent.detector if detector is None else detector) != 'pnrd':
+        if detector != 'pnrd':
             raise NotImplementedError('Submode readout currently supports PNR detection.')
         selected = self.parent.wires if wires is None else self.parent._convert_indices(wires)
         samples = []

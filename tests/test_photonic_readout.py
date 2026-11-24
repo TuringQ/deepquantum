@@ -32,6 +32,119 @@ def test_gaussian_measure_detector_override(mcmc):
     torch.testing.assert_close(click_probability, 1 - vacuum)
 
 
+@pytest.mark.parametrize('is_prob', [False, True])
+def test_forward_detector_scopes_gaussian_readouts(is_prob):
+    alpha = torch.tensor(0.9)
+    cir = dqp.QumodeCircuit(2, 'vac', cutoff=5, backend='gaussian', detector='click')
+    cir.d(0, r=alpha)
+    cir.double()
+    output = cir(is_prob=is_prob, detector='THRESHOLD')
+    vacuum = torch.exp(-alpha.square())
+    threshold = 1 - vacuum
+    torch.testing.assert_close(cir.get_prob([1, 0]), threshold)
+    if is_prob:
+        torch.testing.assert_close(output[dqp.FockState([1, 0])].squeeze(), threshold)
+    _, probability = cir.post_select(0, 1)
+    torch.testing.assert_close(probability.squeeze(), threshold)
+    _, probability = cir.post_select(0, 1, detector='pnrd')
+    torch.testing.assert_close(probability.squeeze(), alpha.square() * vacuum)
+    torch.manual_seed(7)
+    records = cir.measure(shots=24, wires=0, with_prob=True)
+    torch.testing.assert_close(records[dqp.FockState([1])][1].squeeze(), threshold)
+    if is_prob:
+        torch.manual_seed(7)
+        assert cir.measure(shots=24, wires=0, with_prob=True, mcmc=True) == records
+    assert cir.state is output and cir.detector == 'click'
+    cir()
+    bin_vacuum = vacuum.pow(1 / 4)
+    torch.testing.assert_close(cir.get_prob([1, 0]), 4 * (1 - bin_vacuum) * bin_vacuum**3)
+
+
+@pytest.mark.parametrize(
+    ('original', 'requested'), [('pnrd', 'threshold'), ('threshold', 'pnrd'), ('threshold', 'click')]
+)
+@pytest.mark.parametrize('mcmc', [False, True])
+def test_measure_switches_detector_on_saved_gaussian_table(original, requested, mcmc):
+    cir = dqp.QumodeCircuit(2, 'vac', cutoff=5, backend='gaussian', detector='click')
+    cir.d(0, r=torch.tensor(0.9))
+    cir.set_hardware_model(dqp.HardwareModel(seed=11).d(0).r.gaussian(sigma=0.02))
+    cir.double()
+    ref = deepcopy(cir)
+    table = cir(is_prob=True, detector=original)
+    rng = cir.hardware_model._generator.get_state().clone()
+    expected = ref(is_prob=True, detector=requested)
+    torch.manual_seed(7)
+    records = cir.measure(shots=32, with_prob=True, wires=0, detector=requested.upper(), mcmc=mcmc)
+    assert sum(count for count, _ in records.values()) == 32
+    for key, (_, probability) in records.items():
+        n = key.state.item()
+        if requested == 'threshold':
+            assert n in (0, 1)
+        torch.testing.assert_close(probability.squeeze(), expected[dqp.FockState([n, 0])].squeeze())
+    assert cir.state is table
+    torch.testing.assert_close(cir.get_prob([1, 0]), table[dqp.FockState([1, 0])].squeeze())
+    torch.testing.assert_close(cir.hardware_model._generator.get_state(), rng)
+
+
+@pytest.mark.parametrize('mcmc', [False, True])
+def test_threshold_readout_from_vacuum_only_pnr_table(mcmc):
+    alpha = torch.tensor(0.9)
+    cir = dqp.QumodeCircuit(1, 'vac', cutoff=1, backend='gaussian')
+    cir.delay(0, ntau=2, inputs=[0.4, 0.2])
+    cir.d(0, r=alpha)
+    cir.double()
+    table = cir(is_prob=True)
+    vacuum = torch.exp(-alpha.square())
+    assert len(table) == 1
+    torch.testing.assert_close(next(iter(table.values())).squeeze(), vacuum)
+    torch.manual_seed(7)
+    changed = cir.measure(shots=24, wires=0, with_prob=True, detector='threshold', mcmc=mcmc)
+    torch.testing.assert_close(changed[dqp.FockState([1])][1], 1 - vacuum)
+    cir(detector='threshold')
+    torch.manual_seed(7)
+    assert cir.measure(shots=24, wires=0, with_prob=True, mcmc=mcmc) == changed
+
+
+def test_spatial_pnr_override_on_gaussian_submodes():
+    cir = dqp.QumodeCircuit(1, 'vac', cutoff=3, backend='gaussian', detector='threshold')
+    r = torch.tensor(0.5)
+    cir.s(0, r=r)
+    cir.set_hardware_model(dqp.HardwareModel().s(0).submodes(relative_r=[1, 0.5]))
+    cir.double()
+    table = cir(is_prob=True, detector='PNRD')
+    vacuum = 1 / (r.cosh() * (r / 2).cosh())
+    torch.testing.assert_close(cir.get_prob([0]).squeeze(), vacuum)
+    torch.testing.assert_close(cir.get_prob([2]), table[dqp.FockState([2])])
+    with pytest.raises(NotImplementedError, match='PNR'):
+        cir.measure(detector='threshold')
+    cir()
+    with pytest.raises(NotImplementedError, match='PNR'):
+        cir.get_prob([0])
+    torch.manual_seed(7)
+    pnrd = cir.measure(shots=8, detector='pnrd', with_prob=True)
+    for key, (_, probability) in pnrd.items():
+        torch.testing.assert_close(probability.squeeze(), table[key].squeeze())
+
+
+@pytest.mark.parametrize('detector', ['pnrd', 'click'])
+def test_switching_detector_reports_probability_on_measured_wires(detector):
+    r = torch.tensor(0.55)
+    cir = dqp.QumodeCircuit(2, 'vac', cutoff=5, backend='gaussian')
+    cir.s2([0, 1], r=r)
+    cir.d(0, r=torch.tensor(0.7))
+    cir.double()
+    cir(is_prob=True, detector='threshold')
+    # Tracing out wire 0 leaves a thermal state on wire 1.
+    ref = dqp.QumodeCircuit(1, 'vac', cutoff=5, backend='gaussian', detector=detector)
+    ref.thermal(0, nbar=r.sinh().square())
+    expected = ref(is_prob=True)
+    torch.manual_seed(4)
+    records = cir.measure(shots=1, wires=1, with_prob=True, detector=detector, mcmc=True)
+    ((key, (count, probability)),) = records.items()
+    assert count == 1
+    torch.testing.assert_close(probability, expected[key].squeeze())
+
+
 def test_displaced_threshold_mcmc_at_cutoff_one():
     alpha = torch.tensor(0.9)
     cir = dqp.QumodeCircuit(1, 'vac', cutoff=1, backend='gaussian', detector='threshold')
