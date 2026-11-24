@@ -184,15 +184,6 @@ class QumodeCircuit(Operation):
         self.hardware_model = None
         self.sources = nn.ModuleDict()
 
-    def __setstate__(self, state: dict[str, Any]) -> None:
-        """Restore execution metadata on previously saved circuits."""
-        if '_is_batch_expanded' in state:
-            state['_has_batch_padding_mode'] = state.pop('_is_batch_expanded')
-        # Legacy probability tables have no detector tag. Read their retained state when available.
-        state.setdefault('_state_detector', None)
-        state.setdefault('_state_raw', None)
-        super().__setstate__(state)
-
     @property
     def _uses_submodes(self) -> bool:
         """Whether the configured hardware or single-photon sources require evolution in an orthogonal mode basis."""
