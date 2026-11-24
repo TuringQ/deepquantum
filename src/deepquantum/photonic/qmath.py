@@ -904,6 +904,16 @@ def quadrature_moments_fock(
     return _quadrature_moments_ladder(alpha, normal, anomalous, weight, centered=centered, normalize=normalize)
 
 
+def _gaussian_marginal(state: list[torch.Tensor], wires: list[int]) -> list[torch.Tensor]:
+    """Select the joint covariance and mean on the requested wires in xxpp order."""
+    cov, mean = state
+    nmode = cov.shape[-1] // 2
+    if wires == list(range(nmode)):
+        return state
+    idx = torch.tensor(wires + [w + nmode for w in wires], dtype=torch.long, device=cov.device)
+    return [cov[..., idx[:, None], idx], mean[..., idx, :]]
+
+
 def _photon_number_mean_var_gaussian(cov: torch.Tensor, mean: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """Get the expectation value and variance of the photon number for single-mode Gaussian states."""
     coef = dqp.kappa**2 / dqp.hbar

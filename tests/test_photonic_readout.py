@@ -32,6 +32,51 @@ def test_gaussian_measure_detector_override(mcmc):
     torch.testing.assert_close(click_probability, 1 - vacuum)
 
 
+def test_displaced_threshold_mcmc_at_cutoff_one():
+    alpha = torch.tensor(0.9)
+    cir = dqp.QumodeCircuit(1, 'vac', cutoff=1, backend='gaussian', detector='threshold')
+    cir.d(0, r=alpha)
+    cir.double()
+    cir()
+    torch.manual_seed(7)
+    records = cir.measure(shots=32, with_prob=True, mcmc=True)
+    vacuum = torch.exp(-alpha.square())
+    assert sum(count for count, _ in records.values()) == 32
+    for bit, expected in enumerate((vacuum, 1 - vacuum)):
+        _, probability = records[dqp.FockState([bit])]
+        torch.testing.assert_close(probability, expected)
+
+
+def test_threshold_mcmc_reports_marginal_for_one_shot():
+    r = torch.tensor(0.55)
+    cir = dqp.QumodeCircuit(2, 'vac', cutoff=5, backend='gaussian', detector='threshold')
+    cir.s2([0, 1], r=r)
+    cir.d(0, r=torch.tensor(0.7))
+    cir.double()
+    cir()
+    torch.manual_seed(4)
+    records = cir.measure(shots=1, wires=1, with_prob=True, mcmc=True)
+    ((outcome, (count, probability)),) = records.items()
+    # Wire 1 is thermal for any displacement of the unmeasured wire 0.
+    click = r.tanh().square()
+    assert count == 1
+    torch.testing.assert_close(probability, click if outcome.state.item() else 1 - click)
+
+
+def test_threshold_mcmc_one_shot_click_frequency():
+    alpha = torch.tensor(0.1)
+    cir = dqp.QumodeCircuit(1, 'vac', cutoff=5, backend='gaussian', detector='threshold')
+    cir.d(0, r=alpha)
+    cir.double()
+    cir()
+    torch.manual_seed(7)
+    click = dqp.FockState([1])
+    trials = 128
+    clicks = sum(cir.measure(shots=1, mcmc=True).get(click, 0) for _ in range(trials))
+    expected = -torch.expm1(-alpha.square()).item()
+    assert abs(clicks / trials - expected) < 0.05
+
+
 @pytest.mark.parametrize('backend', ['gaussian', 'bosonic', 'fock'])
 @pytest.mark.parametrize('phi', [None, 0.3])
 def test_terminal_detector_matches_manual_optics_and_seed(backend, phi):

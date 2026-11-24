@@ -8,7 +8,7 @@ from collections.abc import Generator, Sequence
 from contextlib import contextmanager, nullcontext
 from copy import copy, deepcopy
 from dataclasses import replace
-from functools import partial
+from functools import cache, partial
 from operator import index as operator_index
 from typing import Any, TYPE_CHECKING, overload
 
@@ -56,6 +56,7 @@ from .measurement import Generaldyne, Homodyne
 from .operation import Channel, Delay, Gate, Operation
 from .qmath import (
     _first_order_indices,
+    _gaussian_marginal,
     _moment_powers,
     _moment_weight,
     _moment_wires,
@@ -1415,14 +1416,9 @@ class QumodeCircuit(Operation):
     @staticmethod
     def _tdm_marginal(state: list[torch.Tensor] | BargmannState, keep: list[int]) -> list[torch.Tensor] | BargmannState:
         """Trace out the complement of ``keep`` and restore the requested mode order."""
-        nmode = state.nmode if isinstance(state, BargmannState) else state[0].shape[-1] // 2
-        if keep == list(range(nmode)):
-            return state
         if isinstance(state, BargmannState):
-            return state._marginal(keep)
-        cov, mean = state
-        idx = torch.tensor(keep + [w + nmode for w in keep], device=cov.device)
-        return [cov[..., idx[:, None], idx], mean[..., idx, :]]
+            return state if keep == list(range(state.nmode)) else state._marginal(keep)
+        return _gaussian_marginal(state, keep)
 
     def _prepare_tdm_readout(
         self,
@@ -2453,10 +2449,18 @@ class QumodeCircuit(Operation):
         self._init_state_sample = init_state
         self._unitary = unitary
         self._out_fock_basis = self._get_all_fock_basis(init_state)
-        merged_samples = sample_sc_mcmc(
-            prob_func=self._get_prob_fock, proposal_sampler=self._proposal_sampler, shots=shots, num_chain=num_chain
+        return sample_sc_mcmc(
+            prob_func=self._get_prob_fock,
+            proposal_sampler=self._proposal_sampler_fock,
+            shots=shots,
+            num_chain=num_chain,
         )
-        return merged_samples
+
+    def _proposal_sampler_fock(self) -> tuple[int, ...]:
+        """Draw a uniform proposal from the output Fock basis."""
+        assert self.basis, 'Currently NOT supported.'
+        sample = self._out_fock_basis[torch.randint(0, len(self._out_fock_basis), (1,))[0]]
+        return tuple(sample.tolist())
 
     def _measure_gaussian(self, shots: int, with_prob: bool, wires: list[int], detector: str, mcmc: bool) -> list[dict]:
         """Measure the final state for Gaussian backend."""
@@ -2478,6 +2482,10 @@ class QumodeCircuit(Operation):
         """
         assert not self._with_delay, 'Currently Fock measurement is not supported with delay loops'
         cov, mean = self.state
+        # PNR and click-counting MCMC generate full patterns before selecting the measured wires.
+        full_patterns = mcmc and detector != 'threshold'
+        if not full_patterns and (mcmc or with_prob):
+            cov, mean = _gaussian_marginal(self.state, wires)
         batch = cov.shape[0]
         all_results = []
         all_samples = []
@@ -2504,15 +2512,10 @@ class QumodeCircuit(Operation):
             results = defaultdict(list)
             if with_prob:
                 for k in samples_i:
-                    if mcmc:
-                        prob = self._get_prob_gaussian(k, [cov[i], mean[i]], detector)
-                    else:
-                        wires_ = torch.tensor(wires, device=cov.device)
-                        idx = torch.cat([wires_, wires_ + self.nmode])
-                        prob = self._get_prob_gaussian(k, [cov[i][idx[:, None], idx], mean[i][idx, :]], detector)
+                    prob = self._get_prob_gaussian(k, [cov[i], mean[i]], detector)
                     samples_i[k] = samples_i[k], prob
             for key in samples_i:
-                state_b = [key[wire] for wire in wires] if mcmc else list(key)
+                state_b = [key[wire] for wire in wires] if full_patterns else list(key)
                 state_b = FockState(state=state_b)
                 results[state_b].append(samples_i[key])
             if with_prob:
@@ -2527,36 +2530,33 @@ class QumodeCircuit(Operation):
 
     def _sample_mcmc_gaussian(self, shots: int, cov: torch.Tensor, mean: torch.Tensor, detector: str, num_chain: int):
         """Sample the output states for Gaussian backend via SC-MCMC method."""
-        # For displaced threshold measurements, draw photon numbers and group all nonzero counts as clicks.
-        threshold_from_pnrd = detector == 'threshold' and not torch.allclose(mean, torch.zeros_like(mean))
-        sample_detector = 'pnrd' if threshold_from_pnrd else detector
-        samples = sample_sc_mcmc(
-            prob_func=partial(self._get_prob_gaussian, state=(cov, mean), detector=sample_detector),
-            proposal_sampler=partial(self._proposal_sampler, detector=sample_detector),
+        nmode = cov.shape[-1] // 2
+        cutoff = 2 if detector == 'threshold' else self.cutoff
+
+        def proposal_sampler() -> tuple[int, ...]:
+            return tuple(torch.randint(cutoff, (nmode,)).tolist())
+
+        @cache
+        def threshold_weights(prefix: tuple[int, ...]) -> torch.Tensor:
+            wires = list(range(len(prefix) + 1))
+            state = _gaussian_marginal([cov, mean], wires)
+            return self._get_prob_gaussian([(*prefix, 0), (*prefix, 1)], state, 'threshold')
+
+        def initial_threshold_pattern() -> tuple[int, ...]:
+            # The initial pattern counts as a shot, so draw its bits from successive conditional probabilities.
+            prefix = ()
+            for _ in range(nmode):
+                bit = torch.multinomial(threshold_weights(prefix), 1).item()
+                prefix += (bit,)
+            return prefix
+
+        return sample_sc_mcmc(
+            prob_func=partial(self._get_prob_gaussian, state=(cov, mean), detector=detector),
+            proposal_sampler=proposal_sampler,
             shots=shots,
             num_chain=num_chain,
+            initial_sampler=initial_threshold_pattern if detector == 'threshold' else None,
         )
-        if threshold_from_pnrd:
-            clicks = defaultdict(int)
-            for photons, count in samples.items():
-                clicks[tuple(int(n != 0) for n in photons)] += count
-            return clicks
-        return samples
-
-    def _proposal_sampler(self, detector: str = 'pnrd') -> tuple[int, ...]:
-        """The proposal sampler for MCMC sampling."""
-        if self.backend == 'fock':
-            assert self.basis, 'Currently NOT supported.'
-            sample = self._out_fock_basis[torch.randint(0, len(self._out_fock_basis), (1,))[0]]
-        elif self.backend == 'gaussian':
-            sample = self._generate_rand_sample(detector)
-        return tuple(sample.tolist())
-
-    def _generate_rand_sample(self, detector: str = 'pnrd'):
-        """Generate a random sample according to uniform proposal distribution."""
-        nmode = self._nmode_tdm if self._with_delay else self.nmode
-        cutoff = 2 if detector == 'threshold' else self.cutoff
-        return torch.randint(0, cutoff, [nmode])
 
     def _generate_chain_sample(self, wires: list[int], detector: str) -> torch.Tensor:
         """Generate batched random samples via chain rule.
