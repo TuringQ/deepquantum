@@ -18,7 +18,7 @@ The core package source is under `src/deepquantum/`. Prefer public APIs exported
 - `examples/`: runnable notebooks/scripts for algorithms, benchmarks, Clements/unitary mapping, QAOA/HHL/VQE, MBQC, and photonic workflows.
 - `docs/`: Sphinx/MyST documentation, quick-start pages, demos, and generated autosummary API pages.
 
-When answering simulation questions, inspect the closest combination of source, tests, tutorial, and example first. Start with `README.md`, then use `tutorials/` or `docs/source/quick_start/`, then match to a nearby `tests/test_*.py` file before writing new code.
+When answering simulation questions, inspect the closest combination of source, tests, tutorial, and example first. Start with `README.md`, then use `tutorials/` or `docs/source/quick_start/` and find an existing test for the public API.
 
 ## Simulation Usage Guidance
 
@@ -48,28 +48,40 @@ MPS and large qubit simulation:
 
 Photonic circuits:
 
-- Build a `dq.QumodeCircuit(nmode, init_state, backend=..., cutoff=...)`, add preparations and gates, and call `cir()`. The backend and state representation determine which operations and readouts are available.
-- Use `'vac'` for vacuum, or prepare inputs with circuit methods such as `thermal` and `single_photon` on their supported backends.
-- On the Fock basis backend, `cir()` returns the unitary, `cir(is_prob=False)` gives transition amplitudes and `cir(is_prob=True)` gives probabilities. Use `basis=False` for superpositions, `den_mat=True` with `basis=False` for density tensors, and `mps=True` with `basis=False` for Fock MPS.
-- Gaussian circuits evolve `[cov, mean]` through gates such as `s`, `s2`, `d` and `bs`. Use `get_symplectic` for a unitary Gaussian circuit's symplectic matrix or `cir(is_prob=True)` for photon-count probabilities.
-- Bosonic circuits evolve `[cov, mean, weight]` for linear combinations of Gaussians, including cat and GKP states. See `tests/test_photonic_bosonic.py` for preparation and quadrature readout.
-- Bargmann circuits evolve a native `BargmannState`. Use its moments and conditional states directly, or call `to_fock(cutoff)` for a finite Fock representation.
-- For interferometer decomposition and GBS examples, start with `dq.Clements`, `dq.UnitaryDecomposer`, `dq.GaussianBosonSampling` and `dqp.GraphGBS`. Use `cir.any(...)` for a differentiable arbitrary unitary.
+- Construct `dq.QumodeCircuit(nmode, init_state, backend=backend, cutoff=cutoff)`. Start from vacuum (`'vac'`) or a state in the chosen representation. Register thermal or single-photon inputs with `cir.thermal` or `cir.single_photon` on supported backends.
+- Build passive optics with `cir.ps`, `cir.bs` and `cir.mzi`. Use `cir.s` and `cir.s2` for squeezing, `cir.d` for displacement and `cir.loss_t` for loss specified by power transmittance. Use `cir.add(op)` to compose operations or circuits.
+- Call `cir()` to run the circuit and `cir.draw()` to display its optical elements. Mark data-dependent gates with `encode=True` and pass their parameters in gate order through `cir(data=data)`.
+- Use `cir.any(unitary)` to apply an interferometer matrix or `cir.clements(unitary)` to synthesize it with optical elements. Inspect the ideal passive transformation with `cir.get_unitary()`. Use `dq.UnitaryDecomposer` for Clements or Reck decomposition parameters.
+- For circuit templates, `dq.Clements` builds a programmable mesh, `dq.GaussianBosonSampling` combines squeezing with an interferometer and `dqp.GraphGBS` builds a sampling circuit from a graph adjacency matrix.
 
-Photonic hardware and submodes:
+**Photonic backends and forward results**
 
-- Attach a `dqp.HardwareModel` with `cir.set_hardware_model(model)` to model device controls, loss and readout on the same circuit. The hardware examples in `tutorials/photonic_basics.ipynb` and `tests/test_photonic_hardware.py` cover individual calibrations.
-- With orthogonal basis modes, circuit wires still label spatial ports. `SubmodeResult.to_joint()` gives the full joint state. A photon counter on a spatial port sums over its basis modes.
+- **Fock** (`backend='fock'`, the default)
 
-Photonic TDM:
+  - With input occupations or a basis `dq.FockState`, `basis=True` gives the interferometer unitary from `cir()`. Request amplitudes with `cir(is_prob=False)` or probabilities with `cir(is_prob=True)`. Use `cir.get_amplitude(pattern)` or `cir.get_prob(pattern)` for one output pattern.
+  - Use `basis=False` for a Fock state tensor with a per-mode `cutoff`. Superpositions use ket amplitudes, `den_mat=True` selects a density matrix and `mps=True, chi=chi` selects a Fock MPS.
 
-- Use `global_circuit(nstep)` to unroll delay loops, or `tdm_substate(...)` for selected unconditional outputs and windows.
-- For a Gaussian delay circuit without submodes, `tdm_memory(state)` extracts the loop modes and `cir(memory=...)` takes the next step with fresh inputs. `QumodeCircuitTDM` also supports stepwise homodyne measurements. See `tests/test_photonic_tdm.py` for examples.
+- **Gaussian** (`backend='gaussian'`). A `dq.GaussianState` or `[cov, mean]` specifies the input moments in `xxpp` order. `cov, mean = cir()` returns the output moments. Use `cir.get_symplectic()` for the symplectic matrix of a Gaussian unitary, `cir.get_prob(pattern)` for one counting event or `cir(is_prob=True, detector=detector)` for a probability table. Ordinary Gaussian circuits support `'pnrd'`, `'threshold'` and `'click'` detectors.
+- **Bosonic** (`backend='bosonic'`). `cov, mean, weight = cir()` evolves a linear combination of Gaussians. Prepare cat and GKP inputs with `cir.cat` and `cir.gkp`. A `dqp.BosonicState` provides `wigner` and `marginal` for phase-space readout.
+- **Bargmann** (`backend='bargmann'`). A circuit without submodes returns a `dq.BargmannState` from `state = cir()`. Work with its ket or density kernel directly, use `state.partial_trace(wires)` to trace out modes, and call `state.to_fock(cutoff)` for a finite Fock expansion.
 
-Photonic measurement and probabilities:
+**Measurement and conditional states**
 
-- After a forward pass, use `get_prob` for an event, `measure` to draw photon counts, and `post_select` to condition on a specified count. `measure(with_state=True)` pairs each sampled record with its conditional state on supported backends.
-- Use `quadrature_mean`, `quadrature_moments` or `photon_number_mean_var` for moments and `measure_homodyne` for quadrature samples. Consult the owning method's docstring for detector support, normalization and batch shapes.
+- After a forward pass, `cir.measure(shots=shots, wires=wires)` samples photon-count histograms on Fock, Gaussian and Bargmann circuits. Set `with_prob=True` to include event probabilities. Fock basis and Gaussian circuits can use `mcmc=True` to sample when enumerating all patterns is expensive. A terminal `detector` override applies to that readout.
+- On Fock state tensors, Gaussian and Bargmann circuits, `cir.measure(wires=wires, with_state=True)` pairs each sampled count record with its conditional state on the remaining modes. Use `cir.post_select(wires, photons)` for the conditional state and event weight of a chosen record.
+- Use `cir.photon_number_mean_var()` for photon-number statistics, `cir.quadrature_mean(wires, phi=phi)` for mean quadratures at selected angles and `cir.quadrature_moments()` for quadrature covariance and mean.
+- On Fock state tensors, Gaussian and Bosonic circuits, `cir.measure_homodyne(wires=wire, phi=phi)` samples a quadrature. For a conditional measurement, register `cir.homodyne(wire, phi)`, run the circuit, then call `cir.measure_homodyne()` and read `cir.state_measured`.
+
+**Hardware and orthogonal submodes**
+
+- Attach a `dqp.HardwareModel` with `cir.set_hardware_model(model)`. Gate selectors configure control noise and optical loss, and `model.homodyne(wire)` configures detector efficiency and readout.
+- For a supplied input state, set its mode profile with `model.input(wires).submodes(coefficients)`. A registered single-photon source takes its profile in `cir.single_photon(wires, coefficients=coefficients)`. Circuit wires label spatial ports, and a photon counter sums over the orthogonal basis modes in its port. Use `result.to_joint()` on a `dqp.SubmodeResult` for the joint backend state.
+
+**Time-domain multiplexing**
+
+- Add delay loops with `cir.delay`. Use `cir.global_circuit(nstep)` to unroll the circuit. On Gaussian and Bargmann circuits, `cir.tdm_substate(time_steps, wires=wires)` returns the joint state of selected unconditional outputs. Pass `window=window` to iterate over consecutive output windows.
+- Use `cir(memory=memory)` for a Gaussian or Bargmann step with fresh spatial inputs and an incoming loop state. On Gaussian circuits without submodes, `cir.tdm_memory(state)` extracts the loop modes from a full step in next-step order.
+- For stepwise homodyne conditioning, build a `dq.QumodeCircuitTDM` and register homodyne measurements on its spatial outputs. Run `tdm(nstep=nstep)` and read the measurement record from `tdm.samples`.
 
 MBQC:
 
@@ -107,12 +119,7 @@ Docs dependencies are in `requirements-docs.txt` / the `docs` extra. Development
 ## Common Commands
 
 ```bash
-pytest
-pytest tests/test_circuit.py
-pytest tests/test_photonic_fock.py
-pytest tests/test_photonic_bosonic.py
-pytest tests/test_photonic_hardware.py tests/test_photonic_tdm.py
-pytest tests/test_mbqc_transpile.py
+pytest tests
 ruff check .
 ruff format .
 pre-commit run --all-files
@@ -130,12 +137,10 @@ pre-commit run --all-files
 
 ## Testing Guidance
 
-- For simulation changes, run the most relevant targeted tests first. Benchmark performance changes end to end with the same physical inputs, requested outputs and timing boundaries on both revisions.
-- For qubit circuit changes, inspect and run relevant tests such as `tests/test_circuit.py`, `tests/test_mps.py`, `tests/test_auto_grad.py`, `tests/test_get_amplitude.py`, `tests/test_channel.py`, and `tests/test_module.py`.
-- For photonic changes, inspect and run relevant `tests/test_photonic_*.py` files plus compatibility tests such as `tests/test_with_xanadu*.py`, `tests/test_with_perceval.py`, `tests/test_with_qutip.py`, and `tests/test_with_pennylane.py` when applicable.
-- For MBQC changes, inspect and run `tests/test_mbqc_transpile.py` and `tests/test_with_graphix.py`.
-- For broad behavioral changes, run `pytest`, `ruff check .`, and `pre-commit run --all-files` when practical.
-- Numerical tests should use appropriate tolerances and compare against existing expected behavior or trusted reference implementations already present in tests.
+- Search `tests/` for the affected public method, backend or observable and run the matching cases first. Use pytest's `-k` option to select tests by name and `--collect-only -q` to preview the selection.
+- Compare simulation results with an analytic value, an equivalent circuit or an independent simulator. Check gradients, batch behavior, dtype and device where the changed path supports them.
+- Benchmark performance changes end to end with the same physical inputs, requested outputs and timing boundaries on both revisions.
+- For broad behavioral changes, run `pytest tests`, `ruff check .`, and `pre-commit run --all-files` when practical.
 
 ## Notebook and Documentation Rules
 

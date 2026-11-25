@@ -128,7 +128,7 @@ class SubmodeResult:
         blocks, states = zip(*self._factors(), strict=True)
         return _join_states(states, blocks, self.nmode, self.nsubmode, self.backend, self.den_mat)
 
-    def _bargmann_condition(
+    def _condition_bargmann_on_counts(
         self,
         wires: tuple[int, ...],
         photons: tuple[int, ...],
@@ -143,7 +143,7 @@ class SubmodeResult:
         if detector == 'threshold' and any(n not in (0, 1) for n in photons):
             raise ValueError('Threshold outcomes must be 0 or 1')
         groups = [[w * self.nsubmode + k for k in range(self.nsubmode)] for w in wires]
-        state = joint._condition_counts(groups, photons, detector)
+        state = joint._condition_on_counts(groups, photons, detector)
         probability = state.norm()
         if keep is None:
             return state, probability

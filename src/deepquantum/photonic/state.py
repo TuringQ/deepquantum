@@ -590,14 +590,14 @@ class BargmannState(nn.Module):
         if self.den_mat:
             rest = self.partial_trace(wires)
         else:
-            rest = self._condition_counts([[w] for w in wires], (0,) * len(wires), 'pnrd')
+            rest = self._condition_on_counts([[w] for w in wires], (0,) * len(wires), 'pnrd')
             if not torch.allclose(rest.norm(), self.norm(), rtol=100 * torch.finfo(self.mat_a.real.dtype).eps, atol=0):
                 raise ValueError('Pure input preparation requires vacuum on the selected input wires')
         order = [w for w in range(self.nmode) if w not in wires] + list(wires)
         return rest._tensor_product(replacement, [order.index(w) for w in range(self.nmode)])
 
-    def _condition_counts(self, groups: list[list[int]], counts: tuple[int, ...], detector: str) -> 'BargmannState':
-        """Condition on one count per measured port, summing over indistinguishable basis occupations."""
+    def _condition_on_counts(self, groups: list[list[int]], counts: tuple[int, ...], detector: str) -> 'BargmannState':
+        """Return the unnormalized conditional state, summing indistinguishable occupations for each port."""
         if detector == 'pnrd':
             if all(len(group) == 1 for group in groups):
                 positions = tuple(group[0] for group in groups)

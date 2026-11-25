@@ -277,7 +277,7 @@ def group_probabilities(probabilities: dict | torch.Tensor, groups: list[list[in
     return result
 
 
-def _photon_count_condition(
+def _condition_fock_on_counts(
     state: torch.Tensor,
     nmode: int,
     cutoff: int,
@@ -289,7 +289,7 @@ def _photon_count_condition(
     *,
     normalize: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Condition on photon counts or threshold outcomes and trace all unretained modes.
+    """Return the conditional Fock density matrix and event weight for PNR or threshold counts.
 
     See https://arxiv.org/pdf/1902.02323v2 Eq.(24) and Eq.(109) for PNR projection and probability.
     Here each unresolved event sums resolved projectors, with unretained modes traced out.

@@ -119,8 +119,9 @@ class QumodeCircuit(Operation):
         basis: Whether to use the representation of Fock basis state for the initial state. Default: ``True``
         den_mat: Whether to use density matrix representation. Fock state tensors store the matrix elements
             and Bargmann states store the analytic kernel of the density operator. Gaussian evolution uses
-            covariance and mean. For Gaussian PNR post-selection, ``True`` returns a Fock density matrix and
-            ``False`` returns a ket for a pure input. Threshold post-selection always returns a density operator.
+            covariance and mean. For Gaussian photon-count conditioning, ``True`` selects a Bargmann density
+            kernel. With ``False``, resolved PNR counts on a pure Gaussian output can retain a Bargmann ket.
+            Threshold post-selection always returns a density operator.
             Default: ``False``
         detector: Use ``'pnrd'`` for the photon-number-resolving detector,
             ``'threshold'`` for the threshold detector, or ``'click'`` for the click-counting detector.
@@ -1896,7 +1897,7 @@ class QumodeCircuit(Operation):
                 from .submode import _spatial_counts
 
                 counts = tuple(_spatial_counts(final_state, self.nmode))
-                _, weight = submode_circuit.result()._bargmann_condition(tuple(self.wires), counts, detector)
+                _, weight = submode_circuit.result()._condition_bargmann_on_counts(tuple(self.wires), counts, detector)
                 return self._event_weight(weight)
             if detector != 'pnrd':
                 raise NotImplementedError('Spatial submode probabilities support only PNR detection.')
@@ -2316,7 +2317,7 @@ class QumodeCircuit(Operation):
         if with_state or self.backend == 'bargmann':
             if mcmc or detector == 'click':
                 raise NotImplementedError('Conditional photon counting supports exact threshold and PNR sampling.')
-            return self._measure_trajectories(shots, wires, detector, with_state, with_prob)
+            return self._sample_count_records(shots, wires, detector, with_state, with_prob)
         if (submode_circuit := self._spatial_submode_readout()) is not None:
             if isinstance(self.state, dict) and detector == self._state_detector:
                 wires = self.wires if wires is None else self._convert_indices(wires)
@@ -2339,21 +2340,21 @@ class QumodeCircuit(Operation):
             results = results[0]
         return results
 
-    def _measure_trajectories(
+    def _sample_count_records(
         self, shots: int, wires: int | list[int] | None, detector: str, with_state: bool, with_prob: bool
     ) -> tuple | dict | list[dict]:
-        """Sample actual photon-count records and condition the remaining modes on each sampled prefix."""
+        """Draw photon-count records for a histogram or for per-shot conditional states."""
         if not isinstance(shots, int) or isinstance(shots, bool) or shots < int(with_state):
             raise ValueError('shots must be a nonnegative integer and with_state=True requires at least one shot.')
         wires = _moment_wires(wires, self.nmode)
-        source = self._counting_output(detector)
+        source = self._state_for_photon_counting(detector)
         nsubmode = 1
         if isinstance(source, dqp.SubmodeResult):
             nsubmode, source = source.nsubmode, source.to_joint()
         if self.backend == 'fock':
             if self.basis or self.mps or isinstance(self, DistributedQumodeCircuit):
                 raise NotImplementedError('Fock conditional trajectories require state tensors (basis=False).')
-            return self._measure_fock_trajectories(source, shots, wires, nsubmode, detector, with_prob)
+            return self._sample_fock_count_records(source, shots, wires, nsubmode, detector, with_prob)
         if not isinstance(source, BargmannState):
             raise NotImplementedError('Native conditional trajectories require a Gaussian or Bargmann output.')
         ports = [self._unroll_dict[w][-1] for w in wires] if self._with_delay else wires
@@ -2387,7 +2388,7 @@ class QumodeCircuit(Operation):
                         continue
                     for count in counts.unique().tolist():
                         selected = rows[counts == count]
-                        child = state._condition_counts([group], (count,), detector)
+                        child = state._condition_on_counts([group], (count,), detector)
                         mass = child.norm()[0]
                         if not bool(mass > 0):
                             raise ValueError('Sampled a numerically unresolved event; use higher precision.')
@@ -2415,11 +2416,11 @@ class QumodeCircuit(Operation):
             )
         return results[0] if batch == 1 else results
 
-    def _measure_fock_trajectories(
+    def _sample_fock_count_records(
         self, source: torch.Tensor, shots: int, wires: list[int], nsubmode: int, detector: str, with_prob: bool
     ) -> tuple:
         """Draw from the finite Fock diagonal and condition only on the reported spatial counts."""
-        from .qmath import _photon_count_condition
+        from .qmath import _condition_fock_on_counts
 
         nmode = self.nmode * nsubmode
         dim = self.cutoff**nmode
@@ -2446,7 +2447,7 @@ class QumodeCircuit(Operation):
             for event in records.flatten(0, 1).unique(dim=0):
                 b, s = (records == event).all(-1).nonzero(as_tuple=True)
                 rows, inv = b.unique(return_inverse=True)
-                child, mass = _photon_count_condition(
+                child, mass = _condition_fock_on_counts(
                     source[rows], nmode, self.cutoff, groups, event.tolist(), keep, detector, self.den_mat
                 )
                 if with_prob:
@@ -2464,7 +2465,7 @@ class QumodeCircuit(Operation):
         marginal = state._marginal(group)
         if detector == 'threshold':
             resolved = [[i] for i in range(len(group))]
-            vacuum_state = marginal._condition_counts(resolved, (0,) * len(group), 'pnrd')
+            vacuum_state = marginal._condition_on_counts(resolved, (0,) * len(group), 'pnrd')
             vacuum = self._event_weight(vacuum_state.norm()[0] / weight)
             click = self._event_weight(1 - vacuum)
             return (uniform < click).long()
@@ -3248,7 +3249,9 @@ class QumodeCircuit(Operation):
                 wires, photons, keep, detector, submode=submode, lo=lo
             )
         else:
-            state = self._counting_output(detector)._condition_counts([[w] for w in wires], photons, detector)
+            state = self._state_for_photon_counting(detector)._condition_on_counts(
+                [[w] for w in wires], photons, detector
+            )
             probability = state.norm()
         if isinstance(state, BargmannState):
             state.cutoff = cutoff
@@ -3256,8 +3259,8 @@ class QumodeCircuit(Operation):
             state = state[(slice(None), *([slice(cutoff)] * (state.ndim - 1)))]
         return self._finish_post_select(state, probability, remaining, normalize=normalize, return_info=return_info)
 
-    def _counting_output(self, detector: str):
-        """Represent a Gaussian output as a native kernel for either photon-counting instrument."""
+    def _state_for_photon_counting(self, detector: str):
+        """Get the retained state for photon counting, converting Gaussian moments to a Bargmann kernel."""
         source = self._get_output_state()
         if self.backend != 'gaussian':
             return source
@@ -3412,7 +3415,7 @@ class QumodeCircuit(Operation):
         lo: Any = None,
     ) -> tuple[torch.Tensor | BargmannState, torch.Tensor, tuple[int, ...]]:
         """Return the weighted conditional state, event weight and retained spatial labels."""
-        from .qmath import _photon_count_condition
+        from .qmath import _condition_fock_on_counts
 
         wires, photons = list(wires), list(photons)
         nmode = self._nmode_tdm if self._with_delay else self.nmode
@@ -3431,7 +3434,7 @@ class QumodeCircuit(Operation):
         if submode is not None and (type(submode) is not int or not 0 <= submode < d):
             raise ValueError('submode must index the common submode basis.')
         if self.backend != 'fock':
-            state, probability = self._counting_output(detector)._bargmann_condition(
+            state, probability = self._state_for_photon_counting(detector)._condition_bargmann_on_counts(
                 tuple(wires), tuple(photons), detector, keep=keep, submode=submode, lo=lo
             )
             return state, probability, tuple(keep)
@@ -3454,7 +3457,7 @@ class QumodeCircuit(Operation):
             state = self._get_output_state() if submode_circuit is None else submode_circuit.state
             if not isinstance(state, torch.Tensor) or not state.is_complex():
                 raise ValueError('Run the circuit to obtain a Fock state tensor before post-selection.')
-            density, probability = _photon_count_condition(
+            density, probability = _condition_fock_on_counts(
                 state,
                 self.nmode * d,
                 self.cutoff,
