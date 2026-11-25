@@ -524,6 +524,9 @@ class BeamSplitterTheta(BeamSplitter):
         """Initialize the parameters."""
         if inputs is None:
             inputs = torch.rand(1)[0] * 2 * torch.pi
+        elif isinstance(inputs, (list, tuple)) and len(inputs) == 1 and isinstance(inputs[0], torch.Tensor):
+            # A delay passes a one-element slice. Keep its buffer shape and the original autograd graph.
+            inputs = inputs[0].reshape(1)
         theta, phi = self.inputs_to_tensor([inputs, torch.pi / 2])
         phi = phi.to(theta.device, theta.dtype)
         if self.requires_grad:

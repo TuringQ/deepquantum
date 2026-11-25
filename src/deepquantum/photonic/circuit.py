@@ -3837,6 +3837,8 @@ class QumodeCircuit(Operation):
         Raises:
             AssertionError: If the input arguments are invalid or incompatible with the quantum circuit.
         """
+        if not isinstance(encode, bool):
+            raise TypeError('encode must be a bool.')
         self._invalidate_state()
         assert isinstance(op, Operation)
         if self.backend == 'fock':
