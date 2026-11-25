@@ -134,6 +134,39 @@ def test_gaussian_count_instruments_return_the_same_native_branch(detector):
         )
 
 
+def test_gaussian_pnr_purity_is_checked_once_per_output(monkeypatch):
+    source = dq.GaussianState(nmode=2).double()
+    cir = dq.QumodeCircuit(2, 'vac', backend='gaussian')
+    cir.ps(1, 0.3)
+    cir.double()
+    strict_checks = []
+    purity_mask = dq.GaussianState._purity_mask
+
+    def count_checks(cov, rtol=3e-4, atol=3e-4):
+        if atol < 3e-4:
+            strict_checks.append(atol)
+        return purity_mask(cov, rtol, atol)
+
+    monkeypatch.setattr(dq.GaussianState, '_purity_mask', staticmethod(count_checks))
+    cir(state=source)
+    threshold, _ = cir.post_select(0, 0, detector='threshold')
+    assert threshold.den_mat and not strict_checks
+
+    # Mutating the preparation affects the next forward, even when both inputs pass the loose purity test.
+    nbar = 1e-6
+    source.cov[:, [0, 2], [0, 2]] *= 1 + 2 * nbar
+    record, sampled = cir.measure(1, wires=0, with_state=True)
+    selected, p = cir.post_select(0, 0)
+    assert not record.any() and not sampled.den_mat and not selected.den_mat
+    torch.testing.assert_close(p, torch.ones_like(p))
+    assert len(strict_checks) == 1
+
+    cir(state=source)
+    selected, p = cir.post_select(0, 0)
+    assert selected.den_mat and len(strict_checks) == 2
+    torch.testing.assert_close(p, torch.full_like(p, 1 / (1 + nbar)), rtol=0, atol=1e-12)
+
+
 def test_gaussian_counting_preserves_thermal_derivative_at_vacuum():
     occupation = torch.tensor(0.0, dtype=torch.double, requires_grad=True)
     cov = torch.stack([1 + 2 * occupation, occupation.new_ones(())] * 2).diag()[None]

@@ -306,6 +306,7 @@ class QumodeCircuit(Operation):
         self._state_detector = None
         self._state_units = None
         self._state_gaussian_ket = False
+        self._pnr_input_cov = None
         self.state_measured = None
         self.__dict__['_submode_circuit'] = None
 
@@ -702,15 +703,14 @@ class QumodeCircuit(Operation):
             elif self.backend == 'bosonic':
                 state = BosonicState(state=state, nmode=nmode, cutoff=self.cutoff)
         cov, mean = state.cov, state.mean
-        # Resolved PNR can retain a ket for a pure preparation followed by Gaussian unitaries.
-        # A mixing channel or a differentiable input covariance needs its density derivatives at pure endpoints.
-        self._state_gaussian_ket = (
+        if (
             self.backend == 'gaussian'
             and not (self.den_mat or self.sources or self.hardware_model is not None or cov.requires_grad)
             and state.is_pure
             and not any(isinstance(op, Channel) for op in self.operators.modules())
-            and state.check_purity(atol=cov.shape[-1] * torch.finfo(torch.float64).eps)
-        )
+        ):
+            # PNR needs the preparation before gate roundoff or later edits to the caller's covariance.
+            self._pnr_input_cov = cov.clone()
         weight = state.weight if self.backend == 'bosonic' else None
         if self._with_delay:
             cov, mean = self._unroll_init_state([cov, mean])
@@ -3266,6 +3266,11 @@ class QumodeCircuit(Operation):
             return source
         if self._state_units != (dqp.hbar, dqp.kappa):
             raise RuntimeError('Quadrature units changed after forward; recreate the circuit with consistent units')
+        if detector == 'pnrd' and self._pnr_input_cov is not None:
+            cov = self._pnr_input_cov
+            atol = cov.shape[-1] * torch.finfo(torch.float64).eps
+            self._state_gaussian_ket = bool(GaussianState._purity_mask(cov, atol=atol).all())
+            self._pnr_input_cov = None
         submodes = isinstance(source, dqp.SubmodeResult)
         cov, mean = source.to_joint() if submodes else source
         state = BargmannState(
