@@ -704,7 +704,7 @@ print('加入噪声后的保真度为：', fidelity)
 #
 # 可以用 ``cir.loss_t(wires, inputs)`` 或 ``cir.loss_db(wires, inputs)`` 手动插入损耗通道，也可以通过 ``HardwareModel`` 在输入、输出或选中门的前后配置损耗。
 # ``t`` 是初始透射率，``db`` 是以 dB 表示的初始损耗，两者只需指定一个。
-# 内部与 ``PhotonLoss`` 一样使用角度 ``theta``，透射率为 $t=\cos^2(\theta/2)$。
+# 固定或编码的损耗直接使用给定的透射率或 dB，可训练器件的内部角度满足 $t=\cos^2(\theta/2)$。
 #
 # 下面两种方式同时使用，实际损耗依次叠加。
 # ``draw()`` 只显示手动插入的通道，不显示硬件模型的插件。
@@ -736,6 +736,25 @@ print(cov.shape, mean.shape)
 # 损耗支持 Gaussian、Bosonic、Fock 基矢、Fock 密度矩阵（`basis=False, den_mat=True`）和密度算符的 Bargmann 核（`den_mat=True`）。
 # 暂不支持 Fock 纯态张量、MPS 和分布式纯态。
 # ``cir.set_hardware_model(None)`` 可移除模型，但会保留手动插入的通道。
+
+# %% [markdown]
+# 在完全损耗 $T=0$ 处，透射场正比于 $\sqrt{T}$，不同观测量可以有不同的单侧响应。
+# 在 $T=1$ 处，非零相干辅助输入也可以产生正比于 $\sqrt{1-T}$ 的位移。
+# 用有符号的损耗角计算一次线路，再调用 `dqp.loss_endpoint_expansion`，可从该次计算图读出 $f(T)-f(T_0)=a\sqrt{|T-T_0|}+b(T-T_0)+o(|T-T_0|)$ 的系数。
+# 若 $a=0$，$b$ 即该观测量关于透射率的单侧导数。
+#
+# 下面的位移热态在完全损耗处有 $\langle x\rangle=\sqrt{T}$，均值的右导数发散，方差和真空概率的右导数分别为 0.2 和 −0.35。
+
+# %%
+theta_loss = torch.tensor(torch.pi, dtype=torch.double, requires_grad=True)
+endpoint = dq.QumodeCircuit(1, 'vac', backend='gaussian')
+endpoint.thermal(0, nbar=torch.tensor(0.1, dtype=torch.double))
+endpoint.d(0, 0.5, 0.0)
+endpoint.loss(0, theta_loss)
+cov_loss, mean_loss = endpoint.double()()
+readouts = torch.stack([mean_loss[0, 0, 0], cov_loss[0, 0, 0], endpoint.get_prob([0]).squeeze()])
+root, slope = dqp.loss_endpoint_expansion(readouts, theta_loss)
+print(root, slope)  # 约 [1, 0, 0]、[0, 0.2, -0.35]
 
 # %% [markdown]
 # ### 单模 OPA：分布式压缩与损耗信道
@@ -781,13 +800,14 @@ cov_opa_readout, mean_opa_readout = cir_opa_readout()
 print('Readout x variance =', cov_opa_readout[0, 0, 0])
 
 # %% [markdown]
-# 三个内部参数始终是 `r`、`theta`、`loss_theta`，损耗用角度保持透射率在 `[0, 1]` 内。
+# 优化器训练 `r`、`theta` 和有符号损耗角 `loss_theta`。
 # `cir.opa(0)` 或 `cir.opa_db(0)` 随机初始化三个可训练参数；传入具体数值时，三者均为固定 buffer。
 # 需要指定初值并训练时，可用 `cir.add(dqp.OPA([r, theta, loss], convention='db', requires_grad=True))`；多模线路同时设置该操作的 `nmode`、`wires`。
 # 优化器使用 `cir.parameters()`。
 #
 # `encode=True` 每次消耗三项数据：`opa` 使用 `[r, theta, loss]`，`opa_db` 使用 `[gain_db, theta, loss_db]`。
-# 透射率/dB 到损耗角度的换算在边界有奇异导数，边界处的可微编码可用 `opa(..., convention='theta', encode=True)`。
+# 标定放大轴时要求 `gain_db + loss_db >= 0`，关泵点允许净增益等于负的关泵损耗。
+# 固定值和编码值保留输入的透射率或 dB 坐标，在无损点也可以直接对它们求导。
 # 下面对实验格式的编码数据求梯度：
 #
 
@@ -1607,6 +1627,9 @@ print(result.partition, cov.shape)  # ((0,), (1,)), (1, 8, 8)
 # %% [markdown]
 # 每个时间步都要对所有空间输出做 Homodyne 测量时，可以使用 `dq.QumodeCircuitTDM`。
 # 它自动将测量后的状态用于下一步，并用 `nstep` 指定演化的时间步数。
+# 普通 Gaussian 线路用 `tdm_memory(full_state)` 从完整态提取按下一拍顺序排列的环内态。
+# 显式传 `memory=` 时，每拍都重新制备空间输入，注册光源也逐拍注入。
+# 无注册光源且从默认初态启动时，非真空空间初态只在首拍注入。
 
 # %%
 r = 5
@@ -1625,7 +1648,10 @@ cir.draw()
 # 通过`cir.samples`查看测量结果
 
 # %%
-cir(nstep=3)
+full_state = cir(nstep=3)
+print(cir.samples)
+memory = cir.tdm_memory(full_state)
+full_state = cir(nstep=1, memory=memory)
 print(cir.samples)
 
 # %% [markdown]
@@ -1953,6 +1979,12 @@ second_event, first_event = event_state.quadrature_moments(centered=False, norma
 print(event_probability)  # 约 0.0849
 print(second_event.shape, first_event.shape)  # (1, 2, 2)、(1, 2, 1)
 
+records, conditional, probabilities = cir_bargmann.measure(
+    8, wires=[0], detector='threshold', with_prob=True, with_state=True
+)
+print(records.shape, probabilities.shape)  # (1, 8, 1), (1, 8)
+print(conditional.norm())  # 每次抽到的分支都已归一化
+
 # %% [markdown]
 # 当前支持相移、分束器、MZI、任意无源酉变换、单模／双模压缩、位移、光损耗、OPA 和 DisplacementChannel，也支持 `HardwareModel` 中相应的控制噪声与光路损耗。
 # 直接输入 Fock 态或进行光子计数后选择可以得到非高斯态，Kerr 和三次相位等非高斯门尚未实现。
@@ -1960,7 +1992,10 @@ print(second_event.shape, first_event.shape)  # (1, 2, 2)、(1, 2, 1)
 #
 # 在线路上用 `get_prob([1, 1])` 读取基模不分辨的两端符合概率。
 #
-# Bargmann 的有限 shots 采样尚未实现。
+# `measure(..., with_state=True)` 随机抽取逐次计数并返回对应的归一化条件态。
+# 记录张量的形状为 `(batch, shots, len(wires))`，列按传入的端口顺序排列，条件态按输入、再按 shot 合并为一个 batch。
+# 空间端口全部测完时，Bargmann 延时线路返回可直接用于下一拍的环内态，普通线路的剩余态为 `None`。
+# Gaussian 线路经光子计数得到的条件态也用 `BargmannState` 表示，可交给 Bargmann 后端继续演化。
 # `thermal()`、`single_photon()` 和原生环路逐步演化的用法见下文。
 # Fock 线路和带正交基模的 Bargmann 线路均可在后选择时用 `keep` 选保留端口，用 `submode` 选一个基模或用 `lo` 选其相干叠加。
 
@@ -2056,6 +2091,23 @@ for window_state in cir_native_loop.tdm_substate(slice(3), window=2):
 # 只测部分端口时，返回态还包含未测输出。
 # `return_info=True` 返回的 `remaining_wires` 按返回态的模式顺序列出它们在原联合态中的编号，可据此迹掉其余空间输出，再回送环内态。
 #
+#
+# 要按实测结果反馈，首拍用 `measure(..., with_state=True)` 取样。
+# 下面每条轨迹在首拍点击时把相移设为 $\pi/2$，其余设为零，第二拍再各测一次。
+# 两次返回的条件概率相乘即这条两拍记录的联合概率。
+
+# %%
+loop = dq.QumodeCircuit(1, 'vac', backend='bargmann', den_mat=True, detector='threshold')
+loop.s(0, 0.55, 0.0)
+loop.ps(0, encode=True)
+loop.delay(0, ntau=1, inputs=[0.65, 0.12])
+loop.double()
+loop(torch.zeros(1, dtype=torch.double))
+first, memory, p1 = loop.measure(8, with_prob=True, with_state=True)
+phase = first.reshape(-1, 1).to(torch.double) * (torch.pi / 2)
+loop(phase, memory=memory)
+second, memory, p2 = loop.measure(1, with_prob=True, with_state=True)
+print(torch.cat([first.reshape(-1, 1), second.reshape(-1, 1)], dim=1), p1.flatten() * p2.flatten())
 
 # %% [markdown]
 # 在同一线路上给 OPA 配置两个正交基模后，单步演化返回 `SubmodeResult`。
