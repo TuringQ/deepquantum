@@ -611,29 +611,6 @@ def test_loop_readout_starts_from_vacuum_independently_of_forward(backend):
     torch.testing.assert_close(output_mean, torch.zeros_like(output_mean))
 
 
-def test_automatic_homodyne_loop_reprepares_gaussian_source():
-    auto = dq.QumodeCircuitTDM(1, 'vac', backend='gaussian')
-    manual = dq.QumodeCircuit(1, 'vac', backend='gaussian')
-    for cir in (auto, manual):
-        cir.thermal(0, nbar=0.6)
-        cir.delay(0, ntau=2, inputs=[0.65, 0.21])
-        cir.homodyne_x(0)
-        cir.double()
-    with torch.random.fork_rng(devices=[]):
-        torch.manual_seed(91)
-        expected = auto(nstep=3)
-        torch.manual_seed(91)
-        memory, records = None, []
-        for _ in range(3):
-            manual(memory=memory)
-            records.append(manual.measure_homodyne(shots=1))
-            cov, mean = manual.state_measured
-            idx = [0, 1, 3, 4]
-            memory = [cov[:, idx, :][:, :, idx], mean[:, idx]]
-    torch.testing.assert_close(manual.state_measured, expected)
-    torch.testing.assert_close(torch.stack(records, -1), auto.samples)
-
-
 @pytest.mark.parametrize('preparation', ['first', 'every', 'thermal'])
 def test_tdm_continuation_uses_recorded_memory_and_fresh_inputs(preparation):
     initial = [torch.eye(4, dtype=torch.double), torch.tensor([[0.8], [-0.4], [0.2], [0.0]], dtype=torch.double)]
@@ -665,16 +642,18 @@ def test_tdm_continuation_uses_recorded_memory_and_fresh_inputs(preparation):
         torch.testing.assert_close(final, whole)
         torch.manual_seed(51)
         state, memory, manual_records = None, start, []
+        idx = [0, 1, 3, 5, 6, 8]  # xxpp coordinates of the three loop modes
         for i in range(4):
             manual(data[:, i], state=state, memory=memory)
             manual_records.append(manual.measure_homodyne(shots=1))
+            cov, mean = manual.state_measured
+            expected = [cov[:, idx, :][:, :, idx], mean[:, idx]]
             if preparation == 'first':
                 state = manual.state_measured
             else:
-                memory = manual.tdm_memory(manual.state_measured)
+                memory = expected
         torch.testing.assert_close(torch.stack(manual_records, -1), records)
-    idx = [0, 1, 3, 5, 6, 8]
-    expected = [manual.state_measured[0][:, idx, :][:, :, idx], manual.state_measured[1][:, idx]]
+    torch.testing.assert_close(manual.state_measured, whole)
     actual = auto.tdm_memory(whole)
     torch.testing.assert_close(actual, expected)
     torch.testing.assert_close(
@@ -687,17 +666,6 @@ def test_tdm_continuation_uses_recorded_memory_and_fresh_inputs(preparation):
     if preparation == 'thermal':
         with pytest.raises(ValueError, match='source'):
             auto(data, state=part)
-
-
-def test_tdm_memory_rotates_distinct_loop_modes_and_reinjects_each_step():
-    auto = dq.QumodeCircuitTDM(1, [torch.eye(2), torch.tensor([[3.0], [0.0]])])
-    auto.delay(0, ntau=2, inputs=[0.0, 0.0])
-    auto.homodyne_x(0)
-    memory = [torch.eye(4), torch.tensor([[1.0], [2.0], [0.0], [0.0]])]
-    for expected in ([2.0, 1.0], [1.0, 2.0]):
-        full = auto(memory=memory)
-        memory = auto.tdm_memory(full)
-        torch.testing.assert_close(memory[1][0, :2, 0], torch.tensor(expected))
 
 
 def test_equal_submode_windows_share_hardware_draws_and_preserve_gradients():
@@ -752,14 +720,19 @@ def test_tdm_measured_memory_matches_global_circuit_on_actual_records():
     torch.testing.assert_close(memory, [state[0][:, idx, :][:, :, idx], state[1][:, idx]], atol=1e-12, rtol=0)
 
 
-def test_nonvacuum_tdm_input_repeated_only_with_explicit_memory():
+def test_tdm_memory_rotates_loop_modes_and_repeats_nonvacuum_input():
     cir = dq.QumodeCircuitTDM(1, [torch.eye(2), torch.tensor([[3.0], [0.0]])])
-    cir.delay(0, ntau=1, inputs=[0.0, 0.0])
+    cir.delay(0, ntau=2, inputs=[0.0, 0.0])
     cir.homodyne_x(0)
+    # At zero coupling the two loop means rotate independently of the input.
+    initial = [torch.eye(4), torch.tensor([[1.0], [2.0], [0.0], [0.0]])]
     with torch.random.fork_rng(devices=[]):
         torch.manual_seed(1)
         cir(nstep=3)
         first = cir.samples
         torch.manual_seed(1)
-        cir(nstep=3, memory=[torch.eye(2), torch.zeros(2, 1)])
-    torch.testing.assert_close((cir.samples - first).flatten(), first.new_tensor([0.0, 3.0, 3.0]))
+        memory = cir.tdm_memory(cir(nstep=3, memory=initial))
+        torch.testing.assert_close((cir.samples - first).flatten(), first.new_tensor([0.0, 3.0, 3.0]))
+        torch.testing.assert_close(memory[1][0, :2, 0], first.new_tensor([2.0, 1.0]))
+        following = cir.tdm_memory(cir(memory=memory))
+        torch.testing.assert_close(following[1][0], initial[1])

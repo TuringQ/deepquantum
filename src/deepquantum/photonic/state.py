@@ -590,33 +590,23 @@ class BargmannState(nn.Module):
         if self.den_mat:
             rest = self.partial_trace(wires)
         else:
-            rest = self._post_select(tuple(wires), (0,) * len(wires))
+            rest = self._condition_counts([[w] for w in wires], (0,) * len(wires), 'pnrd')
             if not torch.allclose(rest.norm(), self.norm(), rtol=100 * torch.finfo(self.mat_a.real.dtype).eps, atol=0):
                 raise ValueError('Pure input preparation requires vacuum on the selected input wires')
         order = [w for w in range(self.nmode) if w not in wires] + list(wires)
         return rest._tensor_product(replacement, [order.index(w) for w in range(self.nmode)])
 
-    def _post_select(
-        self, positions: tuple[int, ...], photons: tuple[int, ...], detector: str = 'pnrd'
-    ) -> 'BargmannState':
-        """Condition on validated photon-counting outcomes, locally numbering the remaining modes."""
-        if detector == 'pnrd':
-            polyexp = _project_pnr(self.polyexp, self.nmode, self.den_mat, positions, photons)
-            return self._new(polyexp)
-        elif detector == 'threshold':
-            polyexp = _project_threshold(self.to_dm().polyexp, self.nmode, [[p] for p in positions], photons)
-            return self._new(polyexp, den_mat=True)
-        raise NotImplementedError(f'Bargmann post-selection does not support detector={detector!r}')
-
     def _condition_counts(self, groups: list[list[int]], counts: tuple[int, ...], detector: str) -> 'BargmannState':
-        """Condition on summed counts across the orthogonal basis modes of each measured port."""
-        if all(len(group) == 1 for group in groups):
-            return self._post_select(tuple(g[0] for g in groups), counts, detector)
-        density = self.to_dm().polyexp
+        """Condition on one count per measured port, summing over indistinguishable basis occupations."""
         if detector == 'pnrd':
-            kernel = _project_spatial_pnr(density, groups, counts)
+            if all(len(group) == 1 for group in groups):
+                positions = tuple(group[0] for group in groups)
+                return self._new(_project_pnr(self.polyexp, self.nmode, self.den_mat, positions, counts))
+            kernel = _project_spatial_pnr(self.to_dm().polyexp, groups, counts)
+        elif detector == 'threshold':
+            kernel = _project_threshold(self.to_dm().polyexp, self.nmode, groups, counts)
         else:
-            kernel = _project_threshold(density, self.nmode, groups, counts)
+            raise NotImplementedError('Bargmann photon counting supports PNR and threshold detectors.')
         return self._new(kernel, den_mat=True)
 
     def norm(self) -> torch.Tensor:

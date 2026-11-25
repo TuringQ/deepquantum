@@ -63,6 +63,7 @@ class SubmodeResult:
     A single TDM step includes both spatial outputs and loop positions in concurrent wire order.
     In a TDM output marginal, each selected (time, wire) pair counts as one spatial mode.
     ``partition`` gives the basis-mode indices evolved together in each independent group.
+    ``factorized`` records a product across groups established by the circuit structure.
     ``to_joint()`` returns the full state in spatial-then-basis order, taking the tensor product
     of independent groups when needed. With explicit ``blocks``, ``data`` holds one state per block.
     Factorized Gaussian or Fock tensors without explicit blocks have leading ``(batch, nsubmode)`` axes.
@@ -142,8 +143,6 @@ class SubmodeResult:
         if detector == 'threshold' and any(n not in (0, 1) for n in photons):
             raise ValueError('Threshold outcomes must be 0 or 1')
         groups = [[w * self.nsubmode + k for k in range(self.nsubmode)] for w in wires]
-        if detector not in ('pnrd', 'threshold'):
-            raise NotImplementedError('Bargmann spatial counts support PNR and threshold detectors.')
         state = joint._condition_counts(groups, photons, detector)
         probability = state.norm()
         if keep is None:

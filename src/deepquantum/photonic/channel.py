@@ -33,6 +33,20 @@ def _loss_to_theta(inputs: Any, convention: str) -> torch.Tensor | None:
         return torch.arccos(t**0.5) * 2
 
 
+def _vacuum_loss_coefficients(control: torch.Tensor, *, is_power: bool) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return the signed transmitted field and lost power in the supplied coordinate."""
+    if is_power:
+        return control.sqrt(), 1 - control
+    half_angle = control / 2
+    return half_angle.cos(), half_angle.sin().square()
+
+
+def _vacuum_loss_xy(field: torch.Tensor, loss: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Local attenuation and vacuum-noise matrices used by both loss and coherent displacement."""
+    identity = torch.eye(2, dtype=field.dtype, device=field.device)
+    return field * identity, loss * identity * dqp.hbar / (4 * dqp.kappa**2)
+
+
 class _CalibratedLossChannel(Channel):
     """Keep fixed and encoded loss in its physical coordinate and optimized loss in its signed angle."""
 
@@ -179,18 +193,12 @@ class DisplacementChannel(_CalibratedLossChannel):
         return displacement @ loss.update_matrix_state()
 
     def _loss_coefficients(self) -> tuple[torch.Tensor, torch.Tensor]:
-        if (power := self._native_loss) is not None:
-            return power.sqrt(), 1 - power
-        angle = self.loss_theta / 2
-        return angle.cos(), angle.sin().square()
+        power = self._native_loss
+        return _vacuum_loss_coefficients(self.loss_theta if power is None else power, is_power=power is not None)
 
     def update_transform_xy(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Update the local transformation matrices X and Y acting on Gaussian states."""
-        field, lost = self._loss_coefficients()
-        identity = torch.eye(2, dtype=field.dtype, device=field.device)
-        matrix_x = field * identity
-        matrix_y = lost * identity * dqp.hbar / (4 * dqp.kappa**2)
-        return matrix_x, matrix_y
+        return _vacuum_loss_xy(*self._loss_coefficients())
 
     def update_transform_xyd(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Update the local Gaussian channel matrices and displacement vector."""
@@ -485,11 +493,8 @@ class PhotonLoss(Channel):
         return (self.theta / 2).cos().square()
 
     def _loss_coefficients(self) -> tuple[torch.Tensor, torch.Tensor]:
-        """Return the transmitted field coefficient and the lost power fraction."""
-        if (power := getattr(self.gate, 'power', None)) is not None:
-            return power.sqrt(), 1 - power
-        half_angle = self.theta / 2
-        return half_angle.cos(), half_angle.sin().square()
+        power = getattr(self.gate, 'power', None)
+        return _vacuum_loss_coefficients(self.theta if power is None else power, is_power=power is not None)
 
     @property
     def db(self):
@@ -524,8 +529,17 @@ class PhotonLoss(Channel):
 
         See https://arxiv.org/pdf/1012.4266 Eq.(2.4)
         """
-        matrix = self.gate.get_matrix_state(self.gate.get_matrix(theta))
-        return matrix[..., 0].permute([1, 0, 2])
+        matrix = self.gate.get_matrix(theta)
+        levels = torch.arange(1, self.cutoff, dtype=matrix.real.dtype, device=matrix.device)
+        columns = [matrix.new_ones(1)]
+        # Add one input photon to |n-1, 0>. Only |n-lost, lost> can be occupied.
+        for n in range(1, self.cutoff):
+            factor = (levels[:n] / n).sqrt()
+            transmitted = columns[-1] * matrix[0, 0] * factor.flip((0,))
+            reflected = columns[-1] * matrix[1, 0] * factor
+            columns.append(torch.nn.functional.pad(transmitted, (0, 1)) + torch.nn.functional.pad(reflected, (1, 0)))
+        photons, lost = torch.tril_indices(self.cutoff, self.cutoff, device=matrix.device)
+        return matrix.new_zeros((self.cutoff,) * 3).index_put((lost, photons - lost, photons), torch.cat(columns))
 
     def update_matrix_state(self) -> torch.Tensor:
         """Update the local Kraus matrices acting on Fock state density matrices."""
@@ -559,13 +573,20 @@ class PhotonLoss(Channel):
 
         See https://arxiv.org/pdf/quant-ph/0503237 Eq.(4.19), Eq.(4.20)
         """
-        field, loss = self._loss_coefficients()
-        identity = torch.eye(2, dtype=field.dtype, device=field.device)
-        matrix_x = field * identity
-        matrix_y = loss * identity * dqp.hbar / (4 * dqp.kappa**2)
+        matrix_x, matrix_y = _vacuum_loss_xy(*self._loss_coefficients())
         self.matrix_x = matrix_x.detach()
         self.matrix_y = matrix_y.detach()
         return matrix_x, matrix_y
+
+    def op_cv(self, x: list[torch.Tensor]) -> list[torch.Tensor]:
+        """Attenuate the target quadratures and add their independent vacuum noise."""
+        cov, mean = x[:2]
+        local_x, local_y = self.update_transform_xy()
+        mask = (torch.arange(self.nmode, device=cov.device) == self.wires[0]).repeat(2)
+        scale = torch.where(mask, local_x[0, 0], 1.0)
+        cov = scale[:, None] * cov * scale
+        cov.diagonal(dim1=-2, dim2=-1).add_(mask * local_y[0, 0])
+        return [cov, scale[:, None].to(mean.dtype) * mean, *x[2:]]
 
     def get_bargmann(self) -> BargmannPolyExp:
         r"""Get the Bargmann representation of the channel.

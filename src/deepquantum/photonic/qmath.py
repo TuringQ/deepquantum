@@ -25,46 +25,6 @@ def _times_i(value: torch.Tensor) -> torch.Tensor:
     return value * value.new_tensor(1j, dtype=torch.result_type(value, 1j))
 
 
-def loss_endpoint_expansion(value: torch.Tensor, theta: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    r"""Get the one-sided response of an observable to power transmittance at complete or zero loss.
-
-    For :math:`T=\cos^2(\theta/2)` and :math:`\Delta=T-T_0`, return the coefficients
-    :math:`a,b` of :math:`f(T)=f(T_0)+a\sqrt{|\Delta|}+b\Delta+o(|\Delta|)`.
-    When the square-root term vanishes, :math:`b` is the finite power derivative. Otherwise
-    the one-sided slope diverges with the sign of :math:`a\Delta`.
-
-    Args:
-        value: Real observable or array of observables from one forward pass using the signed loss angle.
-            The observable must be twice differentiable in that angle at the endpoint.
-        theta: The scalar autograd input used in that forward pass, equal to zero for unit
-            transmittance or pi for complete loss.
-
-    Returns:
-        Square-root and linear coefficients with the same shape as ``value``. At complete loss
-        they are :math:`-2 f'_\theta, 2 f''_\theta`. At unit transmittance the signs reverse.
-    """
-    if theta.numel() != 1 or not theta.requires_grad or not theta.is_floating_point():
-        raise ValueError('theta must be a single differentiable real loss angle.')
-    if not bool((theta == 0) | (theta == torch.pi)):
-        raise ValueError('theta must be 0 or pi at a loss endpoint.')
-    if not value.is_floating_point():
-        raise ValueError('Loss endpoint observables must be real.')
-    if value.numel() == 0:
-        return torch.zeros_like(value), torch.zeros_like(value)
-
-    def derivative(y: torch.Tensor) -> torch.Tensor:
-        if y.requires_grad:
-            (grad,) = torch.autograd.grad(y, theta, create_graph=True, allow_unused=True)
-            if grad is not None:
-                return grad.reshape(())
-        return theta.new_zeros(())
-
-    first = torch.stack([derivative(y) for y in value.reshape(-1)]).reshape_as(value)
-    second = torch.stack([derivative(g) for g in first.reshape(-1)]).reshape_as(value)
-    sign = 2 if bool(theta == 0) else -2
-    return sign * first, -sign * second
-
-
 def _normalize_coefficients(value: torch.Tensor) -> torch.Tensor:
     """Normalize nonzero coefficient rows without squaring their original scale."""
     magnitude = torch.maximum(value.real.abs(), value.imag.abs()) if value.is_complex() else value.abs()

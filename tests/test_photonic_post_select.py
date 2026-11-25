@@ -13,7 +13,7 @@ from deepquantum.photonic.state import BargmannState
 
 def post_select_tensor(circuit, *args, **kwargs):
     state, *results = circuit.post_select(*args, **kwargs)
-    return (state.state if isinstance(state, dq.FockState) else state, *results)
+    return (state.state if isinstance(state, dq.FockState) else state.to_fock(), *results)
 
 
 def coherent_ket(alpha, cutoff):
@@ -40,7 +40,7 @@ def test_threshold_two_mode_squeezing(backend, dtype):
     q = r.tanh().square()
     for click in (0, 1):
         selected, probability, info = cir.post_select(0, click, cutoff=5, detector='threshold', return_info=True)
-        if backend == 'bargmann':
+        if isinstance(selected, BargmannState):
             assert selected.den_mat
             density = selected.to_fock()
             torch.testing.assert_close(selected.norm(), torch.ones_like(probability))
@@ -50,7 +50,7 @@ def test_threshold_two_mode_squeezing(backend, dtype):
             torch.testing.assert_close(number, expected_number.reshape(1, 1), atol=2e-5, rtol=2e-5)
             torch.testing.assert_close(variance, expected_variance.reshape(1, 1), atol=2e-5, rtol=2e-5)
         else:
-            density = selected.state if backend == 'fock' else selected
+            density = selected.state
         expected = torch.zeros(5, dtype=dtype)
         if click:
             expected[1:] = (1 - q) * q ** torch.arange(4, dtype=dtype)
@@ -137,7 +137,7 @@ def test_threshold_impossible_events_and_validation(backend):
     with pytest.raises(ValueError, match='zero-probability'):
         cir.post_select(0, 1, detector='threshold')
     selected, probability = cir.post_select(0, 1, detector='threshold', normalize=False)
-    actual = selected.to_fock() if backend == 'bargmann' else selected.state if backend == 'fock' else selected
+    actual = selected.state if backend == 'fock' else selected.to_fock()
     assert torch.count_nonzero(actual) == 0 and probability.item() == 0
     with pytest.raises(ValueError, match='0 or 1'):
         cir.post_select(0, 2, detector='threshold')
@@ -147,10 +147,8 @@ def test_threshold_impossible_events_and_validation(backend):
         cir.post_select(0, 1, detector='unknown')
     positional, positional_probability = cir.post_select(0, 0, None, 'threshold')
     keyword, keyword_probability = cir.post_select(0, 0, detector='threshold')
-    positional = (
-        positional.to_fock() if backend == 'bargmann' else positional.state if backend == 'fock' else positional
-    )
-    keyword = keyword.to_fock() if backend == 'bargmann' else keyword.state if backend == 'fock' else keyword
+    positional = positional.state if backend == 'fock' else positional.to_fock()
+    keyword = keyword.state if backend == 'fock' else keyword.to_fock()
     torch.testing.assert_close(positional, keyword)
     torch.testing.assert_close(positional_probability, keyword_probability)
 
@@ -194,8 +192,10 @@ def test_coherent_complex_phase_and_cutoff(den_mat):
             expected = expected[:, None] * expected[None, :].conj()
         torch.testing.assert_close(state[0], expected)
         torch.testing.assert_close(prob[0], reference_prob)
-        torch.testing.assert_close(info['retained_fraction'][0], ket.abs().square().sum())
-        masses.append(info['probability_in_cutoff'].item())
+        assert info['retained_fraction'] is info['probability_in_cutoff'] is None
+        mass = state[0].trace().real if den_mat else state[0].abs().square().sum()
+        torch.testing.assert_close(mass, ket.abs().square().sum())
+        masses.append(mass.item())
     assert masses[0] < masses[1] < masses[2]
 
 
@@ -243,8 +243,10 @@ def test_thermal_mixed_batch_and_multiple_remaining_modes():
     torch.testing.assert_close(prob, 1 / (1 + occupations[:, 1]))
     ket_cir = dq.QumodeCircuit(3, [cov, mean], backend='gaussian', den_mat=False)
     ket_cir(stepwise=True)
-    with pytest.raises(ValueError, match='den_mat=True'):
-        post_select_tensor(ket_cir, 1, 0, normalize=False)
+    mixed, p = ket_cir.post_select(1, 0, normalize=False)
+    assert mixed.den_mat
+    torch.testing.assert_close(mixed.to_fock(4), state)
+    torch.testing.assert_close(p, prob)
 
 
 def optical_circuit(backend, cutoff, loss=False):
@@ -413,7 +415,10 @@ def test_zero_probability_and_cutoff_excludes_output(backend):
     state, prob, info = post_select_tensor(cir, 0, 1, return_info=True, normalize=False)
     assert torch.count_nonzero(state) == 0
     assert prob.item() == 0
-    assert torch.isnan(info['retained_fraction']).all()
+    if backend == 'fock':
+        assert torch.isnan(info['retained_fraction']).all()
+    else:
+        assert info['retained_fraction'] is None
     with pytest.raises(ValueError, match='zero-probability'):
         post_select_tensor(cir, 0, 1, normalize=True)
     cir.s2([0, 1], 0.3)
@@ -421,7 +426,12 @@ def test_zero_probability_and_cutoff_excludes_output(backend):
     state, prob, info = post_select_tensor(cir, 0, 1, cutoff=1, normalize=True, return_info=True)
     assert prob.item() > 0
     assert torch.count_nonzero(state) == 0
-    assert info['retained_fraction'].item() == 0
+    if backend == 'fock':
+        assert info['retained_fraction'].item() == 0
+    else:
+        assert info['retained_fraction'] is None
+        native, _ = cir.post_select(0, 1, cutoff=1)
+        torch.testing.assert_close(native.norm(), torch.ones_like(prob))
 
 
 @pytest.mark.parametrize(
@@ -641,7 +651,8 @@ def test_gaussian_reference_and_cutoff(density):
         cir.to(torch.float64)
         cir()
         circuits.append(cir)
-    reference, expected_p = circuits[0].post_select(0, 2, normalize=True)
+    reference, expected_p = conditional_fock(*circuits[0].state, (0,), (2,), 5, den_mat=density)
+    reference = reference / (expected_p if density else expected_p.sqrt()).reshape(-1, *([1] * (reference.ndim - 1)))
     cir = circuits[1]
     original = cir.state
     state, p, info = cir.post_select(wires=0, photons=2, cutoff=1, normalize=True, return_info=True)
@@ -736,16 +747,13 @@ def test_mixed_loss_against_gaussian_and_no_fock_expansion(monkeypatch):
         cir.loss_t(0, 0.7)
         cir.to(torch.float64)
         cir()
-        if backend == 'bargmann':
 
-            def reject(*args, **kwargs):
-                raise AssertionError('No physical Fock readout during native heralding')
+        def reject(*args, **kwargs):
+            raise AssertionError('No physical Fock readout during native heralding')
 
-            with monkeypatch.context() as patch:
-                patch.setattr(BargmannState, 'to_fock', reject)
-                state, p = cir.post_select(0, 1, normalize=True)
-            results.append((state.to_fock(5), p))
-        else:
-            results.append(cir.post_select(0, 1, normalize=True))
+        with monkeypatch.context() as patch:
+            patch.setattr(BargmannState, 'to_fock', reject)
+            state, p = cir.post_select(0, 1, normalize=True)
+        results.append((state.to_fock(5), p))
     torch.testing.assert_close(results[0][0], results[1][0])
     torch.testing.assert_close(results[0][1], results[1][1])

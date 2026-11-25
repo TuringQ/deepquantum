@@ -48,59 +48,28 @@ MPS and large qubit simulation:
 
 Photonic circuits:
 
-- Use `dq.QumodeCircuit(nmode, init_state, cutoff=None, backend='fock', basis=True, den_mat=False, detector='pnrd', name=None, mps=False, chi=None)`.
-- `cir.thermal(wires, nbar=...)` (or `purity=...`) prepares thermal inputs before all gates. On the Fock backend, `cir.single_photon` accepts `coefficients`, `density_matrix` or `factor`. Mixed Fock inputs require `basis=False, den_mat=True`.
-- Fock backend:
-  - `basis=True` represents Fock basis states such as `[1, 0, 1]`; `cir(is_prob=None)` returns a unitary, `cir(is_prob=True)` returns probabilities, and `cir(is_prob=False)` returns amplitudes.
-  - `basis=False` represents Fock state tensors or superpositions such as `[(amp, [n0, n1])]`.
-  - Use `cir.measure(...)`, `cir.get_amplitude(final_state)`, and `cir.get_prob(final_state)`.
-  - For Fock MPS, use `backend='fock', basis=False, mps=True, chi=..., cutoff=...`.
-- Gaussian backend:
-  - Use `backend='gaussian'` with `'vac'` or `[cov, mean]`; output is `[cov, mean]` unless `is_prob=True`.
-  - Supported workflows include Gaussian gates (`s`, `s2`, `d`, `r`, `bs`, etc.), `get_symplectic`, `photon_number_mean_var`, Fock probabilities with `detector='pnrd'`, `'threshold'`, or `'click'`, and `measure_homodyne`.
-  - For click-counting, `cutoff=C` gives outcomes `0, ..., C - 1` per mode using `C - 1` threshold detectors.
-- Bosonic backend:
-  - Use `backend='bosonic'` with `'vac'`, `[cov, mean, weight]`, a list of local `BosonicState`s, or prepared `cat`/`gkp` states.
-  - Output is `[cov, mean, weight]`; `CatState`, `GKPState`, `FockStateBosonic`, Wigner functions, marginals, and homodyne workflows are tested.
-  - Use `measure_homodyne` or the documented Bosonic measurement classes for sampling.
-- Bargmann backend:
-  - Use `backend='bargmann'`. Forward returns a `BargmannState`, or a `SubmodeResult` when orthogonal basis modes are configured. In the latter case, `to_joint()` gives the joint `BargmannState`. The `polyexp` of a `BargmannState` is a `dqp.BargmannPolyExp(mat_a, vec_b, coeff_c)` with inferred free and auxiliary variable counts.
-  - Supported Gaussian gates and channels act through `get_bargmann()` representations. Channels, including OPA and DisplacementChannel, require `den_mat=True`. `state.to_fock(cutoff)` performs explicit finite-cutoff readout; the cutoff does not truncate Bargmann evolution.
-  - `quadrature_mean`, `quadrature_moments` and `photon_number_mean_var` read moments directly from Bargmann states without Fock truncation. By default, `quadrature_moments` returns normalized `(cov, mean)` in xxpp order, including correlations between modes. Set `centered=False, normalize=False` on an unnormalized conditional state to obtain event-weighted raw moments, including zero contributions for impossible events.
-  - `thermal` prepares the Bargmann kernel of a thermal density operator (`den_mat=True`). `single_photon` prepares one photon per selected spatial input. `tensor_product`, `reorder` and `partial_trace` manipulate native states. Use `measure` to sample PNR or threshold records and `post_select` to condition on a specified event.
-- Clements and GBS:
-  - `dq.Clements`, `dq.UnitaryDecomposer`, `dq.GaussianBosonSampling`, and `dqp.GraphGBS` are documented through tutorials/examples.
-  - `QumodeCircuit.any(...)` supports arbitrary unitary gates; tutorials note `clements(...)` performs a physical Clements decomposition and is not used as the differentiable arbitrary-unitary path.
+- Build a `dq.QumodeCircuit(nmode, init_state, backend=..., cutoff=...)`, add preparations and gates, and call `cir()`. The backend and state representation determine which operations and readouts are available.
+- Use `'vac'` for vacuum, or prepare inputs with circuit methods such as `thermal` and `single_photon` on their supported backends.
+- On the Fock basis backend, `cir()` returns the unitary, `cir(is_prob=False)` gives transition amplitudes and `cir(is_prob=True)` gives probabilities. Use `basis=False` for superpositions, `den_mat=True` with `basis=False` for density tensors, and `mps=True` with `basis=False` for Fock MPS.
+- Gaussian circuits evolve `[cov, mean]` through gates such as `s`, `s2`, `d` and `bs`. Use `get_symplectic` for a unitary Gaussian circuit's symplectic matrix or `cir(is_prob=True)` for photon-count probabilities.
+- Bosonic circuits evolve `[cov, mean, weight]` for linear combinations of Gaussians, including cat and GKP states. See `tests/test_photonic_bosonic.py` for preparation and quadrature readout.
+- Bargmann circuits evolve a native `BargmannState`. Use its moments and conditional states directly, or call `to_fock(cutoff)` for a finite Fock representation.
+- For interferometer decomposition and GBS examples, start with `dq.Clements`, `dq.UnitaryDecomposer`, `dq.GaussianBosonSampling` and `dqp.GraphGBS`. Use `cir.any(...)` for a differentiable arbitrary unitary.
 
-Photonic hardware models:
+Photonic hardware and submodes:
 
-- Configure `dqp.HardwareModel()`, attach it with `cir.set_hardware_model(model)`, and call `cir(...)` normally. This replaces the old photonic gate/circuit `noise`, `mu` and `sigma` arguments.
-- Use `model.gaussian(mu=..., sigma=...)` for all supported controls or `model.ps(0).theta.gaussian(...)` for selected controls. Configure loss with `model.bs().after.loss(t=...)` or `model.output().loss(db=...)`.
-- Hardware loss reuses `PhotonLoss` and supports Gaussian, Bosonic, Fock basis and Fock density-matrix simulation. Parameter-noise support follows the underlying gates.
-- Use `cir.opa(wires, r=..., theta=..., loss=..., convention='theta'/'t'/'db')` for a single-mode OPA channel with uniform distributed vacuum loss. It supports Gaussian and Bosonic states, Fock density matrices (`basis=False, den_mat=True`), and Bargmann kernels of density operators (`den_mat=True`). `model.opa()` selects its controls and external loss. `cir.opa_db` accepts amplified-axis net coherent power gain and pump-off loss in dB with `gain_db + loss_db >= 0`. `model.opa().submodes(..., relative_r=...)` scales gain per orthogonal basis mode while retaining the same distributed loss on every mode, including zero-gain modes.
-- `cir.d_channel(wires, amplitude=..., phase=..., t=...)` models displacement with a coherent auxiliary input and coupling loss. The default convention is signal power transmittance. `convention='loss_theta'` accepts the internal angle instead. It supports the same backends and state representations as `cir.opa`.
-- Use `model.homodyne(wires).efficiency(eta)` and `model.homodyne(wires).readout(gain=..., bias=..., noise_var=...)` for detector efficiency and calibrated readout. Noisy Fock conditioning requires `basis=False, den_mat=True`.
-- Supply `nn.Parameter` for trainable `mu/sigma` and use `loss(..., requires_grad=True)` to train the internal loss angle `theta`. Attach the model before creating the optimizer. Use `model.manual_seed(seed)` to reset hardware sampling independently of measurement sampling.
-- Use `model.input(wires).submodes(c)` for prepared inputs and `.submodes(c, relative_r=...)` on `model.s(wires)` or `model.s2(wires)` for squeezing. Coefficient vectors are normalized. Squeezing coefficient matrices require orthogonal rows. Ratios are divided by the first entry, preserving the circuit's reference `r`. `relative_nbar=...` calibrates ratios from absolute vacuum-seeded photon numbers at one operating point.
-- `dqp.delay_coefficients(delays, frequency_hz=..., intensity=..., phase=...)` converts sampled spectra to common orthogonal-basis coefficients. It also accepts `amplitude=...`, shared or per-input grids, and returns CPU complex128 data. Use float64 frequencies in Hz and delays in seconds. Omitted phase means zero spectral phase. Include sources and local oscillators in one call.
-- With submodes, `nmode` still counts spatial modes. `SubmodeResult` holds the joint state in the common orthogonal basis or one state per independent group. Call `to_joint()` only when the full joint state is needed. Photon counts are merged per spatial output.
+- Attach a `dqp.HardwareModel` with `cir.set_hardware_model(model)` to model device controls, loss and readout on the same circuit. The hardware examples in `tutorials/photonic_basics.ipynb` and `tests/test_photonic_hardware.py` cover individual calibrations.
+- With orthogonal basis modes, circuit wires still label spatial ports. `SubmodeResult.to_joint()` gives the full joint state. A photon counter on a spatial port sums over its basis modes.
 
 Photonic TDM:
 
-- `global_circuit(nstep)` unrolls delay loops and remaps the attached hardware model.
-- On Gaussian and Bargmann delay circuits, `cir(memory=...)` evolves one time step with fresh spatial inputs from `init_state` and any sources. `memory` contains only the loop modes and is mutually exclusive with `state`. The joint state includes the outputs and the loop modes in next-step order. Gaussian accepts `[cov, mean]` or `GaussianState`; Bargmann accepts `BargmannState`.
-- Bargmann `post_select` on all spatial outputs returns memory ready for the next call. Use `normalize=False` to carry the joint event weight. With orthogonal basis modes, each forward step returns a `SubmodeResult`. Its loop modes and the native post-selected memory are ordered by loop position, then basis index. Use `den_mat=True` to continue from unresolved counts. For unconditional memory, trace out the spatial outputs, including all their basis modes, from the joint state.
-- `tdm_substate(time_steps, wires=None, data=None, window=None)` reads unconditional output marginals in the supplied time and wire order. Gaussian returns `[cov, mean]`. Bargmann returns a `BargmannState` representing the reduced density operator (`den_mat=True`). A positive `window` yields consecutive output windows ending at ascending selected times. Evolution stops at the largest requested time index. Bounded slices and cyclic `(ntimes, ndata)` or `(batch, ntimes, ndata)` controls are supported. As in `global_circuit`, all modes start in vacuum and declared sources prepare fresh spatial inputs per step. With orthogonal basis modes, the joint output or each window is a `SubmodeResult`. Its `to_joint()` orders modes by time, spatial wire, then basis index.
-- `QumodeCircuitTDM` returns the full state after its registered Homodyne measurements. On ordinary Gaussian delay circuits, both circuit classes provide `tdm_memory(full_state)` to extract the loop modes in next-step order. Explicit `memory` or registered sources prepare fresh spatial inputs on every step. Without either, a nonvacuum initial spatial state enters on the first step.
+- Use `global_circuit(nstep)` to unroll delay loops, or `tdm_substate(...)` for selected unconditional outputs and windows.
+- For a Gaussian delay circuit without submodes, `tdm_memory(state)` extracts the loop modes and `cir(memory=...)` takes the next step with fresh inputs. `QumodeCircuitTDM` also supports stepwise homodyne measurements. See `tests/test_photonic_tdm.py` for examples.
 
 Photonic measurement and probabilities:
 
-- Moment readouts preserve the batch axis: `quadrature_mean` returns `(batch, K, 1)`, and `photon_number_mean_var` returns two `(batch, K)` tensors. Both retain Fock weights by default. `quadrature_mean` and `quadrature_moments` accept `normalize` and use registered Homodyne settings when both `wires` and `phi` are omitted. Supplying either starts an explicit query.
-- `quadrature_moments(wires, phi=...)` returns the covariance and mean along one angle per wire. On Gaussian and Bargmann circuits and `BargmannState`, adding `powers` returns the requested products as `(batch, len(powers))`. Products default to raw moments. With `normalize=False`, an all-zero row returns the branch weight. On circuits with orthogonal basis modes, `lo` selects one normalized local-oscillator profile per spatial wire for both quadrature readouts.
-- `measure` returns count dictionaries by default. For PNR or threshold records, use `measure(..., with_state=True, with_prob=True)` on a Fock tensor, Gaussian or Bargmann output. Records have shape `(batch, shots, len(wires))` in the supplied wire order and probabilities have shape `(batch, shots)`. The normalized remaining states are batched in input-then-shot order, as a Fock density matrix or a native Bargmann state. Measuring every mode returns `None` for the state.
-- Each `forward` defaults to `cir.detector` and records its effective detector for that output. Gaussian `measure` reuses a matching probability table. A per-call override samples the saved Gaussian moments. Gaussian and Fock sampling support `mcmc=True`.
-- `measure_homodyne(shots=..., wires=...)` returns quadrature samples and stores collapsed states in `state_measured` when measurement operations were added with `homodyne`, `homodyne_x`, or `homodyne_p`. Use `lo` to select a local-oscillator mode and `phi` for an additional quadrature angle.
-- `post_select(wires, photons, keep=None, detector=None, ..., normalize=True, return_info=False)` returns the conditional state and event weight from the latest forward pass. The detector defaults to the latest forward pass’s detector and can be overridden per call. Use `detector='threshold'` with 0/1 outcomes for vacuum/click conditioning, which always returns a density operator. Fock (`basis=False`) returns the conditional density matrix in a `FockState`. Gaussian returns a Fock tensor and Bargmann returns a native `BargmannState` for continued evolution. On Fock and Bargmann circuits with submodes, photon numbers sum over orthogonal basis modes. On these circuits and on ordinary Fock circuits, `keep` selects retained spatial modes, and `submode` or `lo` selects one basis mode or combination (omit both to retain all). Use `normalize=False` to preserve joint event weights through repeated conditioning. `return_info=True` only adds diagnostics.
+- After a forward pass, use `get_prob` for an event, `measure` to draw photon counts, and `post_select` to condition on a specified count. `measure(with_state=True)` pairs each sampled record with its conditional state on supported backends.
+- Use `quadrature_mean`, `quadrature_moments` or `photon_number_mean_var` for moments and `measure_homodyne` for quadrature samples. Consult the owning method's docstring for detector support, normalization and batch shapes.
 
 MBQC:
 
@@ -156,12 +125,12 @@ pre-commit run --all-files
 - Single quotes are preferred.
 - Imports are sorted by Ruff/isort.
 - Google-style docstrings are used; `src/` enforces pydocstyle through Ruff with selected missing-docstring ignores.
-- New or changed nontrivial public APIs in `src/` should include clear docstrings.
+- Document nontrivial public APIs in their owning docstrings. Keep this guide focused on core entry points, state representations and workflows that span features. Put device-specific arguments, return shapes and calibration examples in docstrings, tutorials and tests.
 - Keep changes consistent with the surrounding PyTorch `nn.Module` patterns, buffer/parameter handling, dtype/device behavior, and existing test tolerances.
 
 ## Testing Guidance
 
-- For simulation changes, run the most relevant targeted tests first.
+- For simulation changes, run the most relevant targeted tests first. Benchmark performance changes end to end with the same physical inputs, requested outputs and timing boundaries on both revisions.
 - For qubit circuit changes, inspect and run relevant tests such as `tests/test_circuit.py`, `tests/test_mps.py`, `tests/test_auto_grad.py`, `tests/test_get_amplitude.py`, `tests/test_channel.py`, and `tests/test_module.py`.
 - For photonic changes, inspect and run relevant `tests/test_photonic_*.py` files plus compatibility tests such as `tests/test_with_xanadu*.py`, `tests/test_with_perceval.py`, `tests/test_with_qutip.py`, and `tests/test_with_pennylane.py` when applicable.
 - For MBQC changes, inspect and run `tests/test_mbqc_transpile.py` and `tests/test_with_graphix.py`.
@@ -194,7 +163,7 @@ Do not modify `src/deepquantum/photonic/cache/` unless the task specifically con
 
 - For GitHub PR reviews, judge changes against the PR's actual `base...head` diff or GitHub "Files changed", not the local current `main..head`.
 - Separate branch drift from actual review findings.
-- Do not revert user changes or unrelated local changes.
+- Switch to the requested feature branch before editing. Preserve user changes and unrelated local work.
 - Keep project lessons in this file. Add a global rule only for high-impact behavior that clearly recurs across projects.
 
 ## Agent Workflow Expectations

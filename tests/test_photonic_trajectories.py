@@ -88,18 +88,93 @@ def test_sampled_threshold_memory_feeds_next_step(submodes):
         torch.testing.assert_close(alternative, data.new_tensor([0.719704, 0.622951]), atol=1e-6, rtol=0)
 
 
-@pytest.mark.parametrize('backend,table', [('bargmann', False), ('gaussian', False), ('gaussian', True)])
-def test_sample_pnr_above_readout_cutoff(backend, table):
+@pytest.mark.parametrize('backend', ['bargmann', 'gaussian'])
+def test_coherent_pnr_tail_matches_poisson(backend):
     cir = dq.QumodeCircuit(2, 'vac', backend=backend, cutoff=2)
     cir.d(1, torch.tensor(2.0, dtype=torch.double), 0.0)
     cir.double()
-    cir(is_prob=table, detector='threshold')
+    cir(detector='threshold')
     torch.manual_seed(12)
     rec, state, p = cir.measure(40, wires=[1], detector='pnrd', with_state=True, with_prob=True)
     n = rec.flatten().to(p)
     assert n.max() > cir.cutoff
     torch.testing.assert_close(p.flatten(), (n * math.log(4.0) - 4.0 - torch.lgamma(n + 1)).exp())
     torch.testing.assert_close(state.norm(), torch.ones_like(n))
+
+
+@pytest.mark.parametrize('detector', ['pnrd', 'threshold'])
+def test_gaussian_count_instruments_return_the_same_native_branch(detector):
+    r = torch.tensor(0.67, dtype=torch.double, requires_grad=True)
+    cir = dq.QumodeCircuit(2, 'vac', backend='gaussian', cutoff=2)
+    cir.s2([0, 1], r, 0.28)
+    cir.double()
+    cir(is_prob=True, detector='threshold')
+    torch.manual_seed(8)
+    records, sampled, probabilities = cir.measure(48, wires=[1], detector=detector, with_prob=True, with_state=True)
+    assert isinstance(sampled, dq.BargmannState) and sampled.den_mat == (detector == 'threshold')
+    q = r.tanh().square()
+    assert records.max() >= (2 if detector == 'pnrd' else 1)
+    for n in records.unique().tolist():
+        rows = (records[0, :, 0] == n).nonzero().flatten()
+        selected, p = cir.post_select(1, n, detector=detector, cutoff=1)
+        assert isinstance(selected, dq.BargmannState) and selected.den_mat == sampled.den_mat
+        draws = sampled._select_batch(rows)
+        cutoff = max(n + 1, 4)
+        tensor = draws.to_fock(cutoff)
+        torch.testing.assert_close(tensor, selected.to_fock(cutoff).expand_as(tensor))
+        expected = (1 - q) * q**n if detector == 'pnrd' or n == 0 else q
+        torch.testing.assert_close(probabilities[0, rows], expected.expand(len(rows)))
+        torch.testing.assert_close(p[0], expected)
+        torch.testing.assert_close(selected.norm(), torch.ones_like(p))
+        photons = p.new_tensor(n) if detector == 'pnrd' or not n else 1 / (1 - q)
+        torch.testing.assert_close(selected.photon_number_mean_var()[0].squeeze(), photons)
+        torch.testing.assert_close(
+            torch.autograd.grad(probabilities[0, rows[0]], r, retain_graph=True),
+            torch.autograd.grad(p, r, retain_graph=True),
+        )
+
+
+def test_gaussian_counting_preserves_thermal_derivative_at_vacuum():
+    occupation = torch.tensor(0.0, dtype=torch.double, requires_grad=True)
+    cov = torch.stack([1 + 2 * occupation, occupation.new_ones(())] * 2).diag()[None]
+    cir = dq.QumodeCircuit(2, 'vac', backend='gaussian').double()
+    cir(state=[cov, cov.new_zeros(1, 4, 1)])
+    record, sampled, p = cir.measure(1, wires=0, with_state=True, with_prob=True)
+    selected, weight = cir.post_select(0, 0)
+    assert record.item() == 0 and selected.den_mat and sampled.den_mat
+    for probability in [p, weight]:
+        torch.testing.assert_close(
+            torch.autograd.grad(probability, occupation, retain_graph=True)[0], -torch.ones_like(occupation)
+        )
+
+
+def test_gaussian_delay_count_memory_order_after_probability_table():
+    cir = dq.QumodeCircuit(1, 'vac', backend='gaussian', cutoff=2, detector='threshold')
+    cir.d(0, 0.5, 0.1)
+    cir.delay(0, ntau=2, inputs=[0.6, 0.27])
+    cir.double()
+    mean = torch.tensor([0.4, 2.1, 0.3, -0.8], dtype=torch.double).reshape(1, 4, 1)
+    memory = [torch.eye(4, dtype=torch.double)[None], mean]
+    full = cir(memory=memory)
+    # Coherent inputs stay a product. Conditioning either port outcome leaves these loop amplitudes.
+    expected = cir.tdm_memory(full)
+    table = cir(is_prob=True, memory=memory)
+    position, momentum = expected[1][0, :, 0].chunk(2)
+    occupations = (position.square() + momentum.square()) * dqp.kappa**2 / dqp.hbar
+    for wire, photons in enumerate(occupations):
+        vacuum = sum(p for event, p in table.items() if event.state[wire] == 0)
+        torch.testing.assert_close(vacuum, (-photons).exp().reshape(1))
+    torch.manual_seed(18)
+    records, sampled, probs = cir.measure(12, with_prob=True, with_state=True)
+    for n in records.unique().tolist():
+        native, p = cir.post_select(0, n)
+        weight = sum(mass for event, mass in table.items() if event.state[-1] == n)
+        rows = (records[0, :, 0] == n).nonzero().flatten()
+        torch.testing.assert_close(p, weight)
+        torch.testing.assert_close(probs[0, rows], p.expand(len(rows)))
+        torch.testing.assert_close(native.quadrature_moments(), tuple(expected))
+        for actual, target in zip(sampled._select_batch(rows).quadrature_moments(), expected, strict=True):
+            torch.testing.assert_close(actual, target.expand(len(rows), -1, -1))
 
 
 def test_actual_herald_record_selects_homodyne_angle():
@@ -181,8 +256,9 @@ def test_two_port_records_pair_with_partial_outputs_and_next_control():
             torch.testing.assert_close(q[i], loop.post_select([0, 1], [0, 0])[1][0])
 
 
-def test_unresolved_submode_pnr_above_cutoff_matches_weighted_posterior():
-    cir = dq.QumodeCircuit(2, 'vac', backend='bargmann', cutoff=1, den_mat=True)
+@pytest.mark.parametrize('backend', ['bargmann', 'gaussian'])
+def test_unresolved_submode_pnr_above_cutoff_matches_weighted_posterior(backend):
+    cir = dq.QumodeCircuit(2, 'vac', backend=backend, cutoff=1, den_mat=True)
     cir.s2([0, 1], torch.tensor(0.55, dtype=torch.double), 0.0)
     cir.set_hardware_model(dqp.HardwareModel().s2([0, 1]).submodes(relative_r=[1.0, 0.75]))
     cir.double()

@@ -99,7 +99,9 @@ def test_threshold_readout_from_vacuum_only_pnr_table(mcmc):
     torch.testing.assert_close(next(iter(table.values())).squeeze(), vacuum)
     torch.manual_seed(7)
     changed = cir.measure(shots=24, wires=0, with_prob=True, detector='threshold', mcmc=mcmc)
-    torch.testing.assert_close(changed[dqp.FockState([1])][1], 1 - vacuum)
+    assert sum(count for count, _ in changed.values()) == 24
+    for bit, expected in enumerate((vacuum, 1 - vacuum)):
+        torch.testing.assert_close(changed[dqp.FockState([bit])][1], expected)
     cir(detector='threshold')
     torch.manual_seed(7)
     assert cir.measure(shots=24, wires=0, with_prob=True, mcmc=mcmc) == changed
@@ -126,14 +128,14 @@ def test_spatial_pnr_override_on_gaussian_submodes():
         torch.testing.assert_close(probability.squeeze(), table[key].squeeze())
 
 
-@pytest.mark.parametrize('detector', ['pnrd', 'click'])
-def test_switching_detector_reports_probability_on_measured_wires(detector):
+@pytest.mark.parametrize('detector', ['threshold', 'pnrd', 'click'])
+def test_mcmc_reports_marginal_probability_on_measured_wires(detector):
     r = torch.tensor(0.55)
     cir = dqp.QumodeCircuit(2, 'vac', cutoff=5, backend='gaussian')
     cir.s2([0, 1], r=r)
     cir.d(0, r=torch.tensor(0.7))
     cir.double()
-    cir(is_prob=True, detector='threshold')
+    cir(is_prob=detector != 'threshold', detector='threshold')
     # Tracing out wire 0 leaves a thermal state on wire 1.
     ref = dqp.QumodeCircuit(1, 'vac', cutoff=5, backend='gaussian', detector=detector)
     ref.thermal(0, nbar=r.sinh().square())
@@ -143,37 +145,6 @@ def test_switching_detector_reports_probability_on_measured_wires(detector):
     ((key, (count, probability)),) = records.items()
     assert count == 1
     torch.testing.assert_close(probability, expected[key].squeeze())
-
-
-def test_displaced_threshold_mcmc_at_cutoff_one():
-    alpha = torch.tensor(0.9)
-    cir = dqp.QumodeCircuit(1, 'vac', cutoff=1, backend='gaussian', detector='threshold')
-    cir.d(0, r=alpha)
-    cir.double()
-    cir()
-    torch.manual_seed(7)
-    records = cir.measure(shots=32, with_prob=True, mcmc=True)
-    vacuum = torch.exp(-alpha.square())
-    assert sum(count for count, _ in records.values()) == 32
-    for bit, expected in enumerate((vacuum, 1 - vacuum)):
-        _, probability = records[dqp.FockState([bit])]
-        torch.testing.assert_close(probability, expected)
-
-
-def test_threshold_mcmc_reports_marginal_for_one_shot():
-    r = torch.tensor(0.55)
-    cir = dqp.QumodeCircuit(2, 'vac', cutoff=5, backend='gaussian', detector='threshold')
-    cir.s2([0, 1], r=r)
-    cir.d(0, r=torch.tensor(0.7))
-    cir.double()
-    cir()
-    torch.manual_seed(4)
-    records = cir.measure(shots=1, wires=1, with_prob=True, mcmc=True)
-    ((outcome, (count, probability)),) = records.items()
-    # Wire 1 is thermal for any displacement of the unmeasured wire 0.
-    click = r.tanh().square()
-    assert count == 1
-    torch.testing.assert_close(probability, click if outcome.state.item() else 1 - click)
 
 
 def test_threshold_mcmc_one_shot_click_frequency():

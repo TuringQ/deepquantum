@@ -60,7 +60,6 @@ from .qmath import (
     fock_to_wigner,
     group_probabilities,
     ladder_to_quadrature,
-    loss_endpoint_expansion,
     permanent,
     quadrature_to_ladder,
     schur_anti_symm_even,

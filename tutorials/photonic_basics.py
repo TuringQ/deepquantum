@@ -738,25 +738,6 @@ print(cov.shape, mean.shape)
 # ``cir.set_hardware_model(None)`` 可移除模型，但会保留手动插入的通道。
 
 # %% [markdown]
-# 在完全损耗 $T=0$ 处，透射场正比于 $\sqrt{T}$，不同观测量可以有不同的单侧响应。
-# 在 $T=1$ 处，非零相干辅助输入也可以产生正比于 $\sqrt{1-T}$ 的位移。
-# 用有符号的损耗角计算一次线路，再调用 `dqp.loss_endpoint_expansion`，可从该次计算图读出 $f(T)-f(T_0)=a\sqrt{|T-T_0|}+b(T-T_0)+o(|T-T_0|)$ 的系数。
-# 若 $a=0$，$b$ 即该观测量关于透射率的单侧导数。
-#
-# 下面的位移热态在完全损耗处有 $\langle x\rangle=\sqrt{T}$，均值的右导数发散，方差和真空概率的右导数分别为 0.2 和 −0.35。
-
-# %%
-theta_loss = torch.tensor(torch.pi, dtype=torch.double, requires_grad=True)
-endpoint = dq.QumodeCircuit(1, 'vac', backend='gaussian')
-endpoint.thermal(0, nbar=torch.tensor(0.1, dtype=torch.double))
-endpoint.d(0, 0.5, 0.0)
-endpoint.loss(0, theta_loss)
-cov_loss, mean_loss = endpoint.double()()
-readouts = torch.stack([mean_loss[0, 0, 0], cov_loss[0, 0, 0], endpoint.get_prob([0]).squeeze()])
-root, slope = dqp.loss_endpoint_expansion(readouts, theta_loss)
-print(root, slope)  # 约 [1, 0, 0]、[0, 0.2, -0.35]
-
-# %% [markdown]
 # ### 单模 OPA：分布式压缩与损耗信道
 #
 # OPA 可作为压缩光源，也可放在读出之前放大选定 quadrature。
@@ -1887,7 +1868,9 @@ print(state_bargmann.to_fock().shape)  # (1, 8, 8)
 # `post_select(wires, photons)` 使用最近一次前向演化的末态，返回条件态和事件概率，不改变线路保存的末态。
 # `photons` 按 `wires` 的顺序给出各被测模式的光子数，单个模式也可以直接传入整数。
 # `normalize=True` 为默认值，`return_info=True` 只增加诊断信息，不改变条件态的类型。
-# Fock 后端（`basis=False`）返回密度矩阵 `FockState`，Gaussian 后端返回 Fock 张量，Bargmann 后端返回可以继续演化的 `BargmannState`。
+# `measure(with_state=True)` 和 `post_select` 返回相同类型的条件态。
+# Fock 后端（`basis=False`）返回密度矩阵 `FockState`，Gaussian 和 Bargmann 后端返回可以继续演化的 `BargmannState`。
+# 需要 Fock 张量时，调用条件态的 `to_fock(cutoff)`。
 #
 # 下面在原模式 0 探测到一个光子，保留原模式 1。
 # 返回态的模式从 0 重新编号，`remaining_wires` 记录它对应的原模式。
@@ -1923,7 +1906,7 @@ print(rho_bargmann.diagonal(dim1=-2, dim2=-1).real.sum(-1))  # 截断内的迹�
 # 探测器命名统一使用 `pnrd`、`threshold` 和 `click`，其中 `click` 表示多路阈值探测器的点击计数，当前尚不支持它的后选择。
 # 参数顺序是 `wires, photons, keep, detector`，其余选项使用关键字指定。
 # 阈值条件态由密度算符描述。
-# Fock 和 Gaussian 返回它在 Fock 基底下的矩阵元，Bargmann 返回持有解析核的 `BargmannState`，可以继续演化。
+# Gaussian 和 Bargmann 后端都保留解析密度核，可直接计算条件态的矩。
 # Bargmann 用部分迹减去真空投影表示点击，每个点击最多将表示项数加倍。
 # 低概率事件容易受到相减误差影响，建议在演化前使用 `cir.double()`，并检查数值精度。
 #

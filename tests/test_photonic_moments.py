@@ -9,8 +9,22 @@ import deepquantum as dq
 import deepquantum.photonic as dqp
 
 
+def _loss_observables(circuit, data=None):
+    state = circuit(data)
+    variance, mean = circuit.quadrature_moments(0, phi=0.0)
+    if circuit.backend == 'gaussian':
+        vacuum = circuit.get_prob([0])
+    else:
+        rho = state.to_fock(1) if circuit.backend == 'bargmann' else state
+        vacuum = rho[:, 0, 0].real
+    return torch.stack([mean.flatten().real, variance.flatten().real, vacuum.flatten().real])
+
+
 @pytest.mark.parametrize('backend', ['gaussian', 'bargmann', 'fock'])
-@pytest.mark.parametrize('method,values', [('loss_t', [1.0, 0.64]), ('loss_db', [0.0, 1.0]), ('loss', [0.0, 4.0])])
+@pytest.mark.parametrize(
+    'method,values',
+    [('loss_t', [1.0, 0.64]), ('loss_db', [0.0, 1.0]), ('loss', [0.0, 4.0]), ('d_channel', [1.0, 0.64])],
+)
 def test_loss_gradients_at_unit_transmittance(backend, method, values):
     # A displaced thermal state has <x> = 1, Var(x) = 1 + 2*nbar before loss.
     nbar = 0.1
@@ -19,28 +33,25 @@ def test_loss_gradients_at_unit_transmittance(backend, method, values):
     cir.d(0, 0.5, 0.0)
     getattr(cir, method)(0, encode=True)
     cir.to(torch.double)
-    data = torch.tensor(values, dtype=torch.double).reshape(-1, 1).requires_grad_()
-    state = cir(data)
-    variance, mean = cir.quadrature_moments(0, phi=0.0)
-    if backend == 'gaussian':
-        vacuum = cir.get_prob([0])
+    control = torch.tensor(values, dtype=torch.double, requires_grad=True)
+    if method == 'd_channel':
+        dark = torch.zeros_like(control)
+        data = torch.stack([dark, dark, control], dim=1)
     else:
-        rho = state.to_fock(1) if backend == 'bargmann' else state
-        vacuum = rho[:, 0, 0].real
-
-    control = data.flatten()
+        data = control[:, None]
+    observed = _loss_observables(cir, data)
     if method == 'loss':
         field = (control / 2).cos()
         power = field.square()
     else:
-        power = control if method == 'loss_t' else 10 ** (-control / 10)
+        power = 10 ** (-control / 10) if method == 'loss_db' else control
         field = power.sqrt()
     thermal = 1 + nbar * power
     expected = [field, 1 + 2 * nbar * power, (-0.25 * power / thermal).exp() / thermal]
-    for value, reference in zip([mean, variance, vacuum], expected, strict=True):
-        torch.testing.assert_close(value.flatten().real, reference, atol=3e-9, rtol=1e-8)
-        derivative = torch.autograd.grad(value.real.sum(), data, retain_graph=True)[0]
-        target = torch.autograd.grad(reference.sum(), data, retain_graph=True)[0]
+    for value, reference in zip(observed, expected, strict=True):
+        torch.testing.assert_close(value, reference, atol=3e-9, rtol=1e-8)
+        derivative = torch.autograd.grad(value.sum(), control, retain_graph=True)[0]
+        target = torch.autograd.grad(reference.sum(), control, retain_graph=True)[0]
         torch.testing.assert_close(derivative, target, atol=3e-9, rtol=1e-8)
 
 
@@ -55,6 +66,27 @@ def test_small_loss_angle_adds_vacuum_noise_to_squeezed_quadrature():
     vacuum = dqp.hbar / (4 * dqp.kappa**2)
     expected = cov[0, 0] + (vacuum - cov[0, 0]) * (angle / 2).sin().square()
     torch.testing.assert_close(variance.squeeze() - cov[0, 0], expected - cov[0, 0], atol=0, rtol=1e-12)
+
+
+def test_loss_on_correlated_bosonic_components_matches_dense_affine_map():
+    from deepquantum.photonic.operation import Channel
+
+    generator = torch.Generator().manual_seed(14)
+    matrix = torch.randn(2, 3, 6, 6, dtype=torch.double, generator=generator)
+    cov = matrix @ matrix.mT + torch.eye(6)
+    mean = torch.randn(2, 3, 6, 1, dtype=torch.cdouble, generator=generator)
+    weights = torch.randn(2, 3, dtype=torch.cdouble, generator=generator)
+    angle = torch.tensor(4.2, dtype=torch.double, requires_grad=True)
+    loss = dqp.PhotonLoss(angle, nmode=3, wires=1)
+    actual = loss([cov, mean, weights])
+    dense = Channel.op_cv(loss, [cov, mean, weights])
+    torch.testing.assert_close(actual, dense)
+    assert actual[2] is weights
+    for value, reference in zip(actual[:2], dense[:2], strict=True):
+        torch.testing.assert_close(
+            torch.autograd.grad(value.real.sum(), angle, retain_graph=True),
+            torch.autograd.grad(reference.real.sum(), angle, retain_graph=True),
+        )
 
 
 @pytest.mark.parametrize('convention,value', [('t', 1.0), ('db', 0.0)])
@@ -449,11 +481,12 @@ def test_loss_observable_endpoint_expansion(backend, auxiliary):
     else:
         cir.d_channel(0, amplitude=auxiliary, phase=0.0, t=theta, convention='loss_theta')
     cir.double()
-    out = cir()
-    var, mean = cir.quadrature_moments(0, phi=0.0)
-    vac = cir.get_prob([0]) if backend == 'gaussian' else (out.to_fock(1) if backend == 'bargmann' else out)[:, 0, 0]
-    values = torch.stack([mean.real.squeeze(), var.real.squeeze(), vac.real.squeeze()])
-    root, slope = dqp.loss_endpoint_expansion(values, theta)
+    values = _loss_observables(cir).squeeze(-1)
+    first = torch.stack([torch.autograd.grad(y, theta, create_graph=True)[0] for y in values])
+    second = torch.stack([torch.autograd.grad(g, theta, retain_graph=True)[0] for g in first])
+    # T = cos²(theta/2). At theta=pi the sqrt(T) and T coefficients are -2 f' and 2 f''.
+    sign = -2 if auxiliary is None else 2
+    root, slope = sign * first, -sign * second
     if auxiliary is None:
         torch.testing.assert_close(root, theta.new_tensor([1.0, 0.0, 0.0]), atol=3e-9, rtol=1e-8)
         torch.testing.assert_close(slope, theta.new_tensor([0.0, 0.2, -0.35]), atol=3e-9, rtol=1e-8)
@@ -468,20 +501,3 @@ def test_loss_observable_endpoint_expansion(backend, auxiliary):
             (h,) = torch.autograd.grad(g, q, retain_graph=True)
             torch.testing.assert_close(root[i], g, atol=5e-8, rtol=1e-7)
             torch.testing.assert_close(slope[i], -h / 2, atol=5e-8, rtol=1e-7)
-
-
-@pytest.mark.parametrize('backend', ['gaussian', 'bargmann', 'fock'])
-def test_dark_auxiliary_lossless_power_gradient(backend):
-    cir = dq.QumodeCircuit(1, 'vac', cutoff=14, backend=backend, basis=False, den_mat=True)
-    cir.thermal(0, nbar=torch.tensor(0.1, dtype=torch.double))
-    cir.d(0, 0.5, 0.0)
-    cir.d_channel(0, encode=True)
-    cir.double()
-    data = torch.tensor([0.0, 0.0, 1.0], dtype=torch.double, requires_grad=True)
-    out = cir(data)
-    variance, mean = cir.quadrature_moments(0, phi=0.0)
-    vacuum = cir.get_prob([0]) if backend == 'gaussian' else (out.to_fock(1) if backend == 'bargmann' else out)[:, 0, 0]
-    derivatives = torch.stack(
-        [torch.autograd.grad(y.real.sum(), data, retain_graph=True)[0][-1] for y in (mean, variance, vacuum)]
-    )
-    torch.testing.assert_close(derivatives, data.new_tensor([0.5, 0.2, -0.21548703919]), atol=4e-9, rtol=1e-8)
