@@ -1358,15 +1358,20 @@ class QumodeCircuit(Operation):
         fresh = self._tdm_vacuum(self.nmode)
         if self.sources:
             fresh = self._prepare_sources(fresh, defer_photons=use_submodes)
-        inputs = _tdm_submode_inputs(_build_submode_circuit(self, fresh)) if use_submodes else [((0,), None, fresh)]
+        inputs = (
+            _tdm_submode_inputs(_build_submode_circuit(self, fresh, batch_blocks=self.backend == 'gaussian'))
+            if use_submodes
+            else [((0,), None, fresh)]
+        )
         blocks = tuple(block for block, _, _ in inputs)
-        states = [self._tdm_vacuum(nloop * len(block)) for block in blocks]
+        widths = [1 if view is not None and view.factorized else len(block) for block, view, _ in inputs]
+        states = [self._tdm_vacuum(nloop * width) for width in widths]
 
         def marginal(keep: list[int]) -> list[list[torch.Tensor] | BargmannState]:
             """Retain the same spatial outputs, in the same order, in every block."""
             return [
-                self._tdm_marginal(state, keep if len(block) == 1 else _basis_wires(keep, len(block)))
-                for state, block in zip(states, blocks, strict=True)
+                self._tdm_marginal(state, keep if width == 1 else _basis_wires(keep, width))
+                for state, width in zip(states, widths, strict=True)
             ]
 
         def output(keep: list[int]) -> 'list[torch.Tensor] | BargmannState | dqp.SubmodeResult':
@@ -1374,6 +1379,9 @@ class QumodeCircuit(Operation):
             values = marginal(keep)
             if not use_submodes:
                 return values[0]
+            if inputs[0][1].factorized:
+                moments = [x.transpose(0, 1) for x in values[0]]
+                return dqp.SubmodeResult(moments, len(keep), len(blocks[0]), self.backend, self.den_mat, True)
             if self.backend == 'bargmann':
                 values = BargmannState._common_dtype(values)
             return dqp.SubmodeResult._from_blocks(values, blocks, len(keep), self.backend, self.den_mat)
@@ -1489,7 +1497,7 @@ class QumodeCircuit(Operation):
         if model is not None and run is None:
             run = model._new_run(self.backend, spatial)
         if submodes is not None:
-            run = replace(run, nmode=nmode * submodes.nsubmode)
+            run = replace(run, nmode=nmode if submodes.factorized else nmode * submodes.nsubmode)
 
         def evolve(
             controls: torch.Tensor | None, sample: list[torch.Tensor] | BargmannState
@@ -1510,6 +1518,13 @@ class QumodeCircuit(Operation):
                 return model(sample, operators, self.backend, spatial, self.operators, _run=run)
             return model(sample, operators, self.backend, spatial, _run=run)
 
+        if submodes is not None and submodes.factorized:
+            # Keep independent basis modes on the leading axis and pair only the physical batch with data.
+            if data is None or data.ndim == 1:
+                result = evolve(data, submodes._flatten_blocks(state))
+                return submodes._reshape_blocks(result, state[0].shape[1])
+            moments = [x.expand(-1, len(data), -1, -1).transpose(0, 1) for x in state]
+            return [x.transpose(0, 1) for x in vmap(evolve, randomness='same')(data, moments)]
         if data is None or data.ndim == 1:
             return evolve(data, state)
         if data.ndim != 2 or not len(data):

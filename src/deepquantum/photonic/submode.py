@@ -859,6 +859,9 @@ class _SubmodeCircuit(QumodeCircuit):
         for source, op in gates:
             bindings = self._bindings.get(source, ())
             modes = next((b.plugin for b, _ in bindings if isinstance(b.plugin, Submodes)), None)
+            if all(isinstance(binding.plugin, Submodes) for binding, _ in bindings):
+                state = self._lift(op, state, modes, run)
+                continue
             if any(
                 binding.where in ('before', 'after') and not isinstance(binding.plugin, Loss) for binding, _ in bindings
             ):
@@ -1142,7 +1145,7 @@ def _slice_profiles(modes, block):
 
 
 def _build_submode_circuit(
-    parent: QumodeCircuit, state: Any = None, *, joint: bool = False
+    parent: QumodeCircuit, state: Any = None, *, joint: bool = False, batch_blocks: bool = False
 ) -> '_SubmodeCircuit | _SubmodeBlocks':
     """Build the submode circuit, grouping basis modes coupled by inputs or operations."""
     model = parent.hardware_model if parent.hardware_model is not None else HardwareModel()
@@ -1165,7 +1168,7 @@ def _build_submode_circuit(
         and parent.backend == 'fock'
         or parent.backend == 'bosonic'
         or (
-            not parent._with_delay
+            (not parent._with_delay or batch_blocks)
             and parent.backend != 'bargmann'
             and not photons
             and all(p.components is None for p in profiles)
@@ -1218,6 +1221,8 @@ def _tdm_submode_inputs(
             state = view._prepare_photons(state, view.hardware_model._new_run(view.backend, view.wires))
         else:
             state = [state.cov, state.mean]
+            if view.factorized:
+                state = view._reshape_blocks(view._factor_input(state), state[0].shape[0])
         inputs.append((block, view, state))
     return inputs
 

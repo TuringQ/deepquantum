@@ -632,3 +632,34 @@ def test_automatic_homodyne_loop_reprepares_gaussian_source():
             memory = [cov[:, idx, :][:, :, idx], mean[:, idx]]
     torch.testing.assert_close(manual.state_measured, expected)
     torch.testing.assert_close(torch.stack(records, -1), auto.samples)
+
+
+def test_equal_submode_windows_share_hardware_draws_and_preserve_gradients():
+    ratios = [1.0, 0.6, 0.25]
+    r = torch.tensor(0.28, dtype=torch.double, requires_grad=True)
+    data = torch.tensor([[[-0.2], [0.3]], [[0.4], [0.1]]], dtype=torch.double, requires_grad=True)
+
+    def build(ratio=None):
+        cir = dq.QumodeCircuit(1, 'vac', backend='gaussian')
+        cir.s(0, r if ratio is None else r * ratio, 0.23)
+        cir.ps(0, encode=True)
+        cir.delay(0, ntau=3, inputs=[0.62, -0.24])
+        model = dqp.HardwareModel().ps(0).theta.gaussian(sigma=0.13)
+        if ratio is None:
+            model.s(0).submodes(relative_r=ratios)
+        cir.set_hardware_model(model)
+        model.manual_seed(174)
+        cir.double()
+        return next(cir.tdm_substate(5, window=3, data=data))
+
+    result = build()
+    assert result.partition == ((0,), (1,), (2,))
+    total, reference = 0.0, 0.0
+    for ((k,), state), ratio in zip(result._factors(), ratios, strict=True):
+        expected = build(ratio)
+        torch.testing.assert_close(state, expected, atol=2e-8, rtol=2e-7)
+        total += (k + 1) * state[0].square().sum()
+        reference += (k + 1) * expected[0].square().sum()
+    torch.testing.assert_close(
+        torch.autograd.grad(total, (r, data)), torch.autograd.grad(reference, (r, data)), atol=2e-7, rtol=2e-7
+    )
