@@ -311,6 +311,8 @@ class _PluginBinding(nn.Module):
         ]
         if index is not None:
             delays = delays[index : index + 1]
+        if self.where == 'loop_return':
+            return [(i, len(op.gates) - 1) for i, op in delays if len(op.gates)]
         locations = []
         for i, op in delays:
             gates = [j for j, gate in enumerate(op.gates) if self.matches(gate)]
@@ -318,6 +320,14 @@ class _PluginBinding(nn.Module):
                 gates = gates[self.index : self.index + 1]
             locations.extend((i, j) for j in gates)
         return locations
+
+    def execution_wires(self, op: Operation, source: Operation) -> tuple[int, ...]:
+        """Select the return port or all ports, including their mapped orthogonal basis modes."""
+        wires = op.wires
+        if self.where == 'loop_return':
+            # The first physical port returns to the loop. Each port's basis wires are contiguous.
+            wires = wires[: len(wires) // len(source.wires)]
+        return tuple(wires)
 
     def forward(
         self,
@@ -327,8 +337,9 @@ class _PluginBinding(nn.Module):
         parameter: str | None = None,
         source: Operation | None = None,
     ) -> Any:
-        cache_key = (self, op if source is None else source, parameter)
-        return self.plugin(value, replace(run, wires=tuple(op.wires), cache_key=cache_key))
+        source = op if source is None else source
+        run = replace(run, wires=self.execution_wires(op, source), cache_key=(self, source, parameter))
+        return self.plugin(value, run)
 
 
 @dataclass
@@ -616,6 +627,30 @@ class _DelayConfig:
             self.model, (PhaseShift, MZI), None, {PhaseShift: 'theta', MZI: 'phi'}, (self.wires, self.index), 0
         )
 
+    def loop_loss(
+        self,
+        t: float | torch.Tensor | None = None,
+        *,
+        db: float | torch.Tensor | None = None,
+        requires_grad: bool = False,
+        name: str | None = None,
+    ) -> 'HardwareModel':
+        """Apply loss to the returning light after all gates in each selected delay.
+
+        Each pass attenuates the return port once, across all its orthogonal basis modes.
+        The through port leaves the coupler before this loss. The calibration belongs to
+        the hardware model and consumes no encoded data.
+
+        Args:
+            t: Round-trip power transmittance. Specify exactly one of ``t`` and ``db``. Default: ``None``
+            db: Round-trip power loss in dB. Default: ``None``
+            requires_grad: Whether to train the loss angle. Default: ``False``
+            name: Optional hardware binding name. Default: ``None``
+        """
+        return _StateConfig(self.model, 'loop_return', Delay, None, (self.wires, self.index)).loss(
+            t, db=db, requires_grad=requires_grad, name=name
+        )
+
     def ps(self, index: int | None = None) -> _PhaseConfig:
         """Select internal phase shifters, including the built-in one."""
         return _PhaseConfig(self.model, PhaseShift, None, (self.wires, self.index), index)
@@ -833,7 +868,7 @@ class HardwareModel(nn.Module):
                 )
                 mapped = _PluginBinding(
                     plugin,
-                    binding.op_types,
+                    tuple({type(op) for op in gates}) if binding.where == 'loop_return' else binding.op_types,
                     None,
                     binding.where,
                     binding.parameter,
@@ -886,7 +921,7 @@ class HardwareModel(nn.Module):
     def _loss_count(self, operators: Sequence[Operation], wires: Sequence[int]) -> int:
         """Count vacuum environment modes needed by Fock basis loss."""
         count = sum(
-            len(op.wires)
+            len(binding.execution_wires(op, op))
             for op, bindings in self._bind(operators).items()
             for binding, _ in bindings
             if binding.where is not None and isinstance(binding.plugin, Loss)
@@ -905,9 +940,14 @@ class HardwareModel(nn.Module):
 
     def _apply_state_plugins(self, state, op, run, bindings, where, source=None):
         """Apply state plugins at one gate boundary."""
+        loop_loss = None
         for binding, _ in bindings:
             if binding.where == where:
                 state = binding(state, run, op, source=source)
+            elif where == 'after' and binding.where == 'loop_return':
+                loop_loss = binding
+        if loop_loss is not None:
+            state = loop_loss(state, run, op, source=source)
         return state
 
     def _apply_operation(

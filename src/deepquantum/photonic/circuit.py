@@ -1717,8 +1717,6 @@ class QumodeCircuit(Operation):
         if model is not None:
             u = model._apply_io_plugins(u, run, 'input')
         for op in operators:
-            if isinstance(op, Barrier):
-                continue
             selected = bindings.get(op, ()) if model is not None else ()
             if model is not None:
                 u = model._apply_state_plugins(u, op, run, selected, 'before')
@@ -1726,7 +1724,7 @@ class QumodeCircuit(Operation):
                 u = PhotonLoss._apply_unitary(u, op.gate.update_matrix(), op.wires, op.nmode)
             elif isinstance(op, Channel):
                 raise NotImplementedError(f'{op.name} does not support Fock basis evolution.')
-            else:
+            elif not isinstance(op, Barrier):
                 if u is None and model is None:
                     u = op.get_unitary()
                     continue

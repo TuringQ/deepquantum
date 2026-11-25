@@ -585,6 +585,54 @@ def test_delay_bindings_match_internal_gates(convention):
     assert_state_close(cir(), expected(stepwise=True))
 
 
+@pytest.mark.parametrize('convention', ['bs', 'mzi'])
+def test_delay_loop_loss_matches_last_loop_channel_and_gradients(convention):
+    theta = torch.tensor(0.71, requires_grad=True)
+    transmission = torch.tensor(0.78, requires_grad=True)
+
+    def circuit(manual):
+        cir = dqp.QumodeCircuit(1, 'vac', backend='gaussian')
+        cir.d(0, r=0.31, theta=-0.21)
+        # A displacement distinguishes loss before and after the last loop gate.
+        gates = [dqp.Displacement([0.27, 0.34])] if convention == 'bs' else []
+        if manual:
+            gates.append(dqp.PhotonLoss(transmission, convention='t'))
+        cir.delay(0, ntau=2, inputs=[theta, 0.18], convention=convention, loop_gates=gates)
+        if not manual:
+            model = dqp.HardwareModel().delay().loop_loss(t=0.5)
+            model.delay(0, index=0).loop_loss(t=transmission)
+            cir.set_hardware_model(model)
+        return cir.double()
+
+    cir, ref = circuit(False), circuit(True)
+    actual, expected = cir.tdm_substate([0, 2, 4]), ref.tdm_substate([0, 2, 4])
+    assert_state_close(actual, expected)
+    assert_state_close(cir.global_circuit(5)(), ref.global_circuit(5)())
+    gradients = torch.autograd.grad(actual[1].square().sum(), (theta, transmission))
+    assert_state_close(gradients, torch.autograd.grad(expected[1].square().sum(), (theta, transmission)))
+    assert all(g.abs() > 1e-6 for g in gradients)
+
+
+@pytest.mark.parametrize('barrier', [False, True])
+def test_loop_loss_allocates_one_fock_environment_per_pass(barrier):
+    def circuit(manual):
+        cir = dqp.QumodeCircuit(1, [0], cutoff=2)
+        gates = [dqp.Barrier()] if barrier else []
+        if manual:
+            gates.append(dqp.PhotonLoss(torch.tensor(1.2), convention='db'))
+        cir.delay(0, inputs=[0.7, 0.2], convention='mzi', loop_gates=gates)
+        if not manual:
+            cir.set_hardware_model(dqp.HardwareModel().delay(0).loop_loss(db=1.2))
+        return cir.double().global_circuit(3)
+
+    cir, ref = circuit(False), circuit(True)
+    occupation = torch.tensor([0, 1, 0, 0])
+    actual = cir(state=occupation, is_prob=True)
+    expected = ref(state=occupation, is_prob=True)
+    assert cir._nloss == ref._nloss == 3
+    torch.testing.assert_close(actual, expected)
+
+
 @pytest.mark.parametrize('use_deepcopy', [False, True])
 def test_encoded_delay_noise_shares_plugins_not_samples(use_deepcopy):
     cir = dqp.QumodeCircuit(1, 'vac', backend='gaussian')
