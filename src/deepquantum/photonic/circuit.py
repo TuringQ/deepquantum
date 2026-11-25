@@ -8,7 +8,7 @@ from collections.abc import Generator, Sequence
 from contextlib import contextmanager, nullcontext
 from copy import copy, deepcopy
 from dataclasses import replace
-from functools import partial
+from functools import cache, partial
 from operator import index as operator_index
 from typing import Any, TYPE_CHECKING, overload
 
@@ -21,7 +21,6 @@ import deepquantum.photonic as dqp
 
 from ..qmath import block_sample, get_prob_mps, inner_product_mps, is_positive_definite, sample_sc_mcmc
 from ..state import MatrixProductState
-from .bargmann import conditional_fock
 from .channel import DisplacementChannel, OPA, PhotonLoss
 from .decompose import UnitaryDecomposer
 from .distributed import measure_dist
@@ -56,6 +55,7 @@ from .measurement import Generaldyne, Homodyne
 from .operation import Channel, Delay, Gate, Operation
 from .qmath import (
     _first_order_indices,
+    _gaussian_marginal,
     _moment_powers,
     _moment_weight,
     _moment_wires,
@@ -119,16 +119,18 @@ class QumodeCircuit(Operation):
         basis: Whether to use the representation of Fock basis state for the initial state. Default: ``True``
         den_mat: Whether to use density matrix representation. Fock state tensors store the matrix elements
             and Bargmann states store the analytic kernel of the density operator. Gaussian evolution uses
-            covariance and mean. For Gaussian PNR post-selection, ``True`` returns a Fock density matrix and
-            ``False`` returns a ket for a pure input. Threshold post-selection always returns a density operator.
+            covariance and mean. For Gaussian photon-count conditioning, ``True`` selects a Bargmann density
+            kernel. With ``False``, resolved PNR counts on a pure Gaussian output can retain a Bargmann ket.
+            Threshold post-selection always returns a density operator.
             Default: ``False``
-        detector: The default detector for Gaussian probabilities and sampling, and for photon-counting
-            post-selection on Fock, Gaussian and Bargmann backends. Use ``'pnrd'`` for the
-            photon-number-resolving detector, ``'threshold'`` for the threshold detector,
-            or ``'click'`` for the click-counting detector. Click-counting post-selection is not implemented.
+        detector: Use ``'pnrd'`` for the photon-number-resolving detector,
+            ``'threshold'`` for the threshold detector, or ``'click'`` for the click-counting detector.
+            Each forward pass uses this circuit default unless it specifies a detector for its output.
+            Changing ``cir.detector`` after a forward pass sets the default for future runs.
+            Ordinary Gaussian probabilities and sampling support all three. Photon-counting post-selection
+            on Fock, Gaussian and Bargmann backends supports ``'pnrd'`` and ``'threshold'``.
+            For ``'click'``, each mode has ``cutoff - 1`` threshold detectors and ``cutoff`` possible outcomes.
             Default: ``'pnrd'``
-            For ``'click'``, ``cutoff`` is the number of single-mode click-count outcomes, so the
-            number of internal threshold detectors is ``cutoff - 1``.
         name: The name of the circuit. Default: ``None``
         mps: Whether to use matrix product state representation. Default: ``False``
         chi: The bond dimension for matrix product state representation. Default: ``None``
@@ -150,7 +152,7 @@ class QumodeCircuit(Operation):
         super().__init__(name=name, nmode=nmode, wires=list(range(nmode)), cutoff=cutoff, den_mat=den_mat)
         self.backend = backend.lower()
         self.basis = basis
-        self.detector = detector.lower()
+        self.detector = self._normalize_detector(detector)
         self.mps = mps
         self.chi = chi
         self.set_init_state(init_state)
@@ -181,12 +183,6 @@ class QumodeCircuit(Operation):
         self._tdm_measurement_map = []
         self.hardware_model = None
         self.sources = nn.ModuleDict()
-
-    def __setstate__(self, state: dict[str, Any]) -> None:
-        """Restore the Fock batch padding flag on previously saved circuits."""
-        if '_is_batch_expanded' in state:
-            state['_has_batch_padding_mode'] = state.pop('_is_batch_expanded')
-        super().__setstate__(state)
 
     @property
     def _uses_submodes(self) -> bool:
@@ -307,9 +303,25 @@ class QumodeCircuit(Operation):
         """Discard execution results after a circuit, state or device change."""
         self.__dict__['state'] = None
         self._state_raw = None
+        self._state_detector = None
         self._state_units = None
+        self._state_gaussian_ket = False
+        self._pnr_input_cov = None
         self.state_measured = None
         self.__dict__['_submode_circuit'] = None
+
+    @staticmethod
+    def _normalize_detector(detector: str) -> str:
+        """Return the canonical photon-counting detector name."""
+        if not isinstance(detector, str) or detector.lower() not in ('pnrd', 'threshold', 'click'):
+            raise ValueError('detector must be pnrd, threshold or click')
+        return detector.lower()
+
+    def _readout_detector(self, detector: str | None = None) -> str:
+        """Resolve a readout override against the latest output or the circuit default."""
+        if detector is None:
+            detector = self._state_detector or self.detector
+        return self._normalize_detector(detector)
 
     def _apply(self, fn: Any, recurse: bool = True) -> 'QumodeCircuit':
         self._invalidate_state()
@@ -381,9 +393,11 @@ class QumodeCircuit(Operation):
                 For Gaussian (Bosonic) backend, whether to return probabilities or the final Gaussian (Bosonic) state.
                 Bargmann returns a native state or a ``SubmodeResult`` when orthogonal basis modes are configured.
                 It supports state evolution with ``is_prob=None``. Default: ``None``
-            detector: For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector,
+            detector: Use ``'pnrd'`` for the photon-number-resolving detector,
                 ``'threshold'`` for the threshold detector, or ``'click'`` for the click-counting detector.
-                Default: ``None``
+                Sets the detector for this output and its subsequent readouts, for both states and probability
+                tables. Each new forward pass defaults to ``self.detector``. Fock probability tables and
+                spatial probability tables with submodes support ``'pnrd'``. Default: ``None``
             sort: Whether to sort dictionary of Fock basis states in the descending order of probabilities.
                 Default: ``True``
             stepwise: Whether to use the forward function of each operator for Gaussian backend. Default: ``False``
@@ -391,8 +405,8 @@ class QumodeCircuit(Operation):
                 With submodes, include all orthogonal basis modes of each loop position in basis order.
                 The joint state retains correlations and its original weight across steps.
                 Gaussian accepts ``[cov, mean]`` or ``GaussianState``. Bargmann accepts a ``BargmannState``
-                and uses the circuit's default Fock readout cutoff. Use the same dtype and device as the fresh
-                spatial inputs from ``init_state`` and any declared sources.
+                and uses the circuit's default Fock readout cutoff. Supply memory on the same device as
+                the fresh spatial inputs. Gaussian requires the same dtype. Bargmann promotes their precision.
                 Default: ``None`` (vacuum loop modes when only spatial inputs are given)
 
         Returns:
@@ -402,11 +416,14 @@ class QumodeCircuit(Operation):
             With orthogonal basis modes, return ``SubmodeResult`` describing the joint or factorized layout.
             On Gaussian and Fock backends, ``is_prob=True`` instead returns spatial photon-count probabilities.
         """
+        detector = self._normalize_detector(self.detector if detector is None else detector)
+        use_submodes = self._uses_submodes
+        if is_prob and detector != 'pnrd' and (self.backend == 'fock' or (use_submodes and self.backend == 'gaussian')):
+            raise NotImplementedError('Fock and spatial submode probability tables support only PNR detection.')
         self._invalidate_state()
         self._prepare_unroll_dict()
         if self.hardware_model is not None:
             self._validate_hardware_model(self.hardware_model)
-        use_submodes = self._uses_submodes
         if memory is not None:
             if state is not None:
                 raise ValueError('Supply either state or memory, not both.')
@@ -440,17 +457,23 @@ class QumodeCircuit(Operation):
                 result = submode_circuit.result()
             # Keep this execution result out of the registered/trainable module tree.
             self.__dict__['_submode_circuit'] = submode_circuit
-            self.state = result
             if is_prob:
-                self.state = self._spatial_submode_readout().spatial_probabilities(detector)
-            return self.state
-        if memory is not None:
-            state = self._join_tdm_memory(memory, self.init_state if state is None else state)
-        if self.backend == 'fock':
-            return self._forward_fock(data, state, is_prob, sort)
-        if self.backend in ('gaussian', 'bosonic'):
-            return self._forward_cv(data, state, is_prob, detector, stepwise or bool(self.sources))
-        return self._forward_bargmann(data, state, is_prob)
+                self._state_raw = result
+                result = self._spatial_submode_readout().spatial_probabilities(detector)
+            self.state = result
+        else:
+            if memory is not None:
+                state = self._join_tdm_memory(memory, self.init_state if state is None else state)
+            if self.backend == 'fock':
+                result = self._forward_fock(data, state, is_prob, sort)
+            elif self.backend in ('gaussian', 'bosonic'):
+                result = self._forward_cv(data, state, is_prob, detector, stepwise or bool(self.sources))
+            else:
+                result = self._forward_bargmann(data, state, is_prob)
+        if self.backend == 'gaussian':
+            self._state_units = (dqp.hbar, dqp.kappa)
+        self._state_detector = detector
+        return result
 
     def _forward_fock(
         self, data: torch.Tensor | None = None, state: Any = None, is_prob: bool | None = None, sort: bool = True
@@ -657,9 +680,9 @@ class QumodeCircuit(Operation):
             data: The input data for the ``encoders``. Default: ``None``
             state: The initial state for the photonic quantum circuit. Default: ``None``
             is_prob: Whether to return probabilities or the final Gaussian (Bosonic) state. Default: ``None``
-            detector: Use ``'pnrd'`` for the photon-number-resolving detector or
+            detector: Use ``'pnrd'`` for the photon-number-resolving detector,
                 ``'threshold'`` for the threshold detector, or ``'click'`` for the click-counting detector.
-                Only valid when ``is_prob`` is ``True``. Default: ``None``
+                Used for this output's probability table. Default: ``None`` (use the circuit default)
             stepwise: Whether to use the forward function of each operator. Default: ``False``
 
         Returns:
@@ -680,6 +703,14 @@ class QumodeCircuit(Operation):
             elif self.backend == 'bosonic':
                 state = BosonicState(state=state, nmode=nmode, cutoff=self.cutoff)
         cov, mean = state.cov, state.mean
+        if (
+            self.backend == 'gaussian'
+            and not (self.den_mat or self.sources or self.hardware_model is not None or cov.requires_grad)
+            and state.is_pure
+            and not any(isinstance(op, Channel) for op in self.operators.modules())
+        ):
+            # PNR needs the preparation before gate roundoff or later edits to the caller's covariance.
+            self._pnr_input_cov = cov.clone()
         weight = state.weight if self.backend == 'bosonic' else None
         if self._with_delay:
             cov, mean = self._unroll_init_state([cov, mean])
@@ -701,16 +732,12 @@ class QumodeCircuit(Operation):
                     data, [cov, mean], stepwise
                 )
             self.encode(data[-1])
-        if self.backend == 'gaussian':
-            if is_prob:
-                self._state_raw = (cov, mean)
-            self._state_units = (dqp.hbar, dqp.kappa)
+        if self._with_delay:
+            cov, mean = self._shift_state([cov, mean])
         if is_prob:
-            self.state = [cov, mean]  # for checking purity
             self.state = self._forward_cv_prob(cov, mean, weight, detector)
+            self._state_raw = (cov, mean)
         else:
-            if self._with_delay:
-                cov, mean = self._shift_state([cov, mean])
             if self.backend == 'gaussian':
                 self.state = [cov, mean]
             elif self.backend == 'bosonic':
@@ -820,8 +847,6 @@ class QumodeCircuit(Operation):
                 if loops is None:
                     like = fresh if isinstance(fresh, BargmannState) else view.init_state
                     loops = self._tdm_vacuum((nmode - self.nmode) * len(block), like)
-                elif isinstance(loops, BargmannState) and isinstance(fresh, BargmannState):
-                    fresh, loops = BargmannState._common_dtype((fresh, loops))
                 inputs.append((block, view, self._join_tdm_memory(loops, fresh, len(block))))
         spatial = [self._unroll_dict[w][-1] for w in self.wires]
         run = self.hardware_model._new_run(self.backend, spatial) if self.hardware_model is not None else None
@@ -888,22 +913,49 @@ class QumodeCircuit(Operation):
             order = spatial + loops
             if memory.den_mat and not self.den_mat:
                 raise ValueError('A Bargmann kernel representing a density operator requires den_mat=True')
+            inputs, memory = BargmannState._common_dtype((inputs, memory))
             return inputs._tensor_product(memory, [order.index(w) for w in range(len(order))])
-        if isinstance(memory, GaussianState):
-            memory = [memory.cov, memory.mean]
-        if not (
-            isinstance(memory, Sequence)
-            and len(memory) == 2
-            and all(isinstance(x, torch.Tensor) and x.ndim in (2, 3) and x.is_floating_point() for x in memory)
-            and memory[0].shape[-2:] == (2 * nloop, 2 * nloop)
-            and memory[1].shape[-2:] == (2 * nloop, 1)
-        ):
-            raise ValueError(f'memory must contain Gaussian moments of the {nloop} delay modes only.')
+        memory = self._tdm_gaussian_moments(
+            memory, nloop, f'memory must contain Gaussian moments of the {nloop} delay modes only.'
+        )
         if isinstance(inputs, GaussianState):
             inputs = [inputs.cov, inputs.mean]
         if any(x.dtype != inputs[0].dtype or x.device != inputs[0].device for x in memory):
             raise ValueError('memory must have the same dtype and device as the spatial inputs.')
         return self._join_gaussian_modes(memory, inputs, loops, spatial)
+
+    def tdm_memory(self, state: GaussianState | Sequence[torch.Tensor]) -> list[torch.Tensor]:
+        """Extract the Gaussian delay modes from a complete one-step state in next-step order.
+
+        Pass the output of a Gaussian delay circuit for unconditional memory, or its
+        Homodyne-conditioned full state for the memory of that measurement record.
+        The returned covariance and mean can be passed directly as ``memory`` to the next step.
+        """
+        if self.backend != 'gaussian' or not self._with_delay or self._uses_submodes:
+            raise NotImplementedError('tdm_memory requires a Gaussian delay circuit without submodes.')
+        self._prepare_unroll_dict()
+        moments = self._tdm_gaussian_moments(
+            state, self._nmode_tdm, f'Pass the full Gaussian state of all {self._nmode_tdm} concurrent modes.'
+        )
+        return _gaussian_marginal(moments, list(self._tdm_loop_map()))
+
+    @staticmethod
+    def _tdm_gaussian_moments(
+        state: GaussianState | Sequence[torch.Tensor], nmode: int, error: str
+    ) -> list[torch.Tensor]:
+        """Read batched or unbatched xxpp moments of the expected number of modes."""
+        if isinstance(state, GaussianState):
+            state = [state.cov, state.mean]
+        size = 2 * nmode
+        if not (
+            isinstance(state, Sequence)
+            and len(state) == 2
+            and all(isinstance(x, torch.Tensor) and x.ndim in (2, 3) and x.is_floating_point() for x in state)
+            and state[0].shape[-2:] == (size, size)
+            and state[1].shape[-2:] == (size, 1)
+        ):
+            raise ValueError(error)
+        return [state[0], state[1]]
 
     @staticmethod
     def _join_gaussian_modes(
@@ -929,9 +981,9 @@ class QumodeCircuit(Operation):
             cov: The covariance matrices of the Gaussian states.
             mean: The displacement vectors of the Gaussian states.
             weight: The weights of the Gaussian states. Default: ``None``
-            detector: Use ``'pnrd'`` for the photon-number-resolving detector or
+            detector: Use ``'pnrd'`` for the photon-number-resolving detector,
                 ``'threshold'`` for the threshold detector, or ``'click'`` for the click-counting detector.
-                Default: ``None``
+                Used for this probability table. Default: ``None`` (use the output's detector)
         """
         assert weight is None, 'Currently Fock probability is not supported in Bosonic backend'
         shape_cov = cov.shape
@@ -943,11 +995,7 @@ class QumodeCircuit(Operation):
         cov = cov.reshape(-1, *shape_cov[-2:])
         mean = mean.reshape(-1, *shape_mean[-2:])
         batch_forward = vmap(self._forward_gaussian_prob_helper, in_dims=(0, 0, None, None, None, None))
-        if detector is None:
-            detector = self.detector
-        else:
-            detector = detector.lower()
-            self.detector = detector
+        detector = self._readout_detector(detector)
         basis = self._get_odd_even_fock_basis(detector=detector)
         if detector == 'pnrd':
             purity = bool(GaussianState._purity_mask(cov).all())
@@ -957,7 +1005,7 @@ class QumodeCircuit(Operation):
             mean_0 = mean[idx_loop]
             cov_1 = cov[~idx_loop]
             mean_1 = mean[~idx_loop]
-            final_states = torch.cat([torch.cat(basis[1]), torch.cat(basis[0])])
+            final_states = torch.cat([*basis[1], *basis[0]])
             probs = []
             if len(cov_0) > 0:
                 loop = False
@@ -998,7 +1046,7 @@ class QumodeCircuit(Operation):
                 probs = torch.cat(prob_lst)
             else:
                 probs = torch.cat(prob_lst)
-                probs = torch.cat([probs, torch.zeros(len(torch.cat(odd_basis)), device=probs.device)])
+                probs = torch.cat([probs, probs.new_zeros(sum(len(states) for states in odd_basis))])
         elif detector == 'threshold':
             for state in basis:
                 prob = self._get_probs_gaussian_helper(state, cov, mean, detector, purity, loop)
@@ -1052,10 +1100,8 @@ class QumodeCircuit(Operation):
         )
         return states
 
-    def _get_odd_even_fock_basis(self, detector: str | None = None) -> tuple[list, list] | list:
+    def _get_odd_even_fock_basis(self, detector: str) -> tuple[list, list] | list:
         """Split the Fock basis into the odd and even photon number parts."""
-        if detector is None:
-            detector = self.detector
         nmode = self._nmode_tdm if self._with_delay else self.nmode
         if detector == 'pnrd':
             max_photon = nmode * (self.cutoff - 1)
@@ -1347,15 +1393,20 @@ class QumodeCircuit(Operation):
         fresh = self._tdm_vacuum(self.nmode)
         if self.sources:
             fresh = self._prepare_sources(fresh, defer_photons=use_submodes)
-        inputs = _tdm_submode_inputs(_build_submode_circuit(self, fresh)) if use_submodes else [((0,), None, fresh)]
+        inputs = (
+            _tdm_submode_inputs(_build_submode_circuit(self, fresh, batch_blocks=self.backend == 'gaussian'))
+            if use_submodes
+            else [((0,), None, fresh)]
+        )
         blocks = tuple(block for block, _, _ in inputs)
-        states = [self._tdm_vacuum(nloop * len(block)) for block in blocks]
+        widths = [1 if view is not None and view.factorized else len(block) for block, view, _ in inputs]
+        states = [self._tdm_vacuum(nloop * width) for width in widths]
 
         def marginal(keep: list[int]) -> list[list[torch.Tensor] | BargmannState]:
             """Retain the same spatial outputs, in the same order, in every block."""
             return [
-                self._tdm_marginal(state, keep if len(block) == 1 else _basis_wires(keep, len(block)))
-                for state, block in zip(states, blocks, strict=True)
+                self._tdm_marginal(state, keep if width == 1 else _basis_wires(keep, width))
+                for state, width in zip(states, widths, strict=True)
             ]
 
         def output(keep: list[int]) -> 'list[torch.Tensor] | BargmannState | dqp.SubmodeResult':
@@ -1363,6 +1414,9 @@ class QumodeCircuit(Operation):
             values = marginal(keep)
             if not use_submodes:
                 return values[0]
+            if inputs[0][1].factorized:
+                moments = [x.transpose(0, 1) for x in values[0]]
+                return dqp.SubmodeResult(moments, len(keep), len(blocks[0]), self.backend, self.den_mat, True)
             if self.backend == 'bargmann':
                 values = BargmannState._common_dtype(values)
             return dqp.SubmodeResult._from_blocks(values, blocks, len(keep), self.backend, self.den_mat)
@@ -1413,14 +1467,9 @@ class QumodeCircuit(Operation):
     @staticmethod
     def _tdm_marginal(state: list[torch.Tensor] | BargmannState, keep: list[int]) -> list[torch.Tensor] | BargmannState:
         """Trace out the complement of ``keep`` and restore the requested mode order."""
-        nmode = state.nmode if isinstance(state, BargmannState) else state[0].shape[-1] // 2
-        if keep == list(range(nmode)):
-            return state
         if isinstance(state, BargmannState):
-            return state._marginal(keep)
-        cov, mean = state
-        idx = torch.tensor(keep + [w + nmode for w in keep], device=cov.device)
-        return [cov[..., idx[:, None], idx], mean[..., idx, :]]
+            return state if keep == list(range(state.nmode)) else state._marginal(keep)
+        return _gaussian_marginal(state, keep)
 
     def _prepare_tdm_readout(
         self,
@@ -1483,7 +1532,7 @@ class QumodeCircuit(Operation):
         if model is not None and run is None:
             run = model._new_run(self.backend, spatial)
         if submodes is not None:
-            run = replace(run, nmode=nmode * submodes.nsubmode)
+            run = replace(run, nmode=nmode if submodes.factorized else nmode * submodes.nsubmode)
 
         def evolve(
             controls: torch.Tensor | None, sample: list[torch.Tensor] | BargmannState
@@ -1504,6 +1553,13 @@ class QumodeCircuit(Operation):
                 return model(sample, operators, self.backend, spatial, self.operators, _run=run)
             return model(sample, operators, self.backend, spatial, _run=run)
 
+        if submodes is not None and submodes.factorized:
+            # Keep independent basis modes on the leading axis and pair only the physical batch with data.
+            if data is None or data.ndim == 1:
+                result = evolve(data, submodes._flatten_blocks(state))
+                return submodes._reshape_blocks(result, state[0].shape[1])
+            moments = [x.expand(-1, len(data), -1, -1).transpose(0, 1) for x in state]
+            return [x.transpose(0, 1) for x in vmap(evolve, randomness='same')(data, moments)]
         if data is None or data.ndim == 1:
             return evolve(data, state)
         if data.ndim != 2 or not len(data):
@@ -1822,6 +1878,8 @@ class QumodeCircuit(Operation):
     def get_prob(self, final_state: Any, refer_state: Any = None, unitary: torch.Tensor | None = None) -> torch.Tensor:
         """Get the probability of the final state related to the reference state.
 
+        Use the latest forward pass's detector, or the circuit default before the first forward pass.
+
         Args:
             final_state: The final Fock basis state with shape ``(nmode,)``. For Gaussian backend,
                 multiple final states with shape ``(npattern, nmode)`` are also supported and returned in
@@ -1831,6 +1889,7 @@ class QumodeCircuit(Operation):
             refer_state: The initial Fock basis state or the final Gaussian state. Default: ``None``
             unitary: The unitary matrix. Default: ``None`` (the ideal circuit unitary)
         """
+        detector = self._readout_detector()
         if (submode_circuit := self._spatial_submode_readout()) is not None:
             if refer_state is not None or unitary is not None:
                 raise ValueError('Submode probabilities use the most recent forward state.')
@@ -1838,14 +1897,18 @@ class QumodeCircuit(Operation):
                 from .submode import _spatial_counts
 
                 counts = tuple(_spatial_counts(final_state, self.nmode))
-                _, weight = submode_circuit.result()._bargmann_condition(tuple(self.wires), counts, self.detector)
+                _, weight = submode_circuit.result()._condition_bargmann_on_counts(tuple(self.wires), counts, detector)
                 return self._event_weight(weight)
+            if detector != 'pnrd':
+                raise NotImplementedError('Spatial submode probabilities support only PNR detection.')
             return submode_circuit.get_spatial_prob(final_state)
         self._reject_unsupported_bargmann_readout('get_prob()')
-        threshold = self.backend == 'gaussian' and self.detector == 'threshold'
+        if self.backend == 'fock' and detector != 'pnrd':
+            raise NotImplementedError('Fock probabilities support only PNR detection.')
+        threshold = self.backend == 'gaussian' and detector == 'threshold'
         if not isinstance(final_state, torch.Tensor):
             final_state = torch.as_tensor(final_state, dtype=None if threshold else torch.long)
-        result_name = 'clicks' if self.backend == 'gaussian' and self.detector in ('click', 'threshold') else 'photons'
+        result_name = 'clicks' if self.backend == 'gaussian' and detector in ('click', 'threshold') else 'photons'
         assert final_state.numel() > 0, 'The final state must not be empty'
         if self.backend == 'gaussian':
             assert final_state.ndim in (1, 2), 'The final state must be 1D or 2D for Gaussian backend'
@@ -1893,7 +1956,7 @@ class QumodeCircuit(Operation):
         elif self.backend == 'gaussian':
             if refer_state is None:
                 refer_state = self._get_output_state()
-            return self._get_prob_gaussian(final_state, refer_state)
+            return self._get_prob_gaussian(final_state, refer_state, detector)
 
     def _get_prob_fock(
         self, final_state: Any, init_state: Any = None, unitary: torch.Tensor | None = None
@@ -1920,16 +1983,14 @@ class QumodeCircuit(Operation):
         prob = torch.abs(amplitude) ** 2
         return prob
 
-    def _get_prob_gaussian(self, final_state: Any, state: Any = None) -> torch.Tensor:
+    def _get_prob_gaussian(self, final_state: Any, state: Any, detector: str) -> torch.Tensor:
         """Get probabilities of one or multiple final states for Gaussian backend."""
         if not isinstance(final_state, torch.Tensor):
             final_state = torch.tensor(final_state, dtype=torch.long)
         assert final_state.ndim in (1, 2)
         is_single = final_state.ndim == 1
         final_states = final_state.unsqueeze(0) if is_single else final_state
-        if state is None:
-            cov, mean = self._cov, self._mean
-        elif isinstance(state, (list, tuple)) and all(isinstance(x, torch.Tensor) for x in state):
+        if isinstance(state, (list, tuple)) and all(isinstance(x, torch.Tensor) for x in state):
             cov, mean = state
         else:
             if not isinstance(state, GaussianState):
@@ -1940,7 +2001,7 @@ class QumodeCircuit(Operation):
         mean = mean.reshape(-1, 2 * nmode, 1)
         order = None
         event_groups = None
-        if self.detector in ('pnrd', 'threshold'):
+        if detector in ('pnrd', 'threshold'):
             if len(final_states) > 1:
                 # Each group has one Hafnian or Torontonian matrix size, shared by all input chunks.
                 totals, order = final_states.sum(-1).sort()
@@ -1951,7 +2012,7 @@ class QumodeCircuit(Operation):
                 nphoton = int(final_states[0].sum())
                 final_states = final_states.to(cov.device)
                 event_groups = ((final_states, nphoton),)
-        probs = self._get_probs_gaussian_state_batch(final_states, cov, mean, event_groups)
+        probs = self._get_probs_gaussian_state_batch(final_states, cov, mean, detector, event_groups)
         if order is not None:
             probs = probs[:, order.argsort().to(cov.device)]
         if len(cov) == 1:
@@ -1965,32 +2026,31 @@ class QumodeCircuit(Operation):
         final_states: torch.Tensor,
         cov: torch.Tensor,
         mean: torch.Tensor,
+        detector: str,
         event_groups: tuple[tuple[torch.Tensor, int], ...] | None,
     ) -> torch.Tensor:
         """Evaluate common event patterns for each input, keeping its purity and displacement branches."""
-        get_probs = partial(
-            self._get_probs_gaussian_helper, final_states, detector=self.detector, event_groups=event_groups
-        )
+        get_probs = partial(self._get_probs_gaussian_helper, final_states, detector=detector, event_groups=event_groups)
         if len(cov) == len(mean) == 1:
             return get_probs(cov[0], mean[0]).unsqueeze(0)
         batch_get_probs = vmap(get_probs)
         if len(cov) != len(mean):
-            if self.detector == 'threshold':
+            if detector == 'threshold':
                 return batch_get_probs(cov, mean, loop=True)
             # External moments have historically been paired by covariance row.
             return torch.stack([get_probs(c, mean[i]) for i, c in enumerate(cov)])
 
-        if self.detector == 'threshold':
+        if detector == 'threshold':
             state_groups = {(False, True): range(len(cov))}
             entry_bytes = 2 * cov.element_size()
         else:
             displaced = mean.ne(0).any(dim=(-2, -1))
-            pure = GaussianState._purity_mask(cov) if self.detector == 'pnrd' else torch.zeros_like(displaced)
+            pure = GaussianState._purity_mask(cov) if detector == 'pnrd' else torch.zeros_like(displaced)
             state_groups = defaultdict(list)
             for row, (purity, loop) in enumerate(torch.stack([pure, displaced], dim=-1).tolist()):
                 state_groups[purity, loop].append(row)
             # The Hafnian promotes its subset matrices to complex128. Click counting uses real quadratures.
-            entry_bytes = torch.cdouble.itemsize if self.detector == 'pnrd' else cov.element_size()
+            entry_bytes = torch.cdouble.itemsize if detector == 'pnrd' else cov.element_size()
 
         if len(state_groups) == len(cov):
             # Each branch has one input and the groups are already in input order.
@@ -2005,7 +2065,7 @@ class QumodeCircuit(Operation):
             counts = [(total, len(group)) for group, total in event_groups]
         blocks = []
         for (purity, loop), rows in state_groups.items():
-            chunk_size = self._gaussian_prob_chunk_size(capacity, cov.shape[-1] // 2, counts, purity)
+            chunk_size = self._gaussian_prob_chunk_size(capacity, cov.shape[-1] // 2, counts, detector, purity)
             whole_batch = len(rows) == len(cov)
             if whole_batch and len(rows) <= chunk_size:
                 return batch_get_probs(cov, mean, purity=purity, loop=loop)
@@ -2024,19 +2084,21 @@ class QumodeCircuit(Operation):
             probs = probs[order.argsort()]
         return probs
 
-    def _gaussian_prob_chunk_size(self, capacity: int, nmode: int, counts: list[tuple[int, int]], pure: bool) -> int:
+    def _gaussian_prob_chunk_size(
+        self, capacity: int, nmode: int, counts: list[tuple[int, int]], detector: str, pure: bool
+    ) -> int:
         """Size an input chunk for the largest intermediate over sequential event groups."""
         elements = (2 * nmode) ** 2
         for total, nevent in counts:
             k = (total + 1) // 2 if pure else total
-            if self.detector == 'threshold' and k:
+            if detector == 'threshold' and k:
                 # Torontonian subsets of size j run together. C(k,j) * (2*j)**2 peaks at j = k//2 + 1.
                 j = k // 2 + 1
                 elements = max(elements, nevent * math.comb(k, j) * (2 * j) ** 2)
             else:
                 # Once one input fills the budget, larger exponents still give a single-input chunk.
                 subsets = 2 ** min(k, capacity.bit_length())
-                if self.detector == 'click' and k > nmode:
+                if detector == 'click' and k > nmode:
                     k = nmode
                     subsets = min(subsets, self.cutoff ** min(k, capacity.bit_length()))
                 elements = max(elements, nevent * subsets * (2 * k) ** 2)
@@ -2224,7 +2286,9 @@ class QumodeCircuit(Operation):
         wires: int | list[int] | None = None,
         detector: str | None = None,
         mcmc: bool = False,
-    ) -> dict | list[dict] | None:
+        *,
+        with_state: bool = False,
+    ) -> dict | list[dict] | tuple | None:
         """Measure the final state.
 
         Args:
@@ -2233,15 +2297,32 @@ class QumodeCircuit(Operation):
                 Default: ``False``
             wires: The wires to measure. It can be an integer or a list of integers specifying
                 the indices of the wires. Default: ``None`` (which means all wires are measured)
-            detector: For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector or
+            detector: Use ``'pnrd'`` for the photon-number-resolving detector,
                 ``'threshold'`` for the threshold detector, or ``'click'`` for the click-counting detector.
-                Default: ``None``
-            mcmc: Whether to use MCMC sampling method. Default: ``False``
+                An explicit value applies only to this readout. Bargmann sampling and conditional
+                trajectories support PNR and threshold detectors.
+                Default: ``None`` (use the latest forward pass's detector)
+            mcmc: Whether to use MCMC sampling. A matching Gaussian probability table is sampled directly.
+                A different detector samples the retained Gaussian state. Default: ``False``
+            with_state: Return individual counts and their normalized conditional states. The counts have
+                shape ``(batch, shots, len(wires))`` in the supplied wire order. The state batch is ordered
+                by input then shot, or is ``None`` when all modes were measured. With ``with_prob=True``,
+                a third tensor of shape ``(batch, shots)`` gives each event weight divided by its input weight.
+                Fock state tensors return a density-matrix ``FockState``. Gaussian and Bargmann
+                return native Bargmann kernels. Default: ``False``
 
         See https://arxiv.org/pdf/2108.01622 for MCMC.
         """
-        self._reject_unsupported_bargmann_readout('measure()')
+        detector = self._readout_detector(detector)
+        if with_state or self.backend == 'bargmann':
+            if mcmc or detector == 'click':
+                raise NotImplementedError('Conditional photon counting supports exact threshold and PNR sampling.')
+            return self._sample_count_records(shots, wires, detector, with_state, with_prob)
         if (submode_circuit := self._spatial_submode_readout()) is not None:
+            if isinstance(self.state, dict) and detector == self._state_detector:
+                wires = self.wires if wires is None else self._convert_indices(wires)
+                results = self._measure_dict(shots, with_prob, wires)
+                return results[0] if len(results) == 1 else results
             return submode_circuit.measure_spatial(shots, with_prob, wires, detector, mcmc)
         assert self.backend in ('fock', 'gaussian'), 'Currently Fock measurement is not supported in Bosonic backend'
         if self.state is None:
@@ -2250,16 +2331,164 @@ class QumodeCircuit(Operation):
             wires = self.wires
         wires = sorted(self._convert_indices(wires))
         if self.backend == 'fock':
+            if detector != 'pnrd':
+                raise NotImplementedError('Fock sampling supports only PNR detection.')
             results = self._measure_fock(shots, with_prob, wires, mcmc)
         elif self.backend == 'gaussian':
-            detector = self.detector if detector is None else detector.lower()
             results = self._measure_gaussian(shots, with_prob, wires, detector, mcmc)
         if len(results) == 1:
             results = results[0]
         return results
 
+    def _sample_count_records(
+        self, shots: int, wires: int | list[int] | None, detector: str, with_state: bool, with_prob: bool
+    ) -> tuple | dict | list[dict]:
+        """Draw photon-count records for a histogram or for per-shot conditional states."""
+        if not isinstance(shots, int) or isinstance(shots, bool) or shots < int(with_state):
+            raise ValueError('shots must be a nonnegative integer and with_state=True requires at least one shot.')
+        wires = _moment_wires(wires, self.nmode)
+        source = self._state_for_photon_counting(detector)
+        nsubmode = 1
+        if isinstance(source, dqp.SubmodeResult):
+            nsubmode, source = source.nsubmode, source.to_joint()
+        if self.backend == 'fock':
+            if self.basis or self.mps or isinstance(self, DistributedQumodeCircuit):
+                raise NotImplementedError('Fock conditional trajectories require state tensors (basis=False).')
+            return self._sample_fock_count_records(source, shots, wires, nsubmode, detector, with_prob)
+        if not isinstance(source, BargmannState):
+            raise NotImplementedError('Native conditional trajectories require a Gaussian or Bargmann output.')
+        ports = [self._unroll_dict[w][-1] for w in wires] if self._with_delay else wires
+        remaining = list(range(source.nmode))
+        positions = []
+        for port in ports:
+            group = [port * nsubmode + k for k in range(nsubmode)]
+            positions.append([remaining.index(w) for w in group])
+            remaining = [w for w in remaining if w not in group]
+
+        weights = self._event_weight(source.norm())
+        if not bool((weights > 0).all()):
+            raise ValueError('Cannot sample a zero-weight input state.')
+        batch = len(weights)
+        if shots == 0:
+            return {} if batch == 1 else [{} for _ in range(batch)]
+        records = torch.empty(batch, shots, len(wires), dtype=torch.long, device=weights.device)
+        probability = weights.new_empty(batch, shots) if with_prob else None
+        indices = records.new_empty(batch, shots) if with_state and remaining else None
+        saved = []
+        draws = torch.rand(records.shape, dtype=weights.dtype, device=weights.device)
+        for b in range(batch):
+            branches = [(source._select_batch(b), weights[b], torch.arange(shots, device=weights.device))]
+            for j, group in enumerate(positions):
+                children = []
+                last = j + 1 == len(positions)
+                for state, weight, rows in branches:
+                    counts = self._draw_port_counts(state, group, detector, draws[b, rows, j], weight)
+                    records[b, rows, j] = counts
+                    if last and probability is None and indices is None:
+                        continue
+                    for count in counts.unique().tolist():
+                        selected = rows[counts == count]
+                        child = state._condition_on_counts([group], (count,), detector)
+                        mass = child.norm()[0]
+                        if not bool(mass > 0):
+                            raise ValueError('Sampled a numerically unresolved event; use higher precision.')
+                        if not last:
+                            children.append((child, mass, selected))
+                        else:
+                            if probability is not None:
+                                probability[b, selected] = mass / weights[b]
+                            if indices is not None:
+                                indices[b, selected] = len(saved)
+                                saved.append(child._normalize(mass))
+                branches = children
+        if with_state:
+            state = BargmannState._cat_batch(saved)._select_batch(indices.flatten()) if indices is not None else None
+            return (records, state, probability) if with_prob else (records, state)
+        results = []
+        order = sorted(range(len(wires)), key=wires.__getitem__)
+        for b, row in enumerate(records[..., order]):
+            patterns, inverse, freq = row.unique(dim=0, return_inverse=True, return_counts=True)
+            results.append(
+                {
+                    FockState(pattern): (n, probability[b, (inverse == i).nonzero()[0, 0]]) if with_prob else n
+                    for i, (pattern, n) in enumerate(zip(patterns, freq.tolist(), strict=True))
+                }
+            )
+        return results[0] if batch == 1 else results
+
+    def _sample_fock_count_records(
+        self, source: torch.Tensor, shots: int, wires: list[int], nsubmode: int, detector: str, with_prob: bool
+    ) -> tuple:
+        """Draw from the finite Fock diagonal and condition only on the reported spatial counts."""
+        from .qmath import _condition_fock_on_counts
+
+        nmode = self.nmode * nsubmode
+        dim = self.cutoff**nmode
+        diagonal = (
+            source.reshape(-1, dim, dim).diagonal(dim1=-2, dim2=-1).real
+            if self.den_mat
+            else source.reshape(-1, dim).abs().square()
+        )
+        diagonal = self._event_weight(diagonal)
+        weights = diagonal.sum(-1)
+        if not bool((weights > 0).all()):
+            raise ValueError('Cannot sample a zero-weight input state.')
+        flat = torch.multinomial(diagonal.detach(), shots, replacement=True)
+        groups = [[w * nsubmode + k for k in range(nsubmode)] for w in wires]
+        keep = [k for k in range(nmode) if k // nsubmode not in wires]
+        records = torch.stack(
+            [sum((flat // self.cutoff ** (nmode - 1 - k)) % self.cutoff for k in group) for group in groups], dim=-1
+        )
+        if detector == 'threshold':
+            records = (records > 0).long()
+        probability = weights.new_empty(*flat.shape) if with_prob else None
+        density = source.new_empty(*flat.shape, *([self.cutoff] * (2 * len(keep)))) if keep else None
+        if keep or with_prob:
+            for event in records.flatten(0, 1).unique(dim=0):
+                b, s = (records == event).all(-1).nonzero(as_tuple=True)
+                rows, inv = b.unique(return_inverse=True)
+                child, mass = _condition_fock_on_counts(
+                    source[rows], nmode, self.cutoff, groups, event.tolist(), keep, detector, self.den_mat
+                )
+                if with_prob:
+                    probability[b, s] = (mass / weights[rows])[inv]
+                if keep:
+                    density[b, s] = child[inv]
+        state = FockState(density.flatten(0, 1), basis=False, den_mat=True) if keep else None
+        return (records, state, probability) if with_prob else (records, state)
+
+    @torch.no_grad()
+    def _draw_port_counts(
+        self, state: BargmannState, group: list[int], detector: str, uniform: torch.Tensor, weight: torch.Tensor
+    ) -> torch.Tensor:
+        """Draw a spatial count without truncating the PNR tail or resolving the retained basis modes."""
+        marginal = state._marginal(group)
+        if detector == 'threshold':
+            resolved = [[i] for i in range(len(group))]
+            vacuum_state = marginal._condition_on_counts(resolved, (0,) * len(group), 'pnrd')
+            vacuum = self._event_weight(vacuum_state.norm()[0] / weight)
+            click = self._event_weight(1 - vacuum)
+            return (uniform < click).long()
+        # P(N < k) is fully contained in a local Fock box of width k. Extend the box
+        # until the highest uniform draw is covered, without renormalizing a truncated distribution.
+        width = 2
+        while True:
+            tensor = marginal.to_fock(width)
+            dim = width ** len(group)
+            diagonal = tensor.reshape(dim, dim).diagonal().real if marginal.den_mat else tensor.flatten().abs().square()
+            diagonal = self._event_weight(diagonal / weight)
+            flat = torch.arange(dim, device=diagonal.device)
+            total = sum((flat // width**j) % width for j in range(len(group)))
+            mass = diagonal.new_zeros(len(group) * (width - 1) + 1).scatter_add_(0, total, diagonal)
+            cdf = mass[:width].cumsum(0)
+            if bool((uniform < cdf[-1]).all()):
+                return torch.searchsorted(cdf, uniform, right=True)
+            width *= 2
+
     def _prob_dict_to_measure_result(self, prob_dict: dict, shots: int, with_prob: bool) -> dict:
         """Get the measurement result from the dictionary of probabilities."""
+        if shots == 0:
+            return {}
         keys = list(prob_dict.keys())
         probs = torch.cat(list(prob_dict.values()))
         samples = Counter(block_sample(probs, shots))
@@ -2373,17 +2602,17 @@ class QumodeCircuit(Operation):
 
     def _measure_dict(self, shots: int, with_prob: bool, wires: list[int], state: dict | None = None) -> list[dict]:
         """Measure the final state according to the dictionary of amplitudes or probabilities."""
-        if self._with_delay:
-            wires = [self._unroll_dict[wire][-1] for wire in wires]
         state = self.state if state is None else state
         all_results = []
-        batch = len(state[next(iter(state))])
+        first = next(iter(state))
+        batch = len(state[first])
+        all_wires = wires == list(range(first.nmode))
         is_complex = any(v.dtype.is_complex for v in state.values())
         is_prob = not (self.backend == 'fock' and is_complex)
         for i in range(batch):
             prob_dict = defaultdict(list)
             for key in state:
-                if wires == self.wires:
+                if all_wires:
                     state_b = key
                 else:
                     state_b = key.state[wires]
@@ -2430,9 +2659,7 @@ class QumodeCircuit(Operation):
     def _measure_mps(self, shots: int, with_prob: bool, wires: list[int]) -> list[dict]:
         """Measure the final state according to MPS."""
         all_results = []
-        samples = []
-        for _ in range(shots):
-            samples.append(self._generate_chain_sample(wires, self.detector))
+        samples = [self._generate_chain_sample_mps(wires) for _ in range(shots)]
         for j in range(samples[0].shape[0]):
             samples_j = [tuple(sample[j].tolist()) for sample in samples]
             samples_j = dict(Counter(samples_j))
@@ -2450,33 +2677,34 @@ class QumodeCircuit(Operation):
         self._init_state_sample = init_state
         self._unitary = unitary
         self._out_fock_basis = self._get_all_fock_basis(init_state)
-        merged_samples = sample_sc_mcmc(
-            prob_func=self._get_prob_fock, proposal_sampler=self._proposal_sampler, shots=shots, num_chain=num_chain
+        return sample_sc_mcmc(
+            prob_func=self._get_prob_fock,
+            proposal_sampler=self._proposal_sampler_fock,
+            shots=shots,
+            num_chain=num_chain,
         )
-        return merged_samples
+
+    def _proposal_sampler_fock(self) -> tuple[int, ...]:
+        """Draw a uniform proposal from the output Fock basis."""
+        assert self.basis, 'Currently NOT supported.'
+        sample = self._out_fock_basis[torch.randint(0, len(self._out_fock_basis), (1,))[0]]
+        return tuple(sample.tolist())
 
     def _measure_gaussian(self, shots: int, with_prob: bool, wires: list[int], detector: str, mcmc: bool) -> list[dict]:
-        """Measure the final state for Gaussian backend."""
-        if isinstance(self.state, list):
-            return self._measure_gaussian_state(shots, with_prob, wires, detector, mcmc)
-        elif isinstance(self.state, dict):
-            assert not mcmc, "Final states have been calculated, we don't need mcmc!"
-            print('Automatically using the default detector!')
-            return self._measure_dict(shots, with_prob, wires)
-        else:
-            raise ValueError('Check your forward function or input!')
-
-    def _measure_gaussian_state(
-        self, shots: int, with_prob: bool, wires: list[int], detector: str, mcmc: bool
-    ) -> list[dict]:
         """Measure the final state according to Gaussian state for Gaussian backend.
 
         See https://arxiv.org/pdf/2108.01622
         """
-        assert not self._with_delay, 'Currently Fock measurement is not supported with delay loops'
-        cov, mean = self.state
+        if self._with_delay:
+            wires = [self._unroll_dict[wire][-1] for wire in wires]
+        if isinstance(self.state, dict) and detector == self._state_detector:
+            return self._measure_dict(shots, with_prob, wires)
+        cov, mean = self._get_output_state()
+        if mcmc or with_prob:
+            cov, mean = _gaussian_marginal([cov, mean], wires)
         batch = cov.shape[0]
-        all_results = []
+        if shots == 0:
+            return [{} for _ in range(batch)]
         all_samples = []
         if mcmc:
             print('Using MCMC method to sample the final states!')
@@ -2487,112 +2715,65 @@ class QumodeCircuit(Operation):
                 all_samples.append(samples_i)
         else:  # chain-rule method with small number of shots
             print('Using chain-rule method to sample the final states!')
-            samples = []
-            for _ in range(shots):
-                sample = self._generate_chain_sample(wires, detector)
-                samples.append(sample)
+            samples = [self._generate_chain_sample_gaussian(wires, detector) for _ in range(shots)]
             samples = torch.stack(samples).permute(1, 0, 2)  # (batch, shots, wires)
             for i in range(batch):
                 sample_lst = samples[i].tolist()
                 sample_tup = [tuple(s) for s in sample_lst]
                 samples_i = defaultdict(int, Counter(sample_tup))
                 all_samples.append(samples_i)
-        for i, samples_i in enumerate(all_samples):  # post-process samples
-            results = defaultdict(list)
-            if with_prob:
-                for k in samples_i:
-                    if mcmc:
-                        prob = self._get_prob_gaussian(k, [cov[i], mean[i]])
-                    else:
-                        wires_ = torch.tensor(wires, device=cov.device)
-                        idx = torch.cat([wires_, wires_ + self.nmode])
-                        prob = self._get_prob_gaussian(k, [cov[i][idx[:, None], idx], mean[i][idx, :]])
-                    samples_i[k] = samples_i[k], prob
-            for key in samples_i:
-                state_b = [key[wire] for wire in wires] if mcmc else list(key)
-                state_b = FockState(state=state_b)
-                results[state_b].append(samples_i[key])
-            if with_prob:
-                results = {
-                    key: (sum(count for count, _ in value), sum(prob for _, prob in value))
-                    for key, value in results.items()
-                }
-            else:
-                results = {key: sum(value) for key, value in results.items()}
+        all_results = []
+        for i, samples_i in enumerate(all_samples):
+            results = {}
+            for key, count in samples_i.items():
+                value = (count, self._get_prob_gaussian(key, [cov[i], mean[i]], detector)) if with_prob else count
+                results[FockState(list(key))] = value
             all_results.append(results)
         return all_results
 
     def _sample_mcmc_gaussian(self, shots: int, cov: torch.Tensor, mean: torch.Tensor, detector: str, num_chain: int):
         """Sample the output states for Gaussian backend via SC-MCMC method."""
-        self._cov = cov
-        self._mean = mean
-        self.detector = detector
-        if detector == 'threshold' and not torch.allclose(mean, torch.zeros_like(mean)):
-            # For the displaced state, aggregate PNRD detector samples to derive threshold detector results
-            self.detector = 'pnrd'
-            merged_samples_pnrd = sample_sc_mcmc(
-                prob_func=self._get_prob_gaussian,
-                proposal_sampler=self._proposal_sampler,
-                shots=shots,
-                num_chain=num_chain,
-            )
-            merged_samples = defaultdict(int)
-            for key in list(merged_samples_pnrd.keys()):
-                key_threshold = (torch.tensor(key) != 0).int()
-                key_threshold = tuple(key_threshold.tolist())
-                merged_samples[key_threshold] += merged_samples_pnrd[key]
-            self.detector = 'threshold'
-        else:
-            merged_samples = sample_sc_mcmc(
-                prob_func=self._get_prob_gaussian,
-                proposal_sampler=self._proposal_sampler,
-                shots=shots,
-                num_chain=num_chain,
-            )
-        return merged_samples
-
-    def _proposal_sampler(self):
-        """The proposal sampler for MCMC sampling."""
-        if self.backend == 'fock':
-            assert self.basis, 'Currently NOT supported.'
-            sample = self._out_fock_basis[torch.randint(0, len(self._out_fock_basis), (1,))[0]]
-        elif self.backend == 'gaussian':
-            sample = self._generate_rand_sample(self.detector)
-        return tuple(sample.tolist())
-
-    def _generate_rand_sample(self, detector: str = 'pnrd'):
-        """Generate a random sample according to uniform proposal distribution."""
-        nmode = self._nmode_tdm if self._with_delay else self.nmode
+        nmode = cov.shape[-1] // 2
         cutoff = 2 if detector == 'threshold' else self.cutoff
-        return torch.randint(0, cutoff, [nmode])
 
-    def _generate_chain_sample(self, wires: list[int], detector: str) -> torch.Tensor:
-        """Generate batched random samples via chain rule.
+        def proposal_sampler() -> tuple[int, ...]:
+            return tuple(torch.randint(cutoff, (nmode,)).tolist())
 
-        Args:
-            wires: The wires to measure. It can be a list of integers specifying the indices of the wires.
-            detector: For Gaussian backend, use ``'pnrd'`` for the photon-number-resolving detector or
-                ``'threshold'`` for the threshold detector, or ``'click'`` for the click-counting detector.
+        @cache
+        def threshold_weights(prefix: tuple[int, ...]) -> torch.Tensor:
+            wires = list(range(len(prefix) + 1))
+            state = _gaussian_marginal([cov, mean], wires)
+            return self._get_prob_gaussian([(*prefix, 0), (*prefix, 1)], state, 'threshold')
 
-        Returns:
-            Tensor of shape (batch, nwire).
-        """
+        def initial_threshold_pattern() -> tuple[int, ...]:
+            # The initial pattern counts as a shot, so draw its bits from successive conditional probabilities.
+            prefix = ()
+            for _ in range(nmode):
+                bit = torch.multinomial(threshold_weights(prefix), 1).item()
+                prefix += (bit,)
+            return prefix
+
+        return sample_sc_mcmc(
+            prob_func=partial(self._get_prob_gaussian, state=(cov, mean), detector=detector),
+            proposal_sampler=proposal_sampler,
+            shots=shots,
+            num_chain=num_chain,
+            initial_sampler=initial_threshold_pattern if detector == 'threshold' else None,
+        )
+
+    def _generate_chain_sample_mps(self, wires: list[int]) -> torch.Tensor:
+        """Sample one PNR pattern per Fock MPS batch row in the requested wire order."""
+        mps = copy(self.state)
+        if mps[0].ndim == 3:
+            mps = [site.unsqueeze(0) for site in mps]
         sample = []
-        if self.backend == 'fock':
-            assert self.mps
-            mps = copy(self.state)
-            if mps[0].ndim == 3:
-                mps = [site.unsqueeze(0) for site in mps]
-            for i in wires:
-                p = vmap(get_prob_mps)(mps, wire=i)
-                sample_single_wire = torch.multinomial(p, num_samples=1)
-                sample.append(sample_single_wire)
-                index = sample_single_wire.reshape(-1, 1, 1, 1).expand(-1, mps[i].shape[-3], -1, mps[i].shape[-1])
-                mps[i] = torch.gather(mps[i], dim=2, index=index)
-            sample = torch.stack(sample, dim=-1).squeeze(1)
-        elif self.backend == 'gaussian':  # chain rule for GBS
-            sample = self._generate_chain_sample_gaussian(wires, detector)
-        return sample
+        for i in wires:
+            p = vmap(get_prob_mps)(mps, wire=i)
+            count = torch.multinomial(p, num_samples=1)
+            sample.append(count)
+            index = count.reshape(-1, 1, 1, 1).expand(-1, mps[i].shape[-3], -1, mps[i].shape[-1])
+            mps[i] = torch.gather(mps[i], dim=2, index=index)
+        return torch.stack(sample, dim=-1).squeeze(1)
 
     def _generate_chain_sample_gaussian(self, wires: list[int], detector: str) -> torch.Tensor:
         """Generate batched random samples via chain rule for Gaussian backend.
@@ -2602,14 +2783,14 @@ class QumodeCircuit(Operation):
         Chapter 5
         """
 
-        def _sample_wire(sample, cov_sub, mean_sub, cutoff, detector):
+        def _sample_wire(sample, cov_sub, mean_sub):
             """Sample for a wire."""
             states = [torch.tensor(sample + [i], device=cov_sub.device) for i in range(cutoff)]
             probs = [self._get_probs_gaussian_helper(s, cov_sub, mean_sub, detector) for s in states]
             sample_wire = torch.multinomial(torch.cat(probs), num_samples=1)
             return sample_wire
 
-        def _sample_pure(cov, mean, wires, nmode, cutoff, detector):
+        def _sample_pure(cov, mean, wires, nmode):
             """Sample for a pure state."""
             wires = torch.tensor(wires, device=cov.device)
             sample = []
@@ -2617,11 +2798,11 @@ class QumodeCircuit(Operation):
                 idx = torch.cat([wires[:i], wires[:i] + nmode])
                 cov_sub = cov[idx[:, None], idx]
                 mean_sub = mean[idx, :]
-                sample_wire = _sample_wire(sample, cov_sub, mean_sub, cutoff, detector)
+                sample_wire = _sample_wire(sample, cov_sub, mean_sub)
                 sample.append(sample_wire)
             return torch.cat(sample)
 
-        def _sample_mixed(cov, mean, wires, nmode, cutoff, detector, eps=5e-5):
+        def _sample_mixed(cov, mean, wires, nmode, eps=5e-5):
             """Sample for a mixed state."""
             wires = torch.tensor(wires, device=cov.device)
             _, s = williamson(cov)
@@ -2649,23 +2830,21 @@ class QumodeCircuit(Operation):
                 idx = torch.cat([wires[:i], wires[:i] + nmode])
                 cov_sub = cov_out[0, idx[:, None], idx]
                 mean_sub = mean_out[0, idx, :]
-                sample_wire = _sample_wire(sample, cov_sub, mean_sub, cutoff, detector)
+                sample_wire = _sample_wire(sample, cov_sub, mean_sub)
                 sample.append(sample_wire)
             return torch.cat(sample)
 
-        sample = []
-        purity = GaussianState(self.state).is_pure
-        cov, mean = self.state
+        cov, mean = self._get_output_state()
+        purity = bool(GaussianState._purity_mask(cov).all())
+        nmode = cov.shape[-1] // 2
+        if not purity and wires != list(range(nmode)):
+            cov, mean = _gaussian_marginal([cov, mean], wires)
+            nmode = len(wires)
+            wires = list(range(nmode))
         batch = cov.shape[0]
         cutoff = 2 if detector == 'threshold' else self.cutoff
-        if purity:
-            for i in range(batch):
-                sample.append(_sample_pure(cov[i], mean[i], wires, self.nmode, cutoff, detector))
-        else:
-            for i in range(batch):
-                sample.append(_sample_mixed(cov[i], mean[i], wires, self.nmode, cutoff, detector))
-        sample = torch.stack(sample)
-        return sample
+        sampler = _sample_pure if purity else _sample_mixed
+        return torch.stack([sampler(cov[i], mean[i], wires, nmode) for i in range(batch)])
 
     def photon_number_mean_var(self, wires: int | list[int] | None = None) -> tuple[torch.Tensor, torch.Tensor] | None:
         """Get the expectation value and variance of the photon number operator.
@@ -2991,40 +3170,35 @@ class QumodeCircuit(Operation):
         lo: Any = None,
         return_info: bool = False,
     ) -> (
-        tuple[FockState | BargmannState | torch.Tensor, torch.Tensor]
-        | tuple[FockState | BargmannState | torch.Tensor, torch.Tensor, dict[str, Any]]
+        tuple[FockState | BargmannState, torch.Tensor] | tuple[FockState | BargmannState, torch.Tensor, dict[str, Any]]
     ):
         """Return a photon-counting conditional state and event weight from the latest forward pass.
 
-        Fock returns a density-matrix ``FockState``. Gaussian returns a conditional
-        Fock tensor, with ``den_mat`` selecting a ket or density matrix. Bargmann
-        returns a ``BargmannState`` that can continue evolving without Fock truncation.
+        As in ``measure(with_state=True)``, Fock returns a density-matrix ``FockState``.
+        Gaussian and Bargmann return a ``BargmannState`` for continued Bargmann evolution.
+        Use ``state.to_fock(cutoff)`` to read its Fock tensor.
         Threshold detection always returns a density operator, including for pure inputs.
-        Fock and Gaussian outputs store its Fock matrix elements. Bargmann keeps
-        its analytic density kernel until ``to_fock`` is called.
         The circuit state is unchanged and gates are not rerun, including after
         a Fock or Gaussian ``forward(is_prob=True)``.
 
-        On a Bargmann delay circuit, ``wires`` selects current spatial outputs.
-        Loop modes are retained in their order for the next time step. Conditioning all spatial
-        outputs returns the memory accepted by ``cir(memory=...)``.
+        On a Gaussian or Bargmann delay circuit, ``wires`` selects current spatial outputs.
+        Conditioning all spatial outputs returns the loop modes in next-step order.
+        This conditional memory is accepted by the corresponding Bargmann delay circuit.
 
         Args:
             wires: Measured spatial modes, in the same order as ``photons``.
             photons: The selected photon numbers, one nonnegative integer per measured spatial mode.
-                On Fock and Bargmann circuits with submodes, each number sums over all orthogonal basis modes.
+                With submodes, each number sums over all orthogonal basis modes.
                 With ``detector='threshold'``, use 0 for vacuum and 1 for one or more photons.
-            keep: Unmeasured spatial modes to retain, in output order, on Fock circuits or Bargmann circuits
-                with orthogonal basis modes. On a Bargmann delay circuit with submodes, these indices refer
+            keep: Unmeasured spatial modes to retain, in output order, on Fock circuits or circuits
+                with orthogonal basis modes. On a delay circuit with submodes, these indices refer
                 to the concurrent wires of the one-step joint state.
                 Other unmeasured modes are traced out. Default: ``None`` (all unmeasured modes)
-            detector: Use ``'pnrd'`` for photon-number-resolving detection, ``'threshold'`` for ideal
-                on/off detection, or ``'click'`` for multiplexed click-counting detection.
-                An explicit value overrides the circuit detector for this readout.
-                Click-counting post-selection is not implemented.
-                Default: ``None`` (which means ``self.detector``)
+            detector: Use ``'pnrd'`` for the photon-number-resolving detector or
+                ``'threshold'`` for the threshold detector. An explicit value applies only to this readout.
+                Default: ``None`` (use the latest forward pass's detector)
             cutoff: The Fock space truncation for readout. Fock outputs cannot exceed the simulated cutoff.
-                For Bargmann, it sets the default cutoff of the returned state without truncating it.
+                For Gaussian and Bargmann inputs, it sets the returned state's default ``to_fock()`` cutoff.
                 Default: ``None`` (which means ``self.cutoff``)
             normalize: Divide by the event weight, or its square root for a ket.
                 Finite-cutoff outputs may still have norm squared or trace below one.
@@ -3041,69 +3215,70 @@ class QumodeCircuit(Operation):
             batch axis and probability shape ``(B,)``. The probability is computed
             before normalization and output cropping. For unnormalized inputs it is an
             event weight, such as a joint probability in a chain of post-selections.
-            Gaussian kets require pure inputs. Bargmann outputs use consecutive local
+            Pure Gaussian PNR outputs can retain a ket. Mixed inputs, density-matrix simulations and
+            unresolved multimode counts use density kernels. The returned state uses consecutive local
             mode indices. ``info['remaining_wires']`` lists the original spatial wires, or the wire indices
-            in the single-step joint state on a Bargmann delay circuit. With orthogonal basis modes, a Bargmann
+            in the single-step joint state on a delay circuit. With orthogonal basis modes, a native
             output retains them all in spatial-then-basis order unless ``submode`` or ``lo`` selects one per wire.
 
             ``probability_in_cutoff`` and ``retained_fraction`` report the unnormalized
             finite-output weight and its fraction of the event weight. They are ``None`` for
-            native Bargmann output. Bargmann additionally reports ``input_weight`` and
+            native output, which additionally reports ``input_weight`` and
             ``conditional_probability``. ``source_cutoff`` is set only for Fock inputs.
         """
         if self.backend not in ('fock', 'gaussian', 'bargmann'):
             raise NotImplementedError('post_select supports Fock, Gaussian and Bargmann backends')
-        detector = self.detector if detector is None else detector.lower()
+        detector = self._readout_detector(detector)
         if self.backend == 'fock' and self.basis:
             raise NotImplementedError('Fock post_select requires basis=False')
-        bargmann_with_submodes = self.backend == 'bargmann' and self._submode_circuit is not None
         if (
             self.backend != 'fock'
-            and not bargmann_with_submodes
+            and self._submode_circuit is None
             and (keep is not None or submode is not None or lo is not None)
         ):
-            raise NotImplementedError(
-                'keep, submode and lo require the Fock backend or Bargmann orthogonal basis modes'
-            )
+            raise NotImplementedError('keep, submode and lo require the Fock backend or orthogonal basis modes')
         wires, photons, cutoff = self._prepare_post_select(wires, photons, detector, cutoff)
         if self._with_delay:
             wires = tuple(self._unroll_dict[w][-1] for w in wires)
         nmode = self._nmode_tdm if self._with_delay else self.nmode
         remaining = tuple(w for w in range(nmode) if w not in wires)
-        if self.backend == 'fock':
-            if cutoff > self.cutoff:
-                raise ValueError('Output cutoff must lie within the simulated Fock space')
+        if self.backend == 'fock' and cutoff > self.cutoff:
+            raise ValueError('Output cutoff must lie within the simulated Fock space')
+        if self.backend == 'fock' or self._submode_circuit is not None:
             state, probability, remaining = self._post_select_spatial(
                 wires, photons, keep, detector, submode=submode, lo=lo
             )
-            state = state[(slice(None), *([slice(cutoff)] * (state.ndim - 1)))]
-        elif self.backend == 'gaussian':
-            if self._state_units != (dqp.hbar, dqp.kappa):
-                raise RuntimeError('Quadrature units changed after forward; recreate the circuit with consistent units')
-            cov, mean = self._get_output_state()
-            if detector == 'pnrd':
-                state, probability = conditional_fock(cov, mean, wires, photons, cutoff, den_mat=self.den_mat)
-            else:
-                state = BargmannState([cov, mean], den_mat=True)._post_select(wires, photons, detector)
-                probability = state.norm()
-                state = state.to_fock(cutoff)
-        elif bargmann_with_submodes:
-            state, probability, remaining = self._post_select_spatial(
-                wires, photons, keep, detector, submode=submode, lo=lo
+        else:
+            state = self._state_for_photon_counting(detector)._condition_on_counts(
+                [[w] for w in wires], photons, detector
             )
+            probability = state.norm()
+        if isinstance(state, BargmannState):
             state.cutoff = cutoff
         else:
-            state = self._get_output_state()._post_select(wires, photons, detector)
-            state.cutoff = cutoff
-            probability = state.norm()
-        den_mat = (
-            state.den_mat
-            if isinstance(state, BargmannState)
-            else self.backend == 'fock' or self.den_mat or detector != 'pnrd'
+            state = state[(slice(None), *([slice(cutoff)] * (state.ndim - 1)))]
+        return self._finish_post_select(state, probability, remaining, normalize=normalize, return_info=return_info)
+
+    def _state_for_photon_counting(self, detector: str):
+        """Get the retained state for photon counting, converting Gaussian moments to a Bargmann kernel."""
+        source = self._get_output_state()
+        if self.backend != 'gaussian':
+            return source
+        if self._state_units != (dqp.hbar, dqp.kappa):
+            raise RuntimeError('Quadrature units changed after forward; recreate the circuit with consistent units')
+        if detector == 'pnrd' and self._pnr_input_cov is not None:
+            cov = self._pnr_input_cov
+            atol = cov.shape[-1] * torch.finfo(torch.float64).eps
+            self._state_gaussian_ket = bool(GaussianState._purity_mask(cov, atol=atol).all())
+            self._pnr_input_cov = None
+        submodes = isinstance(source, dqp.SubmodeResult)
+        cov, mean = source.to_joint() if submodes else source
+        state = BargmannState(
+            [cov, mean], cutoff=self.cutoff, den_mat=detector == 'threshold' or not self._state_gaussian_ket
         )
-        return self._finish_post_select(
-            state, probability, remaining, den_mat, normalize=normalize, return_info=return_info
-        )
+        if submodes:
+            return replace(source, data=state, backend='bargmann', den_mat=state.den_mat, factorized=False, blocks=())
+        return state
 
     def _get_output_state(
         self,
@@ -3112,6 +3287,10 @@ class QumodeCircuit(Operation):
         state = self.state if self._state_raw is None else self._state_raw
         if state is None:
             raise RuntimeError('Run the circuit forward before reading out the state')
+        if self.backend == 'gaussian' and isinstance(state, dict):
+            raise RuntimeError(
+                'This Gaussian probability table has no saved moments. Run forward again for this readout.'
+            )
         return state
 
     def _prepare_post_select(
@@ -3122,12 +3301,10 @@ class QumodeCircuit(Operation):
         cutoff: int | None,
     ) -> tuple[tuple[int, ...], tuple[int, ...], int]:
         """Validate the detector, measured outcomes and output cutoff."""
-        if detector not in ('pnrd', 'threshold', 'click'):
-            raise ValueError('detector must be pnrd, threshold or click')
         if detector == 'click':
             raise NotImplementedError('Click-counting post-selection is not implemented')
-        if self.mps or (self._with_delay and self.backend != 'bargmann') or isinstance(self, DistributedQumodeCircuit):
-            raise NotImplementedError('post_select does not support MPS, delay or distributed circuits')
+        if self.mps or (self._with_delay and self.backend == 'fock') or isinstance(self, DistributedQumodeCircuit):
+            raise NotImplementedError('post_select does not support MPS, Fock delay or distributed circuits')
         self._get_output_state()
 
         def integers(values: int | list[int] | tuple[int, ...] | torch.Tensor) -> tuple[int, ...]:
@@ -3181,33 +3358,27 @@ class QumodeCircuit(Operation):
         state: torch.Tensor | BargmannState,
         probability: torch.Tensor,
         remaining: tuple[int, ...],
-        den_mat: bool,
         *,
         normalize: bool,
         return_info: bool,
     ) -> (
-        tuple[FockState | BargmannState | torch.Tensor, torch.Tensor]
-        | tuple[FockState | BargmannState | torch.Tensor, torch.Tensor, dict[str, Any]]
+        tuple[FockState | BargmannState, torch.Tensor] | tuple[FockState | BargmannState, torch.Tensor, dict[str, Any]]
     ):
         """Normalize the conditional output and attach optional readout diagnostics."""
         probability = self._event_weight(probability)
         native = isinstance(state, BargmannState)
         mass = None
         if return_info and not native:
-            if den_mat:
-                dimension = math.prod(state.shape[1 : (state.ndim + 1) // 2])
-                mass = state.reshape(-1, dimension, dimension).diagonal(dim1=-2, dim2=-1).sum(-1).real
-            else:
-                mass = state.abs().square().flatten(1).sum(-1)
+            dimension = math.prod(state.shape[1 : (state.ndim + 1) // 2])
+            mass = state.reshape(-1, dimension, dimension).diagonal(dim1=-2, dim2=-1).sum(-1).real
         if normalize:
             if bool((probability <= 0).any()):
                 raise ValueError('Cannot normalize a zero-probability event')
             if native:
                 state = state._normalize(probability)
             else:
-                denominator = probability if den_mat else probability.sqrt()
-                state = state / denominator.reshape(-1, *([1] * (state.ndim - 1)))
-        if self.backend == 'fock':
+                state = state / probability.reshape(-1, *([1] * (state.ndim - 1)))
+        if not native:
             state = FockState(state, basis=False, den_mat=True)
         if not return_info:
             return state, probability
@@ -3219,13 +3390,15 @@ class QumodeCircuit(Operation):
         )
         info = {
             'remaining_wires': tuple(remaining),
-            'representation': 'dm' if den_mat else 'ket',
+            'representation': 'dm' if state.den_mat else 'ket',
             'probability_in_cutoff': mass,
             'retained_fraction': fraction,
             'source_cutoff': self.cutoff if self.backend == 'fock' else None,
         }
         if native:
-            if self._submode_circuit is None:
+            if self.backend == 'gaussian':
+                input_weight = torch.ones_like(probability)
+            elif self._submode_circuit is None:
                 input_weight = self._get_output_state().norm()
             else:
                 input_weight = math.prod(block.norm() for _, block in self._get_output_state()._factors())
@@ -3247,7 +3420,7 @@ class QumodeCircuit(Operation):
         lo: Any = None,
     ) -> tuple[torch.Tensor | BargmannState, torch.Tensor, tuple[int, ...]]:
         """Return the weighted conditional state, event weight and retained spatial labels."""
-        from .qmath import _photon_count_condition
+        from .qmath import _condition_fock_on_counts
 
         wires, photons = list(wires), list(photons)
         nmode = self._nmode_tdm if self._with_delay else self.nmode
@@ -3265,8 +3438,8 @@ class QumodeCircuit(Operation):
             raise ValueError('Specify either submode or lo for the retained state.')
         if submode is not None and (type(submode) is not int or not 0 <= submode < d):
             raise ValueError('submode must index the common submode basis.')
-        if self.backend == 'bargmann':
-            state, probability = self._get_output_state()._bargmann_condition(
+        if self.backend != 'fock':
+            state, probability = self._state_for_photon_counting(detector)._condition_bargmann_on_counts(
                 tuple(wires), tuple(photons), detector, keep=keep, submode=submode, lo=lo
             )
             return state, probability, tuple(keep)
@@ -3289,7 +3462,7 @@ class QumodeCircuit(Operation):
             state = self._get_output_state() if submode_circuit is None else submode_circuit.state
             if not isinstance(state, torch.Tensor) or not state.is_complex():
                 raise ValueError('Run the circuit to obtain a Fock state tensor before post-selection.')
-            density, probability = _photon_count_condition(
+            density, probability = _condition_fock_on_counts(
                 state,
                 self.nmode * d,
                 self.cutoff,
@@ -3979,7 +4152,7 @@ class QumodeCircuit(Operation):
         loss_db: Any = None,
         encode: bool = False,
     ) -> None:
-        """Add an OPA channel with net coherent power gain and distributed loss in dB."""
+        """Add an OPA using amplified-axis net gain and pump-off loss in dB, with gain_db >= -loss_db."""
         self.opa(wires, r=gain_db, theta=theta, loss=loss_db, convention='gain_db', encode=encode)
 
     def s2(self, wires: list[int], r: Any = None, theta: Any = None, encode: bool = False) -> None:

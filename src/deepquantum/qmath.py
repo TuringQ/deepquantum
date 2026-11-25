@@ -639,9 +639,14 @@ def measure(
 
 
 def sample_sc_mcmc(
-    prob_func: Callable, proposal_sampler: Callable, shots: int = 1024, num_chain: int = 5
+    prob_func: Callable,
+    proposal_sampler: Callable,
+    shots: int = 1024,
+    num_chain: int = 5,
+    *,
+    initial_sampler: Callable | None = None,
 ) -> defaultdict:
-    """Get the samples of the probability distribution function via SC-MCMC method."""
+    """Sample via SC-MCMC, optionally drawing each chain's initial state from the target distribution."""
     samples_chain = []
     merged_samples = defaultdict(int)
     cache_prob = {}
@@ -657,8 +662,8 @@ def sample_sc_mcmc(
         if shots_lst[trial] > 1e5:
             len_cache = 4000
         # random start
-        sample_0 = proposal_sampler()
-        if not isinstance(sample_0, str):
+        sample_0 = proposal_sampler() if initial_sampler is None else initial_sampler()
+        if initial_sampler is None and not isinstance(sample_0, str):
             if prob_func(sample_0) < 1e-12:  # avoid the samples with almost-zero probability
                 sample_0 = tuple([0] * len(sample_0))
             while prob_func(sample_0) < 1e-9:

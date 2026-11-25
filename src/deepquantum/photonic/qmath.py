@@ -277,7 +277,7 @@ def group_probabilities(probabilities: dict | torch.Tensor, groups: list[list[in
     return result
 
 
-def _photon_count_condition(
+def _condition_fock_on_counts(
     state: torch.Tensor,
     nmode: int,
     cutoff: int,
@@ -289,7 +289,7 @@ def _photon_count_condition(
     *,
     normalize: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Condition on photon counts or threshold outcomes and trace all unretained modes.
+    """Return the conditional Fock density matrix and event weight for PNR or threshold counts.
 
     See https://arxiv.org/pdf/1902.02323v2 Eq.(24) and Eq.(109) for PNR projection and probability.
     Here each unresolved event sums resolved projectors, with unretained modes traced out.
@@ -902,6 +902,16 @@ def quadrature_moments_fock(
     normal = torch.stack(normal, dim=-2)
     anomalous = torch.stack(anomalous, dim=-2)
     return _quadrature_moments_ladder(alpha, normal, anomalous, weight, centered=centered, normalize=normalize)
+
+
+def _gaussian_marginal(state: list[torch.Tensor], wires: list[int]) -> list[torch.Tensor]:
+    """Select the joint covariance and mean on the requested wires in xxpp order."""
+    cov, mean = state
+    nmode = cov.shape[-1] // 2
+    if wires == list(range(nmode)):
+        return state
+    idx = torch.tensor(wires + [w + nmode for w in wires], dtype=torch.long, device=cov.device)
+    return [cov[..., idx[:, None], idx], mean[..., idx, :]]
 
 
 def _photon_number_mean_var_gaussian(cov: torch.Tensor, mean: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

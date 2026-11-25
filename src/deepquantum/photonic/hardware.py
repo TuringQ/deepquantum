@@ -10,7 +10,7 @@ import torch
 from torch import nn
 from torch.func import functional_call
 
-from .channel import DisplacementChannel, OPA, PhotonLoss
+from .channel import DisplacementChannel, OPA, PhotonLoss, _loss_to_theta
 from .gate import (
     BeamSplitter,
     BeamSplitterPhi,
@@ -92,7 +92,8 @@ class _HardwareRun:
 class Loss(nn.Module):
     r"""Photon loss specified by power transmittance or loss in dB.
 
-    The internal parameter is the loss angle, with power transmittance :math:`t=\cos^2(\theta/2)`.
+    Fixed loss uses the supplied power or dB coordinate. The optimizer uses the loss angle
+    with power transmittance :math:`t=\cos^2(\theta/2)`.
 
     Args:
         t: The power transmittance. Specify exactly one of ``t`` and ``db``. Default: ``None``
@@ -116,12 +117,22 @@ class Loss(nn.Module):
             value = torch.tensor(value, dtype=torch.get_default_dtype())
         convention = 't' if db is None else 'db'
         _check_scalar(value, convention, 0, 1 if db is None else None)
-        channel = PhotonLoss(value, cutoff=2, convention=convention, requires_grad=requires_grad)
-        _register_scalar(self, 'theta', channel.theta)
+        self.convention = 'theta' if requires_grad else convention
+        if requires_grad:
+            self.theta = nn.Parameter(_loss_to_theta(value, convention))
+        else:
+            self.register_buffer('calibration', value)
+
+    def __getattr__(self, name: str) -> Any:
+        if name == 'theta' and self.convention != 'theta':
+            return _loss_to_theta(self.calibration, self.convention)
+        return super().__getattr__(name)
 
     @property
     def t(self) -> torch.Tensor:
         """Transmittance."""
+        if self.convention != 'theta':
+            return self.calibration if self.convention == 't' else 10 ** (-self.calibration / 10)
         return torch.cos(self.theta / 2) ** 2
 
     @property
@@ -131,13 +142,13 @@ class Loss(nn.Module):
 
     def forward(self, state: Any, run: _HardwareRun) -> Any:
         """Apply loss to the bound modes."""
-        theta = self.theta
+        control = self.theta if self.convention == 'theta' else self.calibration
         if run.backend in ('gaussian', 'bosonic'):
             nmode, cutoff = state[0].shape[-1] // 2, 2
-            theta = theta.to(state[0])
+            control = control.to(state[0])
         elif run.backend == 'bargmann':
             nmode, cutoff = state.nmode, state.cutoff
-            theta = theta.to(state.mat_a.real)
+            control = control.to(state.mat_a.real)
         elif run.backend == 'fock':
             nmode, cutoff = run.nmode, 2
             if not run.basis:
@@ -145,10 +156,10 @@ class Loss(nn.Module):
                     raise NotImplementedError('Fock state tensor loss requires a density matrix (den_mat=True).')
                 cutoff = state.shape[-1]
             if state is not None:
-                theta = theta.to(state.real)
+                control = control.to(state.real)
         else:
             raise NotImplementedError(f'Loss does not support backend {run.backend}.')
-        channel = PhotonLoss(theta, nmode=nmode, cutoff=cutoff)
+        channel = PhotonLoss(control, nmode=nmode, cutoff=cutoff, convention=self.convention)
         if run.basis:
             return PhotonLoss._apply_unitary(state, channel.gate.update_matrix(), run.wires, nmode)
         for wire in run.wires:
@@ -923,6 +934,8 @@ class HardwareModel(nn.Module):
         for binding, parameter in bindings:
             if parameter is not None:
                 value = overrides.get(parameter, getattr(op, parameter))
+                if value is None and source is not None:
+                    value = getattr(source, parameter)
                 overrides[parameter] = binding(value, run, op, parameter, source)
         return overrides
 

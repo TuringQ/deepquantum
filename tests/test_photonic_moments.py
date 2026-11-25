@@ -9,6 +9,117 @@ import deepquantum as dq
 import deepquantum.photonic as dqp
 
 
+def _loss_observables(circuit, data=None):
+    state = circuit(data)
+    variance, mean = circuit.quadrature_moments(0, phi=0.0)
+    if circuit.backend == 'gaussian':
+        vacuum = circuit.get_prob([0])
+    else:
+        rho = state.to_fock(1) if circuit.backend == 'bargmann' else state
+        vacuum = rho[:, 0, 0].real
+    return torch.stack([mean.flatten().real, variance.flatten().real, vacuum.flatten().real])
+
+
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann', 'fock'])
+@pytest.mark.parametrize(
+    'method,values',
+    [('loss_t', [1.0, 0.64]), ('loss_db', [0.0, 1.0]), ('loss', [0.0, 4.0]), ('d_channel', [1.0, 0.64])],
+)
+def test_loss_gradients_at_unit_transmittance(backend, method, values):
+    # A displaced thermal state has <x> = 1, Var(x) = 1 + 2*nbar before loss.
+    nbar = 0.1
+    cir = dq.QumodeCircuit(1, 'vac', cutoff=14, backend=backend, basis=False, den_mat=True)
+    cir.thermal(0, nbar=torch.tensor(nbar, dtype=torch.double))
+    cir.d(0, 0.5, 0.0)
+    getattr(cir, method)(0, encode=True)
+    cir.to(torch.double)
+    control = torch.tensor(values, dtype=torch.double, requires_grad=True)
+    if method == 'd_channel':
+        dark = torch.zeros_like(control)
+        data = torch.stack([dark, dark, control], dim=1)
+    else:
+        data = control[:, None]
+    observed = _loss_observables(cir, data)
+    if method == 'loss':
+        field = (control / 2).cos()
+        power = field.square()
+    else:
+        power = 10 ** (-control / 10) if method == 'loss_db' else control
+        field = power.sqrt()
+    thermal = 1 + nbar * power
+    expected = [field, 1 + 2 * nbar * power, (-0.25 * power / thermal).exp() / thermal]
+    for value, reference in zip(observed, expected, strict=True):
+        torch.testing.assert_close(value, reference, atol=3e-9, rtol=1e-8)
+        derivative = torch.autograd.grad(value.sum(), control, retain_graph=True)[0]
+        target = torch.autograd.grad(reference.sum(), control, retain_graph=True)[0]
+        torch.testing.assert_close(derivative, target, atol=3e-9, rtol=1e-8)
+
+
+def test_small_loss_angle_adds_vacuum_noise_to_squeezed_quadrature():
+    cov = torch.diag(torch.tensor([1e-3, 1e3], dtype=torch.double))
+    angle = cov.new_tensor(1e-8)
+    cir = dq.QumodeCircuit(1, [cov, cov.new_zeros(2, 1)], backend='gaussian')
+    cir.loss(0, angle)
+    cir.double()
+    cir()
+    variance, _ = cir.quadrature_moments(0, phi=0.0)
+    vacuum = dqp.hbar / (4 * dqp.kappa**2)
+    expected = cov[0, 0] + (vacuum - cov[0, 0]) * (angle / 2).sin().square()
+    torch.testing.assert_close(variance.squeeze() - cov[0, 0], expected - cov[0, 0], atol=0, rtol=1e-12)
+
+
+def test_loss_on_correlated_bosonic_components_matches_dense_affine_map():
+    from deepquantum.photonic.operation import Channel
+
+    generator = torch.Generator().manual_seed(14)
+    matrix = torch.randn(2, 3, 6, 6, dtype=torch.double, generator=generator)
+    cov = matrix @ matrix.mT + torch.eye(6)
+    mean = torch.randn(2, 3, 6, 1, dtype=torch.cdouble, generator=generator)
+    weights = torch.randn(2, 3, dtype=torch.cdouble, generator=generator)
+    angle = torch.tensor(4.2, dtype=torch.double, requires_grad=True)
+    loss = dqp.PhotonLoss(angle, nmode=3, wires=1)
+    actual = loss([cov, mean, weights])
+    dense = Channel.op_cv(loss, [cov, mean, weights])
+    torch.testing.assert_close(actual, dense)
+    assert actual[2] is weights
+    for value, reference in zip(actual[:2], dense[:2], strict=True):
+        torch.testing.assert_close(
+            torch.autograd.grad(value.real.sum(), angle, retain_graph=True),
+            torch.autograd.grad(reference.real.sum(), angle, retain_graph=True),
+        )
+
+
+@pytest.mark.parametrize('convention,value', [('t', 1.0), ('db', 0.0)])
+def test_loss_control_and_angle_optimizer(convention, value):
+    control = torch.tensor(value, dtype=torch.double, requires_grad=True)
+    loss = dqp.PhotonLoss(control, convention=convention)
+    state = [torch.eye(2, dtype=torch.double), torch.ones(2, 1, dtype=torch.double)]
+    target = 0.5 if convention == 't' else -math.log(10) / 20
+    for _ in range(2):
+        mean = loss(state)[1][0, 0]
+        torch.testing.assert_close(torch.autograd.grad(mean, control)[0], control.new_tensor(target))
+        loss.load_state_dict(loss.state_dict())
+    other = control.new_tensor(0.64 if convention == 't' else -10 * math.log10(0.64))
+    updated = torch.func.functional_call(loss, {'gate.' + convention: other}, (state,), strict=True)
+    torch.testing.assert_close(updated[1], torch.full_like(state[1], 0.8))
+    restored = dqp.PhotonLoss(convention=convention).double()
+    restored.load_state_dict(loss.state_dict())
+    torch.testing.assert_close(restored(state), loss(state))
+
+    # The optimizer uses the signed angle, including angles beyond pi.
+    trainable = dqp.PhotonLoss(control, convention=convention, requires_grad=True)
+    assert dict(trainable.named_parameters()) == {'gate.theta': trainable.theta}
+    torch.testing.assert_close(trainable.theta, loss.theta)
+    trainable.load_state_dict({'gate.theta': control.new_tensor(4.0)})
+    optimizer = torch.optim.SGD(trainable.parameters(), lr=0.1)
+    mean = trainable(state)[1][0, 0]
+    mean.backward()
+    torch.testing.assert_close(trainable.theta.grad, -(trainable.theta / 2).sin() / 2)
+    optimizer.step()
+    torch.testing.assert_close(trainable(state)[1], (trainable.theta / 2).cos() * state[1])
+    assert trainable(state)[1][0, 0] < 0
+
+
 @pytest.mark.parametrize('backend', ['fock', 'gaussian', 'bosonic', 'bargmann'])
 def test_registered_quadratures_and_explicit_queries(backend):
     cir = dq.QumodeCircuit(3, 'vac', backend=backend, cutoff=6, basis=False)
@@ -355,3 +466,38 @@ def test_bargmann_moment_validation():
     state = dq.BargmannState(torch.zeros(1, 2, dtype=torch.complex128), nmode=1)
     with pytest.raises(ValueError, match='positive'):
         state.photon_number_mean_var()
+
+
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann', 'fock'])
+@pytest.mark.parametrize('auxiliary', [None, 0.0, 0.31])
+def test_loss_observable_endpoint_expansion(backend, auxiliary):
+    # T=0 pure loss or T=1 coupling to a coherent auxiliary. Expand the whole observable in the signed field.
+    cir = dq.QumodeCircuit(1, 'vac', cutoff=14, backend=backend, basis=False, den_mat=True)
+    cir.thermal(0, nbar=torch.tensor(0.1, dtype=torch.double))
+    cir.d(0, 0.5, 0.0)
+    theta = torch.tensor(math.pi if auxiliary is None else 0.0, dtype=torch.double, requires_grad=True)
+    if auxiliary is None:
+        cir.loss(0, theta)
+    else:
+        cir.d_channel(0, amplitude=auxiliary, phase=0.0, t=theta, convention='loss_theta')
+    cir.double()
+    values = _loss_observables(cir).squeeze(-1)
+    first = torch.stack([torch.autograd.grad(y, theta, create_graph=True)[0] for y in values])
+    second = torch.stack([torch.autograd.grad(g, theta, retain_graph=True)[0] for g in first])
+    # T = cos²(theta/2). At theta=pi the sqrt(T) and T coefficients are -2 f' and 2 f''.
+    sign = -2 if auxiliary is None else 2
+    root, slope = sign * first, -sign * second
+    if auxiliary is None:
+        torch.testing.assert_close(root, theta.new_tensor([1.0, 0.0, 0.0]), atol=3e-9, rtol=1e-8)
+        torch.testing.assert_close(slope, theta.new_tensor([0.0, 0.2, -0.35]), atol=3e-9, rtol=1e-8)
+    else:
+        # Independent power series in q=sqrt(1-T) for a displaced thermal state.
+        q = theta.new_zeros((), requires_grad=True)
+        power = 1 - q.square()
+        alpha = 0.5 * power.sqrt() + auxiliary * q
+        thermal = 1 + 0.1 * power
+        for i, value in enumerate([2 * alpha, 1 + 0.2 * power, (-alpha.square() / thermal).exp() / thermal]):
+            (g,) = torch.autograd.grad(value, q, create_graph=True, retain_graph=True)
+            (h,) = torch.autograd.grad(g, q, retain_graph=True)
+            torch.testing.assert_close(root[i], g, atol=5e-8, rtol=1e-7)
+            torch.testing.assert_close(slope[i], -h / 2, atol=5e-8, rtol=1e-7)

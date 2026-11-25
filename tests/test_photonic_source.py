@@ -196,9 +196,9 @@ def test_unresolved_herald_traces_auxiliary_without_losing_its_weight(den_mat):
     components = [(math.sqrt(a * b), [i, j, i, j]) for i, a in enumerate([0.7, 0.3]) for j, b in enumerate([0.8, 0.2])]
     explicit = dqp.QumodeCircuit(4, components, cutoff=2, basis=False, den_mat=den_mat)
     state = explicit.to(torch.double)()
-    from deepquantum.photonic.qmath import _photon_count_condition
+    from deepquantum.photonic.qmath import _condition_fock_on_counts
 
-    density, probability = _photon_count_condition(state, 4, 2, [[2, 3]], [1], [0], den_mat=den_mat)
+    density, probability = _condition_fock_on_counts(state, 4, 2, [[2, 3]], [1], [0], den_mat=den_mat)
     torch.testing.assert_close(probability, torch.tensor([0.3 * 0.8 + 0.7 * 0.2]))
     expected = torch.diag(torch.tensor([0.7 * 0.2, 0.3 * 0.8]) / 0.38).to(density)
     torch.testing.assert_close(density[0], expected)

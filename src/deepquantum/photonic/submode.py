@@ -13,7 +13,7 @@ from torch.utils._pytree import register_pytree_node
 
 import deepquantum.photonic as dqp
 
-from .bargmann import BargmannPolyExp, _project_spatial_pnr, _project_threshold
+from .bargmann import BargmannPolyExp
 from .channel import DisplacementChannel, OPA, PhotonLoss
 from .circuit import QumodeCircuit
 from .gate import (
@@ -63,6 +63,7 @@ class SubmodeResult:
     A single TDM step includes both spatial outputs and loop positions in concurrent wire order.
     In a TDM output marginal, each selected (time, wire) pair counts as one spatial mode.
     ``partition`` gives the basis-mode indices evolved together in each independent group.
+    ``factorized`` records a product across groups established by the circuit structure.
     ``to_joint()`` returns the full state in spatial-then-basis order, taking the tensor product
     of independent groups when needed. With explicit ``blocks``, ``data`` holds one state per block.
     Factorized Gaussian or Fock tensors without explicit blocks have leading ``(batch, nsubmode)`` axes.
@@ -127,7 +128,7 @@ class SubmodeResult:
         blocks, states = zip(*self._factors(), strict=True)
         return _join_states(states, blocks, self.nmode, self.nsubmode, self.backend, self.den_mat)
 
-    def _bargmann_condition(
+    def _condition_bargmann_on_counts(
         self,
         wires: tuple[int, ...],
         photons: tuple[int, ...],
@@ -142,14 +143,7 @@ class SubmodeResult:
         if detector == 'threshold' and any(n not in (0, 1) for n in photons):
             raise ValueError('Threshold outcomes must be 0 or 1')
         groups = [[w * self.nsubmode + k for k in range(self.nsubmode)] for w in wires]
-        if self.nsubmode == 1:
-            state = joint._post_select(wires, photons, detector)
-        elif detector == 'pnrd':
-            state = joint._new(_project_spatial_pnr(joint.to_dm().polyexp, groups, photons), den_mat=True)
-        elif detector == 'threshold':
-            state = joint._new(_project_threshold(joint.to_dm().polyexp, joint.nmode, groups, photons), den_mat=True)
-        else:
-            raise NotImplementedError('Bargmann spatial counts support PNR and threshold detectors.')
+        state = joint._condition_on_counts(groups, photons, detector)
         probability = state.norm()
         if keep is None:
             return state, probability
@@ -639,7 +633,6 @@ class _SubmodeCircuit(QumodeCircuit):
             backend=parent.backend,
             basis=parent.basis,
             den_mat=parent.den_mat,
-            detector=parent.detector,
         )
         object.__setattr__(self, 'parent', parent)
         self.factorized = factorized
@@ -860,6 +853,9 @@ class _SubmodeCircuit(QumodeCircuit):
         for source, op in gates:
             bindings = self._bindings.get(source, ())
             modes = next((b.plugin for b, _ in bindings if isinstance(b.plugin, Submodes)), None)
+            if all(isinstance(binding.plugin, Submodes) for binding, _ in bindings):
+                state = self._lift(op, state, modes, run)
+                continue
             if any(
                 binding.where in ('before', 'after') and not isinstance(binding.plugin, Loss) for binding, _ in bindings
             ):
@@ -950,9 +946,8 @@ class _SubmodeCircuit(QumodeCircuit):
             prob = prob.reshape(-1, self.nsubmode, *prob.shape[1:])
         return prob
 
-    def spatial_probabilities(self, detector=None):
+    def spatial_probabilities(self, detector='pnrd'):
         """Return PNR probabilities after summing counts over orthogonal basis modes."""
-        detector = self.detector if detector is None else detector
         if detector != 'pnrd':
             raise NotImplementedError('Unresolved submode readout currently supports PNR detection.')
         if isinstance(self.state, dict):
@@ -1023,7 +1018,6 @@ class _SubmodeCircuit(QumodeCircuit):
 
     def measure_spatial(self, shots, with_prob, wires, detector, mcmc):
         """Sample spatial photon counts without resolving orthogonal basis modes."""
-        detector = self.detector if detector is None else detector
         if detector != 'pnrd':
             raise NotImplementedError('Submode readout currently supports PNR detection.')
         selected = self.parent.wires if wires is None else self.parent._convert_indices(wires)
@@ -1145,7 +1139,7 @@ def _slice_profiles(modes, block):
 
 
 def _build_submode_circuit(
-    parent: QumodeCircuit, state: Any = None, *, joint: bool = False
+    parent: QumodeCircuit, state: Any = None, *, joint: bool = False, batch_blocks: bool = False
 ) -> '_SubmodeCircuit | _SubmodeBlocks':
     """Build the submode circuit, grouping basis modes coupled by inputs or operations."""
     model = parent.hardware_model if parent.hardware_model is not None else HardwareModel()
@@ -1168,7 +1162,7 @@ def _build_submode_circuit(
         and parent.backend == 'fock'
         or parent.backend == 'bosonic'
         or (
-            not parent._with_delay
+            (not parent._with_delay or batch_blocks)
             and parent.backend != 'bargmann'
             and not photons
             and all(p.components is None for p in profiles)
@@ -1221,6 +1215,8 @@ def _tdm_submode_inputs(
             state = view._prepare_photons(state, view.hardware_model._new_run(view.backend, view.wires))
         else:
             state = [state.cov, state.mean]
+            if view.factorized:
+                state = view._reshape_blocks(view._factor_input(state), state[0].shape[0])
         inputs.append((block, view, state))
     return inputs
 
@@ -1403,9 +1399,9 @@ class _SubmodeBlocks:
             accumulated = values if accumulated is None else _convolve_counts(accumulated, values, limits)
         return accumulated
 
-    def spatial_probabilities(self, detector=None):
+    def spatial_probabilities(self, detector='pnrd'):
         """Return PNR probabilities after summing counts over orthogonal basis modes."""
-        if (self.parent.detector if detector is None else detector) != 'pnrd':
+        if detector != 'pnrd':
             raise NotImplementedError('Submode readout currently supports PNR detection.')
         return group_probabilities(self._probability(self.parent.wires), [[w] for w in self.parent.wires])
 
@@ -1419,7 +1415,7 @@ class _SubmodeBlocks:
 
     def measure_spatial(self, shots, with_prob, wires, detector, mcmc):
         """Sample spatial photon counts without resolving orthogonal basis modes."""
-        if (self.parent.detector if detector is None else detector) != 'pnrd':
+        if detector != 'pnrd':
             raise NotImplementedError('Submode readout currently supports PNR detection.')
         selected = self.parent.wires if wires is None else self.parent._convert_indices(wires)
         samples = []

@@ -704,7 +704,7 @@ print('加入噪声后的保真度为：', fidelity)
 #
 # 可以用 ``cir.loss_t(wires, inputs)`` 或 ``cir.loss_db(wires, inputs)`` 手动插入损耗通道，也可以通过 ``HardwareModel`` 在输入、输出或选中门的前后配置损耗。
 # ``t`` 是初始透射率，``db`` 是以 dB 表示的初始损耗，两者只需指定一个。
-# 内部与 ``PhotonLoss`` 一样使用角度 ``theta``，透射率为 $t=\cos^2(\theta/2)$。
+# 固定或编码的损耗直接使用给定的透射率或 dB，可训练器件的内部角度满足 $t=\cos^2(\theta/2)$。
 #
 # 下面两种方式同时使用，实际损耗依次叠加。
 # ``draw()`` 只显示手动插入的通道，不显示硬件模型的插件。
@@ -781,13 +781,14 @@ cov_opa_readout, mean_opa_readout = cir_opa_readout()
 print('Readout x variance =', cov_opa_readout[0, 0, 0])
 
 # %% [markdown]
-# 三个内部参数始终是 `r`、`theta`、`loss_theta`，损耗用角度保持透射率在 `[0, 1]` 内。
+# 优化器训练 `r`、`theta` 和有符号损耗角 `loss_theta`。
 # `cir.opa(0)` 或 `cir.opa_db(0)` 随机初始化三个可训练参数；传入具体数值时，三者均为固定 buffer。
 # 需要指定初值并训练时，可用 `cir.add(dqp.OPA([r, theta, loss], convention='db', requires_grad=True))`；多模线路同时设置该操作的 `nmode`、`wires`。
 # 优化器使用 `cir.parameters()`。
 #
 # `encode=True` 每次消耗三项数据：`opa` 使用 `[r, theta, loss]`，`opa_db` 使用 `[gain_db, theta, loss_db]`。
-# 透射率/dB 到损耗角度的换算在边界有奇异导数，边界处的可微编码可用 `opa(..., convention='theta', encode=True)`。
+# 标定放大轴时要求 `gain_db + loss_db >= 0`，关泵点允许净增益等于负的关泵损耗。
+# 固定值和编码值保留输入的透射率或 dB 坐标，在无损点也可以直接对它们求导。
 # 下面对实验格式的编码数据求梯度：
 #
 
@@ -1345,16 +1346,19 @@ print(photon_mean, photon_var)
 # 通过设置 `is_prob=True` 参数可以得到对应的Fock态概率分布，`detector='pnrd'` 表示使用粒子数分辨探测器，`detector='threshold'` 表示使用阈值探测器。
 
 # %%
-state = cir(is_prob=True, detector='threshold')  # 线路演化后得到的高斯态用协方差矩阵和平均值刻画
+state = cir(is_prob=True, detector='threshold')  # 每个模式的 0/1 点击图样及其概率
 print(state)
 
 # %% [markdown]
 # 4. 高斯线路的采样
 
 # %% [markdown]
-# 当计算了末态的概率分布时，使用对应的概率分布进行采样。
-# 当只得到末态的协方差和平均值时，通过设置`mcmc=True`使用马尔科夫链蒙特卡洛方法进行采样，设置`mcmc=False` 表示使用链式法则(chain-rule)方法进行采样，默认设置为`False`。
-# `'pnrd'`表示单光子分辨探测器，默认设为`'pnrd'`，`'threshold'`表示阈值探测器。
+# 每次 `forward` 默认使用 `cir.detector`，显式传入的 `detector` 决定这次输出的读出方式。
+# 返回高斯态和返回概率表时都遵循这一约定。
+#
+# `measure` 默认沿用本次输出的探测器，也可以为这一次采样指定 `detector`。
+# 已有对应探测器的概率表时，直接从表中采样。
+# 其余情况从已保存的高斯末态采样，默认使用链式法则，`mcmc=True` 使用马尔科夫链蒙特卡洛方法。
 
 # %%
 cir = dq.QumodeCircuit(nmode=2, init_state='vac', cutoff=3, backend='gaussian')
@@ -1604,6 +1608,9 @@ print(result.partition, cov.shape)  # ((0,), (1,)), (1, 8, 8)
 # %% [markdown]
 # 每个时间步都要对所有空间输出做 Homodyne 测量时，可以使用 `dq.QumodeCircuitTDM`。
 # 它自动将测量后的状态用于下一步，并用 `nstep` 指定演化的时间步数。
+# 普通 Gaussian 线路用 `tdm_memory(full_state)` 从完整态提取按下一拍顺序排列的环内态。
+# 显式传 `memory=` 时，每拍都重新制备空间输入，注册光源也逐拍注入。
+# 无注册光源且从默认初态启动时，非真空空间初态只在首拍注入。
 
 # %%
 r = 5
@@ -1622,7 +1629,10 @@ cir.draw()
 # 通过`cir.samples`查看测量结果
 
 # %%
-cir(nstep=3)
+full_state = cir(nstep=3)
+print(cir.samples)
+memory = cir.tdm_memory(full_state)
+full_state = cir(nstep=1, memory=memory)
 print(cir.samples)
 
 # %% [markdown]
@@ -1858,7 +1868,9 @@ print(state_bargmann.to_fock().shape)  # (1, 8, 8)
 # `post_select(wires, photons)` 使用最近一次前向演化的末态，返回条件态和事件概率，不改变线路保存的末态。
 # `photons` 按 `wires` 的顺序给出各被测模式的光子数，单个模式也可以直接传入整数。
 # `normalize=True` 为默认值，`return_info=True` 只增加诊断信息，不改变条件态的类型。
-# Fock 后端（`basis=False`）返回密度矩阵 `FockState`，Gaussian 后端返回 Fock 张量，Bargmann 后端返回可以继续演化的 `BargmannState`。
+# `measure(with_state=True)` 和 `post_select` 返回相同类型的条件态。
+# Fock 后端（`basis=False`）返回密度矩阵 `FockState`，Gaussian 和 Bargmann 后端返回可以继续演化的 `BargmannState`。
+# 需要 Fock 张量时，调用条件态的 `to_fock(cutoff)`。
 #
 # 下面在原模式 0 探测到一个光子，保留原模式 1。
 # 返回态的模式从 0 重新编号，`remaining_wires` 记录它对应的原模式。
@@ -1890,11 +1902,11 @@ print(rho_bargmann.diagonal(dim1=-2, dim2=-1).real.sum(-1))  # 截断内的迹�
 # ### 阈值后选择与低阶矩
 #
 # `post_select(wires, photons, detector='threshold')` 按未点击（0）或点击（1，至少一个光子）进行条件读出。
-# 默认 `detector=None` 沿用 `cir.detector`，显式传入探测器类型只覆盖本次后选择，不改变线路设置。
+# `detector=None` 沿用最近一次 `forward` 为输出选定的探测器，显式传入的探测器只用于本次后选择。
 # 探测器命名统一使用 `pnrd`、`threshold` 和 `click`，其中 `click` 表示多路阈值探测器的点击计数，当前尚不支持它的后选择。
 # 参数顺序是 `wires, photons, keep, detector`，其余选项使用关键字指定。
 # 阈值条件态由密度算符描述。
-# Fock 和 Gaussian 返回它在 Fock 基底下的矩阵元，Bargmann 返回持有解析核的 `BargmannState`，可以继续演化。
+# Gaussian 和 Bargmann 后端都保留解析密度核，可直接计算条件态的矩。
 # Bargmann 用部分迹减去真空投影表示点击，每个点击最多将表示项数加倍。
 # 低概率事件容易受到相减误差影响，建议在演化前使用 `cir.double()`，并检查数值精度。
 #
@@ -1950,6 +1962,12 @@ second_event, first_event = event_state.quadrature_moments(centered=False, norma
 print(event_probability)  # 约 0.0849
 print(second_event.shape, first_event.shape)  # (1, 2, 2)、(1, 2, 1)
 
+records, conditional, probabilities = cir_bargmann.measure(
+    8, wires=[0], detector='threshold', with_prob=True, with_state=True
+)
+print(records.shape, probabilities.shape)  # (1, 8, 1), (1, 8)
+print(conditional.norm())  # 每次抽到的分支都已归一化
+
 # %% [markdown]
 # 当前支持相移、分束器、MZI、任意无源酉变换、单模／双模压缩、位移、光损耗、OPA 和 DisplacementChannel，也支持 `HardwareModel` 中相应的控制噪声与光路损耗。
 # 直接输入 Fock 态或进行光子计数后选择可以得到非高斯态，Kerr 和三次相位等非高斯门尚未实现。
@@ -1957,7 +1975,10 @@ print(second_event.shape, first_event.shape)  # (1, 2, 2)、(1, 2, 1)
 #
 # 在线路上用 `get_prob([1, 1])` 读取基模不分辨的两端符合概率。
 #
-# Bargmann 的有限 shots 采样尚未实现。
+# `measure(..., with_state=True)` 随机抽取逐次计数并返回对应的归一化条件态。
+# 记录张量的形状为 `(batch, shots, len(wires))`，列按传入的端口顺序排列，条件态按输入、再按 shot 合并为一个 batch。
+# 空间端口全部测完时，Bargmann 延时线路返回可直接用于下一拍的环内态，普通线路的剩余态为 `None`。
+# Gaussian 线路经光子计数得到的条件态也用 `BargmannState` 表示，可交给 Bargmann 后端继续演化。
 # `thermal()`、`single_photon()` 和原生环路逐步演化的用法见下文。
 # Fock 线路和带正交基模的 Bargmann 线路均可在后选择时用 `keep` 选保留端口，用 `submode` 选一个基模或用 `lo` 选其相干叠加。
 
@@ -2053,6 +2074,23 @@ for window_state in cir_native_loop.tdm_substate(slice(3), window=2):
 # 只测部分端口时，返回态还包含未测输出。
 # `return_info=True` 返回的 `remaining_wires` 按返回态的模式顺序列出它们在原联合态中的编号，可据此迹掉其余空间输出，再回送环内态。
 #
+#
+# 要按实测结果反馈，首拍用 `measure(..., with_state=True)` 取样。
+# 下面每条轨迹在首拍点击时把相移设为 $\pi/2$，其余设为零，第二拍再各测一次。
+# 两次返回的条件概率相乘即这条两拍记录的联合概率。
+
+# %%
+loop = dq.QumodeCircuit(1, 'vac', backend='bargmann', den_mat=True, detector='threshold')
+loop.s(0, 0.55, 0.0)
+loop.ps(0, encode=True)
+loop.delay(0, ntau=1, inputs=[0.65, 0.12])
+loop.double()
+loop(torch.zeros(1, dtype=torch.double))
+first, memory, p1 = loop.measure(8, with_prob=True, with_state=True)
+phase = first.reshape(-1, 1).to(torch.double) * (torch.pi / 2)
+loop(phase, memory=memory)
+second, memory, p2 = loop.measure(1, with_prob=True, with_state=True)
+print(torch.cat([first.reshape(-1, 1), second.reshape(-1, 1)], dim=1), p1.flatten() * p2.flatten())
 
 # %% [markdown]
 # 在同一线路上给 OPA 配置两个正交基模后，单步演化返回 `SubmodeResult`。
