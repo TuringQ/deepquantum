@@ -13,7 +13,7 @@ from torch.utils._pytree import register_pytree_node
 
 import deepquantum.photonic as dqp
 
-from .bargmann import BargmannPolyExp, _project_spatial_pnr, _project_threshold
+from .bargmann import BargmannPolyExp
 from .channel import DisplacementChannel, OPA, PhotonLoss
 from .circuit import QumodeCircuit
 from .gate import (
@@ -142,14 +142,9 @@ class SubmodeResult:
         if detector == 'threshold' and any(n not in (0, 1) for n in photons):
             raise ValueError('Threshold outcomes must be 0 or 1')
         groups = [[w * self.nsubmode + k for k in range(self.nsubmode)] for w in wires]
-        if self.nsubmode == 1:
-            state = joint._post_select(wires, photons, detector)
-        elif detector == 'pnrd':
-            state = joint._new(_project_spatial_pnr(joint.to_dm().polyexp, groups, photons), den_mat=True)
-        elif detector == 'threshold':
-            state = joint._new(_project_threshold(joint.to_dm().polyexp, joint.nmode, groups, photons), den_mat=True)
-        else:
+        if detector not in ('pnrd', 'threshold'):
             raise NotImplementedError('Bargmann spatial counts support PNR and threshold detectors.')
+        state = joint._condition_counts(groups, photons, detector)
         probability = state.norm()
         if keep is None:
             return state, probability

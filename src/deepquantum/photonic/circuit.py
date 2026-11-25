@@ -468,6 +468,8 @@ class QumodeCircuit(Operation):
                 result = self._forward_cv(data, state, is_prob, detector, stepwise or bool(self.sources))
             else:
                 result = self._forward_bargmann(data, state, is_prob)
+        if self.backend == 'gaussian':
+            self._state_units = (dqp.hbar, dqp.kappa)
         self._state_detector = detector
         return result
 
@@ -730,8 +732,6 @@ class QumodeCircuit(Operation):
                 self.state = [cov, mean]
             elif self.backend == 'bosonic':
                 self.state = [cov, mean, weight]
-        if self.backend == 'gaussian':
-            self._state_units = (dqp.hbar, dqp.kappa)
         return self.state
 
     def _forward_helper_gaussian(
@@ -2273,7 +2273,9 @@ class QumodeCircuit(Operation):
         wires: int | list[int] | None = None,
         detector: str | None = None,
         mcmc: bool = False,
-    ) -> dict | list[dict] | None:
+        *,
+        with_state: bool = False,
+    ) -> dict | list[dict] | tuple | None:
         """Measure the final state.
 
         Args:
@@ -2284,15 +2286,25 @@ class QumodeCircuit(Operation):
                 the indices of the wires. Default: ``None`` (which means all wires are measured)
             detector: Use ``'pnrd'`` for the photon-number-resolving detector,
                 ``'threshold'`` for the threshold detector, or ``'click'`` for the click-counting detector.
-                An explicit value applies only to this readout. Fock and spatial submode sampling support
-                ``'pnrd'``. Default: ``None`` (use the latest forward pass's detector)
+                An explicit value applies only to this readout. Bargmann sampling and conditional
+                trajectories support PNR and threshold detectors.
+                Default: ``None`` (use the latest forward pass's detector)
             mcmc: Whether to use MCMC sampling. A matching Gaussian probability table is sampled directly.
                 A different detector samples the retained Gaussian state. Default: ``False``
+            with_state: Return individual counts and their normalized conditional states. The counts have
+                shape ``(batch, shots, len(wires))`` in the supplied wire order. The state batch is ordered
+                by input then shot, or is ``None`` when all modes were measured. With ``with_prob=True``,
+                a third tensor of shape ``(batch, shots)`` gives each event weight divided by its input weight.
+                Fock state tensors return a density-matrix ``FockState``. Gaussian and Bargmann
+                return native Bargmann kernels. Default: ``False``
 
         See https://arxiv.org/pdf/2108.01622 for MCMC.
         """
-        self._reject_unsupported_bargmann_readout('measure()')
         detector = self._readout_detector(detector)
+        if with_state or self.backend == 'bargmann':
+            if mcmc or detector == 'click':
+                raise NotImplementedError('Conditional photon counting supports exact threshold and PNR sampling.')
+            return self._measure_trajectories(shots, wires, detector, with_state, with_prob)
         if (submode_circuit := self._spatial_submode_readout()) is not None:
             if isinstance(self.state, dict) and detector == self._state_detector:
                 wires = self.wires if wires is None else self._convert_indices(wires)
@@ -2314,6 +2326,157 @@ class QumodeCircuit(Operation):
         if len(results) == 1:
             results = results[0]
         return results
+
+    def _measure_trajectories(
+        self, shots: int, wires: int | list[int] | None, detector: str, with_state: bool, with_prob: bool
+    ) -> tuple | dict | list[dict]:
+        """Sample actual photon-count records and condition the remaining modes on each sampled prefix."""
+        if not isinstance(shots, int) or isinstance(shots, bool) or shots < int(with_state):
+            raise ValueError('shots must be a nonnegative integer and with_state=True requires at least one shot.')
+        wires = _moment_wires(wires, self.nmode)
+        source = self._get_output_state()
+        nsubmode = 1
+        if isinstance(source, dqp.SubmodeResult):
+            nsubmode, source = source.nsubmode, source.to_joint()
+        if self.backend == 'fock':
+            if self.basis or self.mps or isinstance(self, DistributedQumodeCircuit):
+                raise NotImplementedError('Fock conditional trajectories require state tensors (basis=False).')
+            return self._measure_fock_trajectories(source, shots, wires, nsubmode, detector, with_prob)
+        elif self.backend == 'gaussian':
+            if self._state_units != (dqp.hbar, dqp.kappa):
+                raise RuntimeError('Quadrature units changed after forward; recreate the circuit with consistent units')
+            source = BargmannState(list(source), den_mat=True, cutoff=self.cutoff)
+        elif self.backend != 'bargmann':
+            raise NotImplementedError('Native conditional trajectories require a Gaussian or Bargmann output.')
+        ports = [self._unroll_dict[w][-1] for w in wires] if self._with_delay else wires
+        remaining = list(range(source.nmode))
+        positions = []
+        for port in ports:
+            group = [port * nsubmode + k for k in range(nsubmode)]
+            positions.append([remaining.index(w) for w in group])
+            remaining = [w for w in remaining if w not in group]
+
+        weights = self._event_weight(source.norm())
+        if not bool((weights > 0).all()):
+            raise ValueError('Cannot sample a zero-weight input state.')
+        batch = len(weights)
+        records = torch.empty(batch, shots, len(wires), dtype=torch.long, device=weights.device)
+        probability = weights.new_empty(batch, shots) if with_prob else None
+        indices = records.new_empty(batch, shots) if with_state and remaining else None
+        saved = []
+        draws = torch.rand(records.shape, dtype=weights.dtype, device=weights.device)
+        for b in range(batch):
+            if not shots:
+                continue
+            branches = [(source._select_batch(b), weights[b], torch.arange(shots, device=weights.device))]
+            for j, group in enumerate(positions):
+                children = []
+                last = j + 1 == len(positions)
+                for state, weight, rows in branches:
+                    counts = self._draw_port_counts(state, group, detector, draws[b, rows, j], weight)
+                    records[b, rows, j] = counts
+                    if last and probability is None and indices is None:
+                        continue
+                    for count in counts.unique().tolist():
+                        selected = rows[counts == count]
+                        child = state._condition_counts([group], (count,), detector)
+                        mass = child.norm()[0]
+                        if not bool(mass > 0):
+                            raise ValueError('Sampled a numerically unresolved event; use higher precision.')
+                        if not last:
+                            children.append((child, mass, selected))
+                        else:
+                            if probability is not None:
+                                probability[b, selected] = mass / weights[b]
+                            if indices is not None:
+                                indices[b, selected] = len(saved)
+                                saved.append(child._normalize(mass))
+                branches = children
+        if with_state:
+            state = BargmannState._cat_batch(saved)._select_batch(indices.flatten()) if indices is not None else None
+            return (records, state, probability) if with_prob else (records, state)
+        results = []
+        order = sorted(range(len(wires)), key=wires.__getitem__)
+        for b, row in enumerate(records[..., order]):
+            if not shots:
+                results.append({})
+                continue
+            patterns, inverse, freq = row.unique(dim=0, return_inverse=True, return_counts=True)
+            results.append(
+                {
+                    FockState(pattern): (n, probability[b, (inverse == i).nonzero()[0, 0]]) if with_prob else n
+                    for i, (pattern, n) in enumerate(zip(patterns, freq.tolist(), strict=True))
+                }
+            )
+        return results[0] if batch == 1 else results
+
+    def _measure_fock_trajectories(
+        self, source: torch.Tensor, shots: int, wires: list[int], nsubmode: int, detector: str, with_prob: bool
+    ) -> tuple:
+        """Draw from the finite Fock diagonal and condition only on the reported spatial counts."""
+        from .qmath import _photon_count_condition
+
+        nmode = self.nmode * nsubmode
+        dim = self.cutoff**nmode
+        diagonal = (
+            source.reshape(-1, dim, dim).diagonal(dim1=-2, dim2=-1).real
+            if self.den_mat
+            else source.reshape(-1, dim).abs().square()
+        )
+        diagonal = self._event_weight(diagonal)
+        weights = diagonal.sum(-1)
+        if not bool((weights > 0).all()):
+            raise ValueError('Cannot sample a zero-weight input state.')
+        flat = torch.multinomial(diagonal.detach(), shots, replacement=True)
+        groups = [[w * nsubmode + k for k in range(nsubmode)] for w in wires]
+        keep = [k for k in range(nmode) if k // nsubmode not in wires]
+        records = torch.stack(
+            [sum((flat // self.cutoff ** (nmode - 1 - k)) % self.cutoff for k in group) for group in groups], dim=-1
+        )
+        if detector == 'threshold':
+            records = (records > 0).long()
+        probability = weights.new_empty(*flat.shape) if with_prob else None
+        density = source.new_empty(*flat.shape, *([self.cutoff] * (2 * len(keep)))) if keep else None
+        if keep or with_prob:
+            for event in records.flatten(0, 1).unique(dim=0):
+                b, s = (records == event).all(-1).nonzero(as_tuple=True)
+                rows, inv = b.unique(return_inverse=True)
+                child, mass = _photon_count_condition(
+                    source[rows], nmode, self.cutoff, groups, event.tolist(), keep, detector, self.den_mat
+                )
+                if with_prob:
+                    probability[b, s] = (mass / weights[rows])[inv]
+                if keep:
+                    density[b, s] = child[inv]
+        state = FockState(density.flatten(0, 1), basis=False, den_mat=True) if keep else None
+        return (records, state, probability) if with_prob else (records, state)
+
+    @torch.no_grad()
+    def _draw_port_counts(
+        self, state: BargmannState, group: list[int], detector: str, uniform: torch.Tensor, weight: torch.Tensor
+    ) -> torch.Tensor:
+        """Draw a spatial count without truncating the PNR tail or resolving the retained basis modes."""
+        marginal = state._marginal(group)
+        local = list(range(len(group)))
+        if detector == 'threshold':
+            vacuum = self._event_weight(marginal._post_select(tuple(local), (0,) * len(local)).norm()[0] / weight)
+            click = self._event_weight(1 - vacuum)
+            return (uniform < click).long()
+        # P(N < k) is fully contained in a local Fock box of width k. Extend the box
+        # until the highest uniform draw is covered, without renormalizing a truncated distribution.
+        width = 2
+        while True:
+            tensor = marginal.to_fock(width)
+            dim = width ** len(group)
+            diagonal = tensor.reshape(dim, dim).diagonal().real if marginal.den_mat else tensor.flatten().abs().square()
+            diagonal = self._event_weight(diagonal / weight)
+            flat = torch.arange(dim, device=diagonal.device)
+            total = sum((flat // width**j) % width for j in range(len(group)))
+            mass = diagonal.new_zeros(len(group) * (width - 1) + 1).scatter_add_(0, total, diagonal)
+            cdf = mass[:width].cumsum(0)
+            if bool((uniform < cdf[-1]).all()):
+                return torch.searchsorted(cdf, uniform, right=True)
+            width *= 2
 
     def _prob_dict_to_measure_result(self, prob_dict: dict, shots: int, with_prob: bool) -> dict:
         """Get the measurement result from the dictionary of probabilities."""

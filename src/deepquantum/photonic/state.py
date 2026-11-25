@@ -22,6 +22,7 @@ from .bargmann import (
     _homodyne_moments,
     _moment_generating,
     _project_pnr,
+    _project_spatial_pnr,
     _project_threshold,
     fock_to_bargmann,
     gaussian_to_bargmann,
@@ -443,9 +444,9 @@ class BargmannState(nn.Module):
         """Get the :class:`BargmannPolyExp` view of the current coefficient buffers."""
         return BargmannPolyExp._from_tensors(self.mat_a, self.vec_b, self.coeff_c)
 
-    def _select_batch(self, index: int) -> 'BargmannState':
-        """Return the batch element ``index`` as a state with batch size 1."""
-        sl = slice(index, index + 1)
+    def _select_batch(self, index: int | torch.Tensor) -> 'BargmannState':
+        """Gather batch rows, retaining the batch axis for a single index."""
+        sl = slice(index, index + 1) if isinstance(index, int) else index.reshape(-1)
         return self._new(BargmannPolyExp._from_tensors(self.mat_a[sl], self.vec_b[sl], self.coeff_c[sl]))
 
     @staticmethod
@@ -456,12 +457,22 @@ class BargmannState(nn.Module):
 
     @staticmethod
     def _cat_batch(states: list['BargmannState']) -> 'BargmannState':
-        """Concatenate states with identical structure along the batch axis."""
+        """Concatenate kernels on the same modes, padding absent terms and polynomial orders with zeros."""
         first = states[0]
-        mat_a = torch.cat([s.mat_a for s in states])
-        vec_b = torch.cat([s.vec_b for s in states])
-        coeff_c = torch.cat([s.coeff_c for s in states])
-        polyexp = BargmannPolyExp._from_tensors(mat_a, vec_b, coeff_c)
+        if all(s.coeff_c.shape[1:] == first.coeff_c.shape[1:] for s in states):
+            values = [torch.cat([getattr(s, name) for s in states]) for name in ('mat_a', 'vec_b', 'coeff_c')]
+            return first._new(BargmannPolyExp._from_tensors(*values))
+        naux = max(s.polyexp.naux for s in states)
+        shapes = [(*s.coeff_c.shape[1:], *((1,) * (naux - s.polyexp.naux))) for s in states]
+        target = tuple(map(max, zip(*shapes, strict=True)))
+        matrices, vectors, coefficients = [], [], []
+        for state, shape in zip(states, shapes, strict=True):
+            extra, terms = naux - state.polyexp.naux, target[0] - shape[0]
+            matrices.append(torch.nn.functional.pad(state.mat_a, (0, extra, 0, extra, 0, terms)))
+            vectors.append(torch.nn.functional.pad(state.vec_b, (0, extra, 0, terms)))
+            pads = tuple(v for n, m in reversed(list(zip(shape, target, strict=True))) for v in (0, m - n))
+            coefficients.append(torch.nn.functional.pad(state.coeff_c.reshape(-1, *shape), pads))
+        polyexp = BargmannPolyExp._from_tensors(torch.cat(matrices), torch.cat(vectors), torch.cat(coefficients))
         return first._new(polyexp)
 
     def apply_unitary(self, kernel: BargmannPolyExp, wires: list[int]) -> 'BargmannState':
@@ -596,6 +607,17 @@ class BargmannState(nn.Module):
             polyexp = _project_threshold(self.to_dm().polyexp, self.nmode, [[p] for p in positions], photons)
             return self._new(polyexp, den_mat=True)
         raise NotImplementedError(f'Bargmann post-selection does not support detector={detector!r}')
+
+    def _condition_counts(self, groups: list[list[int]], counts: tuple[int, ...], detector: str) -> 'BargmannState':
+        """Condition on summed counts across the orthogonal basis modes of each measured port."""
+        if all(len(group) == 1 for group in groups):
+            return self._post_select(tuple(g[0] for g in groups), counts, detector)
+        density = self.to_dm().polyexp
+        if detector == 'pnrd':
+            kernel = _project_spatial_pnr(density, groups, counts)
+        else:
+            kernel = _project_threshold(density, self.nmode, groups, counts)
+        return self._new(kernel, den_mat=True)
 
     def norm(self) -> torch.Tensor:
         r"""Get the squared norm :math:`\langle\psi|\psi\rangle` of a ket or the trace of a density operator.
