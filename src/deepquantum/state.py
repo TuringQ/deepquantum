@@ -375,7 +375,7 @@ class DistributedQubitState(nn.Module):
             self.register_buffer(key, value)
         return self
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset the state to the vacuum state."""
         self.amps.zero_()
         self.buffer.zero_()

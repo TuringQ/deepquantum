@@ -14,6 +14,7 @@ from typing import Any, TYPE_CHECKING, overload
 
 import numpy as np
 import torch
+from svgwrite import Drawing
 from torch import nn, vmap
 from torch.distributions.multivariate_normal import MultivariateNormal
 
@@ -136,6 +137,8 @@ class QumodeCircuit(Operation):
         chi: The bond dimension for matrix product state representation. Default: ``None``
     """
 
+    wires: list[int]
+
     def __init__(
         self,
         nmode: int,
@@ -181,7 +184,7 @@ class QumodeCircuit(Operation):
         self._tdm_structure = None
         self._tdm_gate_map = []  # (operation location, source gate, spatial wires, optional loop wires)
         self._tdm_measurement_map = []
-        self.hardware_model = None
+        self.hardware_model: HardwareModel | None = None
         self.sources = nn.ModuleDict()
 
     @property
@@ -608,7 +611,9 @@ class QumodeCircuit(Operation):
             return unitary
         return self._get_fock_basis_results(unitary, state, is_prob)
 
-    def _get_fock_basis_results(self, unitary, state, is_prob):
+    def _get_fock_basis_results(
+        self, unitary: torch.Tensor, state: torch.Tensor | None, is_prob: bool
+    ) -> dict[FockState, torch.Tensor]:
         """Compute Fock basis amplitudes or probabilities from a mode unitary."""
         if state is None:
             state = self.init_state.state
@@ -1031,7 +1036,15 @@ class QumodeCircuit(Operation):
         #     probs = (probs * weight.unsqueeze(-1)).sum(1).real
         return dict(zip(keys, probs.mT, strict=True))
 
-    def _forward_gaussian_prob_helper(self, cov, mean, basis, detector, purity, loop):
+    def _forward_gaussian_prob_helper(
+        self,
+        cov: torch.Tensor,
+        mean: torch.Tensor,
+        basis: list[torch.Tensor] | tuple[list[torch.Tensor], list[torch.Tensor]],
+        detector: str,
+        purity: bool,
+        loop: bool,
+    ) -> torch.Tensor:
         prob_lst = []
         if detector == 'pnrd':
             odd_basis = basis[0]
@@ -1100,7 +1113,9 @@ class QumodeCircuit(Operation):
         )
         return states
 
-    def _get_odd_even_fock_basis(self, detector: str) -> tuple[list, list] | list:
+    def _get_odd_even_fock_basis(
+        self, detector: str
+    ) -> tuple[list[torch.Tensor], list[torch.Tensor]] | list[torch.Tensor]:
         """Split the Fock basis into the odd and even photon number parts."""
         nmode = self._nmode_tdm if self._with_delay else self.nmode
         if detector == 'pnrd':
@@ -1574,7 +1589,9 @@ class QumodeCircuit(Operation):
         moments = [x.expand(len(data), -1, -1) for x in state]
         return vmap(evolve, randomness='same')(data, moments)
 
-    def _mapped_gates(self, spatial_wires: list[int], step: int = 0, loop_wire_map: dict[int, int] | None = None):
+    def _mapped_gates(
+        self, spatial_wires: list[int], step: int = 0, loop_wire_map: dict[int, int] | None = None
+    ) -> Generator[tuple[tuple[int, ...], Operation, list[int]], None, None]:
         """Yield operation locations, source gates and execution wires from the cached wiring."""
         for op_location, gate, wires, loop_wires in self._tdm_gate_map:
             gate_wires = [spatial_wires[wire] for wire in wires]
@@ -1717,8 +1734,6 @@ class QumodeCircuit(Operation):
         if model is not None:
             u = model._apply_io_plugins(u, run, 'input')
         for op in operators:
-            if isinstance(op, Barrier):
-                continue
             selected = bindings.get(op, ()) if model is not None else ()
             if model is not None:
                 u = model._apply_state_plugins(u, op, run, selected, 'before')
@@ -1726,7 +1741,7 @@ class QumodeCircuit(Operation):
                 u = PhotonLoss._apply_unitary(u, op.gate.update_matrix(), op.wires, op.nmode)
             elif isinstance(op, Channel):
                 raise NotImplementedError(f'{op.name} does not support Fock basis evolution.')
-            else:
+            elif not isinstance(op, Barrier):
                 if u is None and model is None:
                     u = op.get_unitary()
                     continue
@@ -2672,7 +2687,9 @@ class QumodeCircuit(Operation):
             all_results.append(results)
         return all_results
 
-    def _sample_mcmc_fock(self, shots: int, init_state: torch.Tensor, unitary: torch.Tensor, num_chain: int):
+    def _sample_mcmc_fock(
+        self, shots: int, init_state: torch.Tensor, unitary: torch.Tensor, num_chain: int
+    ) -> defaultdict[tuple[int, ...], int]:
         """Sample the output states for Fock backend via SC-MCMC method."""
         self._init_state_sample = init_state
         self._unitary = unitary
@@ -2731,7 +2748,9 @@ class QumodeCircuit(Operation):
             all_results.append(results)
         return all_results
 
-    def _sample_mcmc_gaussian(self, shots: int, cov: torch.Tensor, mean: torch.Tensor, detector: str, num_chain: int):
+    def _sample_mcmc_gaussian(
+        self, shots: int, cov: torch.Tensor, mean: torch.Tensor, detector: str, num_chain: int
+    ) -> defaultdict[tuple[int, ...], int]:
         """Sample the output states for Gaussian backend via SC-MCMC method."""
         nmode = cov.shape[-1] // 2
         cutoff = 2 if detector == 'threshold' else self.cutoff
@@ -2783,14 +2802,14 @@ class QumodeCircuit(Operation):
         Chapter 5
         """
 
-        def _sample_wire(sample, cov_sub, mean_sub):
+        def _sample_wire(sample: list[torch.Tensor], cov_sub: torch.Tensor, mean_sub: torch.Tensor) -> torch.Tensor:
             """Sample for a wire."""
             states = [torch.tensor(sample + [i], device=cov_sub.device) for i in range(cutoff)]
             probs = [self._get_probs_gaussian_helper(s, cov_sub, mean_sub, detector) for s in states]
             sample_wire = torch.multinomial(torch.cat(probs), num_samples=1)
             return sample_wire
 
-        def _sample_pure(cov, mean, wires, nmode):
+        def _sample_pure(cov: torch.Tensor, mean: torch.Tensor, wires: list[int], nmode: int) -> torch.Tensor:
             """Sample for a pure state."""
             wires = torch.tensor(wires, device=cov.device)
             sample = []
@@ -2802,7 +2821,9 @@ class QumodeCircuit(Operation):
                 sample.append(sample_wire)
             return torch.cat(sample)
 
-        def _sample_mixed(cov, mean, wires, nmode, eps=5e-5):
+        def _sample_mixed(
+            cov: torch.Tensor, mean: torch.Tensor, wires: list[int], nmode: int, eps: float = 5e-5
+        ) -> torch.Tensor:
             """Sample for a mixed state."""
             wires = torch.tensor(wires, device=cov.device)
             _, s = williamson(cov)
@@ -3259,7 +3280,9 @@ class QumodeCircuit(Operation):
             state = state[(slice(None), *([slice(cutoff)] * (state.ndim - 1)))]
         return self._finish_post_select(state, probability, remaining, normalize=normalize, return_info=return_info)
 
-    def _state_for_photon_counting(self, detector: str):
+    def _state_for_photon_counting(
+        self, detector: str
+    ) -> 'torch.Tensor | BargmannState | dqp.SubmodeResult | list[torch.Tensor] | tuple[torch.Tensor, ...]':
         """Get the retained state for photon counting, converting Gaussian moments to a Bargmann kernel."""
         source = self._get_output_state()
         if self.backend != 'gaussian':
@@ -3622,7 +3645,14 @@ class QumodeCircuit(Operation):
                     samples = sample_reject_bosonic(cov_sub, mean_sub, weight, cov_sub.new_zeros(1), shots)
             return samples.squeeze()
 
-    def _measure_homodyne_hardware(self, shots, wires, phi, model, spatial_wires):
+    def _measure_homodyne_hardware(
+        self,
+        shots: int,
+        wires: list[int],
+        phi: float | list[float] | torch.Tensor | None,
+        model: HardwareModel,
+        spatial_wires: list[int],
+    ) -> torch.Tensor:
         """Apply detector rules to a saved state without constructing shot-wise conditional states."""
         reference = self.state.real if self.backend == 'fock' else self.state[0]
         angles = torch.as_tensor(0.0 if phi is None else phi, dtype=reference.dtype, device=reference.device).flatten()
@@ -3671,7 +3701,7 @@ class QumodeCircuit(Operation):
         """Get the max number of gates on the wires."""
         return max(self.depth)
 
-    def draw(self, filename: str | None = None, unroll: bool = False):
+    def draw(self, filename: str | None = None, unroll: bool = False) -> Drawing:
         """Visualize the photonic quantum circuit.
 
         Args:
@@ -3837,6 +3867,8 @@ class QumodeCircuit(Operation):
         Raises:
             AssertionError: If the input arguments are invalid or incompatible with the quantum circuit.
         """
+        if not isinstance(encode, bool):
+            raise TypeError('encode must be a bool.')
         self._invalidate_state()
         assert isinstance(op, Operation)
         if self.backend == 'fock':

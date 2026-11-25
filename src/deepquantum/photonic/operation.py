@@ -94,6 +94,8 @@ class Gate(Operation):
         den_mat: Whether to use density matrix representation. Default: ``False``
     """
 
+    wires: list[int]
+
     def __init__(
         self,
         name: str | None = None,
@@ -321,6 +323,8 @@ class Channel(Operation):
         cutoff: The Fock space truncation. Default: ``None``
     """
 
+    wires: list[int]
+
     def __init__(
         self,
         name: str | None = None,
@@ -424,9 +428,11 @@ class Delay(Operation):
         den_mat: Whether to use density matrix representation. Default: ``False``
     """
 
+    wires: list[int]
+
     def __init__(
         self,
-        name='Delay',
+        name: str = 'Delay',
         ntau: int = 1,
         nmode: int = 1,
         wires: int | list[int] | None = None,

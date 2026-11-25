@@ -159,7 +159,7 @@ def cir_to_qasm3(circuit: QubitCircuit) -> str:
 class GateDefinition:
     """Gate definition in OpenQASM 3.0"""
 
-    def __init__(self, name: str, params: list[str], qubits: list[str], body: list[str]):
+    def __init__(self, name: str, params: list[str], qubits: list[str], body: list[str]) -> None:
         self.name, self.params, self.qubits, self.body = name, params, qubits, body
 
 
@@ -261,7 +261,7 @@ def qasm3_to_cir(qasm_string: str) -> QubitCircuit:
         scope: dict[str, Any] | None = None,
         external_controls: list[int] | None = None,
         is_inverted: bool = False,
-    ):
+    ) -> None:
         if scope is None:
             scope = {}
         if external_controls is None:
@@ -377,8 +377,14 @@ def qasm3_to_cir(qasm_string: str) -> QubitCircuit:
                     )
 
     def _apply_builtin_gate(
-        circuit_obj, gate_name, params_str, call_qubits_all_str, num_ctrls, external_controls, is_inverted
-    ):
+        circuit_obj: QubitCircuit,
+        gate_name: str,
+        params_str: str | None,
+        call_qubits_all_str: list[str],
+        num_ctrls: int,
+        external_controls: list[int],
+        is_inverted: bool,
+    ) -> None:
         try:
             qubit_indices = [int(q[2:-1]) for q in call_qubits_all_str]
             params = [float(eval(p, {'pi': np.pi})) for p in params_str.split(',')] if params_str else []

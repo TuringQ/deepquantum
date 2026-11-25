@@ -6,6 +6,7 @@ from typing import Any
 
 import torch
 from torch import nn
+from torch.autograd.function import FunctionCtx
 
 import deepquantum.photonic as dqp
 
@@ -225,17 +226,19 @@ class _CheckCalibration(torch.autograd.Function):
     """Validate every physical setting, including all rows of a vmapped control."""
 
     @staticmethod
-    def forward(valid, message):
+    def forward(valid: torch.Tensor, message: str) -> torch.Tensor:
         if not bool(valid.all()):
             raise ValueError(message)
         return valid
 
     @staticmethod
-    def setup_context(ctx, inputs, output):
+    def setup_context(ctx: FunctionCtx, inputs: tuple[torch.Tensor, str], output: torch.Tensor) -> None:
         pass
 
     @staticmethod
-    def vmap(info, in_dims, valid, message):
+    def vmap(
+        info: object, in_dims: tuple[int | None, None], valid: torch.Tensor, message: str
+    ) -> tuple[torch.Tensor, int | None]:
         return _CheckCalibration.apply(valid, message), in_dims[0]
 
 
@@ -413,7 +416,7 @@ class _PowerLossCoupler(BeamSplitterSingle):
     def theta(self) -> torch.Tensor:
         return self.angle if self.angle is not None else 2 * self.power.sqrt().acos()
 
-    def _load_from_state_dict(self, state_dict, prefix, *args):
+    def _load_from_state_dict(self, state_dict: dict[str, torch.Tensor], prefix: str, *args: Any) -> None:
         # A freshly constructed encoder holds its initial angle until its first physical input.
         for name in ('angle', 't', 'db'):
             if prefix + name in state_dict and getattr(self, name) is None:
@@ -482,11 +485,11 @@ class PhotonLoss(Channel):
         self.npara = 1
 
     @property
-    def theta(self):
+    def theta(self) -> torch.Tensor:
         return self.gate.theta
 
     @property
-    def t(self):
+    def t(self) -> torch.Tensor:
         """Transmittance."""
         if (power := getattr(self.gate, 'power', None)) is not None:
             return power
@@ -497,7 +500,7 @@ class PhotonLoss(Channel):
         return _vacuum_loss_coefficients(self.theta if power is None else power, is_power=power is not None)
 
     @property
-    def db(self):
+    def db(self) -> torch.Tensor:
         """Photon loss in dB."""
         return -10 * torch.log10(self.t)
 

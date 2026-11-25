@@ -558,7 +558,7 @@ class Channel(Operation):
         self.init_para(inputs)
 
     @property
-    def prob(self):
+    def prob(self) -> torch.Tensor:
         """The error probability."""
         return torch.sin(self.theta) ** 2
 

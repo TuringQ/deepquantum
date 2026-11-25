@@ -601,7 +601,9 @@ def fock_combinations(nmode: int, nphoton: int, cutoff: int | None = None, nanci
     return result
 
 
-def ladder_ops(cutoff: int, dtype=torch.cfloat, device='cpu') -> tuple[torch.Tensor, torch.Tensor]:
+def ladder_ops(
+    cutoff: int, dtype: torch.dtype = torch.cfloat, device: str | torch.device = 'cpu'
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Get the matrix representation of the annihilation and creation operators."""
     sqrt = torch.arange(1, cutoff, dtype=dtype, device=device) ** 0.5
     a = torch.diag(sqrt, diagonal=1)
@@ -1396,7 +1398,7 @@ def cv_to_wigner(
     plot: bool = True,
     k: int = 0,
     normalize: bool = True,
-):
+) -> torch.Tensor:
     """Get the discretized Wigner function of the specified mode from a CV state.
 
     Args:

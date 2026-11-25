@@ -3,18 +3,21 @@
 import time
 from collections.abc import Callable
 from functools import wraps
-from typing import Any
+from typing import Any, ParamSpec, TypeVar
 
 import torch
 
 import deepquantum as dq
 
+_P = ParamSpec('_P')
+_R = TypeVar('_R')
 
-def record_time(func: Callable) -> Callable:
+
+def record_time(func: Callable[_P, _R]) -> Callable[_P, _R]:
     """A decorator that records the running time of a function."""
 
     @wraps(func)
-    def wrapped_function(*args, **kwargs):
+    def wrapped_function(*args: _P.args, **kwargs: _P.kwargs) -> _R:
         t1 = time.time()
         rst = func(*args, **kwargs)
         t2 = time.time()
@@ -30,9 +33,9 @@ class Time:
     def __init__(self) -> None:
         pass
 
-    def __call__(self, func: Callable) -> Callable:
+    def __call__(self, func: Callable[_P, _R]) -> Callable[_P, _R]:
         @wraps(func)
-        def wrapped_function(*args, **kwargs):
+        def wrapped_function(*args: _P.args, **kwargs: _P.kwargs) -> _R:
             t1 = time.time()
             rst = func(*args, **kwargs)
             t2 = time.time()

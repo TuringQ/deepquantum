@@ -124,6 +124,14 @@ def test_tdm_substate_windows_and_gradients_match_global_circuit(encoded, hardwa
     torch.testing.assert_close(actual_grad, expected_grad)
 
 
+def test_delay_and_mzi_require_boolean_encoding():
+    cir = dq.QumodeCircuit(2, 'vac', backend='gaussian')
+    for add_gate, wire, angle in [(cir.delay, 0, 'phi'), (cir.mzi, [0, 1], 'theta')]:
+        with pytest.raises(TypeError, match='encode must be a bool'):
+            add_gate(wire, encode=angle)
+    assert cir.ndata == 0 and len(cir.operators) == 0
+
+
 def test_tdm_substate_windows_pause_close_and_restart():
     cir = dq.QumodeCircuit(1, 'vac', backend='gaussian')
     cir.s(0, encode=True)

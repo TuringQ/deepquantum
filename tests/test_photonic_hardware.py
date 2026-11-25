@@ -1,5 +1,5 @@
 from copy import deepcopy
-from math import log
+from math import log, pi, tau
 
 import pytest
 import torch
@@ -29,6 +29,115 @@ def circuit():
 def assert_state_close(actual, expected):
     for a, b in zip(actual, expected, strict=True):
         torch.testing.assert_close(a, b, atol=1e-10, rtol=1e-10)
+
+
+@pytest.mark.parametrize('dtype', [torch.float32, torch.float64])
+def test_quantize_global_controls_and_override_one_electrode(dtype):
+    def optical_circuit(r, theta):
+        cir = dqp.QumodeCircuit(1, 'vac', backend='gaussian')
+        cir.s(0, r=r, theta=theta)
+        cir.d(0, r=0.25, theta=0.0)
+        cir.ps(0, encode=True)
+        return cir.to(dtype)
+
+    cir = optical_circuit(0.375, 0.125)
+    model = dqp.HardwareModel().quantize(step=0.25)
+    model.ps(0).theta.quantize(step=0.125)
+    model.ps(0).theta.gaussian(mu=0.03, sigma=0)
+    cir.set_hardware_model(model.to(dtype))
+    wave = torch.tensor([0.0625, 0.1875, -0.1875, 6.4375], dtype=dtype, requires_grad=True)
+    # Includes half steps of both signs and a setting above one complete turn.
+    loaded = wave.new_tensor([0.0, 0.25, -0.25, 6.5]) + 0.03
+    ref = optical_circuit(0.5, 0.0)
+    actual = cir(wave[:, None])
+    torch.testing.assert_close(actual, ref(loaded[:, None]))
+    torch.testing.assert_close(torch.autograd.grad(actual[1].sum(), wave)[0], torch.zeros_like(wave))
+    torch.testing.assert_close(cir.operators[0].r, wave.new_tensor(0.375))
+    torch.manual_seed(39)
+    samples = cir.measure_homodyne(shots=3, phi=0.36)
+    torch.manual_seed(39)
+    torch.testing.assert_close(samples, ref.measure_homodyne(shots=3, phi=0.25))
+
+
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann'])
+def test_quantized_delay_waveform_across_time_and_submodes(backend):
+    def circuit(manual):
+        cir = dqp.QumodeCircuit(1, 'vac', backend=backend, den_mat=True)
+        cir.s(0, r=torch.tensor(pi / 8 if manual else 0.28), theta=0 if manual else 0.12)
+        cir.delay(
+            0,
+            ntau=2,
+            convention='mzi',
+            encode=True,
+            loop_gates=[dqp.PhotonLoss(0.78, convention='t')] if manual else None,
+        )
+        model = dqp.HardwareModel()
+        if not manual:
+            model.quantize(bits=4, full_scale=(0, tau))
+            delay = model.delay(0, index=0)
+            delay.theta.quantize(bits=4, full_scale=(0, pi))
+            delay.loop_loss(t=0.78)
+        model.s(0).submodes([[3, 4j], [4j, 3]], relative_r=[1.0, 0.4])
+        cir.set_hardware_model(model)
+        return cir.double()
+
+    cir, ref = circuit(False), circuit(True)
+    assert (cir.ndata, ref.ndata) == (2, 3)
+    wave = torch.tensor([[0.69, 0.6], [0.69, -0.32], [3.5, 7.0]])
+    loaded = torch.tensor(
+        [[4 * pi / 16, 2 * tau / 16, 0.78], [4 * pi / 16, 0.0, 0.78], [15 * pi / 16, 15 * tau / 16, 0.78]]
+    )
+    for circuit_state, reference_state in (
+        *zip(cir.tdm_substate(4, data=wave, window=2), ref.tdm_substate(4, data=loaded, window=2), strict=True),
+        (cir.global_circuit(3)(wave.flatten()), ref.global_circuit(3)(loaded.flatten())),
+    ):
+        actual, expected = circuit_state.to_joint(), reference_state.to_joint()
+        if backend == 'bargmann':
+            actual, expected = actual.quadrature_moments(), expected.quadrature_moments()
+        assert_state_close(actual, expected)
+
+
+@pytest.mark.parametrize('dtype, bits', [(torch.float64, 2), (torch.float16, 26)])
+def test_quantize_dac_codes_and_rails(dtype, bits):
+    model = dqp.HardwareModel()
+    model.ps(0).theta.quantize(bits=bits, full_scale=(-0.5, 0.5))
+    plugin = next(iter(model.bindings.values())).plugin.to(dtype)
+    raw = torch.tensor([-1, -0.375, -0.125, 0.125, 0.5, 1], dtype=dtype, requires_grad=True)
+    loaded = plugin(raw, model._new_run('gaussian', [0]))
+    expected = [-0.5, -0.5, 0.0, 0.0, 0.25, 0.25] if bits == 2 else [-0.5, -0.375, -0.125, 0.125, 0.5, 0.5]
+    torch.testing.assert_close(loaded, raw.new_tensor(expected), atol=0, rtol=0)
+    torch.testing.assert_close(torch.autograd.grad(loaded.sum(), raw)[0], torch.zeros_like(raw))
+
+
+@pytest.mark.parametrize(
+    'config, error',
+    [
+        *[({'step': step}, 'step') for step in (0, -0.1, float('nan'), float('inf'), torch.ones(2))],
+        ({'bits': 8}, 'full_scale'),
+        ({'full_scale': (0, 1)}, 'bits'),
+        ({'step': 0.1, 'bits': 8, 'full_scale': (0, 1)}, 'step'),
+        *[({'bits': bits, 'full_scale': (0, 1)}, 'bits') for bits in (True, 0, 1.5, 54)],
+        *[({'bits': 2, 'full_scale': bounds}, 'full_scale') for bounds in ((0,), (1, 1), (1, 0), (0, float('inf')))],
+    ],
+)
+def test_quantize_validates_calibration(config, error):
+    with pytest.raises(ValueError, match=error):
+        dqp.HardwareModel().quantize(**config)
+
+
+@pytest.mark.parametrize('convention, loss', [('t', [0.0, 0.73, 1.0]), ('db', [0.0, 1.0])])
+def test_quantized_loss_angle_has_zero_calibration_gradient_at_endpoints(convention, loss):
+    raw = torch.tensor(loss, requires_grad=True)
+    bias = torch.tensor(0.03, requires_grad=True)
+    cir = dqp.QumodeCircuit(1, 'vac', backend='gaussian')
+    cir.d(0, r=0.5, theta=0)
+    cir.opa(0, convention=convention, encode=True)
+    model = dqp.HardwareModel().opa().loss_theta.gaussian(mu=bias, sigma=0)
+    cir.set_hardware_model(model.quantize(step=0.125))
+    controls = torch.stack([torch.full_like(raw, 0.25), torch.zeros_like(raw), raw], dim=-1)
+    cov, mean = cir.double()(controls)
+    actual = torch.autograd.grad(cov.sum() + mean.sum(), (raw, bias))
+    torch.testing.assert_close(actual, (torch.zeros_like(raw), torch.zeros_like(bias)))
 
 
 @pytest.mark.parametrize('t', [0.0, 0.4, 1.0])
@@ -583,6 +692,54 @@ def test_delay_bindings_match_internal_gates(convention):
     assert len(unrolled.hardware_model.bindings.inner.bound_ops) == 3
     assert_state_close(unrolled(), expected.global_circuit(3)())
     assert_state_close(cir(), expected(stepwise=True))
+
+
+@pytest.mark.parametrize('convention', ['bs', 'mzi'])
+def test_delay_loop_loss_matches_last_loop_channel_and_gradients(convention):
+    theta = torch.tensor(0.71, requires_grad=True)
+    transmission = torch.tensor(0.78, requires_grad=True)
+
+    def circuit(manual):
+        cir = dqp.QumodeCircuit(1, 'vac', backend='gaussian')
+        cir.d(0, r=0.31, theta=-0.21)
+        # A displacement distinguishes loss before and after the last loop gate.
+        gates = [dqp.Displacement([0.27, 0.34])] if convention == 'bs' else []
+        if manual:
+            gates.append(dqp.PhotonLoss(transmission, convention='t'))
+        cir.delay(0, ntau=2, inputs=[theta, 0.18], convention=convention, loop_gates=gates)
+        if not manual:
+            model = dqp.HardwareModel().delay().loop_loss(t=0.5)
+            model.delay(0, index=0).loop_loss(t=transmission)
+            cir.set_hardware_model(model)
+        return cir.double()
+
+    cir, ref = circuit(False), circuit(True)
+    actual, expected = cir.tdm_substate([0, 2, 4]), ref.tdm_substate([0, 2, 4])
+    assert_state_close(actual, expected)
+    assert_state_close(cir.global_circuit(5)(), ref.global_circuit(5)())
+    gradients = torch.autograd.grad(actual[1].square().sum(), (theta, transmission))
+    assert_state_close(gradients, torch.autograd.grad(expected[1].square().sum(), (theta, transmission)))
+    assert all(g.abs() > 1e-6 for g in gradients)
+
+
+@pytest.mark.parametrize('barrier', [False, True])
+def test_loop_loss_allocates_one_fock_environment_per_pass(barrier):
+    def circuit(manual):
+        cir = dqp.QumodeCircuit(1, [0], cutoff=2)
+        gates = [dqp.Barrier()] if barrier else []
+        if manual:
+            gates.append(dqp.PhotonLoss(torch.tensor(1.2), convention='db'))
+        cir.delay(0, inputs=[0.7, 0.2], convention='mzi', loop_gates=gates)
+        if not manual:
+            cir.set_hardware_model(dqp.HardwareModel().delay(0).loop_loss(db=1.2))
+        return cir.double().global_circuit(3)
+
+    cir, ref = circuit(False), circuit(True)
+    occupation = torch.tensor([0, 1, 0, 0])
+    actual = cir(state=occupation, is_prob=True)
+    expected = ref(state=occupation, is_prob=True)
+    assert cir._nloss == ref._nloss == 3
+    torch.testing.assert_close(actual, expected)
 
 
 @pytest.mark.parametrize('use_deepcopy', [False, True])
