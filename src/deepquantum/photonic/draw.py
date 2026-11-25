@@ -1,6 +1,8 @@
 """Draw photonic quantum circuit"""
 
 from collections import defaultdict
+from collections.abc import Sequence
+from os import PathLike
 from typing import Any
 
 import matplotlib as mpl
@@ -10,6 +12,7 @@ import numpy as np
 import svgwrite
 import torch
 from matplotlib import cm, patches
+from matplotlib.axes import Axes
 from torch import nn
 
 info_dic = {
@@ -53,7 +56,12 @@ class DrawCircuit:
         self.ops = circuit_operators
         self.mea = measurements
 
-    def draw(self, depth=None, ops=None, measurements=None):
+    def draw(
+        self,
+        depth: list[int] | None = None,
+        ops: nn.Sequential | None = None,
+        measurements: nn.ModuleList | None = None,
+    ) -> None:
         """Draw circuit."""
         from .channel import DisplacementChannel, OPA, PhotonLoss
         from .gate import (
@@ -216,16 +224,16 @@ class DrawCircuit:
         wid = 3 * (90 * (max(self.depth)) + 40) / 100
         self.draw_['width'] = f'{wid}cm'
 
-    def save(self, filename):
+    def save(self, filename: str | PathLike[str]) -> None:
         """Save the circuit as svg."""
         self.draw_.saveas(filename)
 
-    def draw_mode_num(self):
+    def draw_mode_num(self) -> None:
         nmode = self.nmode
         for i in range(nmode):
             self.draw_.add(self.draw_.text(str(i), insert=(25, i * 30 + 30), font_size=12))
 
-    def draw_bs(self, name, order, wires, theta, phi=None):
+    def draw_bs(self, name: str, order: int, wires: list[int], theta: float, phi: float | None = None) -> None:
         """Draw beamsplitter."""
         x = 90 * order + 40
         wires = sorted(wires)
@@ -274,7 +282,7 @@ class DrawCircuit:
                 )
             )
 
-    def draw_ps(self, order, wires, theta=0, name=None):
+    def draw_ps(self, order: int, wires: list[int], theta: float = 0, name: str | None = None) -> None:
         """Draw phaseshift (rotation) gate."""
         fill_c = info_dic[name][0]
         shift = info_dic[name][1]
@@ -301,7 +309,7 @@ class DrawCircuit:
         self.draw_.add(self.draw_.text(name, insert=(x + 40 + shift, y_up * 30 + 20), font_size=9))
         self.draw_.add(self.draw_.text('θ=' + str(np.round(theta, 3)), insert=(x + 55, y_up * 30 + 20), font_size=7))
 
-    def draw_homodyne(self, order, wire, phi, name=None):
+    def draw_homodyne(self, order: int, wire: int, phi: float, name: str | None = None) -> None:
         """Draw homodyne measurement."""
         fill_c = 'black'
         shift = 5
@@ -350,7 +358,7 @@ class DrawCircuit:
         )
         self.draw_.add(self.draw_.text('φ=' + str(np.round(phi, 3)), insert=(x + 55, y_up * 30 + 20), font_size=7))
 
-    def draw_sq(self, order, wires, para_dic, name=None):
+    def draw_sq(self, order: int, wires: list[int], para_dic: dict[str, float], name: str | None = None) -> None:
         """Draw squeezing gate, displacement gate."""
         x = 90 * order + 40
         wires = sorted(wires)
@@ -394,7 +402,7 @@ class DrawCircuit:
                 )
             )
 
-    def draw_delay(self, order, wires, inputs=None):
+    def draw_delay(self, order: int, wires: list[int], inputs: list[float] | None = None) -> None:
         """Draw delay loop."""
         x = 90 * order + 40
         y_up = wires[0]
@@ -419,7 +427,7 @@ class DrawCircuit:
             self.draw_.text('ϕ=' + str(np.round(inputs[2], 2)), insert=(x + 58, y_up * 30 + 24), font_size=6)
         )
 
-    def draw_loss(self, order, wires, t):
+    def draw_loss(self, order: int, wires: list[int], t: float) -> None:
         """Draw loss gate."""
         x = 90 * order + 40
         y_up = wires[0]
@@ -450,7 +458,7 @@ class DrawCircuit:
         self.draw_.add(path)
         self.draw_.add(self.draw_.text('T=' + str(np.round(t, 3)), insert=(x - 14, y_up * 30 + 25), font_size=7))
 
-    def draw_any(self, order, wires, name, para_dict=None):
+    def draw_any(self, order: int, wires: list[int], name: str, para_dict: dict[str, float] | None = None) -> None:
         """Draw arbitrary unitary gate."""
         fill_c = info_dic[name][0]
         # shift= info_dic[name][1]
@@ -494,7 +502,7 @@ class DrawCircuit:
                     )
                 )
 
-    def draw_lines(self, order, wires):
+    def draw_lines(self, order: int, wires: list[int]) -> None:
         """Act nothing."""
         x = 90 * order + 40
         for k in wires:
@@ -504,7 +512,7 @@ class DrawCircuit:
                 )
             )
 
-    def barrier(self, order, wires, cl='black'):
+    def barrier(self, order: int, wires: list[int], cl: str = 'black') -> None:
         x = 90 * order + 40
         y_min = 15
         y_max = self.nmode * 30 + 25
@@ -541,7 +549,7 @@ class DrawClements:
         self.dic_mzi = self.sort_mzi()  # for mzi parameters in the same array
         self.ps_position = self.ps_pos()
 
-    def plotting_clements(self):
+    def plotting_clements(self) -> None:
         """Plot Clements structure with ``'cssr'`` or ``'cssl'`` type."""
         if self.method == 'cssr':
             assert self.nmode % 2 == 0, 'plotting only valid for even modes'
@@ -549,7 +557,7 @@ class DrawClements:
         if self.method == 'cssl':
             self.plotting_clements_2()
 
-    def plotting_clements_1(self):
+    def plotting_clements_1(self) -> None:
         """Plot ``'cssr'`` with left to right order."""
         fig, ax = plt.subplots(1, 1)
         fig.set_size_inches(8 * 3, 5 * 3)
@@ -639,7 +647,7 @@ class DrawClements:
         #     plt.axis('off')
         plt.show()
 
-    def plotting_clements_2(self):
+    def plotting_clements_2(self) -> None:
         """Plot ``cssl`` with right to left order."""
         fig, ax = plt.subplots(1, 1)
         fig.set_size_inches(8 * 3, 5 * 3)
@@ -719,7 +727,7 @@ class DrawClements:
         #     plt.axis('off')
         plt.show()
 
-    def sort_mzi(self):
+    def sort_mzi(self) -> dict[tuple[int, int], list[list[float]]]:
         """Sort mzi parameters in the same array for plotting."""
         dic_mzi = defaultdict(list)  # 当key不存在时对应的value是[]
         mzi_list = self.mzi_info['MZI_list']
@@ -727,7 +735,7 @@ class DrawClements:
             dic_mzi[tuple(i[0:2])].append(i[2:])
         return dic_mzi
 
-    def ps_pos(self):
+    def ps_pos(self) -> dict[tuple[int, int], float] | None:
         """Label the position of each phaseshifter for ``'cssr'`` case."""
         if self.method == 'cssr':
             dic_pos = {}
@@ -749,7 +757,17 @@ class DrawClements:
             return None
 
     @staticmethod
-    def connect1(coordinate, ax, cl, wid=0.1, height=0.08, a=-0.05, b=-0.05, c=0.7, d=-0.05):
+    def connect1(
+        coordinate: Sequence[float],
+        ax: Axes,
+        cl: str,
+        wid: float = 0.1,
+        height: float = 0.08,
+        a: float = -0.05,
+        b: float = -0.05,
+        c: float = 0.7,
+        d: float = -0.05,
+    ) -> None:
         """Connect odd column."""
         x0, x1, y0, y1 = coordinate
         #     print(x0,x1,y0,y1)
@@ -759,14 +777,14 @@ class DrawClements:
         ax.add_patch(patches.Rectangle(((x0 + x1) / 2 + c, y0 + d), wid, height, edgecolor=cl, facecolor=cl, fill=True))
 
     @staticmethod
-    def connect2(coordinate, cl):
+    def connect2(coordinate: Sequence[float], cl: str) -> None:
         """Connect even column."""
         x0, x1, y0, y1 = coordinate
         plt.plot([x0, x0 - 0.3], [y0, y0 + 0.25], color=cl)
         plt.plot([x1, x1 + 0.3], [y1, y1 + 0.25], color=cl)
 
     @staticmethod
-    def plot_paras(sort_mzi_dic, nmode, fs=20):
+    def plot_paras(sort_mzi_dic: dict[tuple[int, int], list[list[float]]], nmode: int, fs: int = 20) -> None:
         """Plot mzi parameters for ``'cssl'`` case."""
         for i in sort_mzi_dic:
             if i[0] % 2 == 0:  # 0, 2, 4, 6..
@@ -803,7 +821,7 @@ class DrawClements:
                     )
 
     @staticmethod
-    def plot_paras_1(sort_mzi_dic, fs=20):
+    def plot_paras_1(sort_mzi_dic: dict[tuple[int, int], list[list[float]]], fs: int = 20) -> None:
         """Plot mzi parameters for ``'cssr'`` case."""
         for i in sort_mzi_dic:
             if i[0] % 2 == 0:  # 0, 2, 4, 6..
@@ -820,7 +838,7 @@ class DrawClements:
                     plt.text(3.2 * j + 0.6 + 2.4, 1 - 0.25 * i[0] + 0.05, f'{temp_values[j][1]:.3f}', fontsize=fs)
 
 
-def plot_wigner(wigner: torch.Tensor, xvec: torch.Tensor, pvec: torch.Tensor, k: int = 0):
+def plot_wigner(wigner: torch.Tensor, xvec: torch.Tensor, pvec: torch.Tensor, k: int = 0) -> None:
     """Plot a 2D contour and a 3D surface of a discretized Wigner function W(x, p).
 
     Args:
@@ -860,7 +878,7 @@ class GaussianGraphVisualizer:
             local shear :math:`Re(Z_{jj})` and correlated noise :math:`Im(Z_{jk})`. Default: ``'simplified'``
     """
 
-    def __init__(self, cov: torch.Tensor, threshold: float = 1e-3, mode='simplified') -> None:
+    def __init__(self, cov: torch.Tensor, threshold: float = 1e-3, mode: str = 'simplified') -> None:
 
         cov = cov.detach().cpu().numpy() if hasattr(cov, 'detach') else np.array(cov, dtype=np.float64)
         nmode = cov.shape[-1] // 2
@@ -913,7 +931,7 @@ class GaussianGraphVisualizer:
         layout: str = 'circular',
         pos_dict: dict[int, tuple[float, float]] | None = None,
         style_config: dict[str, Any] | None = None,
-    ):
+    ) -> None:
         """Draw Gaussian graph state.
 
         Args:

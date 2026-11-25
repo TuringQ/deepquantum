@@ -2316,11 +2316,11 @@ class DelayBS(Delay):
                 self.npara += gate.npara
 
     @property
-    def theta(self):
+    def theta(self) -> torch.Tensor:
         return self.gates[0].theta
 
     @property
-    def phi(self):
+    def phi(self) -> torch.Tensor:
         return self.gates[1].theta
 
     def extra_repr(self) -> str:
@@ -2372,11 +2372,11 @@ class DelayMZI(Delay):
                 self.npara += gate.npara
 
     @property
-    def theta(self):
+    def theta(self) -> torch.Tensor:
         return self.gates[0].theta
 
     @property
-    def phi(self):
+    def phi(self) -> torch.Tensor:
         return self.gates[0].phi
 
     def extra_repr(self) -> str:

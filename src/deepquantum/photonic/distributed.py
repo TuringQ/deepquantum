@@ -46,7 +46,7 @@ def local_swap_gate(state: torch.Tensor, target1: int, target2: int) -> torch.Te
     return state.transpose(wire1, wire2).contiguous()
 
 
-def dist_swap_gate(state: DistributedFockState, target1: int, target2: int):
+def dist_swap_gate(state: DistributedFockState, target1: int, target2: int) -> DistributedFockState:
     """Apply a SWAP operation to a distributed Fock state tensor."""
     if target1 > target2:
         target1, target2 = target2, target1

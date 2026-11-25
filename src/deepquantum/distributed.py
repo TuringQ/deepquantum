@@ -127,7 +127,7 @@ def dist_ctrl_sub(
     return state
 
 
-def dist_swap_gate(state: DistributedQubitState, qb1: int, qb2: int):
+def dist_swap_gate(state: DistributedQubitState, qb1: int, qb2: int) -> DistributedQubitState:
     """Apply a SWAP gate to a distributed state vector.
 
     See https://arxiv.org/abs/2311.01512 Alg.9

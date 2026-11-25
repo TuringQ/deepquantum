@@ -8,6 +8,7 @@ from typing import Any, TYPE_CHECKING
 import numpy as np
 import torch
 from torch import nn, vmap
+from torch.autograd.function import FunctionCtx
 from tqdm import tqdm
 
 if TYPE_CHECKING:
@@ -17,7 +18,7 @@ if TYPE_CHECKING:
 def is_power_of_two(n: int) -> bool:
     """Check if an integer is a power of two."""
 
-    def f(x):
+    def f(x: int) -> bool:
         if x < 2:
             return False
         elif x & (x - 1) == 0:
@@ -181,7 +182,7 @@ class SVD(torch.autograd.Function):
     generate_vmap_rule = True
 
     @staticmethod
-    def forward(a):
+    def forward(a: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         u, s, vh = torch.linalg.svd(a, full_matrices=False)
         s = s.to(u.dtype)
         return u, s, vh
@@ -191,13 +192,17 @@ class SVD(torch.autograd.Function):
     # Tensors together) in setup_context.
     # https://pytorch.org/docs/master/notes/extending.func.html
     @staticmethod
-    def setup_context(ctx, inputs, output):
+    def setup_context(
+        ctx: FunctionCtx,
+        inputs: tuple[torch.Tensor],
+        output: tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+    ) -> None:
         # a = inputs
         u, s, vh = output
         ctx.save_for_backward(u, s, vh)
 
     @staticmethod
-    def backward(ctx, du, ds, dvh):
+    def backward(ctx: FunctionCtx, du: torch.Tensor, ds: torch.Tensor, dvh: torch.Tensor) -> torch.Tensor:
         u, s, vh = ctx.saved_tensors
         uh = u.mH
         v = vh.mH
@@ -233,7 +238,7 @@ class SVD(torch.autograd.Function):
 # Modifications:
 # - Refactored for framework integration and naming consistency.
 # -----------------------------------------------------------------------------
-def torchqr_grad(a, q, r, dq, dr):
+def torchqr_grad(a: torch.Tensor, q: torch.Tensor, r: torch.Tensor, dq: torch.Tensor, dr: torch.Tensor) -> torch.Tensor:
     """Get the gradient for QR."""
     qr_epsilon = 1e-8
 
@@ -245,11 +250,13 @@ def torchqr_grad(a, q, r, dq, dr):
             f'and ncols={r.shape[-1]}.'
         )
 
-    def _triangular_solve(x, r):
+    def _triangular_solve(x: torch.Tensor, r: torch.Tensor) -> torch.Tensor:
         """Equivalent to matmul(x, adjoint(matrix_inverse(r))) if r is upper-tri."""
         return torch.linalg.solve_triangular(r, x.adjoint(), upper=True, unitriangular=False).adjoint()
 
-    def _qr_grad_square_and_deep_matrices(q, r, dq, dr):
+    def _qr_grad_square_and_deep_matrices(
+        q: torch.Tensor, r: torch.Tensor, dq: torch.Tensor, dr: torch.Tensor
+    ) -> torch.Tensor:
         """Get the gradient for matrix orders num_rows >= num_cols and full_matrices is false."""
         # Modification begins
         rdiag = torch.linalg.diagonal(r)
@@ -309,7 +316,7 @@ class QR(torch.autograd.Function):
     generate_vmap_rule = True
 
     @staticmethod
-    def forward(a):
+    def forward(a: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         q, r = torch.linalg.qr(a, mode='reduced')
         # ctx.save_for_backward(a, q, r)
         return q, r
@@ -319,7 +326,7 @@ class QR(torch.autograd.Function):
     # Tensors together) in setup_context.
     # https://pytorch.org/docs/master/notes/extending.func.html
     @staticmethod
-    def setup_context(ctx, inputs, output):
+    def setup_context(ctx: FunctionCtx, inputs: tuple[torch.Tensor], output: tuple[torch.Tensor, torch.Tensor]) -> None:
         (a,) = inputs
         q, r = output
         # Tensors must be saved via ctx.save_for_backward. Please do not
@@ -329,7 +336,7 @@ class QR(torch.autograd.Function):
         # ctx.dim = dim
 
     @staticmethod
-    def backward(ctx, dq, dr):
+    def backward(ctx: FunctionCtx, dq: torch.Tensor, dr: torch.Tensor) -> torch.Tensor:
         a, q, r = ctx.saved_tensors
         return torchqr_grad(a, q, r, dq, dr)
 

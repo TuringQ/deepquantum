@@ -4,6 +4,7 @@ import copy
 import itertools
 import os
 import pickle
+from collections.abc import Sequence
 from typing import Any
 
 import matplotlib.pyplot as plt
@@ -11,8 +12,10 @@ import numpy as np
 import torch
 from scipy import special
 from scipy.optimize import root
-from sympy import Matrix, simplify, symbols
+from sympy import Expr, Matrix, simplify, symbols
 from torch import vmap
+
+_CoefficientIndices = dict[tuple[int, ...], list[list[tuple[int, ...] | float]]]
 
 
 class UnitaryMapper:
@@ -87,7 +90,7 @@ class UnitaryMapper:
             torch.save(idx_ts, fn)
             UnitaryMapper.save_dict(idx_dic, fn_2)
 
-    def create_basis(self, aux_position):
+    def create_basis(self, aux_position: list[int]) -> list[torch.Tensor]:
         """Create the nqubit bases in dual-rail encoding."""
         main_position = [i for i in range(self.nmode) if i not in aux_position]
         # print(main_position)
@@ -109,7 +112,9 @@ class UnitaryMapper:
 
     ##############################
     # using symbolic computation finding indicies to avoid repeat computing
-    def get_coeff_sym(self, input_state: torch.Tensor, output_states: list | None = None):
+    def get_coeff_sym(
+        self, input_state: torch.Tensor, output_states: list[torch.Tensor] | None = None
+    ) -> dict[torch.Tensor, Expr]:
         """Return the transfer state coefficient in a symbolic way."""
         if output_states is None:
             output_states = self.all_basis
@@ -122,7 +127,9 @@ class UnitaryMapper:
             dic_coeff[output] = simplify(temp_coeff)
         return dic_coeff
 
-    def get_indx_coeff(self, coeff_i, all_inputs=None):
+    def get_indx_coeff(
+        self, coeff_i: dict[torch.Tensor, Expr], all_inputs: list[torch.Tensor] | None = None
+    ) -> tuple[_CoefficientIndices, torch.Tensor]:
         """Get the index of y_var for given state transfer coefficients."""
         index_coeff = {}
         if all_inputs is None:
@@ -134,7 +141,7 @@ class UnitaryMapper:
             test = simplify(coeff_i[input_s])
             dict_0 = test.as_coefficients_dict()
             dict_0_keys = list(dict_0.keys())
-            temp = []
+            temp: list[list[tuple[int, ...] | float]] = []
             temp_2 = []
             for key in dict_0_keys:
                 map_tuple = tuple(map(lambda x: basic_dic[x], key.args))
@@ -147,7 +154,7 @@ class UnitaryMapper:
         print('##########')
         return index_coeff, temp_ts2
 
-    def indx_eqs(self):
+    def indx_eqs(self) -> tuple[list[_CoefficientIndices], torch.Tensor]:
         """Get the dictinonary of indices of y_mat for each nonlinear equations for n modes."""
         all_inputs = self.all_basis
         all_outputs = list(map(self.get_coeff_sym, all_inputs))
@@ -166,16 +173,16 @@ class UnitaryMapper:
     ##############################
     # constructing and solving nonlinear equations
     @staticmethod
-    def single_prod(single_idx_i, y_test):
+    def single_prod(single_idx_i: torch.Tensor, y_test: torch.Tensor) -> torch.Tensor:
         temp = y_test[single_idx_i]
         return temp.prod()
 
     @staticmethod
-    def single_output(single_idx, y_test):
+    def single_output(single_idx: torch.Tensor, y_test: torch.Tensor) -> torch.Tensor:
         temp_ = vmap(UnitaryMapper.single_prod, in_dims=(0, None))(single_idx, y_test)
         return temp_.sum()
 
-    def get_transfer_mat(self, y):
+    def get_transfer_mat(self, y: np.ndarray | torch.Tensor) -> torch.Tensor:
         y = y.flatten()
         if not isinstance(y, torch.Tensor):
             y = torch.tensor(y)
@@ -186,7 +193,7 @@ class UnitaryMapper:
         temp_mat = temp_.reshape(num_basis, num_basis)  # here already do transpose
         return temp_mat
 
-    def f_real(self, y):
+    def f_real(self, y: np.ndarray | torch.Tensor) -> list[float]:
         """Construct equations to obtain real solutions for the real part of the target quantum gate.
 
         Args:
@@ -201,7 +208,7 @@ class UnitaryMapper:
         eqs_list = eqs.tolist()
         return eqs_list
 
-    def f_real_unitary(self, y):
+    def f_real_unitary(self, y: np.ndarray | torch.Tensor) -> list[float]:
         """Return the quantum gate constrains and the unitary constrains."""
         eqs_1 = self.f_real(y)
         mat_y = torch.tensor(y).view(self.nmode, self.nmode)
@@ -210,7 +217,7 @@ class UnitaryMapper:
         return eqs
 
     @staticmethod
-    def unitary_constrains(u_temp: torch.Tensor):
+    def unitary_constrains(u_temp: torch.Tensor) -> list[float] | list[complex]:
         """Return :math:`n^2` equations for :math:`n*n` matrix with unitary condition."""
         u_size = u_temp.size()
         u_temp_conj = u_temp.conj()
@@ -222,7 +229,7 @@ class UnitaryMapper:
         eqs_list = eqs.tolist()
         return eqs_list
 
-    def f_complex_unitary(self, paras):
+    def f_complex_unitary(self, paras: np.ndarray | Sequence[float]) -> list[float | complex]:
         """Return quantum gate constrains and the unitary constrains."""
         num_paras = len(paras)
         y = np.array(paras)[0 : int(num_paras / 2)] + np.array(paras)[int(num_paras / 2) :] * 1j
@@ -234,7 +241,7 @@ class UnitaryMapper:
 
         return eqs
 
-    def f_complex(self, y):
+    def f_complex(self, y: np.ndarray | torch.Tensor) -> list[float | complex | torch.Tensor]:
         """Construct :math:`2^{nqubit}*2^{nqubit}` equations  for :math:`n*n` matrix y, obtain complex solutions.
 
         Args:
@@ -261,7 +268,7 @@ class UnitaryMapper:
         return eqs_all
 
     @staticmethod
-    def unitary_constrains_complex(u_temp: torch.Tensor):
+    def unitary_constrains_complex(u_temp: torch.Tensor) -> list[float]:
         """Return :math:`2*n^2` equations for :math:`n*n` complex matrix with unitary condition."""
         u_size = u_temp.size()
         u_temp_conj = u_temp.conj()
@@ -278,7 +285,9 @@ class UnitaryMapper:
 
         return eqs_list
 
-    def solve_eqs_real(self, total_trials=10, trials=1000, precision=1e-6):
+    def solve_eqs_real(
+        self, total_trials: int = 10, trials: int = 1000, precision: float = 1e-6
+    ) -> tuple[list[list[np.ndarray]], list[float]]:
         """Solve the non-linear eqautions for matrix satisfying ugate with real solution."""
         func = self.f_real_unitary
         results = []
@@ -301,7 +310,9 @@ class UnitaryMapper:
             results.append(result)
         return results, sum_
 
-    def solve_eqs_complex(self, total_trials=10, trials=1000, precision=1e-5):
+    def solve_eqs_complex(
+        self, total_trials: int = 10, trials: int = 1000, precision: float = 1e-5
+    ) -> tuple[list[list[np.ndarray]], list[float]]:
         """Solve the non-linear eqautions for matrix satisfying ugate with complex solution."""
         func = self.f_complex_unitary
         results = []
@@ -324,7 +335,7 @@ class UnitaryMapper:
         return results, sum_
 
     @staticmethod
-    def exchange(matrix, aux1_pos):
+    def exchange(matrix: np.ndarray, aux1_pos: list[int]) -> np.ndarray:
         nmode = matrix.shape[0]
         aux2_pos = [nmode - 2, nmode - 1]
         matrix_new = copy.deepcopy(matrix)
@@ -337,7 +348,7 @@ class UnitaryMapper:
         return matrix_4
 
     @staticmethod
-    def sub_matrix_sym(unitary, input_state, output_state):
+    def sub_matrix_sym(unitary: Matrix, input_state: torch.Tensor, output_state: torch.Tensor) -> Matrix:
         """Get the sub_matrix of transfer probs for given input and output state."""
         indx1 = UnitaryMapper.set_copy_indx(input_state)  # indicies for copies of rows for U
         indx2 = UnitaryMapper.set_copy_indx(output_state)  # indicies for copies of columns for
@@ -347,11 +358,11 @@ class UnitaryMapper:
 
     @staticmethod
     ## computing submatrix will invoke
-    def set_copy_indx(state):
+    def set_copy_indx(state: torch.Tensor) -> list[int]:
         """Pick up indices from the nonezero elements of state."""
         inds_nonzero = torch.nonzero(state, as_tuple=False)  # nonezero index in state
         # len_ = int(sum(state[inds_nonzero]))
-        temp_ind = []
+        temp_ind: list[int] = []
 
         for i in range(len(inds_nonzero)):  # repeat times depend on the nonezero value
             temp1 = inds_nonzero[i]
@@ -361,7 +372,7 @@ class UnitaryMapper:
         return temp_ind
 
     @staticmethod
-    def permanent(mat):
+    def permanent(mat: Matrix | np.ndarray) -> Expr | complex | float:
         """Use Ryser formula for permanent, only valid for square matrix."""
         mat = np.matrix(mat)
         num_coincidence = np.shape(mat)[0]
@@ -381,7 +392,7 @@ class UnitaryMapper:
         return value_perm
 
     @staticmethod
-    def product_factorial(state):
+    def product_factorial(state: np.ndarray | torch.Tensor) -> float:
         """Get the product of the factorial from the state, i.e., :math:`|s_1,s_2,...s_n> --> s_1!*s_2!*...s_n!`."""
         temp = special.factorial(state)
         product_fac = 1
@@ -391,10 +402,10 @@ class UnitaryMapper:
 
     @staticmethod
     ## computing permanent will invoke
-    def create_subset(num_coincidence):
+    def create_subset(num_coincidence: int) -> list[list[np.integer]]:
         r"""Get all subset from :math:`\{1,2,...n\}`."""
         num_arange = np.arange(num_coincidence)
-        all_subset = []
+        all_subset: list[list[np.integer]] = []
 
         for index_1 in range(1, 2**num_coincidence):
             all_subset.append([])
@@ -405,7 +416,7 @@ class UnitaryMapper:
         return all_subset
 
     @staticmethod
-    def save_dict(dictionary, file_path):
+    def save_dict(dictionary: dict | list[_CoefficientIndices], file_path: str | os.PathLike[str]) -> None:
         with open(file_path, 'wb') as file:
             pickle.dump(dictionary, file)
 
@@ -414,7 +425,14 @@ class UnitaryMapper:
     # for plotting matrix and check the unitary matrix
 
     @staticmethod
-    def plot_u(unitary, vmax=1, vmin=0, fs=20, len_ticks=5, cl='RdBu'):
+    def plot_u(
+        unitary: np.ndarray | torch.Tensor,
+        vmax: float = 1,
+        vmin: float = 0,
+        fs: int = 20,
+        len_ticks: int = 5,
+        cl: str = 'RdBu',
+    ) -> None:
         """Plot the matrix in graphic way.
 
         Args:
@@ -438,7 +456,7 @@ class UnitaryMapper:
         plt.show()
 
     @staticmethod
-    def is_unitary(u_temp):
+    def is_unitary(u_temp: torch.Tensor) -> float:
         """Check the matrix is unitary or not."""
         u_size = u_temp.size()
         u_temp_conj = u_temp.conj()
@@ -449,7 +467,7 @@ class UnitaryMapper:
 
         return all_sum
 
-    def state_basis(self):
+    def state_basis(self) -> dict[str, list[int]]:
         """Map '000' to dual_rail."""
         state_map = {}
         map_dic = {(1, 0): '0', (0, 1): '1'}

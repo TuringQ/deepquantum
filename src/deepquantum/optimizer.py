@@ -1,11 +1,15 @@
 """Optimizer: various on-chip optimization algorthims"""
 
 import copy
+from collections.abc import Callable
 
 import numpy as np
 import torch
 from bayes_opt import BayesianOptimization, UtilityFunction
 from torch import nn
+
+_Objective = Callable[..., float | torch.Tensor]
+_InitialParameters = dict[str, float] | list[float] | np.ndarray | torch.Tensor
 
 
 class Optimizer:
@@ -19,7 +23,7 @@ class Optimizer:
         random_state: The random seed for this optimization process.
     """
 
-    def __init__(self, target_func, param_init, random_state=0):
+    def __init__(self, target_func: _Objective, param_init: _InitialParameters, random_state: int | None = 0) -> None:
         self.target_func = target_func
         if isinstance(param_init, (list, np.ndarray)):
             self.param_dict = {}
@@ -56,10 +60,10 @@ class OptimizerBayesian(Optimizer):
         Bayesian-Optimization package) is fixed from 0 to :math:`2\pi`.
     """
 
-    def __init__(self, target_func, param_init, random_state=0):
+    def __init__(self, target_func: _Objective, param_init: _InitialParameters, random_state: int | None = 0) -> None:
         super().__init__(target_func, param_init, random_state)
 
-        def func_to_maximize(**param_dict: dict) -> float:
+        def func_to_maximize(**param_dict: float) -> float | torch.Tensor:
             return -self.target_func(**param_dict)
 
         self.pbounds = self.gen_pbounds()
@@ -123,7 +127,7 @@ class OptimizerSPSA(Optimizer):
         random_state: The random seed for this optimization process.
     """
 
-    def __init__(self, target_func, param_init, random_state=0):
+    def __init__(self, target_func: _Objective, param_init: _InitialParameters, random_state: int | None = 0) -> None:
         super().__init__(target_func, param_init, random_state)
         self.random_state_ori = np.random.get_state()
         np.random.seed(self.random_state)
@@ -203,7 +207,14 @@ class OptimizerFourier(Optimizer):
         random_state: The random seed for this optimization process.
     """
 
-    def __init__(self, target_func, param_init, order=5, lr=0.1, random_state=0):
+    def __init__(
+        self,
+        target_func: _Objective,
+        param_init: _InitialParameters,
+        order: int = 5,
+        lr: float = 0.1,
+        random_state: int | None = 0,
+    ) -> None:
         super().__init__(target_func, param_init, random_state)
         self.iter = 0
         self.r = order
@@ -233,7 +244,7 @@ class OptimizerFourier(Optimizer):
             param_array[param_id * (2 * self.r + 1) : (param_id + 1) * (2 * self.r + 1), param_id] = varied_param
         return param_array
 
-    def param_register(self, param_array: np.ndarray, target: np.ndarray):
+    def param_register(self, param_array: np.ndarray, target: np.ndarray) -> None:
         assert len(param_array) == (2 * self.r + 1) * self.nparam
         assert len(target) == (2 * self.r + 1) * self.nparam
         # 求解线性方程组得出组合系数

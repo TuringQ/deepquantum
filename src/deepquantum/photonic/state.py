@@ -154,7 +154,7 @@ class FockState(nn.Module):
         npoints: int | list = 100,
         plot: bool = True,
         k: int = 0,
-    ):
+    ) -> torch.Tensor:
         """Get the discretized Wigner function of the specified mode.
 
         Args:
@@ -269,7 +269,7 @@ class GaussianState(nn.Module):
         plot: bool = True,
         k: int = 0,
         normalize: bool = True,
-    ):
+    ) -> torch.Tensor:
         """Get the discretized Wigner function of the specified mode.
 
         Args:
@@ -283,7 +283,9 @@ class GaussianState(nn.Module):
         """
         return cv_to_wigner([self.cov, self.mean], wire, xrange, prange, npoints, plot, k, normalize)
 
-    def graph(self, k: int = 0, threshold: float = 1e-3, layout: str = 'spring', mode: str = 'simplified'):
+    def graph(
+        self, k: int = 0, threshold: float = 1e-3, layout: str = 'spring', mode: str = 'simplified'
+    ) -> GaussianGraphVisualizer:
         r"""Draw a Gaussian graph state.
 
         Args:
@@ -903,7 +905,7 @@ class BosonicState(nn.Module):
         plot: bool = True,
         k: int = 0,
         normalize: bool = True,
-    ):
+    ) -> torch.Tensor:
         """Get the discretized Wigner function of the specified mode.
 
         Args:
@@ -919,7 +921,7 @@ class BosonicState(nn.Module):
 
     def marginal(
         self, wire: int, phi: float = 0.0, xrange: int | list = 10, npoints: int = 100, plot: bool = True, k: int = 0
-    ):
+    ) -> torch.Tensor:
         r"""Get the discretized marginal distribution of the specified mode along :math:`x\cos\phi + p\sin\phi`.
 
         Args:
@@ -1073,7 +1075,7 @@ class GKPState(BosonicState):
         state = [covs, means, weights]
         super().__init__(state, nmode, cutoff)
 
-    def _update_weight(self, k, l, theta, phi):
+    def _update_weight(self, k: torch.Tensor, l: torch.Tensor, theta: torch.Tensor, phi: torch.Tensor) -> torch.Tensor:
         """Compute the updated coefficients c_{k, l}(theta, phi) for given k, l, theta, and phi.
 
         See https://arxiv.org/abs/2103.05530 Eq.(43) and (B1)
@@ -1220,7 +1222,7 @@ class DistributedFockState(nn.Module):
             self.register_buffer(key, value)
         return self
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset the state."""
         self.amps.zero_()
         self.buffer.zero_()

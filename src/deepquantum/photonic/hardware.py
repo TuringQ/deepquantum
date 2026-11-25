@@ -231,7 +231,9 @@ class GaussianNoise(nn.Module):
 class _HomodyneReadout(nn.Module):
     """Calibrated affine readout with independent Gaussian electronic noise."""
 
-    def __init__(self, gain=1.0, bias=0.0, noise_var=0.0):
+    def __init__(
+        self, gain: float | torch.Tensor = 1.0, bias: float | torch.Tensor = 0.0, noise_var: float | torch.Tensor = 0.0
+    ) -> None:
         super().__init__()
         for name, value in [('gain', gain), ('bias', bias), ('noise_var', noise_var)]:
             _register_scalar(self, name, value)
@@ -240,7 +242,7 @@ class _HomodyneReadout(nn.Module):
             raise ValueError('gain must be nonzero.')
         self._no_noise = not self.noise_var.requires_grad and bool((self.noise_var == 0).all())
 
-    def forward(self, samples, run):
+    def forward(self, samples: torch.Tensor, run: _HardwareRun) -> torch.Tensor:
         """Convert quadrature samples to output units, drawing electronic noise per shot."""
         output = self.gain.to(samples).reshape(()) * samples + self.bias.to(samples).reshape(())
         if not self._no_noise:
@@ -249,7 +251,9 @@ class _HomodyneReadout(nn.Module):
             output = output + self.noise_var.to(samples).reshape(()).sqrt() * noise.to(samples.device)
         return output
 
-    def condition(self, state, op, overrides):
+    def condition(
+        self, state: torch.Tensor | list[torch.Tensor], op: Homodyne, overrides: dict[str, torch.Tensor]
+    ) -> torch.Tensor | list[torch.Tensor]:
         """Condition on the noisy record itself, integrating out the unknown ideal outcome."""
         reference = state.real if isinstance(state, torch.Tensor) else state[0]
         gain, bias = self.gain.to(reference).reshape(()), self.bias.to(reference).reshape(())
@@ -983,7 +987,15 @@ class HardwareModel(nn.Module):
             state = binding.plugin(state, replace(run, wires=wires, cache_key=(binding, None, None)))
         return state
 
-    def _apply_state_plugins(self, state, op, run, bindings, where, source=None):
+    def _apply_state_plugins(
+        self,
+        state: Any,
+        op: nn.Module,
+        run: _HardwareRun,
+        bindings: Sequence[tuple[_PluginBinding, str | None]],
+        where: str,
+        source: Operation | None = None,
+    ) -> Any:
         """Apply state plugins at one gate boundary."""
         loop_loss = None
         for binding, _ in bindings:
@@ -998,7 +1010,7 @@ class HardwareModel(nn.Module):
     def _apply_operation(
         self,
         state: Any,
-        op: Operation,
+        op: nn.Module,
         run: _HardwareRun,
         bindings: Sequence[tuple[_PluginBinding, str | None]],
         source: Operation | None = None,

@@ -5,10 +5,12 @@ import pickle
 from bisect import bisect_left
 from functools import cache
 from operator import index
+from typing import Any
 
 import numpy as np
 import psutil
 import torch
+from numpy.typing import ArrayLike
 
 import deepquantum.photonic as dqp
 
@@ -26,27 +28,27 @@ def set_kappa(kappa: float) -> None:
     dqp.kappa = kappa
 
 
-def load_sample(filename):
+def load_sample(filename: str) -> Any:
     """Load the sample data with the given filename"""
     with gzip.open('./data/' + filename + '.pkl.gz', 'rb') as f:
         sample = pickle.load(f)
     return sample
 
 
-def save_sample(filename, data):
+def save_sample(filename: str, data: Any) -> None:
     """Save the sample data with the given filename"""
     with gzip.open('./data/' + filename + '.pkl.gz', 'wb') as f:
         pickle.dump(data, f)
     return
 
 
-def load_adj(filename):
+def load_adj(filename: str) -> np.ndarray:
     """Load the adjacent matrix with the given filename"""
     mat = np.load('./data/' + filename + '.npy')
     return mat
 
 
-def save_adj(filename, data):
+def save_adj(filename: str, data: ArrayLike | torch.Tensor) -> None:
     """Save the adjacent matrix with the given filename"""
     np.save('./data/' + filename + '.npy', data)
     return
