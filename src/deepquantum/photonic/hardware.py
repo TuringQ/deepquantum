@@ -168,6 +168,29 @@ class Loss(nn.Module):
         return state
 
 
+class _Quantize(nn.Module):
+    """Round a real control to the nearest multiple of a calibrated step."""
+
+    def __init__(self, step: float | torch.Tensor) -> None:
+        super().__init__()
+        # Preserve a Python calibration's precision before the first control determines the working dtype.
+        if not isinstance(step, torch.Tensor):
+            step = torch.tensor(step, dtype=torch.float64)
+        _register_scalar(self, 'step', step)
+        _check_scalar(self.step, 'step')
+        if self.step <= 0:
+            raise ValueError('step must be positive.')
+
+    def forward(self, value: torch.Tensor, run: _HardwareRun) -> torch.Tensor:
+        """Load the nearest grid value in the control's dtype and device."""
+        if value.is_complex():
+            raise TypeError('Parameter quantization requires a real control.')
+        if not value.is_floating_point():
+            value = value.to(torch.get_default_dtype())
+        step = self.step.to(value).reshape(())
+        return (value / step).round() * step
+
+
 class GaussianNoise(nn.Module):
     """Gaussian control noise with mean mu and standard deviation sigma.
 
@@ -372,6 +395,10 @@ class _ParameterConfig:
     ) -> 'HardwareModel':
         """Add Gaussian parameter noise."""
         return self.use(GaussianNoise(mu, sigma), name=name)
+
+    def quantize(self, step: float | torch.Tensor, *, name: str | None = None) -> 'HardwareModel':
+        """Round this control to the nearest multiple of ``step`` in its own units, with ties to even."""
+        return self.use(_Quantize(step), name=name)
 
 
 @dataclass
@@ -683,7 +710,7 @@ class _DelayConfig:
 class HardwareModel(nn.Module):
     """Hardware configuration for photonic circuits.
 
-    Selectors bind control noise, loss and mode profiles to circuit operations.
+    Selectors bind control quantization, noise, loss and mode profiles to circuit operations.
     Later bindings of the same type replace earlier ones at the same location.
     Unrolled circuits retain bindings to their operation objects.
 
@@ -703,7 +730,25 @@ class HardwareModel(nn.Module):
 
     def gaussian(self, mu: float | torch.Tensor = 0, sigma: float | torch.Tensor = 0.1) -> 'HardwareModel':
         """Perturb all supported controls, including delay gates and homodyne phases."""
-        plugin = GaussianNoise(mu, sigma)
+        return self._register_global_controls(GaussianNoise(mu, sigma))
+
+    def quantize(self, step: float | torch.Tensor) -> 'HardwareModel':
+        """Round all supported gate and homodyne controls, including gates inside delays.
+
+        The loaded value is ``step * round(value / step)`` on an unbounded grid centered at zero.
+        Half steps round to the even grid index. The input gradient is zero within each bin.
+        The grid applies to the same scalar controls as ``gaussian()``, including fixed and encoded values.
+        For example, squeeze magnitudes are dimensionless and phase angles are in radians.
+        Later quantization rules override earlier ones on the same control.
+        Register Gaussian noise after quantization to add drift after loading.
+
+        Args:
+            step: Positive, finite scalar spacing in each control's native units (radians for angles).
+        """
+        return self._register_global_controls(_Quantize(step))
+
+    def _register_global_controls(self, plugin: nn.Module) -> 'HardwareModel':
+        """Apply one parameter plugin to supported standalone controls and delay components."""
         for delay in (None, (None, None)):
             self._register(
                 _PluginBinding(
@@ -968,15 +1013,32 @@ class HardwareModel(nn.Module):
             state = readout.condition(state, op, overrides)
         return self._apply_state_plugins(state, op, run, bindings, 'after', source)
 
-    def _parameter_overrides(self, op, run, bindings, source=None):
+    def _parameter_overrides(
+        self,
+        op: nn.Module,
+        run: _HardwareRun,
+        bindings: Sequence[tuple[_PluginBinding, str | None]],
+        source: Operation | None = None,
+    ) -> dict[str, torch.Tensor]:
         """Resolve control plugins for both explicit operations and terminal measurements."""
         overrides = {}
         for binding, parameter in bindings:
-            if parameter is not None:
-                value = overrides.get(parameter, getattr(op, parameter))
+            if parameter is None:
+                continue
+            if parameter in overrides:
+                value = overrides[parameter]
+            else:
+                value = getattr(op, parameter)
                 if value is None and source is not None:
                     value = getattr(source, parameter)
-                overrides[parameter] = binding(value, run, op, parameter, source)
+                if (
+                    parameter == 'loss_theta'
+                    and (raw_loss := getattr(op, 'loss_control', None)) is not None
+                    and any(p == parameter and isinstance(b.plugin, _Quantize) for b, p in bindings)
+                ):
+                    # The grid has zero input gradient. Connect it to T or dB before the singular acos.
+                    value = value.detach() + raw_loss * 0
+            overrides[parameter] = binding(value, run, op, parameter, source)
         return overrides
 
     def forward(

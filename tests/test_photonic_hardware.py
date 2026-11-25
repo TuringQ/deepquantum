@@ -31,6 +31,90 @@ def assert_state_close(actual, expected):
         torch.testing.assert_close(a, b, atol=1e-10, rtol=1e-10)
 
 
+@pytest.mark.parametrize('dtype', [torch.float32, torch.float64])
+def test_quantize_global_controls_and_override_one_electrode(dtype):
+    def optical_circuit(r, theta):
+        cir = dqp.QumodeCircuit(1, 'vac', backend='gaussian')
+        cir.s(0, r=r, theta=theta)
+        cir.d(0, r=0.25, theta=0.0)
+        cir.ps(0, encode=True)
+        return cir.to(dtype)
+
+    cir = optical_circuit(0.375, 0.125)
+    model = dqp.HardwareModel().quantize(step=0.25)
+    model.ps(0).theta.quantize(step=0.125)
+    model.ps(0).theta.gaussian(mu=0.03, sigma=0)
+    cir.set_hardware_model(model.to(dtype))
+    wave = torch.tensor([0.0625, 0.1875, -0.1875, 6.4375], dtype=dtype, requires_grad=True)
+    # Includes half steps of both signs and a setting above one complete turn.
+    loaded = wave.new_tensor([0.0, 0.25, -0.25, 6.5]) + 0.03
+    ref = optical_circuit(0.5, 0.0)
+    actual = cir(wave[:, None])
+    torch.testing.assert_close(actual, ref(loaded[:, None]))
+    torch.testing.assert_close(torch.autograd.grad(actual[1].sum(), wave)[0], torch.zeros_like(wave))
+    torch.testing.assert_close(cir.operators[0].r, wave.new_tensor(0.375))
+    torch.manual_seed(39)
+    samples = cir.measure_homodyne(shots=3, phi=0.36)
+    torch.manual_seed(39)
+    torch.testing.assert_close(samples, ref.measure_homodyne(shots=3, phi=0.25))
+
+
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann'])
+def test_quantized_delay_waveform_across_time_and_submodes(backend):
+    def circuit(manual):
+        cir = dqp.QumodeCircuit(1, 'vac', backend=backend, den_mat=True)
+        cir.s(0, r=0.25 if manual else 0.28, theta=0 if manual else 0.12)
+        cir.delay(
+            0,
+            ntau=2,
+            convention='mzi',
+            encode=True,
+            loop_gates=[dqp.PhotonLoss(0.78, convention='t')] if manual else None,
+        )
+        model = dqp.HardwareModel()
+        if not manual:
+            model.quantize(step=0.25)
+            model.delay(0, index=0).phi.quantize(step=0.125)
+            model.delay(0, index=0).loop_loss(t=0.78)
+        model.s(0).submodes([[3, 4j], [4j, 3]], relative_r=[1.0, 0.4])
+        cir.set_hardware_model(model)
+        return cir.double()
+
+    cir, ref = circuit(False), circuit(True)
+    assert (cir.ndata, ref.ndata) == (2, 3)
+    wave = torch.tensor([[0.69, 0.13], [0.69, -0.32], [0.69, 0.27]])
+    loaded = torch.tensor([[0.75, 0.125, 0.78], [0.75, -0.375, 0.78], [0.75, 0.25, 0.78]])
+    for circuit_state, reference_state in (
+        (next(cir.tdm_substate(4, data=wave, window=2)), next(ref.tdm_substate(4, data=loaded, window=2))),
+        (cir.global_circuit(3)(wave.flatten()), ref.global_circuit(3)(loaded.flatten())),
+    ):
+        actual, expected = circuit_state.to_joint(), reference_state.to_joint()
+        if backend == 'bargmann':
+            actual, expected = actual.quadrature_moments(), expected.quadrature_moments()
+        assert_state_close(actual, expected)
+
+
+@pytest.mark.parametrize('step', [0, -0.1, float('nan'), float('inf'), torch.ones(2)])
+def test_quantize_requires_a_positive_finite_step(step):
+    with pytest.raises(ValueError, match='step'):
+        dqp.HardwareModel().quantize(step)
+
+
+@pytest.mark.parametrize('convention, loss', [('t', [0.0, 0.73, 1.0]), ('db', [0.0, 1.0])])
+def test_quantized_loss_angle_has_zero_calibration_gradient_at_endpoints(convention, loss):
+    raw = torch.tensor(loss, requires_grad=True)
+    bias = torch.tensor(0.03, requires_grad=True)
+    cir = dqp.QumodeCircuit(1, 'vac', backend='gaussian')
+    cir.d(0, r=0.5, theta=0)
+    cir.opa(0, convention=convention, encode=True)
+    model = dqp.HardwareModel().opa().loss_theta.gaussian(mu=bias, sigma=0)
+    cir.set_hardware_model(model.quantize(step=0.125))
+    controls = torch.stack([torch.full_like(raw, 0.25), torch.zeros_like(raw), raw], dim=-1)
+    cov, mean = cir.double()(controls)
+    actual = torch.autograd.grad(cov.sum() + mean.sum(), (raw, bias))
+    torch.testing.assert_close(actual, (torch.zeros_like(raw), torch.zeros_like(bias)))
+
+
 @pytest.mark.parametrize('t', [0.0, 0.4, 1.0])
 def test_loss_formula(t):
     a = torch.arange(16.0).reshape(4, 4) / 10
