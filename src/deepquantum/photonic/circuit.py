@@ -403,8 +403,8 @@ class QumodeCircuit(Operation):
                 With submodes, include all orthogonal basis modes of each loop position in basis order.
                 The joint state retains correlations and its original weight across steps.
                 Gaussian accepts ``[cov, mean]`` or ``GaussianState``. Bargmann accepts a ``BargmannState``
-                and uses the circuit's default Fock readout cutoff. Use the same dtype and device as the fresh
-                spatial inputs from ``init_state`` and any declared sources.
+                and uses the circuit's default Fock readout cutoff. Supply memory on the same device as
+                the fresh spatial inputs. Gaussian requires the same dtype. Bargmann promotes their precision.
                 Default: ``None`` (vacuum loop modes when only spatial inputs are given)
 
         Returns:
@@ -837,8 +837,6 @@ class QumodeCircuit(Operation):
                 if loops is None:
                     like = fresh if isinstance(fresh, BargmannState) else view.init_state
                     loops = self._tdm_vacuum((nmode - self.nmode) * len(block), like)
-                elif isinstance(loops, BargmannState) and isinstance(fresh, BargmannState):
-                    fresh, loops = BargmannState._common_dtype((fresh, loops))
                 inputs.append((block, view, self._join_tdm_memory(loops, fresh, len(block))))
         spatial = [self._unroll_dict[w][-1] for w in self.wires]
         run = self.hardware_model._new_run(self.backend, spatial) if self.hardware_model is not None else None
@@ -905,6 +903,7 @@ class QumodeCircuit(Operation):
             order = spatial + loops
             if memory.den_mat and not self.den_mat:
                 raise ValueError('A Bargmann kernel representing a density operator requires den_mat=True')
+            inputs, memory = BargmannState._common_dtype((inputs, memory))
             return inputs._tensor_product(memory, [order.index(w) for w in range(len(order))])
         if isinstance(memory, GaussianState):
             memory = [memory.cov, memory.mean]
@@ -921,6 +920,29 @@ class QumodeCircuit(Operation):
         if any(x.dtype != inputs[0].dtype or x.device != inputs[0].device for x in memory):
             raise ValueError('memory must have the same dtype and device as the spatial inputs.')
         return self._join_gaussian_modes(memory, inputs, loops, spatial)
+
+    def tdm_memory(self, state: GaussianState | Sequence[torch.Tensor]) -> list[torch.Tensor]:
+        """Extract the Gaussian delay modes from a complete one-step state in next-step order.
+
+        Pass the output of a Gaussian delay circuit for unconditional memory, or its
+        Homodyne-conditioned full state for the memory of that measurement record.
+        The returned covariance and mean can be passed directly as ``memory`` to the next step.
+        """
+        if self.backend != 'gaussian' or not self._with_delay or self._uses_submodes:
+            raise NotImplementedError('tdm_memory requires a Gaussian delay circuit without submodes.')
+        self._prepare_unroll_dict()
+        if isinstance(state, GaussianState):
+            state = [state.cov, state.mean]
+        size = 2 * self._nmode_tdm
+        if not (
+            isinstance(state, Sequence)
+            and len(state) == 2
+            and all(isinstance(x, torch.Tensor) and x.ndim in (2, 3) and x.is_floating_point() for x in state)
+            and state[0].shape[-2:] == (size, size)
+            and state[1].shape[-2:] == (size, 1)
+        ):
+            raise ValueError(f'Pass the full Gaussian state of all {self._nmode_tdm} concurrent modes.')
+        return _gaussian_marginal(state, list(self._tdm_loop_map()))
 
     @staticmethod
     def _join_gaussian_modes(

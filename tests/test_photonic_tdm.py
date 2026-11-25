@@ -634,6 +634,72 @@ def test_automatic_homodyne_loop_reprepares_gaussian_source():
     torch.testing.assert_close(torch.stack(records, -1), auto.samples)
 
 
+@pytest.mark.parametrize('preparation', ['first', 'every', 'thermal'])
+def test_tdm_continuation_uses_recorded_memory_and_fresh_inputs(preparation):
+    initial = [torch.eye(4, dtype=torch.double), torch.tensor([[0.8], [-0.4], [0.2], [0.0]], dtype=torch.double)]
+    auto = dq.QumodeCircuitTDM(2, initial)
+    manual = dq.QumodeCircuit(2, initial, backend='gaussian')
+    for cir in (auto, manual):
+        if preparation == 'thermal':
+            cir.thermal(0, nbar=0.45)
+        cir.ps(0, encode=True)
+        cir.delay(0, ntau=2, inputs=[0.58, -0.17])
+        cir.delay(1, ntau=1, inputs=[0.4, 0.2])
+        cir.bs([1, 0], [0.35, 0.18])
+        cir.homodyne_x(0)
+        cir.homodyne_p(1)
+        cir.double()
+    data = torch.linspace(-0.3, 0.5, 8, dtype=torch.double).reshape(2, 4, 1).requires_grad_()
+    vac = [torch.eye(6, dtype=torch.double), torch.zeros(6, 1, dtype=torch.double)]
+    start = vac if preparation == 'every' else None
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(51)
+        whole = auto(data, memory=start)
+        records = auto.samples
+        torch.manual_seed(51)
+        part = auto(data[:, :2], memory=start)
+        first_records = auto.samples
+        kwargs = {'state': part} if preparation == 'first' else {'memory': auto.tdm_memory(part)}
+        final = auto(data[:, 2:], **kwargs)
+        torch.testing.assert_close(torch.cat([first_records, auto.samples], dim=-1), records)
+        torch.testing.assert_close(final, whole)
+        torch.manual_seed(51)
+        state, memory, manual_records = None, start, []
+        for i in range(4):
+            manual(data[:, i], state=state, memory=memory)
+            manual_records.append(manual.measure_homodyne(shots=1))
+            if preparation == 'first':
+                state = manual.state_measured
+            else:
+                memory = manual.tdm_memory(manual.state_measured)
+        torch.testing.assert_close(torch.stack(manual_records, -1), records)
+    idx = [0, 1, 3, 5, 6, 8]
+    expected = [manual.state_measured[0][:, idx, :][:, :, idx], manual.state_measured[1][:, idx]]
+    actual = auto.tdm_memory(whole)
+    torch.testing.assert_close(actual, expected)
+    torch.testing.assert_close(
+        torch.autograd.grad(actual[1].sum(), data)[0], torch.autograd.grad(expected[1].sum(), data)[0]
+    )
+    with pytest.raises(ValueError, match='full Gaussian'):
+        auto.tdm_memory(vac)
+    with pytest.raises(ValueError, match='either state or memory'):
+        auto(data, state=part, memory=vac)
+    if preparation == 'thermal':
+        with pytest.raises(ValueError, match='source'):
+            auto(data, state=part)
+
+
+def test_tdm_memory_rotates_distinct_loop_modes_and_reinjects_each_step():
+    auto = dq.QumodeCircuitTDM(1, [torch.eye(2), torch.tensor([[3.0], [0.0]])])
+    auto.delay(0, ntau=2, inputs=[0.0, 0.0])
+    auto.homodyne_x(0)
+    memory = [torch.eye(4), torch.tensor([[1.0], [2.0], [0.0], [0.0]])]
+    for expected in ([2.0, 1.0], [1.0, 2.0]):
+        full = auto(memory=memory)
+        memory = auto.tdm_memory(full)
+        torch.testing.assert_close(memory[1][0, :2, 0], torch.tensor(expected))
+
+
 def test_equal_submode_windows_share_hardware_draws_and_preserve_gradients():
     ratios = [1.0, 0.6, 0.25]
     r = torch.tensor(0.28, dtype=torch.double, requires_grad=True)
@@ -663,3 +729,37 @@ def test_equal_submode_windows_share_hardware_draws_and_preserve_gradients():
     torch.testing.assert_close(
         torch.autograd.grad(total, (r, data)), torch.autograd.grad(reference, (r, data)), atol=2e-7, rtol=2e-7
     )
+
+
+def test_tdm_measured_memory_matches_global_circuit_on_actual_records():
+    cir = dq.QumodeCircuitTDM(2, 'vac')
+    cir.thermal(0, nbar=0.18)
+    cir.s(1, 0.31, 0.2)
+    cir.bs([0, 1], [0.41, -0.21])
+    cir.delay(0, ntau=2, inputs=[0.4, 0.12])
+    cir.delay(1, ntau=1, inputs=[0.62, -0.13])
+    cir.homodyne_x(0)
+    cir.homodyne_p(1)
+    cir.double()
+    torch.manual_seed(99)
+    memory = cir.tdm_memory(cir(nstep=3))
+    full = cir.global_circuit(3)
+    state = full()
+    for hom, value in zip(full.measurements, cir.samples.T.flatten(), strict=True):
+        state = hom(state, samples=value)
+    loops = [1, 0, 3]  # the two-bin loop has rotated by one position after three steps
+    idx = loops + [w + full.nmode for w in loops]
+    torch.testing.assert_close(memory, [state[0][:, idx, :][:, :, idx], state[1][:, idx]], atol=1e-12, rtol=0)
+
+
+def test_nonvacuum_tdm_input_repeated_only_with_explicit_memory():
+    cir = dq.QumodeCircuitTDM(1, [torch.eye(2), torch.tensor([[3.0], [0.0]])])
+    cir.delay(0, ntau=1, inputs=[0.0, 0.0])
+    cir.homodyne_x(0)
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(1)
+        cir(nstep=3)
+        first = cir.samples
+        torch.manual_seed(1)
+        cir(nstep=3, memory=[torch.eye(2), torch.zeros(2, 1)])
+    torch.testing.assert_close((cir.samples - first).flatten(), first.new_tensor([0.0, 3.0, 3.0]))

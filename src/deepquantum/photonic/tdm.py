@@ -1,10 +1,12 @@
 """Time domain multiplexing"""
 
+from collections.abc import Sequence
 from typing import Any
 
 import torch
 
 from .circuit import QumodeCircuit
+from .state import GaussianState
 
 
 class QumodeCircuitTDM(QumodeCircuit):
@@ -42,18 +44,29 @@ class QumodeCircuitTDM(QumodeCircuit):
         self.samples = None
 
     def forward(
-        self, data: torch.Tensor | None = None, state: Any = None, nstep: int | None = None
+        self,
+        data: torch.Tensor | None = None,
+        state: Any = None,
+        nstep: int | None = None,
+        *,
+        memory: GaussianState | Sequence[torch.Tensor] | None = None,
     ) -> list[torch.Tensor]:
         r"""Perform a forward pass of the TDM photonic quantum circuit and return the final state.
 
         Args:
             data: The input data for the ``encoders`` with the shape of
                 :math:`(\text{batch}, \text{ntimes}, \text{nfeat})`. Default: ``None``
-            state: The initial state for the photonic quantum circuit. Default: ``None``
+            state: Initial spatial or full concurrent state. Mutually exclusive with
+                ``memory`` and registered sources. Default: ``None``
             nstep: The number of the evolved time steps. Default: ``None``
+            memory: Gaussian loop modes in next-step order. With explicit memory, prepare fresh
+                spatial inputs from ``init_state`` on every step of this call. Otherwise an initial
+                spatial state enters on the first step only. Registered sources prepare each step.
+                Default: ``None``
 
         Returns:
-            The covariance matrix and displacement vector of the measured final state.
+            The full Homodyne-conditioned state after the last step. For Gaussian delay circuits
+            ``tdm_memory(state)`` extracts its loop modes for continuation.
         """
         assert self._with_delay, 'No delay loop.'
         for i in range(self.nmode):
@@ -66,18 +79,18 @@ class QumodeCircuitTDM(QumodeCircuit):
             assert data.ndim == 3
             if nstep is None:
                 nstep = size[1]
-        self.state = state
+        if memory is not None and (self.backend != 'gaussian' or self._uses_submodes):
+            raise NotImplementedError('TDM Homodyne memory requires a Gaussian circuit without submodes.')
+        fresh_each_step = memory is not None or bool(self.sources)
         samples = []
         for i in range(nstep):
             data_i = None if data is None else data[:, i % size[1], :]
-            if i and self.sources:
-                # Keep the modes still in the loops and prepare fresh inputs for this time step.
-                memory = self._tdm_marginal(self.state, list(self._tdm_loop_map()))
-                self.state = super().forward(data_i, memory=memory)
-            else:
-                self.state = super().forward(data_i, self.state)
+            super().forward(data_i, state=state, memory=memory)
             samples.append(self.measure_homodyne(shots=1))
             self.state = self.state_measured
+            if i + 1 < nstep:
+                state = None if fresh_each_step else self.state
+                memory = self.tdm_memory(self.state) if fresh_each_step else None
         self.samples = torch.stack(samples, dim=-1)  # (batch, nwire, nstep)
         return self.state
 
