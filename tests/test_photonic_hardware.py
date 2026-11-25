@@ -1,5 +1,5 @@
 from copy import deepcopy
-from math import log
+from math import log, pi, tau
 
 import pytest
 import torch
@@ -63,7 +63,7 @@ def test_quantize_global_controls_and_override_one_electrode(dtype):
 def test_quantized_delay_waveform_across_time_and_submodes(backend):
     def circuit(manual):
         cir = dqp.QumodeCircuit(1, 'vac', backend=backend, den_mat=True)
-        cir.s(0, r=0.25 if manual else 0.28, theta=0 if manual else 0.12)
+        cir.s(0, r=torch.tensor(pi / 8 if manual else 0.28), theta=0 if manual else 0.12)
         cir.delay(
             0,
             ntau=2,
@@ -73,19 +73,22 @@ def test_quantized_delay_waveform_across_time_and_submodes(backend):
         )
         model = dqp.HardwareModel()
         if not manual:
-            model.quantize(step=0.25)
-            model.delay(0, index=0).phi.quantize(step=0.125)
-            model.delay(0, index=0).loop_loss(t=0.78)
+            model.quantize(bits=4, full_scale=(0, tau))
+            delay = model.delay(0, index=0)
+            delay.theta.quantize(bits=4, full_scale=(0, pi))
+            delay.loop_loss(t=0.78)
         model.s(0).submodes([[3, 4j], [4j, 3]], relative_r=[1.0, 0.4])
         cir.set_hardware_model(model)
         return cir.double()
 
     cir, ref = circuit(False), circuit(True)
     assert (cir.ndata, ref.ndata) == (2, 3)
-    wave = torch.tensor([[0.69, 0.13], [0.69, -0.32], [0.69, 0.27]])
-    loaded = torch.tensor([[0.75, 0.125, 0.78], [0.75, -0.375, 0.78], [0.75, 0.25, 0.78]])
+    wave = torch.tensor([[0.69, 0.6], [0.69, -0.32], [3.5, 7.0]])
+    loaded = torch.tensor(
+        [[4 * pi / 16, 2 * tau / 16, 0.78], [4 * pi / 16, 0.0, 0.78], [15 * pi / 16, 15 * tau / 16, 0.78]]
+    )
     for circuit_state, reference_state in (
-        (next(cir.tdm_substate(4, data=wave, window=2)), next(ref.tdm_substate(4, data=loaded, window=2))),
+        *zip(cir.tdm_substate(4, data=wave, window=2), ref.tdm_substate(4, data=loaded, window=2), strict=True),
         (cir.global_circuit(3)(wave.flatten()), ref.global_circuit(3)(loaded.flatten())),
     ):
         actual, expected = circuit_state.to_joint(), reference_state.to_joint()
@@ -94,10 +97,32 @@ def test_quantized_delay_waveform_across_time_and_submodes(backend):
         assert_state_close(actual, expected)
 
 
-@pytest.mark.parametrize('step', [0, -0.1, float('nan'), float('inf'), torch.ones(2)])
-def test_quantize_requires_a_positive_finite_step(step):
-    with pytest.raises(ValueError, match='step'):
-        dqp.HardwareModel().quantize(step)
+@pytest.mark.parametrize('dtype, bits', [(torch.float64, 2), (torch.float16, 26)])
+def test_quantize_dac_codes_and_rails(dtype, bits):
+    model = dqp.HardwareModel()
+    model.ps(0).theta.quantize(bits=bits, full_scale=(-0.5, 0.5))
+    plugin = next(iter(model.bindings.values())).plugin.to(dtype)
+    raw = torch.tensor([-1, -0.375, -0.125, 0.125, 0.5, 1], dtype=dtype, requires_grad=True)
+    loaded = plugin(raw, model._new_run('gaussian', [0]))
+    expected = [-0.5, -0.5, 0.0, 0.0, 0.25, 0.25] if bits == 2 else [-0.5, -0.375, -0.125, 0.125, 0.5, 0.5]
+    torch.testing.assert_close(loaded, raw.new_tensor(expected), atol=0, rtol=0)
+    torch.testing.assert_close(torch.autograd.grad(loaded.sum(), raw)[0], torch.zeros_like(raw))
+
+
+@pytest.mark.parametrize(
+    'config, error',
+    [
+        *[({'step': step}, 'step') for step in (0, -0.1, float('nan'), float('inf'), torch.ones(2))],
+        ({'bits': 8}, 'full_scale'),
+        ({'full_scale': (0, 1)}, 'bits'),
+        ({'step': 0.1, 'bits': 8, 'full_scale': (0, 1)}, 'step'),
+        *[({'bits': bits, 'full_scale': (0, 1)}, 'bits') for bits in (True, 0, 1.5, 54)],
+        *[({'bits': 2, 'full_scale': bounds}, 'full_scale') for bounds in ((0,), (1, 1), (1, 0), (0, float('inf')))],
+    ],
+)
+def test_quantize_validates_calibration(config, error):
+    with pytest.raises(ValueError, match=error):
+        dqp.HardwareModel().quantize(**config)
 
 
 @pytest.mark.parametrize('convention, loss', [('t', [0.0, 0.73, 1.0]), ('db', [0.0, 1.0])])

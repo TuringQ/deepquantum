@@ -1568,14 +1568,15 @@ state = cir_global(data=data)
 cir_global.draw(unroll=True)  # draw global circuit
 
 # %% [markdown]
-# ### 参数加载步长与回环损耗
+# ### 电极加载精度与回环损耗
 #
 # 延时 MZI 使用 `encode=True` 时，每拍传入两个角 `[theta, phi]`，单位均为弧度。
-# 下面保持 `theta` 固定，循环加载三拍的 `phi` 波形，读取第 0、4、7 拍的联合态。
-# `HardwareModel().quantize(step=0.1)` 给支持的固定和编码控制量设置统一步长，每个控制量使用自身的单位。
-# 随后为 `phi` 指定标定步长 $2\pi/256$，首拍的 0.13 rad 因而加载为 $5(2\pi/256)\approx0.12272$ rad。
+# 下面用 8 bit 线性 DAC 加载两个电极，循环输入三拍波形，读取第 0、4、7 拍的联合态。
+# 全局标定量程为 $0$ 到 $2\pi$，另把 `theta` 的量程设为 $0$ 到 $\pi$，位移幅度 `r` 按自身单位使用固定步长 0.1。
+# 两个电极都有 256 个码，`theta` 和 `phi` 的步长分别为 $\pi/256$ 和 $2\pi/256$。
 #
-# 量化网格以零为原点，半格取偶，向正负两侧延伸。
+# 首拍 `phi=0.13` 取码 5，加载约 0.12272 rad。
+# 第二拍的负值饱和到码 0，最高码 255 比量程上界低一个步长。
 # `loop_loss(t=0.78)` 使返回圈内的光在每次经过圈内所有器件后保留 78% 的功率，透射率在线路输入之外单独标定。
 
 # %%
@@ -1587,9 +1588,11 @@ import torch
 cir_drive = dqp.QumodeCircuit(1, 'vac', backend='gaussian')
 cir_drive.d(0, r=0.3, theta=0.0)
 cir_drive.delay(0, ntau=4, convention='mzi', encode=True)
-model = dqp.HardwareModel().quantize(step=0.1)
+bits = 8
+model = dqp.HardwareModel().quantize(bits=bits, full_scale=(0, math.tau))
+model.d(0).r.quantize(step=0.1)
 delay = model.delay(0, index=0)
-delay.phi.quantize(step=2 * math.pi / 256)
+delay.theta.quantize(bits=bits, full_scale=(0, math.pi))
 delay.loop_loss(t=0.78)
 cir_drive.set_hardware_model(model)
 cir_drive.double()

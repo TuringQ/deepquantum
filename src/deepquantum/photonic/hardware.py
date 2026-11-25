@@ -169,17 +169,38 @@ class Loss(nn.Module):
 
 
 class _Quantize(nn.Module):
-    """Round a real control to the nearest multiple of a calibrated step."""
+    """Round a control on an unbounded step grid or the codes of a linear DAC."""
 
-    def __init__(self, step: float | torch.Tensor) -> None:
+    step: torch.Tensor
+    full_scale: torch.Tensor | None
+    last_code: torch.Tensor
+
+    def __init__(
+        self, step: float | torch.Tensor | None, bits: int | None, full_scale: tuple[float, float] | None
+    ) -> None:
         super().__init__()
-        # Preserve a Python calibration's precision before the first control determines the working dtype.
-        if not isinstance(step, torch.Tensor):
-            step = torch.tensor(step, dtype=torch.float64)
-        _register_scalar(self, 'step', step)
-        _check_scalar(self.step, 'step')
-        if self.step <= 0:
-            raise ValueError('step must be positive.')
+        if step is not None and bits is None and full_scale is None:
+            # Keep the calibration at full precision until the control dtype is known.
+            if not isinstance(step, torch.Tensor):
+                step = torch.tensor(step, dtype=torch.float64)
+            _register_scalar(self, 'step', step)
+            _check_scalar(self.step, 'step')
+            if self.step <= 0:
+                raise ValueError('step must be positive.')
+            self.register_buffer('full_scale', None)
+            return
+        if step is not None or bits is None or full_scale is None:
+            raise ValueError('Specify step alone or bits together with full_scale.')
+        if isinstance(bits, bool) or not isinstance(bits, int) or not 1 <= bits <= 53:
+            raise ValueError('bits must be an integer from 1 to 53 (the float64 code precision).')
+        bounds = torch.as_tensor(full_scale, dtype=torch.float64)
+        if bounds.shape != (2,):
+            raise ValueError('full_scale must be a pair of lower and upper references.')
+        spacing = (bounds[1] - bounds[0]) / (1 << bits)
+        if not torch.isfinite(spacing) or spacing <= 0:
+            raise ValueError('full_scale must give a finite positive DAC step.')
+        self.register_buffer('full_scale', bounds)
+        self.register_buffer('last_code', torch.tensor((1 << bits) - 1, dtype=torch.long))
 
     def forward(self, value: torch.Tensor, run: _HardwareRun) -> torch.Tensor:
         """Load the nearest grid value in the control's dtype and device."""
@@ -187,8 +208,16 @@ class _Quantize(nn.Module):
             raise TypeError('Parameter quantization requires a real control.')
         if not value.is_floating_point():
             value = value.to(torch.get_default_dtype())
-        step = self.step.to(value).reshape(())
-        return (value / step).round() * step
+        if self.full_scale is None:
+            step = self.step.to(value).reshape(())
+            return (value / step).round() * step
+        # Compute the spacing after promotion so that small steps survive half-precision module casts.
+        work = value.to(torch.float32 if value.device.type == 'mps' else torch.float64)
+        low, high = self.full_scale.to(work).unbind()
+        last_code = self.last_code.to(work)
+        step = (high - low) / (last_code + 1)
+        code = ((work.clamp(low, high) - low) / step).round().clamp_max(last_code)
+        return (low + code * step).to(value)
 
 
 class GaussianNoise(nn.Module):
@@ -400,9 +429,16 @@ class _ParameterConfig:
         """Add Gaussian parameter noise."""
         return self.use(GaussianNoise(mu, sigma), name=name)
 
-    def quantize(self, step: float | torch.Tensor, *, name: str | None = None) -> 'HardwareModel':
-        """Round this control to the nearest multiple of ``step`` in its own units, with ties to even."""
-        return self.use(_Quantize(step), name=name)
+    def quantize(
+        self,
+        step: float | torch.Tensor | None = None,
+        *,
+        bits: int | None = None,
+        full_scale: tuple[float, float] | None = None,
+        name: str | None = None,
+    ) -> 'HardwareModel':
+        """Set this control's loading grid in its native units. See ``HardwareModel.quantize``."""
+        return self.use(_Quantize(step, bits, full_scale), name=name)
 
 
 @dataclass
@@ -736,20 +772,30 @@ class HardwareModel(nn.Module):
         """Perturb all supported controls, including delay gates and homodyne phases."""
         return self._register_global_controls(GaussianNoise(mu, sigma))
 
-    def quantize(self, step: float | torch.Tensor) -> 'HardwareModel':
+    def quantize(
+        self,
+        step: float | torch.Tensor | None = None,
+        *,
+        bits: int | None = None,
+        full_scale: tuple[float, float] | None = None,
+    ) -> 'HardwareModel':
         """Round all supported gate and homodyne controls, including gates inside delays.
 
-        The loaded value is ``step * round(value / step)`` on an unbounded grid centered at zero.
-        Half steps round to the even grid index. The input gradient is zero within each bin.
-        The grid applies to the same scalar controls as ``gaussian()``, including fixed and encoded values.
-        For example, squeeze magnitudes are dimensionless and phase angles are in radians.
-        Later quantization rules override earlier ones on the same control.
-        Register Gaussian noise after quantization to add drift after loading.
+        Specify either a step or the bit depth and full-scale range of a linear DAC.
+        For ``full_scale=(low, high)``, code ``k`` loads ``low + k * (high - low) / 2**bits``.
+        Requests saturate at the first and last code. Half steps round to the even code.
+        Each control uses its own units. Override the range on individual electrodes with different calibrations.
+        Loaded values have the control dtype and zero gradient with respect to the requested value.
+        Rules apply in registration order to the same fixed and encoded controls as ``gaussian()``.
+        Later quantization rules replace earlier ones on the same control.
 
         Args:
-            step: Positive, finite scalar spacing in each control's native units (radians for angles).
+            step: Positive spacing on an unbounded zero-origin grid. Default: ``None``
+            bits: DAC resolution in bits, from 1 to 53. Default: ``None``
+            full_scale: Lower reference and nominal upper reference in control units (radians for angles).
+                The last code loads one step below the upper reference. Default: ``None``
         """
-        return self._register_global_controls(_Quantize(step))
+        return self._register_global_controls(_Quantize(step, bits, full_scale))
 
     def _register_global_controls(self, plugin: nn.Module) -> 'HardwareModel':
         """Apply one parameter plugin to supported standalone controls and delay components."""
