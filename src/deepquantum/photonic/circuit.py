@@ -3980,7 +3980,7 @@ class QumodeCircuit(Operation):
         loss_db: Any = None,
         encode: bool = False,
     ) -> None:
-        """Add an OPA channel with net coherent power gain and distributed loss in dB."""
+        """Add an OPA using amplified-axis net gain and pump-off loss in dB, with gain_db >= -loss_db."""
         self.opa(wires, r=gain_db, theta=theta, loss=loss_db, convention='gain_db', encode=encode)
 
     def s2(self, wires: list[int], r: Any = None, theta: Any = None, encode: bool = False) -> None:

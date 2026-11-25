@@ -1,4 +1,5 @@
 from copy import deepcopy
+from math import log
 
 import pytest
 import torch
@@ -115,6 +116,20 @@ def test_loss_theta_parameterization(convention, value):
         torch.testing.assert_close(plugin.theta.grad, -torch.sin(plugin.theta) / 2)
         optimizer.step()
         assert 0 <= plugin.t <= 1
+
+
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann', 'fock'])
+@pytest.mark.parametrize('coordinate,initial', [('t', 1.0), ('db', 0.0)])
+def test_fixed_hardware_loss_preserves_unit_transmittance_gradient(backend, coordinate, initial):
+    value = torch.tensor(initial, requires_grad=True)
+    cir = dqp.QumodeCircuit(1, 'vac', backend=backend, cutoff=12, basis=False, den_mat=True)
+    cir.d(0, 0.5, 0.0)
+    cir.set_hardware_model(dqp.HardwareModel().output(0).loss(**{coordinate: value}))
+    cir.double()
+    cir()
+    (derivative,) = torch.autograd.grad(cir.quadrature_mean(0, phi=0.0).sum(), value)
+    expected = value.new_tensor(0.5 if coordinate == 't' else -log(10) / 20)
+    torch.testing.assert_close(derivative, expected, atol=1e-10, rtol=1e-10)
 
 
 def test_fock_loss_updates_environment_modes():

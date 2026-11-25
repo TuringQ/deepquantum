@@ -434,3 +434,54 @@ def test_bargmann_moment_validation():
     state = dq.BargmannState(torch.zeros(1, 2, dtype=torch.complex128), nmode=1)
     with pytest.raises(ValueError, match='positive'):
         state.photon_number_mean_var()
+
+
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann', 'fock'])
+@pytest.mark.parametrize('auxiliary', [None, 0.0, 0.31])
+def test_loss_observable_endpoint_expansion(backend, auxiliary):
+    # T=0 pure loss or T=1 coupling to a coherent auxiliary. Expand the whole observable in the signed field.
+    cir = dq.QumodeCircuit(1, 'vac', cutoff=14, backend=backend, basis=False, den_mat=True)
+    cir.thermal(0, nbar=torch.tensor(0.1, dtype=torch.double))
+    cir.d(0, 0.5, 0.0)
+    theta = torch.tensor(math.pi if auxiliary is None else 0.0, dtype=torch.double, requires_grad=True)
+    if auxiliary is None:
+        cir.loss(0, theta)
+    else:
+        cir.d_channel(0, amplitude=auxiliary, phase=0.0, t=theta, convention='loss_theta')
+    cir.double()
+    out = cir()
+    var, mean = cir.quadrature_moments(0, phi=0.0)
+    vac = cir.get_prob([0]) if backend == 'gaussian' else (out.to_fock(1) if backend == 'bargmann' else out)[:, 0, 0]
+    values = torch.stack([mean.real.squeeze(), var.real.squeeze(), vac.real.squeeze()])
+    root, slope = dqp.loss_endpoint_expansion(values, theta)
+    if auxiliary is None:
+        torch.testing.assert_close(root, theta.new_tensor([1.0, 0.0, 0.0]), atol=3e-9, rtol=1e-8)
+        torch.testing.assert_close(slope, theta.new_tensor([0.0, 0.2, -0.35]), atol=3e-9, rtol=1e-8)
+    else:
+        # Independent power series in q=sqrt(1-T) for a displaced thermal state.
+        q = theta.new_zeros((), requires_grad=True)
+        power = 1 - q.square()
+        alpha = 0.5 * power.sqrt() + auxiliary * q
+        thermal = 1 + 0.1 * power
+        for i, value in enumerate([2 * alpha, 1 + 0.2 * power, (-alpha.square() / thermal).exp() / thermal]):
+            (g,) = torch.autograd.grad(value, q, create_graph=True, retain_graph=True)
+            (h,) = torch.autograd.grad(g, q, retain_graph=True)
+            torch.testing.assert_close(root[i], g, atol=5e-8, rtol=1e-7)
+            torch.testing.assert_close(slope[i], -h / 2, atol=5e-8, rtol=1e-7)
+
+
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann', 'fock'])
+def test_dark_auxiliary_lossless_power_gradient(backend):
+    cir = dq.QumodeCircuit(1, 'vac', cutoff=14, backend=backend, basis=False, den_mat=True)
+    cir.thermal(0, nbar=torch.tensor(0.1, dtype=torch.double))
+    cir.d(0, 0.5, 0.0)
+    cir.d_channel(0, encode=True)
+    cir.double()
+    data = torch.tensor([0.0, 0.0, 1.0], dtype=torch.double, requires_grad=True)
+    out = cir(data)
+    variance, mean = cir.quadrature_moments(0, phi=0.0)
+    vacuum = cir.get_prob([0]) if backend == 'gaussian' else (out.to_fock(1) if backend == 'bargmann' else out)[:, 0, 0]
+    derivatives = torch.stack(
+        [torch.autograd.grad(y.real.sum(), data, retain_graph=True)[0][-1] for y in (mean, variance, vacuum)]
+    )
+    torch.testing.assert_close(derivatives, data.new_tensor([0.5, 0.2, -0.21548703919]), atol=4e-9, rtol=1e-8)

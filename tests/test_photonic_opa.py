@@ -350,7 +350,8 @@ def test_opa_separate_parameters_and_defaults(convention):
     cir.opa(0, r=0.3, convention=convention)
     op = cir.operators[0]
     assert not list(op.parameters())
-    assert set(dict(op.named_buffers())) == {'r', 'theta', 'loss_theta'}
+    loss_control = 'loss_theta' if convention == 'theta' else 'loss_control'
+    assert set(dict(op.named_buffers())) == {'r', 'theta', loss_control}
     torch.testing.assert_close(op.theta, torch.zeros(()))
     torch.testing.assert_close(op.t, torch.ones(()))
     torch.testing.assert_close(cir()[0][0], torch.diag(torch.exp(torch.tensor([-0.6, 0.6]))))
@@ -406,3 +407,64 @@ def test_opa_quadrature_normalization_invariance(backend, tdm):
             results.append(values)
     for values in results[1:]:
         torch.testing.assert_close(values, results[0], atol=2e-6, rtol=2e-6)
+
+
+def test_opa_db_amplified_axis_in_fixed_and_batched_calibration():
+    initial = [torch.eye(2, dtype=torch.double), torch.ones(2, 1, dtype=torch.double)]
+    data = torch.tensor([[-1.0, 0.0, 1.0], [-0.5, 0.0, 1.0], [3.0, 0.0, 1.0]], dtype=torch.double, requires_grad=True)
+    encoded = dqp.QumodeCircuit(1, initial, backend='gaussian')
+    encoded.opa_db(0, encode=True)
+    encoded.double()
+    _, mean = encoded(data)
+    gain, _, loss = data.unbind(1)
+    db = 20 * mean.squeeze(-1).log10()
+    torch.testing.assert_close(db, torch.stack([-2 * loss - gain, gain], dim=1))
+    for i, (g, phase, ell) in enumerate(data):
+        fixed = dqp.QumodeCircuit(1, initial, backend='gaussian')
+        fixed.opa_db(0, g, phase, ell)
+        fixed.double()
+        torch.testing.assert_close(fixed()[1][0], mean[i])
+    torch.testing.assert_close(
+        torch.autograd.grad(db[:, 1].sum(), data)[0],
+        torch.stack(
+            [torch.ones_like(gain), (10 / log(10)) * (10 ** (-(gain + loss) / 10) - 1), torch.zeros_like(loss)], dim=1
+        ),
+    )
+    bad = data.detach().clone()
+    bad[0, 0] = -5.0  # An invalid earlier row must be found even when the final encoded row is valid.
+    with pytest.raises(ValueError, match=r'gain_db \+ loss_db'):
+        encoded(bad)
+    with pytest.raises(ValueError, match=r'gain_db \+ loss_db'):
+        encoded(bad[0])
+    with pytest.raises(ValueError, match=r'gain_db \+ loss_db'):
+        encoded.opa_db(0, gain_db=-5.0, loss_db=1.0)
+    signed = dqp.QumodeCircuit(1, initial, backend='gaussian')
+    signed.opa(0, r=-(4 * log(10) / 20), theta=0.0, loss=1.0, convention='db')
+    signed.double()
+    torch.testing.assert_close(20 * signed()[1].squeeze().log10(), torch.tensor([3.0, -5.0], dtype=torch.double))
+
+
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann', 'fock'])
+@pytest.mark.parametrize('coordinate', ['t', 'db'])
+def test_opa_lossless_encoded_observable_derivatives(backend, coordinate):
+    cir = dqp.QumodeCircuit(1, 'vac', cutoff=8, backend=backend, basis=False, den_mat=True)
+    cir.thermal(0, nbar=0.1)
+    cir.d(0, 0.5, 0.0)
+    cir.opa(0, convention=coordinate, encode=True)
+    cir.double()
+    x = torch.tensor([0.2, 0.0, 1.0 if coordinate == 't' else 0.0], dtype=torch.double, requires_grad=True)
+
+    def read(data):
+        out = cir(data)
+        var, mean = cir.quadrature_moments(0, phi=0.0)
+        vacuum = (
+            cir.get_prob([0]) if backend == 'gaussian' else (out.to_fock(1) if backend == 'bargmann' else out)[:, 0, 0]
+        )
+        return torch.stack([mean.real.squeeze(), var.real.squeeze(), vacuum.real.squeeze()])
+
+    value = read(x)
+    derivative = torch.stack([torch.autograd.grad(y, x, retain_graph=True)[0][-1] for y in value])
+    h = -1e-6 if coordinate == 't' else 1e-6
+    with torch.no_grad():
+        expected = (read(x + x.new_tensor([0.0, 0.0, h])) - value) / h
+    torch.testing.assert_close(derivative, expected, atol=3e-7, rtol=1e-5)
