@@ -40,6 +40,7 @@ The first framework to support algorithm design and mapping for time-domain-mult
 
 DeepQuantum requires **PyTorch 2**.
 We recommend installing it manually first to ensure compatibility with your system and CUDA version.
+For `torch.linalg.solve` with `complex64` inputs on Apple GPUs (MPS), we recommend PyTorch 2.15.0.
 
 0. **(Optional)** Install [uv](https://docs.astral.sh/uv/getting-started/installation/).
 We strongly recommend using `uv` instead of standard `pip` for lightning-fast package installations.

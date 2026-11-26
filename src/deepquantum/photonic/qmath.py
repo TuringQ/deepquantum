@@ -22,7 +22,7 @@ from .utils import mem_to_chunksize
 
 def _times_i(value: torch.Tensor) -> torch.Tensor:
     """Multiply by the imaginary unit in the input's promoted dtype, including during MPS backward."""
-    return value * value.new_tensor(1j, dtype=torch.result_type(value, 1j))
+    return value * torch.tensor(1j, dtype=torch.result_type(value, 1j), device=value.device)
 
 
 def _normalize_coefficients(value: torch.Tensor) -> torch.Tensor:
