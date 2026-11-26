@@ -1143,11 +1143,14 @@ def photon_number_moments_gaussian(
         cov = cov.unsqueeze(0)
     if mean.ndim == 2:
         mean = mean.unsqueeze(0)
+    batch = max(cov.shape[0], mean.shape[0])
+    cov = cov.expand(batch, -1, -1)
+    mean = mean.expand(batch, -1, -1)
     nmode = cov.shape[-1] // 2
     indices = wires + [wire + nmode for wire in wires]
     cov = cov[..., indices, :][..., indices]
     mean = mean[..., indices, :]
-    weight = cov.new_ones(cov.shape[0])
+    weight = cov.new_ones(batch)
     if powers is None:
         raw_second, first = _gaussian_photon_number_moments_2nd(cov, mean)
         return _photon_number_moments_from_raw(
@@ -1175,6 +1178,12 @@ def photon_number_moments_bosonic(
     normalize: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor] | torch.Tensor:
     """Get 2nd-order or arbitrary higher-order photon-number moments for Bosonic states."""
+    if cov.ndim == 3:
+        cov = cov.unsqueeze(0)
+    if mean.ndim == 3:
+        mean = mean.unsqueeze(0)
+    if weight.ndim == 1:
+        weight = weight.unsqueeze(0)
     batch = max(cov.shape[0], mean.shape[0], weight.shape[0])
     ncomb = weight.shape[1]
     cov = cov.expand(batch, ncomb, -1, -1)

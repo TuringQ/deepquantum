@@ -286,16 +286,20 @@ def test_bargmann_post_select_unnormalized_sum_and_zero_branch():
     )
 
 
-@pytest.mark.parametrize('backend', ['gaussian', 'bargmann', 'fock'])
+@pytest.mark.parametrize('backend', ['gaussian', 'bosonic', 'bargmann', 'fock'])
 def test_batched_autograd_gradients_match_finite_difference(backend):
-    kw = {'cutoff': 8, 'basis': False, 'den_mat': True} if backend == 'fock' else {}
-    if backend == 'bargmann':
-        kw = {'den_mat': True}
-
     def eval_obj(data):
-        cir = dq.QumodeCircuit(2, 'vac', backend=backend, **kw)
-        cir.s(0, torch.tensor(0.25, dtype=torch.double))
-        cir.d(1, torch.tensor(0.2, dtype=torch.double))
+        if backend == 'bosonic':
+            cat = dq.CatState(r=0.45, theta=0.2, p=0, cutoff=10).double()
+            vac = dq.BosonicState('vac', nmode=1, cutoff=10).double()
+            cir = dq.QumodeCircuit(2, [cat, vac], backend='bosonic', cutoff=10)
+        else:
+            kw = {'cutoff': 8, 'basis': False, 'den_mat': True} if backend == 'fock' else {}
+            if backend == 'bargmann':
+                kw = {'den_mat': True}
+            cir = dq.QumodeCircuit(2, 'vac', backend=backend, **kw)
+            cir.s(0, torch.tensor(0.25, dtype=torch.double))
+            cir.d(1, torch.tensor(0.2, dtype=torch.double))
         cir.mzi([0, 1], encode=True)
         cir.loss_db(0, torch.tensor(0.6, dtype=torch.double))
         cir.double()
@@ -321,6 +325,106 @@ def test_batched_autograd_gradients_match_finite_difference(backend):
                 dm[i, j] -= eps
                 fd_grad[i, j] = (eval_obj(dp) - eval_obj(dm)) / (2 * eps)
     torch.testing.assert_close(data.grad, fd_grad, atol=1e-6, rtol=1e-5)
+
+
+@pytest.mark.parametrize('device', ['cpu', 'cuda', 'mps'])
+@pytest.mark.parametrize('dtype', [torch.float32, torch.float64])
+@pytest.mark.parametrize('backend', ['gaussian', 'bosonic', 'bargmann', 'fock'])
+def test_photon_number_moments_device_dtype_and_grad(device, dtype, backend):
+    if device == 'cuda' and not torch.cuda.is_available():
+        pytest.skip('CUDA is unavailable')
+    if device == 'mps' and not torch.backends.mps.is_available():
+        pytest.skip('MPS is unavailable')
+    if device == 'mps' and dtype == torch.float64:
+        pytest.skip('MPS does not support float64')
+    if device == 'mps' and backend == 'bargmann':
+        pytest.skip('PyTorch MPS does not implement complex lu_factor used by Bargmann contraction')
+
+    def build_and_eval(target_device):
+        use_grad = device != 'mps'
+        if backend == 'bosonic':
+            cat = dq.CatState(r=0.45, theta=0.2, p=0, cutoff=10).to(device=target_device, dtype=dtype)
+            vac = dq.BosonicState('vac', nmode=1, cutoff=10).to(device=target_device, dtype=dtype)
+            cir = dq.QumodeCircuit(2, [cat, vac], backend='bosonic', cutoff=10)
+        elif backend == 'bargmann':
+            cir = dq.QumodeCircuit(2, [1, 0], backend='bargmann', den_mat=True)
+        elif backend == 'fock':
+            cir = dq.QumodeCircuit(2, 'vac', cutoff=8, backend='fock', basis=False, den_mat=True)
+        else:
+            cir = dq.QumodeCircuit(2, 'vac', backend='gaussian')
+        cir.s(0, 0.22)
+        if use_grad:
+            cir.mzi([0, 1], encode=True)
+        else:
+            cir.mzi([0, 1], [0.35, 0.2])
+        cir.loss_db(0, 0.5)
+        cir.to(device=target_device, dtype=dtype)
+        if use_grad:
+            data = torch.tensor([[0.35, 0.2], [0.75, -0.15]], device=target_device, dtype=dtype, requires_grad=True)
+            cir(data)
+        else:
+            cir()
+        powers = torch.tensor([[0, 0], [1, 1], [2, 1], [3, 0]], device=target_device)
+        cov, mean = cir.photon_number_moments([1, 0])
+        g2_num, _ = cir.photon_number_moments([1, 0], normal_ordered=True)
+        p_raw = cir.photon_number_moments([1, 0], powers=powers)
+        p_no = cir.photon_number_moments([1, 0], powers=powers, normal_ordered=True)
+        p_cen = cir.photon_number_moments([1, 0], powers=powers, centered=True)
+        if not use_grad:
+            return (cov, mean, g2_num, p_raw, p_no, p_cen)
+        loss = cov.sum() + mean.sum() + g2_num.sum() + p_raw.sum() + p_no.sum() + p_cen.sum()
+        loss.backward()
+        return (cov, mean, g2_num, p_raw, p_no, p_cen, data.grad)
+
+    outputs = build_and_eval(device)
+    for tensor in outputs:
+        assert tensor.device.type == device
+        assert tensor.dtype == dtype
+        assert torch.isfinite(tensor).all()
+
+    if device != 'cpu':
+        cpu_outputs = build_and_eval('cpu')
+        tol = {'atol': 5e-5, 'rtol': 5e-4} if dtype == torch.float32 else {'atol': 1e-11, 'rtol': 1e-10}
+        for dev_tensor, cpu_tensor in zip(outputs, cpu_outputs, strict=True):
+            torch.testing.assert_close(dev_tensor.cpu(), cpu_tensor, **tol)
+
+
+@pytest.mark.parametrize('backend', ['fock', 'bargmann'])
+def test_photon_number_moments_small_state_weight_and_batched_non_gaussian(backend):
+    # Tiny state weight (1e-200) must not underflow to NaN or wrong central moments.
+    ket = torch.ones(1, 3, dtype=torch.complex128) * (1e-100 / math.sqrt(3))
+    cir = dq.QumodeCircuit(1, ket, backend=backend, cutoff=3, basis=False)
+    cir()
+    cov, mean = cir.photon_number_moments()
+    p_cen = cir.photon_number_moments(powers=[(2,), (3,), (4,)], centered=True)
+    w_cov, w_mean = cir.photon_number_moments(normalize=False)
+    w_p_cen = cir.photon_number_moments(powers=[(2,), (3,), (4,)], centered=True, normalize=False)
+    torch.testing.assert_close(mean[0, 0], torch.tensor(1.0, dtype=torch.double))
+    torch.testing.assert_close(cov[0, 0, 0], torch.tensor(2.0 / 3.0, dtype=torch.double))
+    torch.testing.assert_close(p_cen[0], torch.tensor([2.0 / 3.0, 0.0, 2.0 / 3.0], dtype=torch.double))
+    torch.testing.assert_close(w_cov / 1e-200, cov)
+    torch.testing.assert_close(w_mean / 1e-200, mean)
+    torch.testing.assert_close(w_p_cen / 1e-200, p_cen)
+
+
+def test_direct_qmath_broadcast_and_unbatched_bosonic_shapes():
+    from deepquantum.photonic.qmath import photon_number_moments_bosonic, photon_number_moments_gaussian
+
+    cov1 = torch.eye(4, dtype=torch.double).unsqueeze(0)
+    mean3 = torch.randn(3, 4, 1, dtype=torch.double)
+    cov_a, mean_a = photon_number_moments_gaussian(cov1, mean3, [0, 1])
+    p_a = photon_number_moments_gaussian(cov1, mean3, [0, 1], powers=[(0, 0), (1, 0), (2, 0)])
+    assert cov_a.shape == (3, 2, 2) and mean_a.shape == (3, 2) and p_a.shape == (3, 3)
+
+    cov3 = torch.eye(4, dtype=torch.double).unsqueeze(0).expand(3, -1, -1).clone()
+    mean1 = torch.zeros(1, 4, 1, dtype=torch.double)
+    p_b = photon_number_moments_gaussian(cov3, mean1, [0, 1], powers=[(0, 0), (1, 0), (2, 0)])
+    assert p_b.shape == (3, 3)
+
+    cat = dq.CatState(r=0.5, theta=0.1, p=0, cutoff=8).double()
+    cov_bos, mean_bos = photon_number_moments_bosonic(cat.cov[0], cat.mean[0], cat.weight[0], [0])
+    p_bos = photon_number_moments_bosonic(cat.cov[0], cat.mean[0], cat.weight[0], [0], powers=[(0,), (2,)])
+    assert cov_bos.shape == (1, 1, 1) and mean_bos.shape == (1, 1) and p_bos.shape == (1, 2)
 
 
 def test_bargmann_tdm_loop_photon_number_moments_matches_global():
