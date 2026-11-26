@@ -17,6 +17,7 @@ import deepquantum.photonic as dqp
 
 from ..qmath import block_sample, decimal_to_list, is_unitary, list_to_decimal, partial_trace
 from .draw import plot_wigner
+from .gradient import transmittance_grad as transmittance_grad
 from .utils import mem_to_chunksize
 
 

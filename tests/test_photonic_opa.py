@@ -468,3 +468,32 @@ def test_opa_lossless_encoded_observable_derivatives(backend, coordinate):
     with torch.no_grad():
         expected = (read(x + x.new_tensor([0.0, 0.0, h])) - value) / h
     torch.testing.assert_close(derivative, expected, atol=3e-7, rtol=1e-5)
+
+
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann', 'fock'])
+def test_opa_power_derivative_at_complete_loss(backend):
+    cir = dqp.QumodeCircuit(1, 'vac', cutoff=8, backend=backend, basis=False, den_mat=True)
+    cir.thermal(0, nbar=torch.tensor(0.1, dtype=torch.double))
+    cir.opa(0, encode=True, convention='t')
+    cir.double()
+    data = torch.tensor([[0.0, 0, 0], [0.2, 0, 0], [0.0, 0, 0.4]], dtype=torch.double, requires_grad=True)
+    cir(data)
+    covariance, _ = cir.quadrature_moments()
+    for axis, pump_on in enumerate([-torch.inf, torch.inf]):
+        (grad,) = torch.autograd.grad(covariance[:, axis, axis].sum(), data, retain_graph=True)
+        # A pump-off OPA is pure loss; uniform distributed loss at nonzero
+        # pump approaches the vacuum logarithmically on the two gain axes.
+        expected = data.new_tensor([0.2, pump_on, 0.2])
+        torch.testing.assert_close(grad[:, -1], expected, atol=2e-7, rtol=1e-7)
+
+
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann', 'fock'])
+def test_pump_off_opa_signed_angle_at_complete_loss(backend):
+    cir = dqp.QumodeCircuit(1, 'vac', cutoff=8, backend=backend, basis=False, den_mat=True)
+    cir.thermal(0, nbar=torch.tensor(0.1, dtype=torch.double))
+    cir.opa(0, encode=True)
+    cir.double()
+    angle = torch.tensor(torch.pi, dtype=torch.double, requires_grad=True)
+    cir(torch.stack([angle.new_zeros(()), angle.new_zeros(()), angle]))
+    variance, _ = cir.quadrature_moments(0, phi=0.0)
+    torch.testing.assert_close(dqp.transmittance_grad(variance.sum(), angle), angle.new_tensor(0.2), atol=2e-7, rtol=0)

@@ -1,8 +1,15 @@
 import numpy as np
-import qutip as qp
+import pytest
 import torch
 
 import deepquantum as dq
+
+try:
+    import qutip as qp
+except ModuleNotFoundError as exc:
+    if exc.name != 'qutip':
+        raise
+    pytest.skip(f'{exc.name} is required for this comparison', allow_module_level=True)
 
 
 def test_with_qutip_fock_wigner():

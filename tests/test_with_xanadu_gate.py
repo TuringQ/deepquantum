@@ -1,10 +1,16 @@
 import numpy as np
 import pytest
-import strawberryfields as sf
 import torch
-from strawberryfields.ops import CKgate, CXgate, CZgate, Ket, Kgate, Pgate, Vgate
 
 import deepquantum as dq
+
+try:
+    import strawberryfields as sf
+    from strawberryfields.ops import CKgate, CXgate, CZgate, Ket, Kgate, Pgate, Vgate
+except ModuleNotFoundError as exc:
+    if exc.name != 'strawberryfields':
+        raise
+    pytest.skip(f'{exc.name} is required for this comparison', allow_module_level=True)
 
 
 @pytest.mark.parametrize(

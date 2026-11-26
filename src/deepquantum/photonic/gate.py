@@ -12,6 +12,7 @@ import deepquantum.photonic as dqp
 from ..qmath import is_unitary
 from ..utils import apply_complex_fix
 from .bargmann import BargmannPolyExp, _gaussian_bargmann, passive_bargmann
+from .gradient import _coupling_fields
 from .operation import Delay, Gate
 from .qmath import _times_i, ladder_ops
 
@@ -713,6 +714,9 @@ class BeamSplitterSingle(BeamSplitter):
         """Get the local unitary matrix acting on creation operators."""
         # correspond to: U a^+ U^+ = u^T @ a^+
         theta = self.inputs_to_tensor(theta)
+        if self.convention == 'h':
+            cos, sin = _coupling_fields(theta)
+            return torch.stack([cos, sin, sin, -cos]).reshape(2, 2) + 0j
         cos = torch.cos(theta / 2) + 0j
         sin = torch.sin(theta / 2) + 0j
         if self.convention == 'rx':
@@ -720,8 +724,6 @@ class BeamSplitterSingle(BeamSplitter):
             return torch.stack([cos, i_sin, i_sin, cos]).reshape(2, 2)
         elif self.convention == 'ry':
             return torch.stack([cos, -sin, sin, cos]).reshape(2, 2)
-        elif self.convention == 'h':
-            return torch.stack([cos, sin, sin, -cos]).reshape(2, 2)
 
     def update_matrix(self) -> torch.Tensor:
         """Update the local unitary matrix acting on creation operators."""
@@ -1340,8 +1342,9 @@ class Displacement(SingleGate):
         """
         r, theta = self.inputs_to_tensor([r, theta])
         sqrt = torch.sqrt(torch.arange(self.cutoff, dtype=r.dtype, device=r.device))
-        alpha = r * torch.exp(1j * theta)
-        alpha_c = r * torch.exp(-1j * theta)
+        phase = _times_i(theta)
+        alpha = r * torch.exp(phase)
+        alpha_c = r * torch.exp(-phase)
         tran_mat = alpha.new_zeros([self.cutoff] * 2)
         tran_mat[0, 0] = torch.exp(-(r**2) / 2)
         # rank 1

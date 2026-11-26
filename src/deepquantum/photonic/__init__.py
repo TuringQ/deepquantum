@@ -8,6 +8,7 @@ from . import (
     distributed,
     draw,
     gate,
+    gradient,
     hafnian_,
     hardware,
     kensingtonian_,
@@ -49,6 +50,7 @@ from .gate import (
     Squeezing2,
     UAnyGate,
 )
+from .gradient import transmittance_grad
 from .hafnian_ import hafnian
 from .hardware import GaussianNoise, HardwareModel, Loss
 from .kensingtonian_ import kensingtonian

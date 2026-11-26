@@ -2,11 +2,17 @@ import itertools
 
 import numpy as np
 import pytest
-import strawberryfields as sf
 import torch
-from strawberryfields.ops import BSgate, Dgate, Fock, LossChannel, Rgate, Sgate
 
 import deepquantum as dq
+
+try:
+    import strawberryfields as sf
+    from strawberryfields.ops import BSgate, Dgate, Fock, LossChannel, Rgate, Sgate
+except ModuleNotFoundError as exc:
+    if exc.name != 'strawberryfields':
+        raise
+    pytest.skip(f'{exc.name} is required for this comparison', allow_module_level=True)
 
 
 @pytest.mark.parametrize('basis', [True, False], ids=['basis', 'density-matrix'])

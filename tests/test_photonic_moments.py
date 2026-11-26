@@ -501,3 +501,224 @@ def test_loss_observable_endpoint_expansion(backend, auxiliary):
             (h,) = torch.autograd.grad(g, q, retain_graph=True)
             torch.testing.assert_close(root[i], g, atol=5e-8, rtol=1e-7)
             torch.testing.assert_close(slope[i], -h / 2, atol=5e-8, rtol=1e-7)
+
+
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann', 'fock'])
+def test_power_derivative_of_displaced_thermal_state_at_complete_loss(backend):
+    cir = dq.QumodeCircuit(1, 'vac', cutoff=14, backend=backend, basis=False, den_mat=True)
+    cir.thermal(0, nbar=torch.tensor(0.1, dtype=torch.double))
+    cir.d(0, 0.5, 0.0)
+    cir.loss_t(0, encode=True)
+    cir.double()
+    power = torch.tensor([[0.0], [0.36]], dtype=torch.double, requires_grad=True)
+    mean, variance, vacuum = _loss_observables(cir, power)
+    for observed, expected in [(variance, [0.2, 0.2]), (mean, [math.inf, 1 / 1.2])]:
+        (gradient,) = torch.autograd.grad(observed.sum(), power, retain_graph=True)
+        torch.testing.assert_close(gradient[:, 0], power.new_tensor(expected), atol=4e-9, rtol=1e-8)
+    # P(0) = exp[-0.25 T/(1+0.1 T)] / (1+0.1 T).
+    (vacuum_gradient,) = torch.autograd.grad(vacuum[0], power)
+    torch.testing.assert_close(vacuum_gradient[:, 0], power.new_tensor([-0.35, 0.0]), atol=4e-9, rtol=1e-8)
+
+
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann', 'fock'])
+def test_bright_displacement_endpoint_variance(backend):
+    cir = dq.QumodeCircuit(1, 'vac', cutoff=6, backend=backend, basis=False, den_mat=True)
+    cir.thermal(0, nbar=torch.tensor(0.1, dtype=torch.double))
+    cir.d(0, 0.5, 0.0)
+    cir.d_channel(0, encode=True)
+    cir.double()
+    data = torch.tensor([[0.31, 0, 0], [0.31, 0, 1]], dtype=torch.double, requires_grad=True)
+    cir(data)
+    covariance, mean = cir.quadrature_moments(0, phi=0.0)
+    (dmean,) = torch.autograd.grad(mean.sum(), data, retain_graph=True)
+    (dcov,) = torch.autograd.grad(covariance.sum(), data)
+    torch.testing.assert_close(dmean[:, -1], data.new_tensor([math.inf, -math.inf]))
+    # At finite cutoff, projection after displacement changes even centered moments.
+    # The projected coherent state at T=0 and the signed-angle expansion at T=1
+    # both have a resolved nonzero first-order field coefficient at cutoff six.
+    expected = [-math.inf, math.inf] if backend == 'fock' else [0.2, 0.2]
+    torch.testing.assert_close(dcov[:, -1], data.new_tensor(expected), atol=1e-12, rtol=1e-12)
+
+
+def test_power_derivative_of_user_objective_across_batch_rows():
+    cir = dq.QumodeCircuit(1, 'vac', backend='gaussian')
+    cir.d(0, 0.5, 0.0)
+    cir.loss_t(0, encode=True)
+    cir.double()
+    power = torch.zeros(2, 1, dtype=torch.double, requires_grad=True)
+    cir(power)
+    # (sqrt(T0) + sqrt(T1))² has partial derivative 1 along each axis at (0, 0).
+    objective = cir.quadrature_mean(0).sum().square()
+    (gradient,) = torch.autograd.grad(objective, power, create_graph=True)
+    torch.testing.assert_close(gradient, torch.ones_like(power))
+
+
+@pytest.fixture(
+    params=[
+        ('cpu', torch.double),
+        pytest.param(
+            ('mps', torch.float), marks=pytest.mark.skipif(not torch.backends.mps.is_available(), reason='MPS')
+        ),
+    ]
+)
+def gradient_device(request):
+    return request.param
+
+
+def _require_complex_solve(device):
+    if device == 'mps':
+        matrix = torch.eye(1, device=device, dtype=torch.complex64)
+        try:
+            torch.linalg.solve(matrix, matrix)
+        except RuntimeError as error:
+            if 'MPS only supports floats' not in str(error):
+                raise
+            pytest.skip('This PyTorch MPS backend requires a real matrix for torch.linalg.solve')
+
+
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann', 'fock'])
+@pytest.mark.parametrize('nloss', [1, 2])
+def test_transmittance_grad_of_complete_objective(backend, nloss, gradient_device):
+    # One field squared and two transmitted fields in succession both give T.
+    device, dtype = gradient_device
+    if backend == 'bargmann':
+        _require_complex_solve(device)
+    cir = dq.QumodeCircuit(1, 'vac', cutoff=10, backend=backend, basis=False, den_mat=True)
+    cir.d(0, 0.5, 0.0)
+    for _ in range(nloss):
+        cir.loss(0, encode=True)
+    cir.to(dtype).to(device)
+    for value in (0.0, 1.2, math.pi):
+        angle = torch.tensor(value, dtype=dtype, device=device, requires_grad=True)
+        cir(angle.expand(nloss))
+        mean = cir.quadrature_mean(0).sum()
+        observable = mean.square() if nloss == 1 else mean
+        torch.testing.assert_close(dqp.transmittance_grad(observable, angle), angle.new_ones(()))
+
+
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann', 'fock'])
+def test_transmittance_grad_bright_displacement(backend):
+    cir = dq.QumodeCircuit(1, 'vac', cutoff=6, backend=backend, basis=False, den_mat=True)
+    cir.thermal(0, nbar=torch.tensor(0.1, dtype=torch.double))
+    cir.d(0, 0.5, 0.0)
+    cir.d_channel(0, convention='loss_theta', encode=True)
+    cir.double()
+    for value in (0.0, math.pi):
+        angle = torch.tensor(value, dtype=torch.double, requires_grad=True)
+        cir(torch.stack([angle.new_tensor(0.31), angle.new_zeros(()), angle]))
+        variance, mean = cir.quadrature_moments(0, phi=0.0)
+        slope = -math.inf if value == 0 else math.inf
+        torch.testing.assert_close(dqp.transmittance_grad(mean.sum(), angle), angle.new_tensor(slope))
+        expected = -slope if backend == 'fock' else 0.2
+        torch.testing.assert_close(dqp.transmittance_grad(variance.sum(), angle), angle.new_tensor(expected))
+
+
+def test_transmittance_grad_of_fock_basis_survival():
+    cir = dq.QumodeCircuit(1, [1], cutoff=2)
+    cir.loss(0, encode=True)
+    cir.double()
+    angle = torch.tensor(torch.pi, dtype=torch.double, requires_grad=True)
+    survival = cir(angle.reshape(1), is_prob=True)[dq.FockState([1])].sum()
+    torch.testing.assert_close(dqp.transmittance_grad(survival, angle), angle.new_ones(()))
+
+
+@pytest.mark.parametrize('detector', ['pnrd', 'threshold', 'click'])
+@pytest.mark.parametrize('coordinate', ['power', 'angle'])
+def test_full_loss_gaussian_count_gradients(detector, coordinate, gradient_device):
+    device, dtype = gradient_device
+    if detector != 'click':
+        _require_complex_solve(device)
+    cir = dq.QumodeCircuit(1, 'vac', backend='gaussian', cutoff=3, detector=detector)
+    cir.thermal(0, nbar=torch.tensor(0.1, dtype=dtype))
+    cir.d(0, 0.5, 0.0)
+    if coordinate == 'power':
+        cir.loss_t(0, encode=True)
+    else:
+        cir.loss(0, encode=True)
+    cir.to(dtype).to(device)
+    control = torch.tensor(0.0 if coordinate == 'power' else torch.pi, dtype=dtype, device=device, requires_grad=True)
+    table = cir(control.reshape(1), is_prob=True)
+    patterns = torch.arange(2 if detector == 'threshold' else 3).unsqueeze(-1)
+    queried = cir.get_prob(patterns)
+    listed = torch.stack([table[dq.FockState(row)].squeeze() for row in patterns])
+    # A transmitted photon comes from nbar=0.1 or |alpha|²=0.25. Two photons are O(T²).
+    expected = control.new_tensor([-0.35, 0.35, 0.0])[: len(patterns)]
+    for probabilities in (listed, queried):
+        if coordinate == 'power':
+            slopes = [torch.autograd.grad(p, control, retain_graph=True)[0] for p in probabilities]
+        else:
+            slopes = [dqp.transmittance_grad(p, control) for p in probabilities]
+        torch.testing.assert_close(torch.stack(slopes), expected)
+    if coordinate == 'power' and dtype == torch.double:
+        with torch.no_grad():
+            step = 1e-6
+            cir((control + step).reshape(1))
+            torch.testing.assert_close((cir.get_prob(patterns) - queried) / step, expected, atol=3e-7, rtol=1e-6)
+
+
+def test_centered_pure_gaussian_counts_keep_even_hafnians(monkeypatch):
+    # Split squeezed vacuum and vacuum. The pair is transmitted together with probability cos(theta)^4.
+    r = 0.4
+    cir = dq.QumodeCircuit(2, 'vac', backend='gaussian', cutoff=4)
+    cir.s(0, r, 0.0)
+    cir.bs_theta([0, 1], encode=True)
+    cir.double()
+    theta = torch.tensor([[0.2], [0.4]], dtype=torch.double, requires_grad=True)
+    event = dq.FockState([2, 0])
+    hafnian = dqp.circuit.hafnian
+
+    def even_hafnian(matrix, loop):
+        # The pure-state matrix has one row per photon. A mixed-state matrix has twice as many.
+        assert not loop and matrix.shape[-1] % 2 == 0 and matrix.shape[-1] <= 2 * (cir.cutoff - 1)
+        return hafnian(matrix, loop=loop)
+
+    monkeypatch.setattr(dqp.circuit, 'hafnian', even_hafnian)
+    table = cir(theta, is_prob=True)
+    expected = math.tanh(r) ** 2 / (2 * math.cosh(r)) * theta[:, 0].cos() ** 4
+    for probability in (table[event], cir.get_prob([2, 0])):
+        torch.testing.assert_close(probability, expected)
+        torch.testing.assert_close(
+            torch.autograd.grad(probability.sum(), theta, retain_graph=True),
+            torch.autograd.grad(expected.sum(), theta, retain_graph=True),
+        )
+    odd = cir.get_prob([1, 0])
+    torch.testing.assert_close(odd, torch.zeros_like(odd))
+    torch.testing.assert_close(torch.autograd.grad(odd.sum(), theta)[0], torch.zeros_like(theta))
+
+
+def test_zero_differentiable_input_mean_keeps_one_photon_curvature():
+    cir = dq.QumodeCircuit(1, 'vac', backend='gaussian', cutoff=3)
+    cir.ps(0, 0.0)
+    cir.double()
+    cir(is_prob=True)
+    x = torch.tensor(0.0, dtype=torch.double, requires_grad=True)
+    cov = torch.eye(2, dtype=x.dtype)
+    mean = torch.stack([2 * x, torch.zeros_like(x)]).reshape(2, 1)
+    # In both entry points P(1)=x² exp(-x²), even when the preceding execution was centered vacuum.
+    external = cir.get_prob([1], refer_state=[cov, mean])
+    table = cir(state=[cov, mean], is_prob=True)
+    for probability in (external, table[dq.FockState([1])], cir.get_prob([1])):
+        first = torch.autograd.grad(probability.sum(), x, create_graph=True, retain_graph=True)[0]
+        torch.testing.assert_close(torch.autograd.grad(first, x, retain_graph=True)[0], x.new_tensor(2.0))
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason='MPS is not available')
+@pytest.mark.parametrize('backend', ['bargmann', 'fock'])
+def test_loss_channel_mps_dtype_and_gradient(backend):
+    def evaluate(device):
+        if backend == 'bargmann':
+            power = torch.tensor(0.4, device=device, requires_grad=True)
+            kernel = dqp.PhotonLoss(power, cutoff=4, convention='t').get_bargmann().mat_a
+            observable = kernel.real.sum()
+            (gradient,) = torch.autograd.grad(observable, power)
+        else:
+            circuit = dq.QumodeCircuit(1, 'vac', cutoff=5, basis=False, den_mat=True)
+            circuit.d_channel(0, encode=True)
+            circuit.to(device)
+            controls = torch.tensor([0.31, 0.4, 0.7], device=device, requires_grad=True)
+            circuit(controls)
+            observable = circuit.quadrature_mean(0, phi=0.2).sum()
+            (gradient,) = torch.autograd.grad(observable, controls)
+        return observable.detach().cpu(), gradient.cpu()
+
+    torch.testing.assert_close(evaluate('mps'), evaluate('cpu'), atol=3e-6, rtol=3e-5)
