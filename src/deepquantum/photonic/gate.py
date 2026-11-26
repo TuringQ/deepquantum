@@ -1340,8 +1340,9 @@ class Displacement(SingleGate):
         """
         r, theta = self.inputs_to_tensor([r, theta])
         sqrt = torch.sqrt(torch.arange(self.cutoff, dtype=r.dtype, device=r.device))
-        alpha = r * torch.exp(1j * theta)
-        alpha_c = r * torch.exp(-1j * theta)
+        phase = _times_i(theta)
+        alpha = r * torch.exp(phase)
+        alpha_c = r * torch.exp(-phase)
         tran_mat = alpha.new_zeros([self.cutoff] * 2)
         tran_mat[0, 0] = torch.exp(-(r**2) / 2)
         # rank 1

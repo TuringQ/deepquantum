@@ -501,3 +501,75 @@ def test_loss_observable_endpoint_expansion(backend, auxiliary):
             (h,) = torch.autograd.grad(g, q, retain_graph=True)
             torch.testing.assert_close(root[i], g, atol=5e-8, rtol=1e-7)
             torch.testing.assert_close(slope[i], -h / 2, atol=5e-8, rtol=1e-7)
+
+
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann', 'fock'])
+def test_power_derivative_of_displaced_thermal_state_at_complete_loss(backend):
+    cir = dq.QumodeCircuit(1, 'vac', cutoff=14, backend=backend, basis=False, den_mat=True)
+    cir.thermal(0, nbar=torch.tensor(0.1, dtype=torch.double))
+    cir.d(0, 0.5, 0.0)
+    cir.loss_t(0, encode=True)
+    cir.double()
+    power = torch.tensor([[0.0], [0.36]], dtype=torch.double, requires_grad=True)
+    mean, variance, vacuum = _loss_observables(cir, power)
+    for observed, expected in [(variance, [0.2, 0.2]), (mean, [math.inf, 1 / 1.2])]:
+        (gradient,) = torch.autograd.grad(observed.sum(), power, retain_graph=True)
+        torch.testing.assert_close(gradient[:, 0], power.new_tensor(expected), atol=4e-9, rtol=1e-8)
+    # P(0) = exp[-0.25 T/(1+0.1 T)] / (1+0.1 T).
+    (vacuum_gradient,) = torch.autograd.grad(vacuum[0], power)
+    torch.testing.assert_close(vacuum_gradient[:, 0], power.new_tensor([-0.35, 0.0]), atol=4e-9, rtol=1e-8)
+
+
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann', 'fock'])
+def test_bright_displacement_endpoint_variance(backend):
+    cir = dq.QumodeCircuit(1, 'vac', cutoff=6, backend=backend, basis=False, den_mat=True)
+    cir.thermal(0, nbar=torch.tensor(0.1, dtype=torch.double))
+    cir.d(0, 0.5, 0.0)
+    cir.d_channel(0, encode=True)
+    cir.double()
+    data = torch.tensor([[0.31, 0, 0], [0.31, 0, 1]], dtype=torch.double, requires_grad=True)
+    cir(data)
+    covariance, mean = cir.quadrature_moments(0, phi=0.0)
+    (dmean,) = torch.autograd.grad(mean.sum(), data, retain_graph=True)
+    (dcov,) = torch.autograd.grad(covariance.sum(), data)
+    torch.testing.assert_close(dmean[:, -1], data.new_tensor([math.inf, -math.inf]))
+    # At finite cutoff, projection after displacement changes even centered moments.
+    # The projected coherent state at T=0 and the signed-angle expansion at T=1
+    # both have a resolved nonzero first-order field coefficient at cutoff six.
+    expected = [-math.inf, math.inf] if backend == 'fock' else [0.2, 0.2]
+    torch.testing.assert_close(dcov[:, -1], data.new_tensor(expected), atol=1e-12, rtol=1e-12)
+
+
+def test_power_derivative_of_user_objective_across_batch_rows():
+    cir = dq.QumodeCircuit(1, 'vac', backend='gaussian')
+    cir.d(0, 0.5, 0.0)
+    cir.loss_t(0, encode=True)
+    cir.double()
+    power = torch.zeros(2, 1, dtype=torch.double, requires_grad=True)
+    cir(power)
+    # (sqrt(T0) + sqrt(T1))² has partial derivative 1 along each axis at (0, 0).
+    objective = cir.quadrature_mean(0).sum().square()
+    (gradient,) = torch.autograd.grad(objective, power, create_graph=True)
+    torch.testing.assert_close(gradient, torch.ones_like(power))
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason='MPS is not available')
+@pytest.mark.parametrize('backend', ['bargmann', 'fock'])
+def test_loss_channel_mps_dtype_and_gradient(backend):
+    def evaluate(device):
+        if backend == 'bargmann':
+            power = torch.tensor(0.4, device=device, requires_grad=True)
+            kernel = dqp.PhotonLoss(power, cutoff=4, convention='t').get_bargmann().mat_a
+            observable = kernel.real.sum()
+            (gradient,) = torch.autograd.grad(observable, power)
+        else:
+            circuit = dq.QumodeCircuit(1, 'vac', cutoff=5, basis=False, den_mat=True)
+            circuit.d_channel(0, encode=True)
+            circuit.to(device)
+            controls = torch.tensor([0.31, 0.4, 0.7], device=device, requires_grad=True)
+            circuit(controls)
+            observable = circuit.quadrature_mean(0, phi=0.2).sum()
+            (gradient,) = torch.autograd.grad(observable, controls)
+        return observable.detach().cpu(), gradient.cpu()
+
+    torch.testing.assert_close(evaluate('mps'), evaluate('cpu'), atol=3e-6, rtol=3e-5)

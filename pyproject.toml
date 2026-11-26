@@ -82,6 +82,9 @@ version = { attr = 'deepquantum.__version__' }
 [tool.jupytext]
 formats = 'ipynb,py:percent'
 
+[tool.pytest.ini_options]
+testpaths = ['tests']
+
 [tool.ruff]
 line-length = 120
 

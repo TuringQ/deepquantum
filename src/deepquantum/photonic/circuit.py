@@ -22,6 +22,7 @@ import deepquantum.photonic as dqp
 
 from ..qmath import block_sample, get_prob_mps, inner_product_mps, is_positive_definite, sample_sc_mcmc
 from ..state import MatrixProductState
+from ._loss_gradient import _loss_readout, _record_loss_fields
 from .channel import DisplacementChannel, OPA, PhotonLoss
 from .decompose import UnitaryDecomposer
 from .distributed import measure_dist
@@ -372,6 +373,7 @@ class QumodeCircuit(Operation):
             cir._ntau_dict[key].extend(value)
         return cir
 
+    @_record_loss_fields
     def forward(
         self,
         data: torch.Tensor | None = None,
@@ -1890,6 +1892,7 @@ class QumodeCircuit(Operation):
         amp = per / per_norm
         return amp.reshape(-1)
 
+    @_loss_readout
     def get_prob(self, final_state: Any, refer_state: Any = None, unitary: torch.Tensor | None = None) -> torch.Tensor:
         """Get the probability of the final state related to the reference state.
 
@@ -2867,6 +2870,7 @@ class QumodeCircuit(Operation):
         sampler = _sample_pure if purity else _sample_mixed
         return torch.stack([sampler(cov[i], mean[i], wires, nmode) for i in range(batch)])
 
+    @_loss_readout
     def photon_number_mean_var(self, wires: int | list[int] | None = None) -> tuple[torch.Tensor, torch.Tensor] | None:
         """Get the expectation value and variance of the photon number operator.
 
@@ -2974,6 +2978,7 @@ class QumodeCircuit(Operation):
             return view.quadrature_mean(phi=phi, normalize=normalize)
         return view.quadrature_moments(phi=phi, powers=powers, centered=centered, normalize=normalize)
 
+    @_loss_readout
     def quadrature_mean(
         self, wires: int | list[int] | None = None, phi: Any = None, *, normalize: bool | None = None, lo: Any = None
     ) -> torch.Tensor:
@@ -3047,6 +3052,7 @@ class QumodeCircuit(Operation):
         lo: Any = None,
     ) -> torch.Tensor: ...
 
+    @_loss_readout
     def quadrature_moments(
         self,
         wires: int | list[int] | None = None,
@@ -3069,6 +3075,11 @@ class QumodeCircuit(Operation):
         The covariance and mean are available on Fock state tensors, Gaussian, Bosonic and Bargmann
         states. With orthogonal basis modes, each selected spatial wire contributes one LO mode.
         Bargmann delay circuits read the current spatial outputs. MPS and Gaussian/Bosonic TDM are unsupported.
+
+        At zero transmitted or reflected field, reverse-mode power gradients use the one-sided
+        limit of the requested moment. A nonzero term linear in the field gives an infinite slope.
+        A linear coefficient at the level of roundoff can give ``nan``, for example after Fock truncation.
+        Use the signed coupling angle to inspect the linear and quadratic coefficients separately.
 
         Args:
             wires: Distinct spatial modes in output order. An explicit query defaults to all modes.

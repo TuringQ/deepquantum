@@ -14,6 +14,7 @@ import deepquantum.photonic as dqp
 from ..communication import comm_get_rank, comm_get_world_size
 from ..qmath import is_power, list_to_decimal, multi_kron
 from ..utils import apply_complex_fix
+from ._loss_gradient import _loss_readout
 from .bargmann import (
     BargmannPolyExp,
     _annihilation_means,
@@ -439,7 +440,10 @@ class BargmannState(nn.Module):
     def _new(self, polyexp: BargmannPolyExp, den_mat: bool | None = None) -> 'BargmannState':
         """Wrap an evolution result with the same default readout cutoff."""
         den_mat = self.den_mat if den_mat is None else den_mat
-        return BargmannState(polyexp, den_mat=den_mat, cutoff=self.cutoff)
+        state = BargmannState(polyexp, den_mat=den_mat, cutoff=self.cutoff)
+        if fields := getattr(self, '_loss_fields', None):
+            state._loss_fields = fields
+        return state
 
     @property
     def polyexp(self) -> BargmannPolyExp:
@@ -611,6 +615,7 @@ class BargmannState(nn.Module):
             raise NotImplementedError('Bargmann photon counting supports PNR and threshold detectors.')
         return self._new(kernel, den_mat=True)
 
+    @_loss_readout
     def norm(self) -> torch.Tensor:
         r"""Get the squared norm :math:`\langle\psi|\psi\rangle` of a ket or the trace of a density operator.
 
@@ -649,6 +654,7 @@ class BargmannState(nn.Module):
             raise ValueError('Normalized moments require a positive state weight')
         return _moment_generating(density.polyexp, wires), weight
 
+    @_loss_readout
     def quadrature_mean(
         self, wires: int | list[int] | None = None, phi: Any = None, *, normalize: bool = True
     ) -> torch.Tensor:
@@ -688,6 +694,7 @@ class BargmannState(nn.Module):
         normalize: bool = True,
     ) -> torch.Tensor: ...
 
+    @_loss_readout
     def quadrature_moments(
         self,
         wires: int | list[int] | None = None,
@@ -746,6 +753,25 @@ class BargmannState(nn.Module):
                 if centered:
                     moments = moments * 0
             return moments / weight[:, None] if normalize else moments
+        if centered and generating.naux == 0 and generating.mat_a.shape[1] == 1:
+            # The log of a single Gaussian generating function is quadratic.
+            # Its Hessian is the centered second cumulant, independent of the
+            # displacement, including at a zero reflected or transmitted field.
+            matrix, linear = generating.mat_a[:, 0], generating.vec_b[:, 0, nwire:]
+            covariance, _ = _quadrature_moments_ladder(
+                torch.zeros_like(linear),
+                matrix[:, :nwire, nwire:],
+                matrix[:, nwire:, nwire:],
+                torch.ones_like(weight),
+                centered=False,
+                normalize=False,
+            )
+            scale = dqp.hbar**0.5 / dqp.kappa
+            first = scale * torch.cat([linear.real, linear.imag], dim=-1).unsqueeze(-1)
+            # A normalized moment has zero sensitivity to an independent overall weight.
+            factor = (1 + weight * 0 if normalize else weight)[:, None, None]
+            covariance, first = covariance * factor, first * factor
+            return (covariance, first) if phi is None else _project_quadrature_moments(covariance, first, phi)
         alpha = _annihilation_means(generating)
         normal, anomalous = [], []
         for i in range(nwire):
@@ -760,6 +786,7 @@ class BargmannState(nn.Module):
         )
         return (second, first) if phi is None else _project_quadrature_moments(second, first, phi)
 
+    @_loss_readout
     def photon_number_mean_var(self, wires: int | list[int] | None = None) -> tuple[torch.Tensor, torch.Tensor]:
         r"""Get normalized photon-number expectation and variance without Fock truncation.
 
@@ -798,6 +825,7 @@ class BargmannState(nn.Module):
         factorial = torch.stack(factorial, dim=-1).real / weight[:, None]
         return mean, factorial + mean - mean.square()
 
+    @_loss_readout
     def to_fock(self, cutoff: int | None = None) -> torch.Tensor:
         """Get the Fock state tensor.
 

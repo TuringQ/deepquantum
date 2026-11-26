@@ -11,6 +11,7 @@ from torch.autograd.function import FunctionCtx
 import deepquantum.photonic as dqp
 
 from ..qmath import evolve_state
+from ._loss_gradient import _loss_field
 from .bargmann import BargmannPolyExp, _gaussian_bargmann
 from .gate import BeamSplitterSingle, Displacement
 from .operation import Channel
@@ -37,7 +38,7 @@ def _loss_to_theta(inputs: Any, convention: str) -> torch.Tensor | None:
 def _vacuum_loss_coefficients(control: torch.Tensor, *, is_power: bool) -> tuple[torch.Tensor, torch.Tensor]:
     """Return the signed transmitted field and lost power in the supplied coordinate."""
     if is_power:
-        return control.sqrt(), 1 - control
+        return _loss_field(control), 1 - control
     half_angle = control / 2
     return half_angle.cos(), half_angle.sin().square()
 
@@ -46,6 +47,20 @@ def _vacuum_loss_xy(field: torch.Tensor, loss: torch.Tensor) -> tuple[torch.Tens
     """Local attenuation and vacuum-noise matrices used by both loss and coherent displacement."""
     identity = torch.eye(2, dtype=field.dtype, device=field.device)
     return field * identity, loss * identity * dqp.hbar / (4 * dqp.kappa**2)
+
+
+def _attenuate_moments(
+    state: list[torch.Tensor], wire: int, field: torch.Tensor, power: torch.Tensor, noise: torch.Tensor
+) -> list[torch.Tensor]:
+    """Scale both indices of a local covariance by power, and each cross covariance by field."""
+    cov, mean = state[:2]
+    target = (torch.arange(cov.shape[-1] // 2, device=cov.device) == wire).repeat(2)
+    scale = torch.where(target, field.reshape(()), 1.0)
+    both = target[:, None] & target
+    cross = target[:, None] ^ target
+    cov = torch.where(both, power.reshape(()), torch.where(cross, field.reshape(()), 1.0)) * cov
+    cov.diagonal(dim1=-2, dim2=-1).add_(target * noise)
+    return [cov, scale[:, None].to(mean.dtype) * mean, *state[2:]]
 
 
 class _CalibratedLossChannel(Channel):
@@ -114,6 +129,8 @@ class DisplacementChannel(_CalibratedLossChannel):
     :math:`\alpha=\beta\sin(\theta/2)`. The signal power transmittance is :math:`t=\cos^2(\theta/2)`.
     A transmittance input selects :math:`\theta\in[0,\pi]`. An angle input preserves the field sign;
     a negative amplitude corresponds to a phase shift of :math:`\pi`.
+    A bright auxiliary can give a quadrature mean a vertical tangent in power at either endpoint.
+    Projection after the displacement can also give a finite-cutoff Fock covariance a vertical tangent.
     See https://arxiv.org/pdf/1009.1844v2 Eq.(8), Eq.(18).
 
     Args:
@@ -177,9 +194,7 @@ class DisplacementChannel(_CalibratedLossChannel):
     def _drive(self) -> torch.Tensor:
         """Signed displacement radius; a dark auxiliary contributes zero at every transmittance."""
         if (power := self._native_loss) is not None:
-            dark = (power == 1) & (self.amplitude == 0)
-            lost = torch.where(dark, 1.0, 1 - power)
-            return self.amplitude * torch.where(dark, 0.0, lost.sqrt())
+            return self.amplitude * _loss_field(1 - power)
         return self.amplitude * (self.loss_theta / 2).sin()
 
     @property
@@ -211,9 +226,20 @@ class DisplacementChannel(_CalibratedLossChannel):
     def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
         """Apply reduced vacuum loss followed by the coherent auxiliary displacement."""
         field, lost = self._loss_coefficients()
-        x = PhotonLoss._apply_density(x, self.nmode, self.wires[0], self.cutoff, field, lost)
+        x = PhotonLoss._apply_density(x, self.nmode, self.wires[0], self.cutoff, field, lost, self._native_loss)
         drive = Displacement([self._drive, self.phase], self.nmode, self.wires, self.cutoff, den_mat=True)
         return drive(x)
+
+    def op_cv(self, x: list[torch.Tensor]) -> list[torch.Tensor]:
+        """The coherent drive shifts the mean and leaves the attenuated covariance unchanged."""
+        field, lost = self._loss_coefficients()
+        power = field.square() if self._native_loss is None else self._native_loss
+        result = _attenuate_moments(x, self.wires[0], field, power, lost * dqp.hbar / (4 * dqp.kappa**2))
+        alpha = self.displacement_amplitude.reshape(())
+        shift = torch.stack([alpha.real, alpha.imag]) * dqp.hbar**0.5 / dqp.kappa
+        target = torch.arange(self.nmode, device=shift.device) == self.wires[0]
+        result[1] = result[1] + (shift[:, None] * target).reshape(-1, 1).to(result[1])
+        return result
 
     def extra_repr(self) -> str:
         return (
@@ -242,6 +268,45 @@ class _CheckCalibration(torch.autograd.Function):
         return _CheckCalibration.apply(valid, message), in_dims[0]
 
 
+class _OPAFullLossNoise(torch.autograd.Function):
+    """Vacuum noise and its one-sided power derivative at complete distributed loss."""
+
+    generate_vmap_rule = True
+
+    @staticmethod
+    def forward(power: torch.Tensor, pump: torch.Tensor, contrast: torch.Tensor) -> torch.Tensor:
+        vacuum = torch.eye(2, dtype=power.dtype, device=power.device)
+        return vacuum + torch.zeros_like(power) + torch.zeros_like(pump) + torch.zeros_like(contrast)
+
+    @staticmethod
+    def setup_context(ctx: FunctionCtx, inputs: tuple, output: torch.Tensor) -> None:
+        _, pump, contrast = inputs
+        ctx.save_for_backward(pump, contrast)
+        ctx.save_for_forward(pump, contrast)
+
+    @staticmethod
+    def jvp(ctx: FunctionCtx, d_power: torch.Tensor, d_pump: torch.Tensor, d_contrast: torch.Tensor) -> torch.Tensor:
+        pump, contrast = ctx.saved_tensors
+        identity = torch.eye(2, dtype=contrast.dtype, device=contrast.device)
+        leading = torch.where(contrast == 0, identity, pump.sign() * contrast) * d_power
+        vertical = torch.where(leading == 0, 0.0, torch.copysign(torch.full_like(leading, torch.inf), leading))
+        return torch.where(pump == 0, -identity * d_power, vertical)
+
+    @staticmethod
+    def backward(ctx: FunctionCtx, grad: torch.Tensor) -> tuple:
+        pump, contrast = ctx.saved_tensors
+        trace = grad.diagonal().sum()
+        components = grad * contrast
+        axis = components.sum()
+        # With a=-log(T), Y=I+2r(Pa-Ps)/a+(2r)²I/a²+... .
+        # Either inverse-log term dominates every positive power of T. For
+        # zero pump the exact noise is (1-T)I.
+        resolved = axis.abs() > 4 * torch.finfo(grad.dtype).eps * components.abs().sum()
+        leading = torch.where(resolved, pump.sign() * axis, trace)
+        vertical = torch.where(leading == 0, 0.0, torch.copysign(torch.full_like(leading, torch.inf), leading))
+        return torch.where(pump == 0, -trace, vertical), None, None
+
+
 class OPA(_CalibratedLossChannel):
     r"""Single-mode optical parametric amplifier with uniform distributed vacuum loss.
 
@@ -260,6 +325,9 @@ class OPA(_CalibratedLossChannel):
     :math:`\operatorname{exprel}(z)=(e^z-1)/z`, with :math:`\operatorname{exprel}(0)=1`.
     Positive :math:`r` and :math:`\theta=0` squeeze :math:`x` and amplify :math:`p`.
     The internal parameters are ``r``, ``theta`` and ``loss_theta``.
+    At complete loss the output is vacuum. With the pump off this is ordinary attenuation.
+    At fixed nonzero pump the variances approach vacuum as inverse powers of :math:`-\ln T`,
+    giving opposite infinite one-sided power slopes on the two gain axes.
     See https://arxiv.org/abs/2606.02524v1 Eq.(16) and Methods, Internal Loss.
 
     Gaussian and Bosonic states use :math:`X` and :math:`Y` directly. The Bargmann backend
@@ -366,15 +434,26 @@ class OPA(_CalibratedLossChannel):
         full_loss = t == 0
         # Evaluate the complete-loss limit separately, avoiding log(0) and inf * 0.
         attenuation = -torch.log(torch.where(full_loss, torch.ones_like(t), t))
-        r = torch.where(full_loss, torch.zeros_like(r), r)
+        interior_r = torch.where(full_loss, torch.zeros_like(r), r)
         cos, sin = torch.cos(theta / 2), torch.sin(theta / 2)
         squeezed = torch.stack([cos.square(), cos * sin, cos * sin, sin.square()]).reshape(2, 2)
         amplified = torch.stack([sin.square(), -cos * sin, -cos * sin, cos.square()]).reshape(2, 2)
-        rate_s, rate_a = -2 * r - attenuation, 2 * r - attenuation
+        rate_s, rate_a = -2 * interior_r - attenuation, 2 * interior_r - attenuation
         matrix_x = torch.exp(rate_s / 2) * squeezed + torch.exp(rate_a / 2) * amplified
         matrix_y = attenuation * (self._exprel(rate_s) * squeezed + self._exprel(rate_a) * amplified)
-        matrix_x = torch.where(full_loss, torch.zeros_like(matrix_x), matrix_x)
-        matrix_y = torch.where(full_loss, torch.eye(2, dtype=r.dtype, device=r.device), matrix_y)
+        if self.convention == 't' and self._native_loss is not None:
+            # Preserve the field response of native T at zero, including the
+            # ordinary attenuator limit when the pump is off.
+            field = _loss_field(torch.where(full_loss, t, 1.0))
+            limit = log(torch.finfo(r.dtype).max) - 1
+            gain = torch.where(full_loss, r, 0.0).clamp(-limit, limit)
+            endpoint_x = field * ((-gain).exp() * squeezed + gain.exp() * amplified)
+            endpoint_y = _OPAFullLossNoise.apply(t, r, amplified - squeezed)
+        else:
+            endpoint_x = torch.zeros_like(matrix_x)
+            endpoint_y = torch.eye(2, dtype=r.dtype, device=r.device)
+        matrix_x = torch.where(full_loss, endpoint_x, matrix_x)
+        matrix_y = torch.where(full_loss, endpoint_y, matrix_y)
         matrix_y = matrix_y * dqp.hbar / (4 * dqp.kappa**2)
         self.matrix_x, self.matrix_y = matrix_x.detach(), matrix_y.detach()
         return matrix_x, matrix_y
@@ -439,6 +518,10 @@ class PhotonLoss(Channel):
 
     The power transmittance is :math:`T=\cos^2(\theta/2)`. Fixed and encoded power or dB inputs
     act directly on the reduced state. A trainable coupler uses the angle as its optimizer parameter.
+    At zero transmitted field a quadrature mean can have an infinite power derivative while a
+    covariance or a photon-count probability has a finite derivative. For a custom nonlinear
+    objective of circuit outputs, use ``torch.autograd.grad(objective, power, create_graph=True)``
+    to retain the signed-field curvature of the complete objective at the endpoint.
 
     Args:
         inputs: The parameter of the channel. Default: ``None``
@@ -550,11 +633,19 @@ class PhotonLoss(Channel):
 
     def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
         """Apply vacuum loss, summing over the same lost photons on ket and bra."""
-        return self._apply_density(x, self.nmode, self.wires[0], self.cutoff, *self._loss_coefficients())
+        return self._apply_density(
+            x, self.nmode, self.wires[0], self.cutoff, *self._loss_coefficients(), getattr(self.gate, 'power', None)
+        )
 
     @staticmethod
     def _apply_density(
-        x: torch.Tensor, nmode: int, wire: int, cutoff: int, field: torch.Tensor, loss: torch.Tensor
+        x: torch.Tensor,
+        nmode: int,
+        wire: int,
+        cutoff: int,
+        field: torch.Tensor,
+        loss: torch.Tensor,
+        power: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Apply the reduced vacuum-loss kernel to one wire."""
         # Each lost photon contributes 1 - T to the density matrix. Taking its
@@ -562,7 +653,14 @@ class PhotonLoss(Channel):
         axes = (wire + 1, wire + nmode + 1)
         rho = x.movedim(axes, (-2, -1))
         levels = torch.arange(cutoff, device=field.device)
-        weight = field.reshape(()).pow(levels[:, None] + levels)
+        order = levels[:, None] + levels
+        # Keep constant and linear terms explicit. Differentiating the tensor
+        # exponent twice at zero otherwise evaluates 0 * 0**(-1).
+        base = field.reshape(()) if power is None else power.reshape(())
+        exponent = order if power is None else order // 2
+        weight = torch.where(exponent == 0, 1.0, torch.where(exponent == 1, base, base.pow(exponent.clamp_min(2))))
+        if power is not None:
+            weight = weight * torch.where(order % 2 == 1, field.reshape(()), 1.0)
         result = weight * rho
         for lost in range(1, cutoff):
             factor = (levels[lost:].to(field) / lost).sqrt()
@@ -583,13 +681,8 @@ class PhotonLoss(Channel):
 
     def op_cv(self, x: list[torch.Tensor]) -> list[torch.Tensor]:
         """Attenuate the target quadratures and add their independent vacuum noise."""
-        cov, mean = x[:2]
         local_x, local_y = self.update_transform_xy()
-        mask = (torch.arange(self.nmode, device=cov.device) == self.wires[0]).repeat(2)
-        scale = torch.where(mask, local_x[0, 0], 1.0)
-        cov = scale[:, None] * cov * scale
-        cov.diagonal(dim1=-2, dim2=-1).add_(mask * local_y[0, 0])
-        return [cov, scale[:, None].to(mean.dtype) * mean, *x[2:]]
+        return _attenuate_moments(x, self.wires[0], local_x[0, 0], self.t, local_y[0, 0])
 
     def get_bargmann(self) -> BargmannPolyExp:
         r"""Get the Bargmann representation of the channel.
@@ -605,7 +698,6 @@ class PhotonLoss(Channel):
         if len(self.wires) != 1:
             raise NotImplementedError('PhotonLoss acts on a single mode')
         amplitude, loss = self._loss_coefficients()
-        amplitude = amplitude + 0j
         zero = torch.zeros_like(amplitude)
         mat_a = torch.stack(
             [
@@ -627,6 +719,7 @@ class PhotonLoss(Channel):
                 zero,
             ]
         ).reshape(4, 4)
+        mat_a = mat_a + 0j
         return _gaussian_bargmann(mat_a, mat_a.new_zeros(4), mat_a.new_ones(()))
 
     def extra_repr(self) -> str:
