@@ -11,11 +11,11 @@ from torch.autograd.function import FunctionCtx
 import deepquantum.photonic as dqp
 
 from ..qmath import evolve_state
-from ._loss_gradient import _loss_field
 from .bargmann import BargmannPolyExp, _gaussian_bargmann
 from .gate import BeamSplitterSingle, Displacement
+from .gradient import _OPAFullLossNoise, _coupling_fields, _loss_field
 from .operation import Channel
-from .qmath import _coupling_fields, _times_i
+from .qmath import _times_i
 
 
 def _loss_to_theta(inputs: Any, convention: str) -> torch.Tensor | None:
@@ -266,45 +266,6 @@ class _CheckCalibration(torch.autograd.Function):
         info: object, in_dims: tuple[int | None, None], valid: torch.Tensor, message: str
     ) -> tuple[torch.Tensor, int | None]:
         return _CheckCalibration.apply(valid, message), in_dims[0]
-
-
-class _OPAFullLossNoise(torch.autograd.Function):
-    """Vacuum noise and its one-sided power derivative at complete distributed loss."""
-
-    generate_vmap_rule = True
-
-    @staticmethod
-    def forward(power: torch.Tensor, pump: torch.Tensor, contrast: torch.Tensor) -> torch.Tensor:
-        vacuum = torch.eye(2, dtype=power.dtype, device=power.device)
-        return vacuum + torch.zeros_like(power) + torch.zeros_like(pump) + torch.zeros_like(contrast)
-
-    @staticmethod
-    def setup_context(ctx: FunctionCtx, inputs: tuple, output: torch.Tensor) -> None:
-        _, pump, contrast = inputs
-        ctx.save_for_backward(pump, contrast)
-        ctx.save_for_forward(pump, contrast)
-
-    @staticmethod
-    def jvp(ctx: FunctionCtx, d_power: torch.Tensor, d_pump: torch.Tensor, d_contrast: torch.Tensor) -> torch.Tensor:
-        pump, contrast = ctx.saved_tensors
-        identity = torch.eye(2, dtype=contrast.dtype, device=contrast.device)
-        leading = torch.where(contrast == 0, identity, pump.sign() * contrast) * d_power
-        vertical = torch.where(leading == 0, 0.0, torch.copysign(torch.full_like(leading, torch.inf), leading))
-        return torch.where(pump == 0, -identity * d_power, vertical)
-
-    @staticmethod
-    def backward(ctx: FunctionCtx, grad: torch.Tensor) -> tuple:
-        pump, contrast = ctx.saved_tensors
-        trace = grad.diagonal().sum()
-        components = grad * contrast
-        axis = components.sum()
-        # With a=-log(T), Y=I+2r(Pa-Ps)/a+(2r)²I/a²+... .
-        # Either inverse-log term dominates every positive power of T. For
-        # zero pump the exact noise is (1-T)I.
-        resolved = axis.abs() > 4 * torch.finfo(grad.dtype).eps * components.abs().sum()
-        leading = torch.where(resolved, pump.sign() * axis, trace)
-        vertical = torch.where(leading == 0, 0.0, torch.copysign(torch.full_like(leading, torch.inf), leading))
-        return torch.where(pump == 0, -trace, vertical), None, None
 
 
 class OPA(_CalibratedLossChannel):

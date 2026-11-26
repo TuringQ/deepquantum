@@ -14,7 +14,6 @@ import deepquantum.photonic as dqp
 from ..communication import comm_get_rank, comm_get_world_size
 from ..qmath import is_power, list_to_decimal, multi_kron
 from ..utils import apply_complex_fix
-from ._loss_gradient import _loss_readout
 from .bargmann import (
     BargmannPolyExp,
     _annihilation_means,
@@ -30,6 +29,7 @@ from .bargmann import (
     vacuum_bargmann,
 )
 from .draw import GaussianGraphVisualizer
+from .gradient import _loss_readout
 from .qmath import (
     _first_order_indices,
     _moment_powers,

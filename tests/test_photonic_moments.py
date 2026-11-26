@@ -656,6 +656,52 @@ def test_full_loss_gaussian_count_gradients(detector, coordinate, gradient_devic
             torch.testing.assert_close((cir.get_prob(patterns) - queried) / step, expected, atol=3e-7, rtol=1e-6)
 
 
+def test_centered_pure_gaussian_counts_keep_even_hafnians(monkeypatch):
+    # Split squeezed vacuum and vacuum. The pair is transmitted together with probability cos(theta)^4.
+    r = 0.4
+    cir = dq.QumodeCircuit(2, 'vac', backend='gaussian', cutoff=4)
+    cir.s(0, r, 0.0)
+    cir.bs_theta([0, 1], encode=True)
+    cir.double()
+    theta = torch.tensor([[0.2], [0.4]], dtype=torch.double, requires_grad=True)
+    event = dq.FockState([2, 0])
+    hafnian = dqp.circuit.hafnian
+
+    def even_hafnian(matrix, loop):
+        # The pure-state matrix has one row per photon. A mixed-state matrix has twice as many.
+        assert not loop and matrix.shape[-1] % 2 == 0 and matrix.shape[-1] <= 2 * (cir.cutoff - 1)
+        return hafnian(matrix, loop=loop)
+
+    monkeypatch.setattr(dqp.circuit, 'hafnian', even_hafnian)
+    table = cir(theta, is_prob=True)
+    expected = math.tanh(r) ** 2 / (2 * math.cosh(r)) * theta[:, 0].cos() ** 4
+    for probability in (table[event], cir.get_prob([2, 0])):
+        torch.testing.assert_close(probability, expected)
+        torch.testing.assert_close(
+            torch.autograd.grad(probability.sum(), theta, retain_graph=True),
+            torch.autograd.grad(expected.sum(), theta, retain_graph=True),
+        )
+    odd = cir.get_prob([1, 0])
+    torch.testing.assert_close(odd, torch.zeros_like(odd))
+    torch.testing.assert_close(torch.autograd.grad(odd.sum(), theta)[0], torch.zeros_like(theta))
+
+
+def test_zero_differentiable_input_mean_keeps_one_photon_curvature():
+    cir = dq.QumodeCircuit(1, 'vac', backend='gaussian', cutoff=3)
+    cir.ps(0, 0.0)
+    cir.double()
+    cir(is_prob=True)
+    x = torch.tensor(0.0, dtype=torch.double, requires_grad=True)
+    cov = torch.eye(2, dtype=x.dtype)
+    mean = torch.stack([2 * x, torch.zeros_like(x)]).reshape(2, 1)
+    # In both entry points P(1)=x² exp(-x²), even when the preceding execution was centered vacuum.
+    external = cir.get_prob([1], refer_state=[cov, mean])
+    table = cir(state=[cov, mean], is_prob=True)
+    for probability in (external, table[dq.FockState([1])], cir.get_prob([1])):
+        first = torch.autograd.grad(probability.sum(), x, create_graph=True, retain_graph=True)[0]
+        torch.testing.assert_close(torch.autograd.grad(first, x, retain_graph=True)[0], x.new_tensor(2.0))
+
+
 @pytest.mark.skipif(not torch.backends.mps.is_available(), reason='MPS is not available')
 @pytest.mark.parametrize('backend', ['bargmann', 'fock'])
 def test_loss_channel_mps_dtype_and_gradient(backend):

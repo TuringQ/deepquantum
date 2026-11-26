@@ -17,82 +17,13 @@ import deepquantum.photonic as dqp
 
 from ..qmath import block_sample, decimal_to_list, is_unitary, list_to_decimal, partial_trace
 from .draw import plot_wigner
+from .gradient import transmittance_grad as transmittance_grad
 from .utils import mem_to_chunksize
 
 
 def _times_i(value: torch.Tensor) -> torch.Tensor:
     """Multiply by the imaginary unit in the input's promoted dtype, including during MPS backward."""
     return value * torch.tensor(1j, dtype=torch.result_type(value, 1j), device=value.device)
-
-
-def _coupling_fields(theta: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    """Return cos(theta/2) and sin(theta/2), with the exact field zero and angle derivatives at pi."""
-    full_loss = theta == torch.pi
-    half = torch.where(full_loss, torch.pi - theta, theta) / 2
-    cos, sin = half.cos(), half.sin()
-    return torch.where(full_loss, sin, cos), torch.where(full_loss, cos, sin)
-
-
-def _field_power_slope(first: torch.Tensor, second: torch.Tensor) -> torch.Tensor:
-    """Right derivative in p=s² from the first two derivatives in the signed field s."""
-    singular = torch.copysign(torch.full_like(first, torch.inf), first)
-    # Projection at finite Fock cutoff can leave a genuine linear term at
-    # roundoff. Its sign cannot be inferred from the quadratic coefficient.
-    unresolved = (first != 0) & (first.abs() <= 16 * torch.finfo(first.dtype).eps * second.abs())
-    return torch.where(first == 0, second / 2, torch.where(unresolved | first.isnan(), torch.nan, singular))
-
-
-def transmittance_grad(observable: torch.Tensor, loss_theta: torch.Tensor) -> torch.Tensor:
-    r"""Differentiate a real scalar observable with respect to the power of a signed loss coupler.
-
-    Build the observable with the same differentiable coupling angle at every use of the
-    shared control, using ``loss`` or ``d_channel(..., convention='loss_theta')``.
-    The physical branch is :math:`T=\cos^2(\theta/2)` with :math:`0\leq\theta\leq\pi`.
-    For a smooth function of the angle with zero first derivative, the one-sided power
-    slope is twice its angle curvature at complete loss and minus twice at unit transmission.
-    A resolved linear field term gives a signed infinity. A term at roundoff gives NaN.
-    Distributed OPA noise at nonzero pump has a logarithmic full-loss limit; differentiate
-    its native power input instead.
-
-    Args:
-        observable: Real scalar objective, including any operations applied after the circuit readout
-        loss_theta: Real scalar coupling angle in radians, with ``requires_grad=True``
-
-    Returns:
-        The derivative with respect to power, on the dtype and device of the angle.
-
-    Examples:
-        >>> import deepquantum.photonic as dqp
-        >>> angle = torch.tensor(torch.pi, dtype=torch.double, requires_grad=True)
-        >>> circuit = dqp.QumodeCircuit(1, 'vac', backend='gaussian')
-        >>> circuit.d(0, 0.5, 0.0)
-        >>> circuit.loss(0, encode=True)
-        >>> circuit.loss(0, encode=True)
-        >>> _ = circuit.double()(angle.expand(2))
-        >>> dqp.transmittance_grad(circuit.quadrature_mean(0).sum(), angle).item()
-        1.0
-    """
-    if observable.numel() != 1 or not observable.is_floating_point():
-        raise ValueError('observable must be a real floating-point scalar')
-    if loss_theta.numel() != 1 or not loss_theta.is_floating_point() or not loss_theta.requires_grad:
-        raise ValueError('loss_theta must be a real floating-point scalar with requires_grad=True')
-    if not bool((loss_theta >= 0) & (loss_theta <= torch.pi)):
-        raise ValueError('loss_theta must be in [0, pi]')
-    zero = torch.zeros_like(loss_theta)
-    if not observable.requires_grad:
-        return zero
-    endpoint = bool((loss_theta == 0) | (loss_theta == torch.pi))
-    (first,) = torch.autograd.grad(observable, loss_theta, create_graph=endpoint, retain_graph=True, allow_unused=True)
-    if first is None:
-        return zero
-    if not endpoint:
-        return -2 * first / loss_theta.detach().sin()
-    second = None
-    if first.requires_grad:
-        (second,) = torch.autograd.grad(first, loss_theta, retain_graph=True, allow_unused=True)
-    # The vanishing signed field is cos(theta/2) at pi and sin(theta/2) at zero.
-    sign = 1 if bool(loss_theta == torch.pi) else -1
-    return sign * _field_power_slope(-sign * 2 * first.detach(), 4 * (zero if second is None else second))
 
 
 def _normalize_coefficients(value: torch.Tensor) -> torch.Tensor:

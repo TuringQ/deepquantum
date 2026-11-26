@@ -12,8 +12,9 @@ import deepquantum.photonic as dqp
 from ..qmath import is_unitary
 from ..utils import apply_complex_fix
 from .bargmann import BargmannPolyExp, _gaussian_bargmann, passive_bargmann
+from .gradient import _coupling_fields
 from .operation import Delay, Gate
-from .qmath import _coupling_fields, _times_i, ladder_ops
+from .qmath import _times_i, ladder_ops
 
 
 class SingleGate(Gate):
