@@ -65,6 +65,7 @@ from .qmath import (
     schur_anti_symm_even,
     sqrtm_herm,
     takagi,
+    transmittance_grad,
     williamson,
     xpxp_to_xxpp,
     xxpp_to_xpxp,

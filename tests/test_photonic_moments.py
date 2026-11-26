@@ -553,6 +553,109 @@ def test_power_derivative_of_user_objective_across_batch_rows():
     torch.testing.assert_close(gradient, torch.ones_like(power))
 
 
+@pytest.fixture(
+    params=[
+        ('cpu', torch.double),
+        pytest.param(
+            ('mps', torch.float), marks=pytest.mark.skipif(not torch.backends.mps.is_available(), reason='MPS')
+        ),
+    ]
+)
+def gradient_device(request):
+    return request.param
+
+
+def _require_complex_solve(device):
+    if device == 'mps':
+        matrix = torch.eye(1, device=device, dtype=torch.complex64)
+        try:
+            torch.linalg.solve(matrix, matrix)
+        except RuntimeError as error:
+            if 'MPS only supports floats' not in str(error):
+                raise
+            pytest.skip('This PyTorch MPS backend requires a real matrix for torch.linalg.solve')
+
+
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann', 'fock'])
+@pytest.mark.parametrize('nloss', [1, 2])
+def test_transmittance_grad_of_complete_objective(backend, nloss, gradient_device):
+    # One field squared and two transmitted fields in succession both give T.
+    device, dtype = gradient_device
+    if backend == 'bargmann':
+        _require_complex_solve(device)
+    cir = dq.QumodeCircuit(1, 'vac', cutoff=10, backend=backend, basis=False, den_mat=True)
+    cir.d(0, 0.5, 0.0)
+    for _ in range(nloss):
+        cir.loss(0, encode=True)
+    cir.to(dtype).to(device)
+    for value in (0.0, 1.2, math.pi):
+        angle = torch.tensor(value, dtype=dtype, device=device, requires_grad=True)
+        cir(angle.expand(nloss))
+        mean = cir.quadrature_mean(0).sum()
+        observable = mean.square() if nloss == 1 else mean
+        torch.testing.assert_close(dqp.transmittance_grad(observable, angle), angle.new_ones(()))
+
+
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann', 'fock'])
+def test_transmittance_grad_bright_displacement(backend):
+    cir = dq.QumodeCircuit(1, 'vac', cutoff=6, backend=backend, basis=False, den_mat=True)
+    cir.thermal(0, nbar=torch.tensor(0.1, dtype=torch.double))
+    cir.d(0, 0.5, 0.0)
+    cir.d_channel(0, convention='loss_theta', encode=True)
+    cir.double()
+    for value in (0.0, math.pi):
+        angle = torch.tensor(value, dtype=torch.double, requires_grad=True)
+        cir(torch.stack([angle.new_tensor(0.31), angle.new_zeros(()), angle]))
+        variance, mean = cir.quadrature_moments(0, phi=0.0)
+        slope = -math.inf if value == 0 else math.inf
+        torch.testing.assert_close(dqp.transmittance_grad(mean.sum(), angle), angle.new_tensor(slope))
+        expected = -slope if backend == 'fock' else 0.2
+        torch.testing.assert_close(dqp.transmittance_grad(variance.sum(), angle), angle.new_tensor(expected))
+
+
+def test_transmittance_grad_of_fock_basis_survival():
+    cir = dq.QumodeCircuit(1, [1], cutoff=2)
+    cir.loss(0, encode=True)
+    cir.double()
+    angle = torch.tensor(torch.pi, dtype=torch.double, requires_grad=True)
+    survival = cir(angle.reshape(1), is_prob=True)[dq.FockState([1])].sum()
+    torch.testing.assert_close(dqp.transmittance_grad(survival, angle), angle.new_ones(()))
+
+
+@pytest.mark.parametrize('detector', ['pnrd', 'threshold', 'click'])
+@pytest.mark.parametrize('coordinate', ['power', 'angle'])
+def test_full_loss_gaussian_count_gradients(detector, coordinate, gradient_device):
+    device, dtype = gradient_device
+    if detector != 'click':
+        _require_complex_solve(device)
+    cir = dq.QumodeCircuit(1, 'vac', backend='gaussian', cutoff=3, detector=detector)
+    cir.thermal(0, nbar=torch.tensor(0.1, dtype=dtype))
+    cir.d(0, 0.5, 0.0)
+    if coordinate == 'power':
+        cir.loss_t(0, encode=True)
+    else:
+        cir.loss(0, encode=True)
+    cir.to(dtype).to(device)
+    control = torch.tensor(0.0 if coordinate == 'power' else torch.pi, dtype=dtype, device=device, requires_grad=True)
+    table = cir(control.reshape(1), is_prob=True)
+    patterns = torch.arange(2 if detector == 'threshold' else 3).unsqueeze(-1)
+    queried = cir.get_prob(patterns)
+    listed = torch.stack([table[dq.FockState(row)].squeeze() for row in patterns])
+    # A transmitted photon comes from nbar=0.1 or |alpha|²=0.25. Two photons are O(T²).
+    expected = control.new_tensor([-0.35, 0.35, 0.0])[: len(patterns)]
+    for probabilities in (listed, queried):
+        if coordinate == 'power':
+            slopes = [torch.autograd.grad(p, control, retain_graph=True)[0] for p in probabilities]
+        else:
+            slopes = [dqp.transmittance_grad(p, control) for p in probabilities]
+        torch.testing.assert_close(torch.stack(slopes), expected)
+    if coordinate == 'power' and dtype == torch.double:
+        with torch.no_grad():
+            step = 1e-6
+            cir((control + step).reshape(1))
+            torch.testing.assert_close((cir.get_prob(patterns) - queried) / step, expected, atol=3e-7, rtol=1e-6)
+
+
 @pytest.mark.skipif(not torch.backends.mps.is_available(), reason='MPS is not available')
 @pytest.mark.parametrize('backend', ['bargmann', 'fock'])
 def test_loss_channel_mps_dtype_and_gradient(backend):

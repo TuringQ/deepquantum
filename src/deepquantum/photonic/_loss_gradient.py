@@ -14,6 +14,8 @@ from typing import Any
 import torch
 from torch.autograd.function import FunctionCtx
 
+from .qmath import _field_power_slope
+
 _Fields = list[tuple[torch.Tensor, torch.Tensor]]
 _recording: ContextVar[_Fields | None] = ContextVar('loss_fields', default=None)
 
@@ -63,13 +65,7 @@ class _Field(torch.autograd.Function):
                 diagonal.append(first.new_zeros(()) if row is None else row.flatten()[i])
             second = second.flatten().index_copy(0, indices, torch.stack(diagonal)).view_as(field)
         regular = first / (2 * torch.where(zero, 1.0, field))
-        singular = torch.copysign(torch.full_like(first, torch.inf), first)
-        # f(s) = f(0) + a*s + b*s² + ... . Only a zero linear term has
-        # df/dp = b. Projecting a displaced Fock state can leave a genuine
-        # linear term at roundoff. Its sign cannot be inferred from b.
-        unresolved = (first != 0) & (first.abs() <= 16 * torch.finfo(field.dtype).eps * second.abs())
-        limit = torch.where(first == 0, second / 2, torch.where(unresolved, torch.nan, singular))
-        return torch.where(zero, limit, regular)
+        return torch.where(zero, _field_power_slope(first, second), regular)
 
 
 def _loss_field(power: torch.Tensor) -> torch.Tensor:
@@ -122,6 +118,10 @@ def _attach(value: Any, fields: _Fields) -> Any:
         return tuple(_attach(item, fields) for item in value)
     if isinstance(value, list):
         return [_attach(item, fields) for item in value]
+    if isinstance(value, dict):
+        # Probability tables are also stored as circuit.state.
+        for key, probability in value.items():
+            value[key] = _attach(probability, fields)
     return value
 
 

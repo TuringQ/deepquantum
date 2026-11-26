@@ -485,3 +485,15 @@ def test_opa_power_derivative_at_complete_loss(backend):
         # pump approaches the vacuum logarithmically on the two gain axes.
         expected = data.new_tensor([0.2, pump_on, 0.2])
         torch.testing.assert_close(grad[:, -1], expected, atol=2e-7, rtol=1e-7)
+
+
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann', 'fock'])
+def test_pump_off_opa_signed_angle_at_complete_loss(backend):
+    cir = dqp.QumodeCircuit(1, 'vac', cutoff=8, backend=backend, basis=False, den_mat=True)
+    cir.thermal(0, nbar=torch.tensor(0.1, dtype=torch.double))
+    cir.opa(0, encode=True)
+    cir.double()
+    angle = torch.tensor(torch.pi, dtype=torch.double, requires_grad=True)
+    cir(torch.stack([angle.new_zeros(()), angle.new_zeros(()), angle]))
+    variance, _ = cir.quadrature_moments(0, phi=0.0)
+    torch.testing.assert_close(dqp.transmittance_grad(variance.sum(), angle), angle.new_tensor(0.2), atol=2e-7, rtol=0)

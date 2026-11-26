@@ -117,7 +117,8 @@ def hafnian(matrix: torch.Tensor, loop: bool = False) -> torch.Tensor:
         z_sets = torch.tensor(powerset[i], device=matrix.device)
         num_z = len(z_sets[0])
         submats = torch.vmap(get_submat_haf, in_dims=(None, 0))(matrix, z_sets)
-        submats = submats.to(torch.cdouble)
+        # Accumulate in double precision on devices that support it.
+        submats = submats.to(torch.cfloat if matrix.device.type == 'mps' else torch.cdouble)
         coeff = torch.vmap(poly_lambda, in_dims=(0, None, None, None))(submats, int_partition, power, loop)
         coeff = coeff.to(matrix.dtype)
         coeff_sum = (-1) ** (power - num_z) * coeff.sum()

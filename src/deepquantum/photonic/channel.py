@@ -15,7 +15,7 @@ from ._loss_gradient import _loss_field
 from .bargmann import BargmannPolyExp, _gaussian_bargmann
 from .gate import BeamSplitterSingle, Displacement
 from .operation import Channel
-from .qmath import _times_i
+from .qmath import _coupling_fields, _times_i
 
 
 def _loss_to_theta(inputs: Any, convention: str) -> torch.Tensor | None:
@@ -39,8 +39,8 @@ def _vacuum_loss_coefficients(control: torch.Tensor, *, is_power: bool) -> tuple
     """Return the signed transmitted field and lost power in the supplied coordinate."""
     if is_power:
         return _loss_field(control), 1 - control
-    half_angle = control / 2
-    return half_angle.cos(), half_angle.sin().square()
+    transmitted, reflected = _coupling_fields(control)
+    return transmitted, reflected.square()
 
 
 def _vacuum_loss_xy(field: torch.Tensor, loss: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -99,7 +99,7 @@ class _CalibratedLossChannel(Channel):
         if (loss := self._native_loss) is not None:
             return loss if self.convention == 't' else 10 ** (-loss / 10)
         angle = self.loss_theta.remainder(2 * torch.pi)
-        return torch.where(angle == torch.pi, 0.0, (angle / 2).cos().square())
+        return _coupling_fields(angle)[0].square()
 
     def _apply(self, fn: Any, recurse: bool = True) -> '_CalibratedLossChannel':
         """Preserve an angular complete-loss setting across dtype conversion."""
@@ -195,7 +195,7 @@ class DisplacementChannel(_CalibratedLossChannel):
         """Signed displacement radius; a dark auxiliary contributes zero at every transmittance."""
         if (power := self._native_loss) is not None:
             return self.amplitude * _loss_field(1 - power)
-        return self.amplitude * (self.loss_theta / 2).sin()
+        return self.amplitude * _coupling_fields(self.loss_theta)[1]
 
     @property
     def displacement_amplitude(self) -> torch.Tensor:
@@ -430,7 +430,10 @@ class OPA(_CalibratedLossChannel):
     def update_transform_xy(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Update the local transformation matrices X and Y acting on Gaussian states."""
         r, theta = self.r.reshape(()), self.theta.reshape(())
-        t = self.t.to(r).reshape(())
+        signed_field = None
+        if self._native_loss is None:
+            signed_field = _coupling_fields(self.loss_theta.remainder(2 * torch.pi))[0].to(r).reshape(())
+        t = self.t.to(r).reshape(()) if signed_field is None else signed_field.square()
         full_loss = t == 0
         # Evaluate the complete-loss limit separately, avoiding log(0) and inf * 0.
         attenuation = -torch.log(torch.where(full_loss, torch.ones_like(t), t))
@@ -449,6 +452,12 @@ class OPA(_CalibratedLossChannel):
             gain = torch.where(full_loss, r, 0.0).clamp(-limit, limit)
             endpoint_x = field * ((-gain).exp() * squeezed + gain.exp() * amplified)
             endpoint_y = _OPAFullLossNoise.apply(t, r, amplified - squeezed)
+        elif signed_field is not None:
+            # With the pump off X is the transmitted field and Y=(1-T)I,
+            # including their angle curvature at complete loss.
+            vacuum = torch.eye(2, dtype=r.dtype, device=r.device)
+            endpoint_x = torch.where(r == 0, signed_field, 0.0) * vacuum
+            endpoint_y = (1 - torch.where(r == 0, t, 0.0)) * vacuum
         else:
             endpoint_x = torch.zeros_like(matrix_x)
             endpoint_y = torch.eye(2, dtype=r.dtype, device=r.device)
@@ -519,9 +528,9 @@ class PhotonLoss(Channel):
     The power transmittance is :math:`T=\cos^2(\theta/2)`. Fixed and encoded power or dB inputs
     act directly on the reduced state. A trainable coupler uses the angle as its optimizer parameter.
     At zero transmitted field a quadrature mean can have an infinite power derivative while a
-    covariance or a photon-count probability has a finite derivative. For a custom nonlinear
-    objective of circuit outputs, use ``torch.autograd.grad(objective, power, create_graph=True)``
-    to retain the signed-field curvature of the complete objective at the endpoint.
+    covariance or a photon-count probability has a finite derivative. For a nonlinear objective
+    or several couplers sharing one calibration, use the same signed angle at every occurrence
+    and call :func:`deepquantum.photonic.transmittance_grad` on the final scalar observable.
 
     Args:
         inputs: The parameter of the channel. Default: ``None``
@@ -576,7 +585,7 @@ class PhotonLoss(Channel):
         """Transmittance."""
         if (power := getattr(self.gate, 'power', None)) is not None:
             return power
-        return (self.theta / 2).cos().square()
+        return _coupling_fields(self.theta)[0].square()
 
     def _loss_coefficients(self) -> tuple[torch.Tensor, torch.Tensor]:
         power = getattr(self.gate, 'power', None)
