@@ -52,6 +52,7 @@ from .channel import (
 )
 from .circuit import DistributedQubitCircuit, QubitCircuit
 from .communication import cleanup_distributed, setup_distributed
+from .custatevec import QubitCircuitGPU
 from .gate import (
     Barrier,
     CNOT,

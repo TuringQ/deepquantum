@@ -36,6 +36,9 @@ The first framework to support algorithm design and mapping for time-domain-mult
 
 # Installation
 
+For compiled single-GPU execution on NVIDIA or Iluvatar (天数), see the
+[QubitCircuitGPU installation and usage guide](docs/source/quick_start/gpu_simulation.md).
+
 ## 1. Prerequisites (PyTorch)
 
 DeepQuantum requires **PyTorch 2**.

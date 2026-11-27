@@ -17,6 +17,12 @@ repos:
       - id: ruff-format
         exclude: ^(docs/source/demos/.*|tutorials/.*|examples/[^/]*)\.py$
 
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v20.1.8
+    hooks:
+      - id: clang-format
+        files: ^src/deepquantum/custatevec/.*\.(cpp|cu)$
+
   - repo: https://github.com/mwouts/jupytext
     rev: v1.19.1
     hooks:

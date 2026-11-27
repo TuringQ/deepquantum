@@ -1,0 +1,740 @@
+"""Numerical comparisons for the optional single-GPU cuStateVec executor."""
+
+import math
+import os
+from pathlib import Path
+
+import pytest
+import torch
+
+import deepquantum as dq
+from deepquantum.custatevec.loader import resolve_backend, resolve_sdk
+
+
+@pytest.fixture(scope='module', autouse=True)
+def gpu_backend():
+    requested = os.environ.get('DQ_GPU_BACKEND', 'auto')
+    try:
+        if not torch.cuda.is_available():
+            raise RuntimeError('requires CUDA/CoreX PyTorch and an available GPU')
+        backend = resolve_backend(requested)
+        resolve_sdk(backend)
+        from torch.utils.cpp_extension import verify_ninja_availability
+
+        verify_ninja_availability()
+        if backend == 'cuquantum':
+            from torch.utils.cpp_extension import CUDA_HOME
+
+            if CUDA_HOME is None or not (Path(CUDA_HOME) / 'bin' / 'nvcc').is_file():
+                raise RuntimeError('requires a CUDA toolkit with nvcc; set CUDA_HOME')
+    except (ImportError, RuntimeError) as exc:
+        if requested != 'auto':
+            pytest.fail(f'{requested} test prerequisites: {exc}', pytrace=False)
+        pytest.skip(str(exc))
+    return backend
+
+
+@pytest.fixture
+def gpu(gpu_backend):
+    torch.cuda.set_device(os.environ.get('DQ_GPU_DEVICE', 'cuda:0'))
+    circuits = []
+
+    def create(nqubit, **kwargs):
+        circuit = dq.QubitCircuitGPU(nqubit, backend=gpu_backend, **kwargs)
+        circuits.append(circuit)
+        return circuit
+
+    yield create
+    for circuit in circuits:
+        circuit.close()
+
+
+def add_gates(circuit):
+    circuit.h(0)
+    circuit.rx(1, inputs=0.23)
+    circuit.ry(2, inputs=-0.41)
+    circuit.rz(0, inputs=0.61)
+    circuit.cnot(0, 3)
+    circuit.cy(3, 1)
+    circuit.cz(1, 2)
+    circuit.cp(0, 2, inputs=0.37)
+    circuit.swap([0, 3])
+    circuit.iswap([1, 2])
+    circuit.rzz([1, 3], inputs=0.21)
+    circuit.observable([0, 2], 'xy')
+    circuit.observable(3, 'z')
+
+
+@pytest.mark.parametrize('random_initial', [False, True])
+def test_forward_expectations(gpu, random_initial):
+    generator = torch.Generator().manual_seed(123)
+    initial = torch.randn(16, dtype=torch.complex64, generator=generator)
+    initial /= initial.norm()
+    initial = initial if random_initial else 'zeros'
+    actual = gpu(4, init_state=initial)
+    expected = dq.QubitCircuit(4, init_state=initial)
+    add_gates(actual)
+    add_gates(expected)
+    expected.double()
+    torch.testing.assert_close(actual().cpu().to(torch.complex128), expected(), atol=2e-5, rtol=2e-4)
+    torch.testing.assert_close(actual.expectation().cpu().double(), expected.expectation(), atol=3e-5, rtol=3e-4)
+    external = actual.expectation_from_state(actual.state, list(actual.observables))
+    torch.testing.assert_close(external, actual.expectation())
+
+
+def add_trainable_gates(circuit):
+    circuit.h(0)
+    circuit.rx(1)
+    circuit.ry(2, controls=0)
+    circuit.rzz([0, 3])
+    circuit.cp(3, 2)
+    circuit.cnot(1, 3)
+    circuit.swap([0, 2])
+    circuit.observable([0, 1], 'yz')
+    circuit.observable(2, 'x')
+
+
+def test_gradients(gpu):
+    actual = gpu(4)
+    expected = dq.QubitCircuit(4)
+    add_trainable_gates(actual)
+    add_trainable_gates(expected)
+    expected.double()
+    values = torch.tensor([0.23, -0.41, 0.61, 0.37], device='cuda', requires_grad=True)
+    weights = torch.tensor([0.3, 0.7], device='cuda')
+    with torch.no_grad():
+        for parameter, value in zip(expected.parameters(), values.cpu(), strict=True):
+            parameter.fill_(value)
+        for parameter, value in zip(actual.parameters(), values.detach(), strict=True):
+            parameter.fill_(value)
+    expected()
+    reference = (expected.expectation() * weights.cpu()).sum()
+    reference.backward()
+    gradient = torch.cat([parameter.grad.reshape(-1) for parameter in expected.parameters()])
+    value, derivative = actual.value_and_grad(values, weights)
+    torch.testing.assert_close(value.cpu().double(), reference.detach(), atol=3e-5, rtol=3e-4)
+    torch.testing.assert_close(derivative.cpu().double(), gradient, atol=1e-4, rtol=1e-3)
+    torch.testing.assert_close(actual.adjoint_vjp(values, weights), derivative, atol=1e-4, rtol=1e-3)
+    (actual.expectation(parameters=values) * weights).sum().backward()
+    torch.testing.assert_close(values.grad, derivative, atol=1e-4, rtol=1e-3)
+    (actual.expectation() * weights).sum().backward()
+    module_gradient = torch.cat([parameter.grad.reshape(-1) for parameter in actual.parameters()])
+    torch.testing.assert_close(module_gradient.cpu().double(), gradient, atol=1e-4, rtol=1e-3)
+
+
+def test_shared_inverse_parameters(gpu):
+    actual = gpu(3)
+    expected = dq.QubitCircuit(3)
+    for circuit in (actual, expected):
+        gate = dq.Ry(nqubit=3, wires=0, requires_grad=True)
+        with torch.no_grad():
+            gate.theta.fill_(0.37)
+        circuit.add(gate)
+        circuit.cnot(0, 1)
+        circuit.add(gate, wires=2)
+        circuit.add(gate.inverse(), wires=1)
+        circuit.observable(2, 'z')
+        circuit.observable([0, 1], 'xx')
+    expected.double()
+    expected()
+    expected.expectation().sum().backward()
+    actual.expectation().sum().backward()
+    torch.testing.assert_close(
+        next(actual.parameters()).grad.double(), next(expected.parameters()).grad, atol=1e-4, rtol=1e-3
+    )
+    assert len(actual._compiled_plan.parameter_sources) == 1
+
+
+def test_multirz(gpu):
+    circuit = gpu(5)
+    circuit.h(0)
+    circuit.multirz([0, 1, 3, 4])
+    circuit.observable(0, 'x')
+    value, gradient = circuit.value_and_grad(torch.tensor([0.37], device='cuda'), torch.ones(1, device='cuda'))
+    assert abs(value.item() - math.cos(0.37)) < 3e-5
+    assert abs(gradient.item() + math.sin(0.37)) < 1e-4
+
+
+@pytest.mark.parametrize('shape', [(), (1,)])
+def test_multirz_input_receives_gradient_after_unfreeze(gpu, shape):
+    theta = torch.full(shape, 0.37)
+    circuit = gpu(1)
+    circuit.h(0)
+    circuit.multirz([0], inputs=theta)
+    circuit.observable(0, 'x')
+    circuit()
+    assert not circuit.expectation().requires_grad
+    theta.requires_grad_(True)
+    circuit.expectation().sum().backward()
+    assert theta.grad is not None
+    assert theta.grad.item() == pytest.approx(-math.sin(0.37), abs=1e-4)
+
+
+def test_multirz_init_para_replaces_angle(gpu):
+    circuit = gpu(1)
+    circuit.h(0)
+    circuit.multirz([0])
+    circuit.observable(0, 'x')
+    old = next(circuit.parameters())
+    circuit()
+    circuit.init_para()
+    new = next(circuit.parameters())
+    assert new is not old
+    with torch.no_grad():
+        new.fill_(0.9)
+    value = circuit.expectation().sum()
+    value.backward()
+    assert value.item() == pytest.approx(math.cos(0.9), abs=3e-5)
+    assert new.grad.item() == pytest.approx(-math.sin(0.9), abs=1e-4)
+    assert old.grad is None
+
+
+@pytest.mark.parametrize('assign', [False, True])
+def test_multirz_loads_legacy_scalar_checkpoint(gpu, assign):
+    circuit = gpu(1)
+    circuit.h(0)
+    circuit.multirz([0], inputs=torch.tensor([0.37]))
+    circuit.observable(0, 'x')
+    circuit()
+    checkpoint = circuit.state_dict()
+    checkpoint['operators.1.theta'] = torch.tensor(0.9)
+    circuit.load_state_dict(checkpoint, assign=assign)
+    assert circuit.operators[1].theta.shape == (1,)
+    circuit()
+    assert circuit.expectation().item() == pytest.approx(math.cos(0.9), abs=3e-5)
+
+
+def test_five_target_permutation(gpu):
+    generator = torch.Generator().manual_seed(91)
+    initial = torch.randn(128, dtype=torch.complex64, generator=generator)
+    initial /= initial.norm()
+    permutation = torch.randperm(32, generator=generator)
+    diagonal = torch.exp(1j * torch.randn(32, generator=generator))
+    matrix = torch.diag(diagonal)[:, permutation]
+    expected = dq.QubitCircuit(7, init_state=initial)
+    expected.any(matrix, wires=[4, 0, 6, 1, 3], controls=[2])
+    reference = expected()
+    circuit = gpu(7, init_state=initial)
+    circuit.any(matrix, wires=[4, 0, 6, 1, 3], controls=[2])
+    torch.testing.assert_close(circuit().cpu(), reference, atol=2e-5, rtol=2e-4)
+
+
+def test_sampling_order_and_reuse(gpu):
+    circuit = gpu(4)
+    circuit.x(0)
+    circuit.x(2)
+    circuit()
+    assert circuit.measure(shots=7) == {'1010': 7}
+    assert circuit.measure(shots=128) == {'1010': 128}
+    assert circuit.measure(shots=17, wires=[3, 0]) == {'10': 17}
+    circuit.close()
+    circuit()
+    assert circuit.measure(shots=9) == {'1010': 9}
+
+
+def test_matrix_observable(gpu):
+    circuit = gpu(2)
+    circuit.h(0)
+    circuit.observable_matrix(torch.tensor([[0, 1], [1, 0]], dtype=torch.complex64), wires=0)
+    circuit()
+    assert abs(circuit.expectation().item() - 1) < 3e-5
+
+
+@pytest.mark.parametrize('wires', [[1], [0, 2], [2, 0], [3, 0, 2]])
+def test_matrix_observable_wire_order(gpu, wires):
+    generator = torch.Generator().manual_seed(42)
+    initial = torch.randn(16, dtype=torch.complex64, generator=generator)
+    initial /= initial.norm()
+    dimension = 2 ** len(wires)
+    matrix = torch.randn(dimension, dimension, dtype=torch.complex64, generator=generator)
+    matrix = (matrix + matrix.mH) / 2
+    circuit = gpu(4, init_state=initial)
+    circuit.observable_matrix(matrix, wires=wires)
+    circuit()
+    axes = wires + [wire for wire in range(4) if wire not in wires]
+    state = initial.reshape((2,) * 4).permute(axes).reshape(dimension, -1)
+    expected = (state.conj() * (matrix @ state)).sum().real
+    torch.testing.assert_close(circuit.expectation().cpu().reshape(()), expected, atol=2e-5, rtol=2e-4)
+
+
+def test_non_default_stream(gpu):
+    with torch.cuda.stream(torch.cuda.Stream()):
+        circuit = gpu(3)
+        circuit.h(0)
+        circuit.ry(1, controls=0)
+        circuit.observable(1)
+        value, gradient = circuit.value_and_grad(torch.tensor([0.37], device='cuda'), torch.ones(1, device='cuda'))
+        assert abs(value.item() - (1 + math.cos(0.37)) / 2) < 3e-5
+        assert abs(gradient.item() + math.sin(0.37) / 2) < 1e-4
+
+
+@pytest.mark.parametrize('mutation', ['forward', 'add', 'compile', 'close', 'parameter'])
+def test_stale_backward(gpu, mutation):
+    circuit = gpu(2)
+    circuit.rx(0)
+    circuit.observable(0)
+    parameter = torch.tensor([0.37], device='cuda', requires_grad=True)
+    value = circuit.expectation(parameters=parameter)
+    if mutation == 'forward':
+        circuit()
+    elif mutation == 'add':
+        circuit.x(1)
+    elif mutation == 'parameter':
+        with torch.no_grad():
+            parameter.add_(0.1)
+    else:
+        getattr(circuit, mutation)()
+    with pytest.raises(RuntimeError):
+        value.sum().backward()
+
+
+def test_independent_parameter_gradients_with_shared_storage(gpu):
+    actual = gpu(1)
+    expected = dq.QubitCircuit(1)
+    for circuit in (actual, expected):
+        initial = torch.tensor(0.37)
+        circuit.add(dq.Rx(inputs=initial, requires_grad=True))
+        circuit.add(dq.Ry(inputs=initial, requires_grad=True))
+        circuit.observable(0, 'z')
+    expected()
+    expected.expectation().sum().backward()
+    actual.expectation().sum().backward()
+    for parameter, reference in zip(actual.parameters(), expected.parameters(), strict=True):
+        assert parameter.grad is not None
+        torch.testing.assert_close(parameter.grad.cpu(), reference.grad, atol=1e-4, rtol=1e-3)
+
+
+def test_parameter_freeze_and_unfreeze_recompile(gpu):
+    circuit = gpu(1)
+    circuit.ry(0)
+    circuit.observable(0, 'z')
+    theta = next(circuit.parameters())
+    circuit.requires_grad_(False)
+    theta.fill_(0.37)
+    circuit()
+    assert not circuit.expectation().requires_grad
+    theta.requires_grad_(True)
+    with torch.no_grad():
+        theta.fill_(0.9)
+    value = circuit.expectation().sum()
+    assert abs(value.item() - math.cos(0.9)) < 3e-5
+    value.backward()
+    assert abs(theta.grad.item() + math.sin(0.9)) < 1e-4
+    theta.requires_grad_(False)
+    circuit()
+    assert not circuit.expectation().requires_grad
+
+
+@pytest.mark.parametrize('initialize_circuit', [True, False])
+def test_init_para_replaces_compiled_parameter(gpu, initialize_circuit):
+    circuit = gpu(1)
+    gate = dq.Ry(inputs=0.37, requires_grad=True)
+    circuit.add(gate)
+    circuit.observable(0, 'z')
+    old = gate.theta
+    circuit()
+    old_value = circuit.expectation().sum()
+    (circuit if initialize_circuit else gate).init_para()
+    with torch.no_grad():
+        gate.theta.fill_(0.9)
+    assert gate.theta is not old
+    with pytest.raises(RuntimeError, match='changed or closed before backward'):
+        old_value.backward()
+    circuit()
+    value = circuit.expectation().sum()
+    value.backward()
+    assert value.item() == pytest.approx(math.cos(0.9), abs=3e-5)
+    assert gate.theta.grad.item() == pytest.approx(-math.sin(0.9), abs=1e-4)
+    assert old.grad is None
+
+
+def test_input_buffer_trainability(gpu):
+    theta = torch.tensor(0.37)
+    circuit = gpu(1)
+    circuit.ry(0, inputs=theta)
+    circuit.observable(0, 'z')
+    circuit()
+    assert not circuit.expectation().requires_grad
+    theta.requires_grad_(True)
+    circuit()
+    circuit.expectation().sum().backward()
+    assert theta.grad.item() == pytest.approx(-math.sin(0.37), abs=1e-4)
+    theta.requires_grad_(False)
+    circuit()
+    assert not circuit.expectation().requires_grad
+
+
+@pytest.mark.parametrize('replace_shared_input', [False, True])
+def test_matrix_gate_rejects_unfrozen_input_buffer(gpu, replace_shared_input):
+    theta = torch.tensor(0.37)
+    circuit = gpu(1)
+    circuit.u3(0, inputs=[theta, theta, 0.0])
+    circuit()
+    if replace_shared_input:
+        circuit.operators[0].phi = torch.tensor(0.9, requires_grad=True)
+    else:
+        theta.requires_grad_(True)
+    with torch.no_grad(), pytest.raises(ValueError, match='trainable.*generic matrix'):
+        circuit()
+
+
+def test_conjugated_external_state(gpu):
+    circuit = gpu(1)
+    circuit.observable(0, 'y')
+    state = torch.tensor([1, 1j], device=circuit.gpu_device) / math.sqrt(2)
+    assert circuit.expectation_from_state(state, circuit.observables).item() == pytest.approx(1, abs=3e-5)
+    assert circuit.expectation_from_state(state.conj(), circuit.observables).item() == pytest.approx(-1, abs=3e-5)
+
+
+def test_negative_view_weights(gpu):
+    circuit = gpu(1)
+    circuit.ry(0)
+    circuit.observable(0, 'z')
+    parameters = torch.tensor([0.37], device=circuit.gpu_device, requires_grad=True)
+    weights = torch.tensor([1j], device=circuit.gpu_device).conj().imag
+    energy, gradient = circuit.value_and_grad(parameters, weights)
+    assert energy.item() == pytest.approx(-math.cos(0.37), abs=3e-5)
+    assert gradient.item() == pytest.approx(math.sin(0.37), abs=1e-4)
+    circuit.expectation(parameters=parameters).backward(weights)
+    assert parameters.grad.item() == pytest.approx(math.sin(0.37), abs=1e-4)
+
+
+def test_forward_and_adjoint_buffers_survive_inference_mode(gpu):
+    circuit = gpu(1)
+    circuit.ry(0)
+    circuit.observable(0, 'z')
+    parameters = torch.tensor([0.37], device=circuit.gpu_device, requires_grad=True)
+    weights = torch.ones_like(parameters)
+    with torch.inference_mode():
+        address = circuit().data_ptr()
+        circuit.value_and_grad(parameters, weights)
+    assert circuit().data_ptr() == address
+    circuit.expectation(parameters=parameters).sum().backward()
+    assert parameters.grad.item() == pytest.approx(-math.sin(0.37), abs=1e-4)
+
+
+def test_stale_backward_preserves_new_state(gpu):
+    circuit = gpu(1)
+    circuit.ry(0)
+    circuit.observable(0, 'z')
+    parameters = torch.tensor([0.37], device=circuit.gpu_device, requires_grad=True)
+    old_value = circuit.expectation(parameters=parameters)
+    with torch.no_grad():
+        circuit.expectation(parameters=torch.zeros_like(parameters))
+    with pytest.raises(RuntimeError, match='stale'):
+        old_value.sum().backward()
+    assert circuit.measure(16) == {'0': 16}
+
+
+def test_backward_rejects_inplace_edit_of_borrowed_state(gpu):
+    circuit = gpu(1)
+    circuit.ry(0)
+    circuit.observable(0, 'z')
+    parameters = torch.tensor([0.37], device=circuit.gpu_device, requires_grad=True)
+    state = circuit()
+    value = circuit.expectation(parameters=parameters)
+    state.zero_()
+    with pytest.raises(RuntimeError, match='modified in place'):
+        value.sum().backward()
+
+
+@pytest.mark.parametrize('conjugate', [False, True])
+def test_readout_after_switching_streams(gpu, conjugate):
+    if not hasattr(torch.cuda, '_sleep'):
+        pytest.skip('requires torch.cuda._sleep to delay the producer stream')
+    circuit = gpu(1)
+    if conjugate:
+        circuit.h(0)
+        circuit.s(0)
+        circuit.observable(0, 'y')
+    else:
+        circuit.x(0)
+        circuit.observable(0, 'z')
+    state = circuit()
+    state.copy_(torch.tensor([[1], [0]], device=circuit.gpu_device, dtype=state.dtype))
+    torch.cuda.current_stream().synchronize()
+    producer, reader = torch.cuda.Stream(), torch.cuda.Stream()
+    if conjugate:
+        # Warm the reader allocator so a first allocation cannot synchronize the test.
+        with torch.cuda.stream(reader):
+            circuit.expectation_from_state(state.conj(), circuit.observables)
+    with torch.cuda.stream(producer):
+        torch.cuda._sleep(500_000_000)
+        state = circuit()
+    with torch.cuda.stream(reader):
+        if conjugate:
+            value = circuit.expectation_from_state(state.conj(), circuit.observables)
+        else:
+            value = circuit.expectation()
+        assert value.item() == pytest.approx(-1, abs=3e-5)
+        circuit()
+    with torch.cuda.stream(producer):
+        circuit.invalidate()
+        assert circuit().data_ptr() == state.data_ptr()
+        if not conjugate:
+            assert circuit.measure(16) == {'1': 16}
+
+
+def test_automatic_gradient_and_inference(gpu):
+    circuit = gpu(1)
+    circuit.ry(0)
+    circuit.observable(0, 'z')
+    with torch.no_grad():
+        circuit.operators[0].theta.fill_(0.4)
+    circuit.expectation().sum().backward()
+    assert abs(circuit.operators[0].theta.grad.item() + math.sin(0.4)) < 1e-4
+    with torch.no_grad():
+        circuit()
+        generation = circuit._executor.generation()
+        value = circuit.expectation()
+        assert not value.requires_grad
+        assert circuit._executor.generation() == generation
+        assert abs(value.item() - math.cos(0.4)) < 3e-5
+        value = circuit.expectation(parameters=torch.tensor([0.9], device='cuda'))
+        assert abs(value.item() - math.cos(0.9)) < 3e-5
+        assert circuit._executor.generation() != generation
+    parameters = torch.tensor([0.2], device='cuda', requires_grad=True)
+    circuit.expectation(parameters=parameters).sum().backward()
+    assert abs(parameters.grad.item() + math.sin(0.2)) < 1e-4
+    circuit.requires_grad_(False)
+    circuit()
+    assert not circuit.expectation().requires_grad
+
+
+def test_matrix_observable_rejects_gradients(gpu):
+    circuit = gpu(1)
+    circuit.ry(0)
+    circuit.observable_matrix(torch.eye(2, dtype=torch.complex64), wires=0)
+    with pytest.raises(ValueError, match='Pauli observables'):
+        circuit.expectation()
+    with torch.no_grad():
+        circuit()
+        assert abs(circuit.expectation().item() - 1) < 3e-5
+    for method in (circuit.value_and_grad, circuit.adjoint_vjp):
+        with pytest.raises(ValueError, match='Pauli observables'):
+            method(None, torch.ones(1, device='cuda'))
+
+
+def test_invalid_modes(gpu):
+    with pytest.raises(ValueError, match='complex64'):
+        gpu(2, dtype=torch.complex128)
+    circuit = gpu(2)
+    with pytest.raises(ValueError, match='runtime data'):
+        circuit(torch.ones(1))
+    circuit.rx(0, encode=True)
+    with pytest.raises(ValueError, match='encoding'):
+        circuit.compile()
+
+
+def test_state_lifecycle(gpu):
+    circuit = gpu(2)
+    circuit.observable(0)
+    with pytest.raises(RuntimeError, match='completed forward'):
+        circuit.expectation()
+    circuit()
+    circuit.x(0)
+    assert circuit.measure(10) is None
+    with pytest.raises(RuntimeError, match='completed forward'):
+        circuit.expectation()
+    circuit()
+    assert abs(circuit.expectation().item() + 1) < 3e-5
+
+
+def test_non_default_stream_matrix_and_sampling(gpu):
+    with torch.cuda.stream(torch.cuda.Stream()):
+        circuit = gpu(3)
+        circuit.x(0)
+        circuit.swap([0, 2])
+        circuit.observable_matrix(torch.diag(torch.tensor([1, -1], dtype=torch.complex64)), wires=2)
+        circuit()
+        assert abs(circuit.expectation().item() + 1) < 3e-5
+        assert circuit.measure(31) == {'001': 31}
+
+
+@pytest.mark.parametrize('gate_type', ['Rx', 'Ry', 'Rz', 'Rxx', 'Ryy', 'Rzz', 'Rxy'])
+@pytest.mark.parametrize('inverse', [False, True])
+def test_controlled_rotation_derivatives(gpu, gate_type, inverse):
+    generator = torch.Generator().manual_seed(712)
+    initial = torch.randn(16, dtype=torch.complex64, generator=generator)
+    initial /= initial.norm()
+    actual = gpu(4, init_state=initial)
+    expected = dq.QubitCircuit(4, init_state=initial)
+    wires = [2, 0] if len(gate_type) == 3 else [2]
+    for circuit in (actual, expected):
+        gate = getattr(dq, gate_type)(nqubit=4, wires=wires, controls=3, requires_grad=True)
+        with torch.no_grad():
+            gate.theta.fill_(0.37)
+        circuit.add(gate.inverse() if inverse else gate)
+        circuit.observable([0, 1], 'xy')
+        circuit.observable([2, 3], 'zx')
+    expected.double()
+    expected()
+    loss = expected.expectation().sum()
+    loss.backward()
+    value = actual.expectation().sum()
+    value.backward()
+    torch.testing.assert_close(value.cpu().double(), loss.detach(), atol=3e-5, rtol=3e-4)
+    torch.testing.assert_close(
+        next(actual.parameters()).grad.double(), next(expected.parameters()).grad, atol=1e-4, rtol=1e-3
+    )
+
+
+def test_ghz_sampling_distribution(gpu):
+    circuit = gpu(3)
+    circuit.h(0)
+    circuit.cnot(0, 1)
+    circuit.cnot(1, 2)
+    circuit()
+    counts = circuit.measure(4096)
+    assert set(counts) == {'000', '111'}
+    assert sum(counts.values()) == 4096
+    assert abs(counts['000'] / 4096 - 0.5) < 0.05
+
+
+def test_cnot_with_additional_controls(gpu):
+    initial = torch.randn(32, dtype=torch.complex64, generator=torch.Generator().manual_seed(91))
+    initial /= initial.norm()
+    actual = gpu(5, init_state=initial)
+    expected = dq.QubitCircuit(5, init_state=initial)
+    for circuit in (actual, expected):
+        circuit.add(dq.CNOT(nqubit=5, wires=[1, 4]), wires=[1, 4], controls=[0, 3])
+    torch.testing.assert_close(actual().cpu(), expected(), atol=2e-5, rtol=2e-4)
+
+
+@pytest.mark.parametrize('controls', [[], [1], [1, 3]])
+@pytest.mark.parametrize('inverse', [False, True])
+def test_phase_generator_gradients(gpu, controls, inverse):
+    initial = torch.randn(16, dtype=torch.complex64, generator=torch.Generator().manual_seed(482))
+    initial /= initial.norm()
+    actual = gpu(4, init_state=initial)
+    expected = dq.QubitCircuit(4, init_state=initial)
+    for circuit in (actual, expected):
+        gate = dq.PhaseShift(nqubit=4, wires=2, controls=controls, requires_grad=True)
+        with torch.no_grad():
+            gate.theta.fill_(0.37)
+        circuit.add(gate.inverse() if inverse else gate)
+        circuit.observable([0, 2], 'xy')
+        circuit.observable([2, 3], 'yz')
+    expected.double()
+    expected()
+    weights = torch.tensor([0.3, -0.7])
+    reference = (expected.expectation() * weights).sum()
+    reference.backward()
+    value = (actual.expectation() * weights.cuda()).sum()
+    value.backward()
+    torch.testing.assert_close(value.cpu().double(), reference, atol=3e-5, rtol=3e-4)
+    torch.testing.assert_close(
+        next(actual.parameters()).grad.double(), next(expected.parameters()).grad, atol=1e-4, rtol=1e-3
+    )
+
+
+@pytest.mark.parametrize('inverse', [False, True])
+def test_fixed_gate_matrix_refresh(gpu, inverse):
+    initial = torch.tensor([0.6, 0.8j], dtype=torch.complex64)
+    actual = gpu(1, init_state=initial)
+    expected = dq.QubitCircuit(1, init_state=initial)
+    for circuit in (actual, expected):
+        gate = dq.U3Gate(inputs=[0.3, 0.4, 0.5], nqubit=1, wires=0)
+        circuit.add(gate.inverse() if inverse else gate)
+    torch.testing.assert_close(actual().cpu(), expected(), atol=2e-5, rtol=2e-4)
+    for circuit in (actual, expected):
+        circuit.operators[0].theta.fill_(0.9)
+    actual.invalidate()
+    torch.testing.assert_close(actual().cpu(), expected(), atol=2e-5, rtol=2e-4)
+
+
+@pytest.mark.parametrize('assign', [False, True])
+@pytest.mark.parametrize('trainable', [False, True])
+def test_checkpoint_recompiles_nested_circuit(gpu, assign, trainable):
+    circuit = gpu(1)
+    circuit.rx(0, inputs=None if trainable else 0.2)
+    circuit.observable(0)
+    circuit()
+    parent = torch.nn.ModuleDict({'circuit': circuit})
+    checkpoint = {key: value.clone() for key, value in parent.state_dict().items()}
+    checkpoint['circuit.operators.0.theta'].fill_(1.0)
+    parent.load_state_dict(checkpoint, assign=assign)
+    circuit()
+    value = circuit.expectation().sum()
+    assert abs(value.item() - math.cos(1.0)) < 3e-5
+    if trainable:
+        value.backward()
+        assert abs(circuit.operators[0].theta.grad.item() + math.sin(1.0)) < 1e-4
+
+
+def test_checkpoint_invalidates_pending_backward(gpu):
+    circuit = gpu(1)
+    circuit.rx(0)
+    circuit.observable(0)
+    value = circuit.expectation().sum()
+    circuit.load_state_dict(circuit.state_dict())
+    with pytest.raises(RuntimeError, match='changed or closed'):
+        value.backward()
+
+
+def test_barrier_and_circuit_reset(gpu):
+    circuit = gpu(2)
+    circuit.h(0)
+    circuit.barrier()
+    circuit.cnot(0, 1)
+    circuit.observable_matrix(torch.diag(torch.tensor([1.0, -1.0])), wires=0)
+    state = circuit().cpu()
+    torch.testing.assert_close(state.flatten(), torch.tensor([1, 0, 0, 1], dtype=torch.complex64) / math.sqrt(2))
+    assert abs(circuit.expectation().item()) < 3e-5
+    circuit.reset_circuit()
+    circuit.x(1)
+    circuit.observable(1)
+    circuit()
+    assert abs(circuit.expectation().item() + 1) < 3e-5
+
+
+def test_unsupported_circuit_composition(gpu):
+    circuit = gpu(2)
+    circuit.multirz([0, 1])
+    with pytest.raises(NotImplementedError, match='circuit addition'):
+        circuit + gpu(2)
+    with pytest.raises(NotImplementedError, match='circuit inverse'):
+        circuit.inverse()
+
+
+def test_fixed_execution_device(gpu):
+    circuit = gpu(1)
+    circuit.rx(0)
+    parameter = circuit.operators[0].theta
+    with pytest.raises(ValueError, match='execution device is fixed'):
+        circuit.cpu()
+    assert circuit.operators[0].theta is parameter
+    circuit.to(circuit.gpu_device).double()
+    assert circuit.operators[0].theta.dtype == torch.float64
+    assert circuit().device == circuit.gpu_device
+    if torch.cuda.device_count() > 1:
+        other = (circuit.gpu_device.index + 1) % torch.cuda.device_count()
+        with pytest.raises(ValueError, match='execution device is fixed'):
+            circuit.cuda(other)
+        assert circuit.operators[0].theta.device == circuit.gpu_device
+
+
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason='requires two visible GPUs')
+def test_native_calls_restore_device(gpu):
+    original = torch.cuda.current_device()
+    device = (original + 1) % torch.cuda.device_count()
+    circuit = gpu(2, device=f'cuda:{device}')
+    circuit.x(0)
+    circuit.observable(0)
+    circuit.compile()
+    assert torch.cuda.current_device() == original
+    circuit()
+    assert torch.cuda.current_device() == original
+    assert abs(circuit.expectation().item() + 1) < 3e-5
+    assert torch.cuda.current_device() == original
+    assert circuit.measure(8) == {'10': 8}
+    assert torch.cuda.current_device() == original
+    value = circuit.expectation_from_state(circuit.state, list(circuit.observables))
+    assert abs(value.item() + 1) < 3e-5
+    assert torch.cuda.current_device() == original
+    with pytest.raises(ValueError, match='parameters must be'):
+        circuit._executor.execute(torch.empty(0))
+    assert torch.cuda.current_device() == original
+    circuit.close()
+    circuit.close()
+    assert torch.cuda.current_device() == original
