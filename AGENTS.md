@@ -69,7 +69,7 @@ Photonic circuits:
 
 - After a forward pass, `cir.measure(shots=shots, wires=wires)` samples photon-count histograms on Fock, Gaussian and Bargmann circuits. Set `with_prob=True` to include event probabilities. Fock basis and Gaussian circuits can use `mcmc=True` to sample when enumerating all patterns is expensive. A terminal `detector` override applies to that readout.
 - On Fock state tensors, Gaussian and Bargmann circuits, `cir.measure(wires=wires, with_state=True)` pairs each sampled count record with its conditional state on the remaining modes. Use `cir.post_select(wires, photons)` for the conditional state and event weight of a chosen record.
-- Use `cir.photon_number_mean_var()` for photon-number statistics, `cir.quadrature_mean(wires, phi=phi)` for mean quadratures at selected angles and `cir.quadrature_moments()` for quadrature covariance and mean.
+- Use `cir.photon_number_mean_var()` for single-mode photon-number statistics, `cir.photon_number_moments()` for 2nd-order and higher-order multi-mode photon-number correlations, `cir.quadrature_mean(wires, phi=phi)` for mean quadratures at selected angles and `cir.quadrature_moments()` for quadrature covariance and mean.
 - On Fock state tensors, Gaussian and Bosonic circuits, `cir.measure_homodyne(wires=wire, phi=phi)` samples a quadrature. For a conditional measurement, register `cir.homodyne(wire, phi)`, run the circuit, then call `cir.measure_homodyne()` and read `cir.state_measured`.
 
 **Hardware and orthogonal submodes**

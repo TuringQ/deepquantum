@@ -21,6 +21,7 @@ from .bargmann import (
     _bargmann_derivative,
     _homodyne_moments,
     _moment_generating,
+    _photon_number_moments,
     _project_pnr,
     _project_spatial_pnr,
     _project_threshold,
@@ -38,6 +39,7 @@ from .qmath import (
     _quadrature_angles,
     _quadrature_mean_ladder,
     _quadrature_moments_ladder,
+    _resolve_photon_moment_options,
     cv_to_wigner,
     dirac_rep,
     fock_to_wigner,
@@ -824,6 +826,117 @@ class BargmannState(nn.Module):
         mean = torch.stack(mean, dim=-1).real / weight[:, None]
         factorial = torch.stack(factorial, dim=-1).real / weight[:, None]
         return mean, factorial + mean - mean.square()
+
+    @overload
+    def photon_number_moments(
+        self,
+        wires: int | list[int] | None = None,
+        *,
+        powers: None = None,
+        normal_ordered: bool = False,
+        centered: bool | None = None,
+        normalize: bool = True,
+    ) -> tuple[torch.Tensor, torch.Tensor]: ...
+
+    @overload
+    def photon_number_moments(
+        self,
+        wires: int | list[int] | None = None,
+        *,
+        powers: Sequence[Sequence[int]] | torch.Tensor,
+        normal_ordered: bool = False,
+        centered: bool | None = None,
+        normalize: bool = True,
+    ) -> torch.Tensor: ...
+
+    @_loss_readout
+    def photon_number_moments(
+        self,
+        wires: int | list[int] | None = None,
+        *,
+        powers: Sequence[Sequence[int]] | torch.Tensor | None = None,
+        normal_ordered: bool = False,
+        centered: bool | None = None,
+        normalize: bool = True,
+    ) -> tuple[torch.Tensor, torch.Tensor] | torch.Tensor:
+        r"""Get 2nd-order or arbitrary higher-order photon-number moments without a Fock cutoff.
+
+        Two output modes are supported depending on ``powers`` (let :math:`w_0,\dots,w_{K-1}` be
+        the selected ``wires`` in output order):
+
+        - **Default 2nd-order mode** (``powers=None``): returns ``(second, mean)`` with shapes
+          ``(batch, K, K)`` and ``(batch, K)``:
+
+          - ``normal_ordered=False, centered=True`` (default): covariance
+            :math:`\operatorname{Cov}(\hat n_{w_i},\hat n_{w_j}) = \langle\hat n_{w_i}\hat n_{w_j}\rangle -
+            \langle\hat n_{w_i}\rangle\langle\hat n_{w_j}\rangle` and mean
+            :math:`\langle\hat n_{w_i}\rangle`.
+          - ``normal_ordered=False, centered=False``: raw 2nd moment
+            :math:`\langle\hat n_{w_i}\hat n_{w_j}\rangle` and mean.
+          - ``normal_ordered=True``: normally ordered 2nd-order correlation
+            :math:`G^{(2)}_{ij}=\langle\hat a_{w_i}^\dagger\hat a_{w_j}^\dagger\hat a_{w_i}\hat a_{w_j}\rangle
+            = \langle\hat n_{w_i}\hat n_{w_j}\rangle - \delta_{ij}\langle\hat n_{w_i}\rangle`
+            (the numerator of :math:`g^{(2)}_{ij}`) and mean.
+
+        - **Arbitrary-order sparse mode** (``powers`` provided): specifies individual multi-mode
+          monomials instead of forming a dense :math:`K^d` tensor. Each row
+          :math:`(k_0,\dots,k_{K-1})` gives nonnegative integer exponents in ``wires`` order
+          (total order :math:`\sum_i k_i`), returning a real tensor of shape
+          ``(batch, len(powers))`` whose column :math:`m` evaluates:
+
+          - ``normal_ordered=False, centered=False`` (default): raw moment
+            :math:`\langle\prod_i \hat n_{w_i}^{k_i}\rangle`, e.g. ``(2, 1)`` computes
+            :math:`\langle\hat n_{w_0}^2 \hat n_{w_1}\rangle`.
+          - ``normal_ordered=True``: normally ordered factorial moment
+            :math:`\langle\prod_i (\hat a_{w_i}^\dagger)^{k_i}\hat a_{w_i}^{k_i}\rangle =
+            \langle\prod_i \hat n_{w_i}(\hat n_{w_i}-1)\cdots(\hat n_{w_i}-k_i+1)\rangle`, e.g.
+            ``(2, 1)`` computes :math:`\langle\hat n_{w_0}(\hat n_{w_0}-1)\hat n_{w_1}\rangle`.
+          - ``normal_ordered=False, centered=True``: central moment
+            :math:`\langle\prod_i (\hat n_{w_i}-\bar n_{w_i})^{k_i}\rangle` around normalized
+            mode means :math:`\bar n_{w_i}=\langle\hat n_{w_i}\rangle`.
+
+          An all-zero row ``(0, ..., 0)`` evaluates to ``1`` when ``normalize=True``, or to the
+          unnormalized state weight :math:`\operatorname{Tr}\rho` when ``normalize=False``.
+
+        Args:
+            wires: Distinct local modes in output order. Columns of ``powers`` align positionally
+                with ``wires``. Default: ``None`` (all modes)
+            powers: Optional 2D sequence or integer tensor of shape ``(n_terms, len(wires))`` with
+                nonnegative integer exponents in ``wires`` order. Each row requests one moment term
+                of total order :math:`\sum_i k_i`. When ``None``, returns the full 2nd-order
+                matrix and 1st-order mean pair. Default: ``None``
+            normal_ordered: If ``True``, compute normally ordered factorial moments
+                :math:`\langle\prod_i (\hat a_i^\dagger)^{k_i}\hat a_i^{k_i}\rangle` (i.e.
+                :math:`G^{(2)}_{ij}` when ``powers=None``, or higher-order :math:`G^{(k)}`
+                numerators when ``powers`` is provided) instead of ordinary :math:`\hat n_i`
+                powers. Mutually exclusive with ``centered=True``. Default: ``False``
+            centered: If ``True``, subtract the normalized mode mean
+                :math:`\bar n_i = \langle\hat n_i\rangle` from each factor (giving covariance when
+                ``powers=None`` or central moments :math:`\langle\prod_i(\hat n_i-\bar n_i)^{k_i}\rangle`
+                when ``powers`` is provided). When ``None``, defaults to ``True`` for the default
+                2nd-order pair (``powers is None`` and ``normal_ordered=False``) and ``False``
+                when ``powers`` is provided or ``normal_ordered=True``. Mutually exclusive with
+                ``normal_ordered=True``. Default: ``None``
+            normalize: Divide by the state weight :math:`\operatorname{Tr}\rho`, which must then
+                be positive for every batch entry. Default: ``True``
+
+        Returns:
+            ``(second, mean)`` of shapes ``(batch, K, K)`` and ``(batch, K)`` when ``powers is None``,
+            or a real tensor of shape ``(batch, len(powers))`` in request order when ``powers`` is
+            provided.
+        """
+        resolved_centered = _resolve_photon_moment_options(powers, normal_ordered, centered)
+        generating, weight = self._prepare_moments(wires, require_positive=normalize)
+        nwire = generating.nfree // 2
+        terms = None if powers is None else _moment_powers(powers, nwire)
+        return _photon_number_moments(
+            generating,
+            terms,
+            weight,
+            normal_ordered=normal_ordered,
+            centered=resolved_centered,
+            normalize=normalize,
+        )
 
     @_loss_readout
     def to_fock(self, cutoff: int | None = None) -> torch.Tensor:
