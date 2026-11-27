@@ -1,6 +1,8 @@
 """Decompose the unitary matrix"""
 
 from collections import defaultdict
+from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 import torch
@@ -35,7 +37,9 @@ class UnitaryDecomposer:
         self.unitary[np.abs(self.unitary) < 1e-32] = 1e-32
         self.method = method
 
-    def decomp(self) -> tuple[dict, dict, dict]:
+    def decomp(
+        self,
+    ) -> tuple[dict[str, Any], dict[tuple[int, int], list[list[float]]], dict[tuple[int, int], float] | None]:
         """Decompose the unitary matrix.
 
         The third dictionary is the representation of the positions and the angles of all phase shifters.
@@ -44,9 +48,9 @@ class UnitaryDecomposer:
         def period_cut(input_angle: float, period: float = np.pi * 2) -> float:
             return input_angle - np.floor(input_angle / period) * period
 
-        def decomp_rr(unitary: np.ndarray, method: str) -> dict:
+        def decomp_rr(unitary: np.ndarray, method: str) -> tuple[dict[str, Any], np.ndarray]:
             n_dim = len(unitary)
-            info = {}
+            info: dict[str, Any] = {}
             info['N'] = n_dim
             info['method'] = method
             info['MZI_list'] = []  # jj,ii,phi,theta
@@ -80,9 +84,9 @@ class UnitaryDecomposer:
             info['phase_angle'][mask] -= np.floor(info['phase_angle'][mask] / np.pi / 2) * np.pi * 2
             return info, unitary
 
-        def decomp_cr(unitary: np.ndarray, method: str) -> dict:
+        def decomp_cr(unitary: np.ndarray, method: str) -> tuple[dict[str, Any], np.ndarray]:
             n_dim = len(unitary)
-            info = {}
+            info: dict[str, Any] = {}
             info['N'] = n_dim
             info['method'] = method
             info['MZI_list'] = []  # jj,ii,phi,theta
@@ -146,9 +150,9 @@ class UnitaryDecomposer:
             info['phase_angle'][mask] -= np.floor(info['phase_angle'][mask] / np.pi / 2) * np.pi * 2
             return info, unitary
 
-        def decomp_rl(unitary: np.ndarray, method: str) -> dict:
+        def decomp_rl(unitary: np.ndarray, method: str) -> tuple[dict[str, Any], np.ndarray]:
             n_dim = len(unitary)
-            info = {}
+            info: dict[str, Any] = {}
             info['N'] = n_dim
             info['method'] = method
             info['MZI_list'] = []  # jj,ii,phi,theta
@@ -182,9 +186,9 @@ class UnitaryDecomposer:
             info['phase_angle'][mask] -= np.floor(info['phase_angle'][mask] / np.pi / 2) * np.pi * 2
             return info, unitary
 
-        def decomp_cl(unitary: np.ndarray, method: str) -> dict:
+        def decomp_cl(unitary: np.ndarray, method: str) -> tuple[dict[str, Any], np.ndarray]:
             n_dim = len(unitary)
-            info = {}
+            info: dict[str, Any] = {}
             info['N'] = n_dim
             info['method'] = method
             info['MZI_list'] = []  # jj,ii,phi,theta
@@ -248,7 +252,7 @@ class UnitaryDecomposer:
             info['phase_angle'][mask] -= np.floor(info['phase_angle'][mask] / np.pi / 2) * np.pi * 2
             return info, unitary
 
-        def calc_factor_inverse(method, phi, theta):
+        def calc_factor_inverse(method: str, phi: float, theta: float) -> complex:
             # 计算MZI矩阵T^{-1}的系数（相当于全局相位）
             if 'sd' in method:
                 return -1j
@@ -259,11 +263,11 @@ class UnitaryDecomposer:
             elif 'ds' in method:
                 return -1j * np.exp(1j * phi / 2)
 
-        def calc_factor_constr(method, phi, theta):
+        def calc_factor_constr(method: str, phi: float, theta: float) -> complex:
             # 计算MZI矩阵T的系数（相当于全局相位）
             return calc_factor_inverse(method, phi, theta).conjugate()
 
-        def get_matrix_constr_l(info, n_dim, method):
+        def get_matrix_constr_l(info: Sequence[float], n_dim: int, method: str) -> np.ndarray:
             jj, ii, phi, theta = info
             factor = calc_factor_constr(method, phi, theta)
             multiple = np.eye(n_dim, dtype=complex)
@@ -273,7 +277,7 @@ class UnitaryDecomposer:
             multiple[ii, ii] = factor * -np.sin(theta / 2)
             return multiple
 
-        def get_matrix_inverse_l(info, n_dim, method):
+        def get_matrix_inverse_l(info: Sequence[float], n_dim: int, method: str) -> np.ndarray:
             jj, ii, phi, theta = info
             factor = calc_factor_inverse(method, phi, theta)
             multiple = np.eye(n_dim, dtype=complex)
@@ -283,7 +287,7 @@ class UnitaryDecomposer:
             multiple[ii, ii] = factor * -np.sin(theta / 2)
             return multiple
 
-        def get_matrix_constr_r(info, n_dim, method):
+        def get_matrix_constr_r(info: Sequence[float], n_dim: int, method: str) -> np.ndarray:
             jj, ii, phi, theta = info
             factor = calc_factor_constr(method, phi, theta)
             multiple = np.eye(n_dim, dtype=complex)
@@ -293,7 +297,7 @@ class UnitaryDecomposer:
             multiple[ii, ii] = factor * -np.sin(theta / 2)
             return multiple
 
-        def get_matrix_inverse_r(info, n_dim, method):
+        def get_matrix_inverse_r(info: Sequence[float], n_dim: int, method: str) -> np.ndarray:
             jj, ii, phi, theta = info
             factor = calc_factor_inverse(method, phi, theta)
             multiple = np.eye(n_dim, dtype=complex)
@@ -303,7 +307,9 @@ class UnitaryDecomposer:
             multiple[ii, ii] = factor * -np.sin(theta / 2)
             return multiple
 
-        def clements_diagonal_transform(phi, theta, a1, a2, method):
+        def clements_diagonal_transform(
+            phi: float, theta: float, a1: float, a2: float, method: str
+        ) -> tuple[float, float, float, float]:
             if 'sd' in method:
                 theta_ = theta
                 phi_ = a1 - a2
@@ -361,7 +367,7 @@ class UnitaryDecomposer:
         temp_2 = self.ps_pos(temp_1, temp_0['phase_angle'])
         return temp_0, temp_1, temp_2
 
-    def sort_mzi(self, mzi_info):
+    def sort_mzi(self, mzi_info: dict[str, Any]) -> dict[tuple[int, int], list[list[float]]]:
         """Sort mzi parameters in the same array for plotting."""
         dic_mzi = defaultdict(list)  # 当key不存在时对应的value是[]
         mzi_list = mzi_info['MZI_list']
@@ -369,7 +375,9 @@ class UnitaryDecomposer:
             dic_mzi[tuple(i[0:2])].append(i[2:])
         return dic_mzi
 
-    def ps_pos(self, dic_mzi, phase_angle):
+    def ps_pos(
+        self, dic_mzi: dict[tuple[int, int], list[list[float]]], phase_angle: np.ndarray
+    ) -> dict[tuple[int, int], float] | None:
         """Label the position of each phaseshifter for ``'cssr'`` case."""
         if self.method == 'cssr':
             dic_pos = {}

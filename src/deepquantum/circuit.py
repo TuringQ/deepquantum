@@ -75,6 +75,10 @@ from .qpd import SingleGateQPD
 from .state import DistributedQubitState, MatrixProductState, QubitState
 
 if TYPE_CHECKING:
+    from PIL.Image import Image
+    from matplotlib.figure import Figure
+    from qiskit.visualization.circuit.text import TextDrawing
+
     from .mbqc import Pattern
 
 
@@ -625,7 +629,7 @@ class QubitCircuit(Operation):
         Gate._reset_qasm_new_gate()
         return ''.join(qasm_lst)
 
-    def _qasm(self):
+    def _qasm(self) -> str:
         """Get QASM of the quantum circuit for visualization."""
         qasm_lst = ['OPENQASM 2.0;\n' + 'include "qelib1.inc";\n']
         if self.wires_measure == self.wires_condition == []:
@@ -640,7 +644,7 @@ class QubitCircuit(Operation):
         Channel._reset_qasm_new_gate()
         return ''.join(qasm_lst)
 
-    def _proposal_sampler(self):
+    def _proposal_sampler(self) -> str:
         """The proposal sampler for MCMC sampling."""
         sample_chain = ''
         mps_state = copy(self.state)
@@ -812,7 +816,7 @@ class QubitCircuit(Operation):
             coefficients.append(coeff)
         return subexperiments, coefficients
 
-    def draw(self, output: str = 'mpl', **kwargs):
+    def draw(self, output: str = 'mpl', **kwargs: Any) -> 'TextDrawing | str | Figure | Image | None':
         """Visualize the quantum circuit."""
         qc = QuantumCircuit.from_qasm_str(self._qasm())
         return qc.draw(output=output, **kwargs)

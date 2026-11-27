@@ -231,11 +231,11 @@ def test_opa_tdm_streaming_unrolling_and_parameter_sharing(encode_loop, gain_db)
     cir.double()
     data = torch.linspace(0.1, 0.8, 2 * 3 * cir.ndata, dtype=torch.double).reshape(2, -1).requires_grad_()
     streamed = cir.tdm_substate([0, 2], data=data.reshape(2, 3, -1))
-    expanded = cir.global_circuit(3).double()
-    expanded.hardware_model.manual_seed(9)
-    cov, mean = expanded(data)
+    unrolled = cir.global_circuit(3).double()
+    unrolled.hardware_model.manual_seed(9)
+    cov, mean = unrolled(data)
     outputs = cir.tdm_output_wires(3)[[0, 2]].flatten()
-    indices = torch.cat([outputs, outputs + expanded.nmode])
+    indices = torch.cat([outputs, outputs + unrolled.nmode])
     expected = [cov[:, indices[:, None], indices], mean[:, indices]]
     torch.testing.assert_close(streamed, expected)
     variables = (data, *loop_opa.parameters())
@@ -244,9 +244,9 @@ def test_opa_tdm_streaming_unrolling_and_parameter_sharing(encode_loop, gain_db)
         torch.autograd.grad(expected[0].square().sum(), variables),
     )
     if not encode_loop:
-        expanded_opa = [op for op in expanded.operators if isinstance(op, dqp.OPA)][1::2]
+        unrolled_opas = [op for op in unrolled.operators if isinstance(op, dqp.OPA)][1::2]
         for name, parameter in loop_opa.named_parameters():
-            assert all(getattr(op, name) is parameter for op in expanded_opa)
+            assert all(getattr(op, name) is parameter for op in unrolled_opas)
         copied = cir.global_circuit(3, use_deepcopy=True)
         copied_opa = next(op for op in copied.operators if isinstance(op, dqp.OPA) and op.requires_grad)
         assert all(getattr(copied_opa, name) is not value for name, value in loop_opa.named_parameters())
@@ -350,7 +350,8 @@ def test_opa_separate_parameters_and_defaults(convention):
     cir.opa(0, r=0.3, convention=convention)
     op = cir.operators[0]
     assert not list(op.parameters())
-    assert set(dict(op.named_buffers())) == {'r', 'theta', 'loss_theta'}
+    loss_control = 'loss_theta' if convention == 'theta' else 'loss_control'
+    assert set(dict(op.named_buffers())) == {'r', 'theta', loss_control}
     torch.testing.assert_close(op.theta, torch.zeros(()))
     torch.testing.assert_close(op.t, torch.ones(()))
     torch.testing.assert_close(cir()[0][0], torch.diag(torch.exp(torch.tensor([-0.6, 0.6]))))
@@ -406,3 +407,93 @@ def test_opa_quadrature_normalization_invariance(backend, tdm):
             results.append(values)
     for values in results[1:]:
         torch.testing.assert_close(values, results[0], atol=2e-6, rtol=2e-6)
+
+
+def test_opa_db_amplified_axis_in_fixed_and_batched_calibration():
+    initial = [torch.eye(2, dtype=torch.double), torch.ones(2, 1, dtype=torch.double)]
+    data = torch.tensor([[-1.0, 0.0, 1.0], [-0.5, 0.0, 1.0], [3.0, 0.0, 1.0]], dtype=torch.double, requires_grad=True)
+    encoded = dqp.QumodeCircuit(1, initial, backend='gaussian')
+    encoded.opa_db(0, encode=True)
+    encoded.double()
+    _, mean = encoded(data)
+    gain, _, loss = data.unbind(1)
+    db = 20 * mean.squeeze(-1).log10()
+    torch.testing.assert_close(db, torch.stack([-2 * loss - gain, gain], dim=1))
+    for i, (g, phase, ell) in enumerate(data):
+        fixed = dqp.QumodeCircuit(1, initial, backend='gaussian')
+        fixed.opa_db(0, g, phase, ell)
+        fixed.double()
+        torch.testing.assert_close(fixed()[1][0], mean[i])
+    torch.testing.assert_close(
+        torch.autograd.grad(db[:, 1].sum(), data)[0],
+        torch.stack(
+            [torch.ones_like(gain), (10 / log(10)) * (10 ** (-(gain + loss) / 10) - 1), torch.zeros_like(loss)], dim=1
+        ),
+    )
+    bad = data.detach().clone()
+    bad[0, 0] = -5.0  # An invalid earlier row must be found even when the final encoded row is valid.
+    with pytest.raises(ValueError, match=r'gain_db \+ loss_db'):
+        encoded(bad)
+    with pytest.raises(ValueError, match=r'gain_db \+ loss_db'):
+        encoded(bad[0])
+    with pytest.raises(ValueError, match=r'gain_db \+ loss_db'):
+        encoded.opa_db(0, gain_db=-5.0, loss_db=1.0)
+    signed = dqp.QumodeCircuit(1, initial, backend='gaussian')
+    signed.opa(0, r=-(4 * log(10) / 20), theta=0.0, loss=1.0, convention='db')
+    signed.double()
+    torch.testing.assert_close(20 * signed()[1].squeeze().log10(), torch.tensor([3.0, -5.0], dtype=torch.double))
+
+
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann', 'fock'])
+@pytest.mark.parametrize('coordinate', ['t', 'db'])
+def test_opa_lossless_encoded_observable_derivatives(backend, coordinate):
+    cir = dqp.QumodeCircuit(1, 'vac', cutoff=8, backend=backend, basis=False, den_mat=True)
+    cir.thermal(0, nbar=0.1)
+    cir.d(0, 0.5, 0.0)
+    cir.opa(0, convention=coordinate, encode=True)
+    cir.double()
+    x = torch.tensor([0.2, 0.0, 1.0 if coordinate == 't' else 0.0], dtype=torch.double, requires_grad=True)
+
+    def read(data):
+        out = cir(data)
+        var, mean = cir.quadrature_moments(0, phi=0.0)
+        vacuum = (
+            cir.get_prob([0]) if backend == 'gaussian' else (out.to_fock(1) if backend == 'bargmann' else out)[:, 0, 0]
+        )
+        return torch.stack([mean.real.squeeze(), var.real.squeeze(), vacuum.real.squeeze()])
+
+    value = read(x)
+    derivative = torch.stack([torch.autograd.grad(y, x, retain_graph=True)[0][-1] for y in value])
+    h = -1e-6 if coordinate == 't' else 1e-6
+    with torch.no_grad():
+        expected = (read(x + x.new_tensor([0.0, 0.0, h])) - value) / h
+    torch.testing.assert_close(derivative, expected, atol=3e-7, rtol=1e-5)
+
+
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann', 'fock'])
+def test_opa_power_derivative_at_complete_loss(backend):
+    cir = dqp.QumodeCircuit(1, 'vac', cutoff=8, backend=backend, basis=False, den_mat=True)
+    cir.thermal(0, nbar=torch.tensor(0.1, dtype=torch.double))
+    cir.opa(0, encode=True, convention='t')
+    cir.double()
+    data = torch.tensor([[0.0, 0, 0], [0.2, 0, 0], [0.0, 0, 0.4]], dtype=torch.double, requires_grad=True)
+    cir(data)
+    covariance, _ = cir.quadrature_moments()
+    for axis, pump_on in enumerate([-torch.inf, torch.inf]):
+        (grad,) = torch.autograd.grad(covariance[:, axis, axis].sum(), data, retain_graph=True)
+        # A pump-off OPA is pure loss; uniform distributed loss at nonzero
+        # pump approaches the vacuum logarithmically on the two gain axes.
+        expected = data.new_tensor([0.2, pump_on, 0.2])
+        torch.testing.assert_close(grad[:, -1], expected, atol=2e-7, rtol=1e-7)
+
+
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann', 'fock'])
+def test_pump_off_opa_signed_angle_at_complete_loss(backend):
+    cir = dqp.QumodeCircuit(1, 'vac', cutoff=8, backend=backend, basis=False, den_mat=True)
+    cir.thermal(0, nbar=torch.tensor(0.1, dtype=torch.double))
+    cir.opa(0, encode=True)
+    cir.double()
+    angle = torch.tensor(torch.pi, dtype=torch.double, requires_grad=True)
+    cir(torch.stack([angle.new_zeros(()), angle.new_zeros(()), angle]))
+    variance, _ = cir.quadrature_moments(0, phi=0.0)
+    torch.testing.assert_close(dqp.transmittance_grad(variance.sum(), angle), angle.new_tensor(0.2), atol=2e-7, rtol=0)

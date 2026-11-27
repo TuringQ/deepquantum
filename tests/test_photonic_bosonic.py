@@ -1,9 +1,16 @@
 import numpy as np
-import strawberryfields as sf
+import pytest
 import torch
 
 import deepquantum as dq
 from deepquantum.photonic import xxpp_to_xpxp
+
+try:
+    import strawberryfields as sf
+except ModuleNotFoundError as exc:
+    if exc.name != 'strawberryfields':
+        raise
+    pytest.skip(f'{exc.name} is required for this comparison', allow_module_level=True)
 
 
 def test_catstate():

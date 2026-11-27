@@ -52,12 +52,12 @@ class SubGraphState(nn.Module):
         return self
 
     @property
-    def nodes(self, **kwargs):
+    def nodes(self, **kwargs: Any) -> nx.classes.reportviews.NodeView:
         """Nodes of the graph."""
         return self.graph.nodes(**kwargs)
 
     @property
-    def edges(self, **kwargs):
+    def edges(self, **kwargs: Any) -> nx.classes.reportviews.EdgeView:
         """Edges of the graph."""
         return self.graph.edges(**kwargs)
 
@@ -199,7 +199,7 @@ class SubGraphState(nn.Module):
             self.node2wire_dict = {node: i for i, node in enumerate(self.nodes_out_seq)}
         return self.node2wire_dict
 
-    def draw(self, **kwargs):
+    def draw(self, **kwargs: Any) -> None:
         """Draw the graph using NetworkX."""
         nx.draw(self.graph, with_labels=True, **kwargs)
 

@@ -1,10 +1,16 @@
 import numpy as np
 import pytest
 import torch
-from graphix import Pattern, command
-from graphix.fundamentals import Plane
 
 import deepquantum as dq
+
+try:
+    from graphix import Pattern, command
+    from graphix.fundamentals import Plane
+except ModuleNotFoundError as exc:
+    if exc.name != 'graphix':
+        raise
+    pytest.skip(f'{exc.name} is required for this comparison', allow_module_level=True)
 
 
 def test_random_with_graphix():

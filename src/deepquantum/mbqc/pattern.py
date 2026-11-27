@@ -193,7 +193,7 @@ class Pattern(Operation):
         z = Correction(nodes=node, basis='z', domain=domain)
         self.add(z)
 
-    def draw(self):
+    def draw(self) -> None:
         """Draw the MBQC pattern."""
         g = MultiDiGraph(self.init_state.graph.graph)
         nodes_init = deepcopy(g.nodes())
@@ -295,7 +295,7 @@ class Pattern(Operation):
         z_dict = {}  # Tracks Z corrections by node
         x_dict = {}  # Tracks X corrections by node
 
-        def add_correction_domain(domain_dict: dict, node, domain) -> None:
+        def add_correction_domain(domain_dict: dict[int, set[int]], node: int, domain: set[int]) -> None:
             """Helper function to update correction domains with XOR operation"""
             if previous_domain := domain_dict.get(node):
                 previous_domain ^= domain

@@ -1,10 +1,17 @@
 import numpy as np
-import perceval as pcvl
-import perceval.components as comp
+import pytest
 import torch
-from perceval.components import BS
 
 import deepquantum as dq
+
+try:
+    import perceval as pcvl
+    import perceval.components as comp
+    from perceval.components import BS
+except ModuleNotFoundError as exc:
+    if exc.name != 'perceval':
+        raise
+    pytest.skip(f'{exc.name} is required for this comparison', allow_module_level=True)
 
 
 def test_random_circuit():

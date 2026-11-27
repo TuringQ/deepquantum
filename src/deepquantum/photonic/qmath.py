@@ -17,7 +17,13 @@ import deepquantum.photonic as dqp
 
 from ..qmath import block_sample, decimal_to_list, is_unitary, list_to_decimal, partial_trace
 from .draw import plot_wigner
+from .gradient import transmittance_grad as transmittance_grad
 from .utils import mem_to_chunksize
+
+
+def _times_i(value: torch.Tensor) -> torch.Tensor:
+    """Multiply by the imaginary unit in the input's promoted dtype, including during MPS backward."""
+    return value * torch.tensor(1j, dtype=torch.result_type(value, 1j), device=value.device)
 
 
 def _normalize_coefficients(value: torch.Tensor) -> torch.Tensor:
@@ -272,7 +278,7 @@ def group_probabilities(probabilities: dict | torch.Tensor, groups: list[list[in
     return result
 
 
-def _photon_count_condition(
+def _condition_fock_on_counts(
     state: torch.Tensor,
     nmode: int,
     cutoff: int,
@@ -284,7 +290,7 @@ def _photon_count_condition(
     *,
     normalize: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Condition on photon counts or threshold outcomes and trace all unretained modes.
+    """Return the conditional Fock density matrix and event weight for PNR or threshold counts.
 
     See https://arxiv.org/pdf/1902.02323v2 Eq.(24) and Eq.(109) for PNR projection and probability.
     Here each unresolved event sums resolved projectors, with unretained modes traced out.
@@ -596,7 +602,9 @@ def fock_combinations(nmode: int, nphoton: int, cutoff: int | None = None, nanci
     return result
 
 
-def ladder_ops(cutoff: int, dtype=torch.cfloat, device='cpu') -> tuple[torch.Tensor, torch.Tensor]:
+def ladder_ops(
+    cutoff: int, dtype: torch.dtype = torch.cfloat, device: str | torch.device = 'cpu'
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Get the matrix representation of the annihilation and creation operators."""
     sqrt = torch.arange(1, cutoff, dtype=dtype, device=device) ** 0.5
     a = torch.diag(sqrt, diagonal=1)
@@ -699,17 +707,25 @@ def _moment_wires(wires: int | list[int] | None, nmode: int) -> list[int]:
     return wires
 
 
-def _quadrature_angles(phi: Any, nwire: int, like: torch.Tensor) -> torch.Tensor:
-    """Get one angle per selected mode at the precision and device of the state."""
+def _quadrature_angles(phi: Any, nwire: int, like: torch.Tensor, *, flatten: bool = False) -> torch.Tensor:
+    """Get one angle per selected mode, optionally flattening legacy mean-readout inputs."""
     options = {'dtype': like.real.dtype, 'device': like.device}
     if isinstance(phi, (list, tuple)) and len(phi):
-        # Stacking retains gradients of individual LO angles supplied in a list.
-        angles = torch.stack([torch.as_tensor(angle, **options) for angle in phi])
+        values = [torch.as_tensor(angle, **options) for angle in phi]
+        angles = torch.stack([value.squeeze() for value in values] if flatten else values)
     else:
         angles = torch.as_tensor(0.0 if phi is None else phi, **options)
+    if flatten and angles.ndim > 1:
+        angles = angles.flatten()
     if angles.ndim > 1 or angles.numel() not in (1, nwire):
         raise ValueError('phi must be a shared angle or one angle per selected wire')
     return angles.expand(nwire)
+
+
+def _project_quadrature_mean(first: torch.Tensor, angles: torch.Tensor) -> torch.Tensor:
+    """Rotate xxpp means along the selected angles without allocating a projection matrix."""
+    x, p = first.chunk(2, dim=-2)
+    return x * angles.cos()[:, None] + p * angles.sin()[:, None]
 
 
 def _project_quadrature_moments(
@@ -719,6 +735,13 @@ def _project_quadrature_moments(
     angles = _quadrature_angles(phi, first.shape[-2] // 2, first)
     projection = torch.cat([angles.cos().diag(), angles.sin().diag()], dim=-1)
     return projection @ second @ projection.mT, projection @ first
+
+
+def _quadrature_mean_ladder(alpha: torch.Tensor, phi: Any) -> torch.Tensor:
+    """Rotate annihilation means into quadrature units, retaining their state weight."""
+    angles = _quadrature_angles(phi, alpha.shape[-1], alpha, flatten=True)
+    mean = (alpha * torch.exp(-1j * angles)).real
+    return (dqp.hbar**0.5 / dqp.kappa * mean).unsqueeze(-1)
 
 
 def _moment_powers(powers: Sequence[Sequence[int]] | torch.Tensor, nwire: int) -> list[tuple[int, ...]]:
@@ -737,6 +760,13 @@ def _moment_powers(powers: Sequence[Sequence[int]] | torch.Tensor, nwire: int) -
     if not terms:
         raise ValueError('powers must contain at least one row')
     return terms
+
+
+def _first_order_indices(powers: list[tuple[int, ...]]) -> list[int] | None:
+    """Return the requested mean columns in order if every product has degree one."""
+    if all(sum(row) == 1 for row in powers):
+        return [row.index(1) for row in powers]
+    return None
 
 
 def _wick_moments(cov: torch.Tensor, mean: torch.Tensor, powers: list[tuple[int, ...]]) -> torch.Tensor:
@@ -770,6 +800,15 @@ def _wick_moments(cov: torch.Tensor, mean: torch.Tensor, powers: list[tuple[int,
     return torch.stack([moments[order] for order in powers], dim=-1)
 
 
+def _moment_weight(weight: torch.Tensor, normalize: bool) -> torch.Tensor:
+    """Validate and broadcast the state weight over quadrature coordinates."""
+    if not bool(torch.isfinite(weight).all()):
+        raise ValueError('Moments require a finite state weight')
+    if normalize and bool((weight.real <= 0).any()):
+        raise ValueError('Normalized moments require a positive state weight')
+    return weight.real[..., None, None]
+
+
 def _quadrature_moments_from_raw(
     second: torch.Tensor,
     first: torch.Tensor,
@@ -779,11 +818,7 @@ def _quadrature_moments_from_raw(
     normalize: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Center and normalize weighted quadrature moments independently."""
-    if not bool(torch.isfinite(weight).all()):
-        raise ValueError('Moments require a finite state weight')
-    if normalize and bool((weight.real <= 0).any()):
-        raise ValueError('Normalized moments require a positive state weight')
-    weight = weight.real[..., None, None]
+    weight = _moment_weight(weight, normalize)
     if centered:
         # A zero-probability event contributes zero to unnormalized centered moments.
         denominator = torch.where(weight == 0, torch.ones_like(weight), weight)
@@ -870,6 +905,16 @@ def quadrature_moments_fock(
     normal = torch.stack(normal, dim=-2)
     anomalous = torch.stack(anomalous, dim=-2)
     return _quadrature_moments_ladder(alpha, normal, anomalous, weight, centered=centered, normalize=normalize)
+
+
+def _gaussian_marginal(state: list[torch.Tensor], wires: list[int]) -> list[torch.Tensor]:
+    """Select the joint covariance and mean on the requested wires in xxpp order."""
+    cov, mean = state
+    nmode = cov.shape[-1] // 2
+    if wires == list(range(nmode)):
+        return state
+    idx = torch.tensor(wires + [w + nmode for w in wires], dtype=torch.long, device=cov.device)
+    return [cov[..., idx[:, None], idx], mean[..., idx, :]]
 
 
 def _photon_number_mean_var_gaussian(cov: torch.Tensor, mean: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -1294,23 +1339,11 @@ def photon_number_moments_fock(
     return result / weight[:, None] if normalize else result
 
 
-def quadrature_mean_fock(
-    state: torch.Tensor,
-    nmode: int,
-    cutoff: int,
-    wires: list[int],
-    den_mat: bool = False,
-    *,
-    phi: torch.Tensor | None = None,
+def _fock_annihilation_means(
+    state: torch.Tensor, nmode: int, cutoff: int, wires: list[int], den_mat: bool
 ) -> torch.Tensor:
-    """Get the rotated quadrature expectation for Fock state tensors.
-
-    ``phi`` is shared or gives one angle per selected mode, with zero as the default.
-    Only adjacent Fock coherences contribute, so no state rotation is needed.
-    The result has shape ``(batch, len(wires), 1)`` and retains the state weight.
-    """
-    coef = 2 * dqp.kappa**2 / dqp.hbar
-    factor = torch.sqrt(torch.arange(1, cutoff, device=state.device, dtype=state.real.dtype) / 2)
+    """Read the unnormalized annihilation mean from adjacent number coherences on each wire."""
+    factor = torch.arange(1, cutoff, device=state.device, dtype=state.real.dtype).sqrt()
     mean = []
     if den_mat:
         state = state.reshape(-1, cutoff**nmode, cutoff**nmode)
@@ -1322,8 +1355,6 @@ def quadrature_mean_fock(
             term = factor * off_diag
             mean.append(term.sum(dim=1))
     else:
-        if state.ndim == nmode:
-            state = state.unsqueeze(0)
         factor = factor.view([1, -1] + [1] * (nmode - 1))
         for wire in wires:
             pm_shape = list(range(1, nmode + 1))
@@ -1334,9 +1365,37 @@ def quadrature_mean_fock(
             cn1 = state_i[:, 1:, ...]  # n+1
             term = factor * (cn.conj() * cn1)
             mean.append(term.sum(dim=tuple(range(1, nmode + 1))))
-    phi = torch.as_tensor(0.0 if phi is None else phi, dtype=state.real.dtype, device=state.device)
-    mean = (torch.stack(mean, dim=-1) * torch.exp(-1j * phi)).real
-    return (2 * coef ** (-0.5) * mean).unsqueeze(-1)
+    return torch.stack(mean, dim=-1)
+
+
+def _fock_state_weight(state: torch.Tensor, nmode: int, cutoff: int, den_mat: bool) -> torch.Tensor:
+    """Return the retained trace or squared norm in each Fock batch entry."""
+    if den_mat:
+        return state.reshape(-1, cutoff**nmode, cutoff**nmode).diagonal(dim1=-2, dim2=-1).sum(-1).real
+    return state.reshape(-1, cutoff**nmode).abs().square().sum(-1)
+
+
+def quadrature_mean_fock(
+    state: torch.Tensor,
+    nmode: int,
+    cutoff: int,
+    wires: list[int],
+    den_mat: bool = False,
+    *,
+    phi: Any = None,
+    normalize: bool = False,
+) -> torch.Tensor:
+    """Get the rotated quadrature expectation for Fock state tensors.
+
+    ``phi`` is shared or gives one angle per selected mode, with zero as the default.
+    Only adjacent Fock coherences contribute, so no state rotation is needed.
+    The result has shape ``(batch, len(wires), 1)``. Set ``normalize=True`` to divide by the state weight.
+    """
+    state = state.reshape([-1] + [cutoff] * nmode * (2 if den_mat else 1))
+    first = _quadrature_mean_ladder(_fock_annihilation_means(state, nmode, cutoff, wires, den_mat), phi)
+    if normalize:
+        first = first / _moment_weight(_fock_state_weight(state, nmode, cutoff, den_mat), normalize=True)
+    return first
 
 
 def takagi(a: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -1625,7 +1684,8 @@ def fock_to_wigner(
         wire: The Wigner function for the given wire.
         nmode: The mode number of the Fock state.
         cutoff: The Fock space truncation.
-        den_mat: Whether to use density matrix representation. Only valid for Fock state tensor. Default: ``False``
+        den_mat: Whether to use density matrix representation. Use ``True`` for a Fock density matrix input.
+            Default: ``False``
         xrange: The range of quadrature x. Default: 10
         prange: The range of quadrature p. Default: 10
         npoints: The number of discretization points for quadratures. Default: 100
@@ -1693,7 +1753,7 @@ def cv_to_wigner(
     plot: bool = True,
     k: int = 0,
     normalize: bool = True,
-):
+) -> torch.Tensor:
     """Get the discretized Wigner function of the specified mode from a CV state.
 
     Args:

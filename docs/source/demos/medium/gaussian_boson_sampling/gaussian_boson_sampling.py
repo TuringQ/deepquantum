@@ -141,7 +141,6 @@ gbs.draw()  # 画出采样线路
 # 设置粒子数分辨探测器开始采样并输出Fock态结果
 
 # %%
-gbs.detector = 'pnrd'
 result = gbs.measure(shots=1024, mcmc=True)
 print(result)
 
@@ -149,8 +148,7 @@ print(result)
 # 设置阈值探测器开始采样并输出Fock态结果
 
 # %%
-gbs.detector = 'threshold'
-result = gbs.measure(shots=1024, mcmc=True)
+result = gbs.measure(shots=1024, detector='threshold', mcmc=True)
 print(result)
 
 # %% [markdown]

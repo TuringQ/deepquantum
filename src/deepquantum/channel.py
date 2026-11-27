@@ -184,7 +184,7 @@ class Pauli(Channel):
         self.npara = 4
 
     @property
-    def prob(self):
+    def prob(self) -> torch.Tensor:
         """The error probabilities."""
         prob = torch.sin(self.theta) ** 2
         return prob / prob.sum()

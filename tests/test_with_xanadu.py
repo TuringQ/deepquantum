@@ -1,16 +1,30 @@
+from importlib import import_module
+from importlib.util import find_spec
+
 import numpy as np
 import pytest
-import strawberryfields as sf
-import thewalrus
 import torch
-from strawberryfields.ops import BSgate, Dgate, Fock, MeasureHomodyne, Rgate, Sgate
 
 import deepquantum as dq
 from deepquantum.photonic import hafnian, quadrature_to_ladder, torontonian
 
 
+@pytest.fixture(scope='module')
+def sf():
+    if find_spec('strawberryfields') is None:
+        pytest.skip('strawberryfields is required for this comparison')
+    return import_module('strawberryfields')
+
+
+@pytest.fixture(scope='module')
+def thewalrus():
+    if find_spec('thewalrus') is None:
+        pytest.skip('thewalrus is required for this comparison')
+    return import_module('thewalrus')
+
+
 @pytest.mark.parametrize('loop', [False, True])
-def test_hafnian(loop):
+def test_hafnian(thewalrus, loop):
     n = 12
     temp = np.random.rand(n, n)
     mat = temp + temp.transpose()
@@ -20,7 +34,7 @@ def test_hafnian(loop):
     assert abs(haf1 - haf2) < 1e-6
 
 
-def test_torontonian():
+def test_torontonian(thewalrus):
     nmode = 15
     cir = dq.QumodeCircuit(nmode=nmode, init_state='vac', cutoff=5, backend='gaussian')
     for i in range(nmode):
@@ -38,7 +52,7 @@ def test_torontonian():
     assert abs(tor1 - tor2) < 1e-6
 
 
-def test_torontonian_loop():
+def test_torontonian_loop(thewalrus):
     nmode = 10
     cir = dq.QumodeCircuit(nmode=nmode, init_state='vac', cutoff=5, backend='gaussian')
     for i in range(nmode):
@@ -60,7 +74,7 @@ def test_torontonian_loop():
     assert abs(tor1 - tor2) < 1e-6
 
 
-def test_gaussian_prob_random_circuit():
+def test_gaussian_prob_random_circuit(thewalrus):
     para_r = np.random.uniform(0, 1, [1, 4])[0]
     para_theta = np.random.uniform(0, 2 * np.pi, [1, 6])[0]
 
@@ -83,7 +97,9 @@ def test_gaussian_prob_random_circuit():
     assert sum(error) < 1e-10
 
 
-def test_measure_homodyne():
+def test_measure_homodyne(sf):
+    from strawberryfields.ops import BSgate, Dgate, MeasureHomodyne, Sgate
+
     n = 3
     r1 = np.random.rand(1)[0]
     r2 = np.random.rand(1)[0]
@@ -120,7 +136,9 @@ def test_measure_homodyne():
     assert err < 1e-6
 
 
-def test_non_adjacent_bs_fock():
+def test_non_adjacent_bs_fock(sf):
+    from strawberryfields.ops import BSgate, Fock, Rgate
+
     n = 3
     angles = np.random.rand(6)
     prog = sf.Program(n)
@@ -151,7 +169,9 @@ def test_non_adjacent_bs_fock():
     assert err < 1e-6
 
 
-def test_non_adjacent_bs_gaussian():
+def test_non_adjacent_bs_gaussian(sf):
+    from strawberryfields.ops import BSgate, Dgate, Sgate
+
     n = 4
     angles = np.random.rand(12)
     prog = sf.Program(n)

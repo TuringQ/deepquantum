@@ -6,13 +6,16 @@ from typing import Any
 
 import torch
 from torch import nn
+from torch.autograd.function import FunctionCtx
 
 import deepquantum.photonic as dqp
 
 from ..qmath import evolve_state
 from .bargmann import BargmannPolyExp, _gaussian_bargmann
 from .gate import BeamSplitterSingle, Displacement
+from .gradient import _OPAFullLossNoise, _coupling_fields, _loss_field
 from .operation import Channel
+from .qmath import _times_i
 
 
 def _loss_to_theta(inputs: Any, convention: str) -> torch.Tensor | None:
@@ -32,7 +35,86 @@ def _loss_to_theta(inputs: Any, convention: str) -> torch.Tensor | None:
         return torch.arccos(t**0.5) * 2
 
 
-class DisplacementChannel(Channel):
+def _vacuum_loss_coefficients(control: torch.Tensor, *, is_power: bool) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return the signed transmitted field and lost power in the supplied coordinate."""
+    if is_power:
+        return _loss_field(control), 1 - control
+    transmitted, reflected = _coupling_fields(control)
+    return transmitted, reflected.square()
+
+
+def _vacuum_loss_xy(field: torch.Tensor, loss: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Local attenuation and vacuum-noise matrices used by both loss and coherent displacement."""
+    identity = torch.eye(2, dtype=field.dtype, device=field.device)
+    return field * identity, loss * identity * dqp.hbar / (4 * dqp.kappa**2)
+
+
+def _attenuate_moments(
+    state: list[torch.Tensor], wire: int, field: torch.Tensor, power: torch.Tensor, noise: torch.Tensor
+) -> list[torch.Tensor]:
+    """Scale both indices of a local covariance by power, and each cross covariance by field."""
+    cov, mean = state[:2]
+    target = (torch.arange(cov.shape[-1] // 2, device=cov.device) == wire).repeat(2)
+    scale = torch.where(target, field.reshape(()), 1.0)
+    both = target[:, None] & target
+    cross = target[:, None] ^ target
+    cov = torch.where(both, power.reshape(()), torch.where(cross, field.reshape(()), 1.0)) * cov
+    cov.diagonal(dim1=-2, dim2=-1).add_(target * noise)
+    return [cov, scale[:, None].to(mean.dtype) * mean, *state[2:]]
+
+
+class _CalibratedLossChannel(Channel):
+    """Keep fixed and encoded loss in its physical coordinate and optimized loss in its signed angle."""
+
+    def __getattr__(self, name: str) -> Any:
+        value = super().__getattr__(name)
+        if name == 'loss_theta' and value is None:
+            return _loss_to_theta(self.loss_control, self.convention)
+        return value
+
+    def _set_controls(self, names: tuple[str, ...], values: Sequence[torch.Tensor], raw_loss: Any) -> None:
+        """Register the active controls, leaving an angle slot for hardware overrides."""
+        for name, value in zip(names, values, strict=True):
+            if self.requires_grad:
+                setattr(self, name, nn.Parameter(value))
+            elif name == 'loss_theta' and self.convention in ('t', 'db', 'gain_db'):
+                if raw_loss is None:
+                    power = (value / 2).cos().square()
+                    raw_loss = power if self.convention == 't' else -10 * power.log10()
+                self.register_buffer('loss_control', torch.as_tensor(raw_loss, dtype=value.dtype, device=value.device))
+                self.register_buffer(name, None)
+            else:
+                self.register_buffer(name, value)
+
+    @property
+    def _native_loss(self) -> torch.Tensor | None:
+        """Read the physical calibration unless a signed angle is active."""
+        if self._buffers.get('loss_theta') is None:
+            return self._buffers.get('loss_control')
+        return None
+
+    @property
+    def t(self) -> torch.Tensor:
+        """Signal power transmittance."""
+        if (loss := self._native_loss) is not None:
+            return loss if self.convention == 't' else 10 ** (-loss / 10)
+        angle = self.loss_theta.remainder(2 * torch.pi)
+        return _coupling_fields(angle)[0].square()
+
+    def _apply(self, fn: Any, recurse: bool = True) -> '_CalibratedLossChannel':
+        """Preserve an angular complete-loss setting across dtype conversion."""
+        if self._native_loss is not None:
+            return super()._apply(fn, recurse)
+        dtype = self.loss_theta.dtype
+        full_loss = self.loss_theta == torch.pi
+        super()._apply(fn, recurse)
+        if self.loss_theta.dtype != dtype:
+            with torch.no_grad():
+                self.loss_theta.copy_(torch.where(full_loss.to(self.loss_theta.device), torch.pi, self.loss_theta))
+        return self
+
+
+class DisplacementChannel(_CalibratedLossChannel):
     r"""Displacement by mixing the signal with a coherent auxiliary mode.
 
     The auxiliary mode has coherent amplitude :math:`\beta=Ae^{i\phi}` and mean photon number
@@ -47,6 +129,8 @@ class DisplacementChannel(Channel):
     :math:`\alpha=\beta\sin(\theta/2)`. The signal power transmittance is :math:`t=\cos^2(\theta/2)`.
     A transmittance input selects :math:`\theta\in[0,\pi]`. An angle input preserves the field sign;
     a negative amplitude corresponds to a phase shift of :math:`\pi`.
+    A bright auxiliary can give a quadrature mean a vertical tangent in power at either endpoint.
+    Projection after the displacement can also give a finite-cutoff Fock covariance a vertical tangent.
     See https://arxiv.org/pdf/1009.1844v2 Eq.(8), Eq.(18).
 
     Args:
@@ -99,51 +183,38 @@ class DisplacementChannel(Channel):
             values = [v if v.is_floating_point() else v.to(torch.get_default_dtype()) for v in values]
             if self.convention == 't':
                 values[2] = _loss_to_theta(values[2], 't')
-        for name, value in zip(('amplitude', 'phase', 'loss_theta'), values, strict=True):
-            if self.requires_grad:
-                setattr(self, name, nn.Parameter(value))
-            else:
-                self.register_buffer(name, value)
-
-    def _apply(self, fn: Any, recurse: bool = True) -> 'DisplacementChannel':
-        """Preserve the complete-loss coupling angle when converting dtype."""
-        dtype = self.loss_theta.dtype
-        full_loss = self.loss_theta == torch.pi
-        super()._apply(fn, recurse)
-        if self.loss_theta.dtype != dtype:
-            with torch.no_grad():
-                self.loss_theta.copy_(torch.where(full_loss.to(self.loss_theta.device), torch.pi, self.loss_theta))
-        return self
+        self._set_controls(('amplitude', 'phase', 'loss_theta'), values, None if inputs is None else inputs[2])
 
     @property
     def coherent_amplitude(self) -> torch.Tensor:
         """Complex auxiliary amplitude, whose squared magnitude is its mean photon number."""
-        return self.amplitude * torch.exp(1j * self.phase)
+        return self.amplitude * torch.exp(_times_i(self.phase))
 
     @property
-    def t(self) -> torch.Tensor:
-        """Signal power retention."""
-        return torch.cos(self.loss_theta / 2).square()
+    def _drive(self) -> torch.Tensor:
+        """Signed displacement radius; a dark auxiliary contributes zero at every transmittance."""
+        if (power := self._native_loss) is not None:
+            return self.amplitude * _loss_field(1 - power)
+        return self.amplitude * _coupling_fields(self.loss_theta)[1]
 
     @property
     def displacement_amplitude(self) -> torch.Tensor:
         """Complex displacement amplitude, including the beam-splitter coupling sign."""
-        return torch.sin(self.loss_theta / 2) * self.coherent_amplitude
+        return self._drive * torch.exp(_times_i(self.phase))
 
     def update_matrix_state(self) -> torch.Tensor:
         """Update the local Kraus matrices acting on Fock state density matrices."""
         loss = PhotonLoss(self.loss_theta, cutoff=self.cutoff)
-        amplitude = torch.sin(self.loss_theta / 2) * self.amplitude
-        displacement = Displacement(cutoff=self.cutoff).get_matrix_state(amplitude, self.phase)
+        displacement = Displacement(cutoff=self.cutoff).get_matrix_state(self._drive, self.phase)
         return displacement @ loss.update_matrix_state()
+
+    def _loss_coefficients(self) -> tuple[torch.Tensor, torch.Tensor]:
+        power = self._native_loss
+        return _vacuum_loss_coefficients(self.loss_theta if power is None else power, is_power=power is not None)
 
     def update_transform_xy(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Update the local transformation matrices X and Y acting on Gaussian states."""
-        angle = self.loss_theta.reshape(())
-        identity = torch.eye(2, dtype=angle.dtype, device=angle.device)
-        matrix_x = torch.cos(angle / 2) * identity
-        matrix_y = torch.sin(angle / 2).square() * identity * dqp.hbar / (4 * dqp.kappa**2)
-        return matrix_x, matrix_y
+        return _vacuum_loss_xy(*self._loss_coefficients())
 
     def update_transform_xyd(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Update the local Gaussian channel matrices and displacement vector."""
@@ -152,6 +223,24 @@ class DisplacementChannel(Channel):
         displacement = torch.stack([alpha.real, alpha.imag]).reshape(2, 1) * dqp.hbar**0.5 / dqp.kappa
         return matrix_x, matrix_y, displacement
 
+    def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply reduced vacuum loss followed by the coherent auxiliary displacement."""
+        field, lost = self._loss_coefficients()
+        x = PhotonLoss._apply_density(x, self.nmode, self.wires[0], self.cutoff, field, lost, self._native_loss)
+        drive = Displacement([self._drive, self.phase], self.nmode, self.wires, self.cutoff, den_mat=True)
+        return drive(x)
+
+    def op_cv(self, x: list[torch.Tensor]) -> list[torch.Tensor]:
+        """The coherent drive shifts the mean and leaves the attenuated covariance unchanged."""
+        field, lost = self._loss_coefficients()
+        power = field.square() if self._native_loss is None else self._native_loss
+        result = _attenuate_moments(x, self.wires[0], field, power, lost * dqp.hbar / (4 * dqp.kappa**2))
+        alpha = self.displacement_amplitude.reshape(())
+        shift = torch.stack([alpha.real, alpha.imag]) * dqp.hbar**0.5 / dqp.kappa
+        target = torch.arange(self.nmode, device=shift.device) == self.wires[0]
+        result[1] = result[1] + (shift[:, None] * target).reshape(-1, 1).to(result[1])
+        return result
+
     def extra_repr(self) -> str:
         return (
             f'wires={self.wires}, amplitude={self.amplitude.item()}, '
@@ -159,7 +248,27 @@ class DisplacementChannel(Channel):
         )
 
 
-class OPA(Channel):
+class _CheckCalibration(torch.autograd.Function):
+    """Validate every physical setting, including all rows of a vmapped control."""
+
+    @staticmethod
+    def forward(valid: torch.Tensor, message: str) -> torch.Tensor:
+        if not bool(valid.all()):
+            raise ValueError(message)
+        return valid
+
+    @staticmethod
+    def setup_context(ctx: FunctionCtx, inputs: tuple[torch.Tensor, str], output: torch.Tensor) -> None:
+        pass
+
+    @staticmethod
+    def vmap(
+        info: object, in_dims: tuple[int | None, None], valid: torch.Tensor, message: str
+    ) -> tuple[torch.Tensor, int | None]:
+        return _CheckCalibration.apply(valid, message), in_dims[0]
+
+
+class OPA(_CalibratedLossChannel):
     r"""Single-mode optical parametric amplifier with uniform distributed vacuum loss.
 
     Gain, loss and pump phase are constant along the device, with an undepleted classical pump.
@@ -177,11 +286,14 @@ class OPA(Channel):
     :math:`\operatorname{exprel}(z)=(e^z-1)/z`, with :math:`\operatorname{exprel}(0)=1`.
     Positive :math:`r` and :math:`\theta=0` squeeze :math:`x` and amplify :math:`p`.
     The internal parameters are ``r``, ``theta`` and ``loss_theta``.
+    At complete loss the output is vacuum. With the pump off this is ordinary attenuation.
+    At fixed nonzero pump the variances approach vacuum as inverse powers of :math:`-\ln T`,
+    giving opposite infinite one-sided power slopes on the two gain axes.
     See https://arxiv.org/abs/2606.02524v1 Eq.(16) and Methods, Internal Loss.
 
-    Gaussian and Bosonic states use :math:`X` and :math:`Y` directly. Bargmann density states
-    use the analytic channel kernel. Fock density states use its projected
-    superoperator, with four local axes of length ``cutoff``. Output weight
+    Gaussian and Bosonic states use :math:`X` and :math:`Y` directly. The Bargmann backend
+    contracts the channel kernel with the kernel of the density operator. For a Fock density matrix,
+    the projected channel superoperator has four local axes of length ``cutoff``. Output weight
     above the cutoff is discarded without renormalization.
 
     ``HardwareModel.opa().submodes(relative_r=...)`` sets fixed orthogonal gain
@@ -194,6 +306,7 @@ class OPA(Channel):
             With ``convention='gain_db'``, use ``[gain_db, theta, loss_db]``, where gain is the net
             coherent power gain along the amplified axis. Gain :math:`G_{\rm dB}` and pump-off loss
             :math:`L_{\rm dB}` give :math:`r=(G_{\rm dB}+L_{\rm dB})\ln(10)/20`.
+            The amplified-axis calibration requires :math:`G_{\rm dB}\ge -L_{\rm dB}`.
             Default: ``None``
         nmode: The number of modes that the quantum operation acts on. Default: 1
         wires: The indices of the modes that the quantum operation acts on. Default: ``None``
@@ -232,12 +345,6 @@ class OPA(Channel):
         self.init_para(inputs)
 
     @property
-    def t(self) -> torch.Tensor:
-        """Pump-off power transmittance."""
-        angle = self.loss_theta.remainder(2 * torch.pi)
-        return torch.where(angle == torch.pi, torch.zeros_like(angle), torch.cos(angle / 2).square())
-
-    @property
     def db(self) -> torch.Tensor:
         """Pump-off power loss in dB."""
         return -10 * torch.log10(self.t)
@@ -254,28 +361,19 @@ class OPA(Channel):
         if self.convention == 'gain_db':
             if not isinstance(loss, torch.Tensor):
                 loss = torch.tensor(loss, dtype=torch.float)
+            if r.is_complex() or loss.is_complex():
+                raise ValueError('OPA calibration requires real gain_db and loss_db.')
+            _CheckCalibration.apply(
+                torch.isfinite(r) & torch.isfinite(loss) & (loss >= 0) & (r + loss >= 0),
+                'OPA calibration requires finite gain_db and loss_db, loss_db >= 0 and gain_db + loss_db >= 0.',
+            )
             r = (r + loss) * (log(10) / 20)
         return r, theta, _loss_to_theta(loss, self.convention)
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
         values = self.inputs_to_tensor(inputs)
-        for name, value in zip(('r', 'theta', 'loss_theta'), values, strict=True):
-            if self.requires_grad:
-                setattr(self, name, nn.Parameter(value))
-            else:
-                self.register_buffer(name, value)
-
-    def _apply(self, fn: Any, recurse: bool = True) -> 'OPA':
-        """Preserve the complete-loss endpoint when converting dtype."""
-        dtype = self.loss_theta.dtype
-        full_loss = self.t == 0
-        super()._apply(fn, recurse)
-        if self.loss_theta.dtype != dtype:
-            # Casting float32 pi to float64 must still represent exactly zero transmittance.
-            with torch.no_grad():
-                self.loss_theta.copy_(torch.where(full_loss.to(self.loss_theta.device), torch.pi, self.loss_theta))
-        return self
+        self._set_controls(('r', 'theta', 'loss_theta'), values, None if inputs is None else inputs[2])
 
     @staticmethod
     def _exprel(x: torch.Tensor) -> torch.Tensor:
@@ -293,19 +391,39 @@ class OPA(Channel):
     def update_transform_xy(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Update the local transformation matrices X and Y acting on Gaussian states."""
         r, theta = self.r.reshape(()), self.theta.reshape(())
-        t = self.t.to(r).reshape(())
+        signed_field = None
+        if self._native_loss is None:
+            signed_field = _coupling_fields(self.loss_theta.remainder(2 * torch.pi))[0].to(r).reshape(())
+        t = self.t.to(r).reshape(()) if signed_field is None else signed_field.square()
         full_loss = t == 0
         # Evaluate the complete-loss limit separately, avoiding log(0) and inf * 0.
         attenuation = -torch.log(torch.where(full_loss, torch.ones_like(t), t))
-        r = torch.where(full_loss, torch.zeros_like(r), r)
+        interior_r = torch.where(full_loss, torch.zeros_like(r), r)
         cos, sin = torch.cos(theta / 2), torch.sin(theta / 2)
         squeezed = torch.stack([cos.square(), cos * sin, cos * sin, sin.square()]).reshape(2, 2)
         amplified = torch.stack([sin.square(), -cos * sin, -cos * sin, cos.square()]).reshape(2, 2)
-        rate_s, rate_a = -2 * r - attenuation, 2 * r - attenuation
+        rate_s, rate_a = -2 * interior_r - attenuation, 2 * interior_r - attenuation
         matrix_x = torch.exp(rate_s / 2) * squeezed + torch.exp(rate_a / 2) * amplified
         matrix_y = attenuation * (self._exprel(rate_s) * squeezed + self._exprel(rate_a) * amplified)
-        matrix_x = torch.where(full_loss, torch.zeros_like(matrix_x), matrix_x)
-        matrix_y = torch.where(full_loss, torch.eye(2, dtype=r.dtype, device=r.device), matrix_y)
+        if self.convention == 't' and self._native_loss is not None:
+            # Preserve the field response of native T at zero, including the
+            # ordinary attenuator limit when the pump is off.
+            field = _loss_field(torch.where(full_loss, t, 1.0))
+            limit = log(torch.finfo(r.dtype).max) - 1
+            gain = torch.where(full_loss, r, 0.0).clamp(-limit, limit)
+            endpoint_x = field * ((-gain).exp() * squeezed + gain.exp() * amplified)
+            endpoint_y = _OPAFullLossNoise.apply(t, r, amplified - squeezed)
+        elif signed_field is not None:
+            # With the pump off X is the transmitted field and Y=(1-T)I,
+            # including their angle curvature at complete loss.
+            vacuum = torch.eye(2, dtype=r.dtype, device=r.device)
+            endpoint_x = torch.where(r == 0, signed_field, 0.0) * vacuum
+            endpoint_y = (1 - torch.where(r == 0, t, 0.0)) * vacuum
+        else:
+            endpoint_x = torch.zeros_like(matrix_x)
+            endpoint_y = torch.eye(2, dtype=r.dtype, device=r.device)
+        matrix_x = torch.where(full_loss, endpoint_x, matrix_x)
+        matrix_y = torch.where(full_loss, endpoint_y, matrix_y)
         matrix_y = matrix_y * dqp.hbar / (4 * dqp.kappa**2)
         self.matrix_x, self.matrix_y = matrix_x.detach(), matrix_y.detach()
         return matrix_x, matrix_y
@@ -321,6 +439,43 @@ class OPA(Channel):
         return f'wires={self.wires}, r={self.r.item()}, theta={self.theta.item()}, transmittance={self.t.item()}'
 
 
+class _PowerLossCoupler(BeamSplitterSingle):
+    """Expose the beam-splitter angle while evolving from a supplied power transmittance."""
+
+    def init_para(self, inputs: Any = None, *, convention: str = 'theta') -> None:
+        """Keep the supplied physical control, or the random initial angle until data is encoded."""
+        name = 'angle' if inputs is None or convention == 'theta' else convention
+        self._set_control(name, self.inputs_to_tensor(inputs))
+        self.update_matrix()
+        self.update_transform_xp()
+
+    def _set_control(self, name: str, value: torch.Tensor) -> None:
+        for coordinate in ('angle', 't', 'db'):
+            self.register_buffer(coordinate, value if coordinate == name else None)
+
+    @property
+    def power(self) -> torch.Tensor | None:
+        if self.angle is not None:
+            return None
+        power = self.t if self.db is None else 10 ** (-self.db / 10)
+        # Encoded inputs outside the physical domain propagate NaN, including under vmap.
+        return torch.where((power >= 0) & (power <= 1), power, float('nan'))
+
+    @property
+    def theta(self) -> torch.Tensor:
+        return self.angle if self.angle is not None else 2 * self.power.sqrt().acos()
+
+    def _load_from_state_dict(self, state_dict: dict[str, torch.Tensor], prefix: str, *args: Any) -> None:
+        # A freshly constructed encoder holds its initial angle until its first physical input.
+        for name in ('angle', 't', 'db'):
+            if prefix + name in state_dict and getattr(self, name) is None:
+                self._set_control(name, torch.empty_like(next(self.buffers())))
+                break
+        super()._load_from_state_dict(state_dict, prefix, *args)
+        self.update_matrix()
+        self.update_transform_xp()
+
+
 class PhotonLoss(Channel):
     r"""Photon loss channel on single mode.
 
@@ -331,7 +486,12 @@ class PhotonLoss(Channel):
 
        \hat{a}_{\text{out}} = \cos(\theta/2)\hat{a}_{\text{in}} + \sin(\theta/2)\hat{b}_{\text{vac}}
 
-    The power transmittance is :math:`T=\cos^2(\theta/2)`.
+    The power transmittance is :math:`T=\cos^2(\theta/2)`. Fixed and encoded power or dB inputs
+    act directly on the reduced state. A trainable coupler uses the angle as its optimizer parameter.
+    At zero transmitted field a quadrature mean can have an infinite power derivative while a
+    covariance or a photon-count probability has a finite derivative. For a nonlinear objective
+    or several couplers sharing one calibration, use the same signed angle at every occurrence
+    and call :func:`deepquantum.photonic.transmittance_grad` on the final scalar observable.
 
     Args:
         inputs: The parameter of the channel. Default: ``None``
@@ -357,10 +517,14 @@ class PhotonLoss(Channel):
         assert convention in ('theta', 't', 'db'), 'Invalid convention'
         self.convention = convention
         self.requires_grad = requires_grad
-        theta = self._inputs_to_theta(inputs)
-        if convention == 't' and theta is not None and (theta.is_complex() or not bool(torch.isfinite(theta).all())):
-            raise ValueError('Loss transmittance must be real, finite and lie in [0, 1]')
-        self.gate = BeamSplitterSingle(
+        theta = _loss_to_theta(inputs, convention)
+        if convention == 't' and theta is not None:
+            _CheckCalibration.apply(
+                torch.isfinite(theta) & (not theta.is_complex()),
+                'Loss transmittance must be real, finite and lie in [0, 1]',
+            )
+        coupler = _PowerLossCoupler if convention != 'theta' and not requires_grad else BeamSplitterSingle
+        self.gate = coupler(
             inputs=theta,
             nmode=self.nmode + 1,
             wires=self.wires + [self.nmode],
@@ -369,29 +533,36 @@ class PhotonLoss(Channel):
             convention='h',
             requires_grad=requires_grad,
         )
+        if isinstance(self.gate, _PowerLossCoupler) and inputs is not None:
+            self.gate._set_control(convention, self.gate.inputs_to_tensor(inputs))
         self.npara = 1
 
     @property
-    def theta(self):
+    def theta(self) -> torch.Tensor:
         return self.gate.theta
 
     @property
-    def t(self):
+    def t(self) -> torch.Tensor:
         """Transmittance."""
-        return torch.cos(self.theta / 2) ** 2
+        if (power := getattr(self.gate, 'power', None)) is not None:
+            return power
+        return _coupling_fields(self.theta)[0].square()
+
+    def _loss_coefficients(self) -> tuple[torch.Tensor, torch.Tensor]:
+        power = getattr(self.gate, 'power', None)
+        return _vacuum_loss_coefficients(self.theta if power is None else power, is_power=power is not None)
 
     @property
-    def db(self):
+    def db(self) -> torch.Tensor:
         """Photon loss in dB."""
         return -10 * torch.log10(self.t)
 
     def init_para(self, inputs: Any = None) -> None:
         """Initialize the parameters."""
-        self.gate.init_para(self._inputs_to_theta(inputs))
-
-    def _inputs_to_theta(self, inputs: Any = None) -> torch.Tensor | None:
-        """Convert inputs under the chosen convention to the internal loss theta."""
-        return _loss_to_theta(inputs, self.convention)
+        if isinstance(self.gate, _PowerLossCoupler):
+            self.gate.init_para(inputs, convention=self.convention)
+        else:
+            self.gate.init_para(_loss_to_theta(inputs, self.convention))
 
     @staticmethod
     def _apply_unitary(
@@ -414,27 +585,74 @@ class PhotonLoss(Channel):
 
         See https://arxiv.org/pdf/1012.4266 Eq.(2.4)
         """
-        matrix = self.gate.get_matrix_state(self.gate.get_matrix(theta))
-        return matrix[..., 0].permute([1, 0, 2])
+        matrix = self.gate.get_matrix(theta)
+        levels = torch.arange(1, self.cutoff, dtype=matrix.real.dtype, device=matrix.device)
+        columns = [matrix.new_ones(1)]
+        # Add one input photon to |n-1, 0>. Only |n-lost, lost> can be occupied.
+        for n in range(1, self.cutoff):
+            factor = (levels[:n] / n).sqrt()
+            transmitted = columns[-1] * matrix[0, 0] * factor.flip((0,))
+            reflected = columns[-1] * matrix[1, 0] * factor
+            columns.append(torch.nn.functional.pad(transmitted, (0, 1)) + torch.nn.functional.pad(reflected, (1, 0)))
+        photons, lost = torch.tril_indices(self.cutoff, self.cutoff, device=matrix.device)
+        return matrix.new_zeros((self.cutoff,) * 3).index_put((lost, photons - lost, photons), torch.cat(columns))
 
     def update_matrix_state(self) -> torch.Tensor:
         """Update the local Kraus matrices acting on Fock state density matrices."""
         return self.get_matrix_state(self.theta)
+
+    def op_den_mat(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply vacuum loss, summing over the same lost photons on ket and bra."""
+        return self._apply_density(
+            x, self.nmode, self.wires[0], self.cutoff, *self._loss_coefficients(), getattr(self.gate, 'power', None)
+        )
+
+    @staticmethod
+    def _apply_density(
+        x: torch.Tensor,
+        nmode: int,
+        wire: int,
+        cutoff: int,
+        field: torch.Tensor,
+        loss: torch.Tensor,
+        power: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Apply the reduced vacuum-loss kernel to one wire."""
+        # Each lost photon contributes 1 - T to the density matrix. Taking its
+        # square root separately in each Kraus amplitude is singular at T = 1.
+        axes = (wire + 1, wire + nmode + 1)
+        rho = x.movedim(axes, (-2, -1))
+        levels = torch.arange(cutoff, device=field.device)
+        order = levels[:, None] + levels
+        # Keep constant and linear terms explicit. Differentiating the tensor
+        # exponent twice at zero otherwise evaluates 0 * 0**(-1).
+        base = field.reshape(()) if power is None else power.reshape(())
+        exponent = order if power is None else order // 2
+        weight = torch.where(exponent == 0, 1.0, torch.where(exponent == 1, base, base.pow(exponent.clamp_min(2))))
+        if power is not None:
+            weight = weight * torch.where(order % 2 == 1, field.reshape(()), 1.0)
+        result = weight * rho
+        for lost in range(1, cutoff):
+            factor = (levels[lost:].to(field) / lost).sqrt()
+            weight = weight[:-1, :-1] * factor[:, None] * factor * loss
+            term = rho[..., lost:, lost:] * weight
+            result = result + torch.nn.functional.pad(term, (0, lost, 0, lost))
+        return result.movedim((-2, -1), axes)
 
     def update_transform_xy(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Update the local transformation matrices X and Y acting on Gaussian states.
 
         See https://arxiv.org/pdf/quant-ph/0503237 Eq.(4.19), Eq.(4.20)
         """
-        g_t_sqrt = self.theta.new_ones(2).diag() * torch.cos(self.theta / 2)
-        g_t = self.theta.new_ones(2).diag() * torch.cos(self.theta / 2) ** 2
-        identity = self.theta.new_ones(2).diag()
-        sigma_h = self.theta.new_ones(2).diag() * dqp.hbar / (4 * dqp.kappa**2)
-        matrix_x = g_t_sqrt
-        matrix_y = (identity - g_t) @ sigma_h
+        matrix_x, matrix_y = _vacuum_loss_xy(*self._loss_coefficients())
         self.matrix_x = matrix_x.detach()
         self.matrix_y = matrix_y.detach()
         return matrix_x, matrix_y
+
+    def op_cv(self, x: list[torch.Tensor]) -> list[torch.Tensor]:
+        """Attenuate the target quadratures and add their independent vacuum noise."""
+        local_x, local_y = self.update_transform_xy()
+        return _attenuate_moments(x, self.wires[0], local_x[0, 0], self.t, local_y[0, 0])
 
     def get_bargmann(self) -> BargmannPolyExp:
         r"""Get the Bargmann representation of the channel.
@@ -449,11 +667,8 @@ class PhotonLoss(Channel):
         """
         if len(self.wires) != 1:
             raise NotImplementedError('PhotonLoss acts on a single mode')
-        transmittance = self.t
-        amplitude = torch.cos(self.theta / 2) + 0j
-        transmittance = transmittance + 0j
-        zero = torch.zeros_like(transmittance)
-        loss = 1 - transmittance
+        amplitude, loss = self._loss_coefficients()
+        zero = torch.zeros_like(amplitude)
         mat_a = torch.stack(
             [
                 zero,
@@ -474,6 +689,7 @@ class PhotonLoss(Channel):
                 zero,
             ]
         ).reshape(4, 4)
+        mat_a = mat_a + 0j
         return _gaussian_bargmann(mat_a, mat_a.new_zeros(4), mat_a.new_ones(()))
 
     def extra_repr(self) -> str:

@@ -10,7 +10,7 @@ import torch
 from torch import nn
 from torch.func import functional_call
 
-from .channel import DisplacementChannel, OPA, PhotonLoss
+from .channel import DisplacementChannel, OPA, PhotonLoss, _loss_to_theta
 from .gate import (
     BeamSplitter,
     BeamSplitterPhi,
@@ -92,7 +92,8 @@ class _HardwareRun:
 class Loss(nn.Module):
     r"""Photon loss specified by power transmittance or loss in dB.
 
-    The internal parameter is the loss angle, with power transmittance :math:`t=\cos^2(\theta/2)`.
+    Fixed loss uses the supplied power or dB coordinate. The optimizer uses the loss angle
+    with power transmittance :math:`t=\cos^2(\theta/2)`.
 
     Args:
         t: The power transmittance. Specify exactly one of ``t`` and ``db``. Default: ``None``
@@ -116,12 +117,22 @@ class Loss(nn.Module):
             value = torch.tensor(value, dtype=torch.get_default_dtype())
         convention = 't' if db is None else 'db'
         _check_scalar(value, convention, 0, 1 if db is None else None)
-        channel = PhotonLoss(value, cutoff=2, convention=convention, requires_grad=requires_grad)
-        _register_scalar(self, 'theta', channel.theta)
+        self.convention = 'theta' if requires_grad else convention
+        if requires_grad:
+            self.theta = nn.Parameter(_loss_to_theta(value, convention))
+        else:
+            self.register_buffer('calibration', value)
+
+    def __getattr__(self, name: str) -> Any:
+        if name == 'theta' and self.convention != 'theta':
+            return _loss_to_theta(self.calibration, self.convention)
+        return super().__getattr__(name)
 
     @property
     def t(self) -> torch.Tensor:
         """Transmittance."""
+        if self.convention != 'theta':
+            return self.calibration if self.convention == 't' else 10 ** (-self.calibration / 10)
         return torch.cos(self.theta / 2) ** 2
 
     @property
@@ -131,13 +142,13 @@ class Loss(nn.Module):
 
     def forward(self, state: Any, run: _HardwareRun) -> Any:
         """Apply loss to the bound modes."""
-        theta = self.theta
+        control = self.theta if self.convention == 'theta' else self.calibration
         if run.backend in ('gaussian', 'bosonic'):
             nmode, cutoff = state[0].shape[-1] // 2, 2
-            theta = theta.to(state[0])
+            control = control.to(state[0])
         elif run.backend == 'bargmann':
             nmode, cutoff = state.nmode, state.cutoff
-            theta = theta.to(state.mat_a.real)
+            control = control.to(state.mat_a.real)
         elif run.backend == 'fock':
             nmode, cutoff = run.nmode, 2
             if not run.basis:
@@ -145,16 +156,68 @@ class Loss(nn.Module):
                     raise NotImplementedError('Fock state tensor loss requires a density matrix (den_mat=True).')
                 cutoff = state.shape[-1]
             if state is not None:
-                theta = theta.to(state.real)
+                control = control.to(state.real)
         else:
             raise NotImplementedError(f'Loss does not support backend {run.backend}.')
-        channel = PhotonLoss(theta, nmode=nmode, cutoff=cutoff)
+        channel = PhotonLoss(control, nmode=nmode, cutoff=cutoff, convention=self.convention)
         if run.basis:
             return PhotonLoss._apply_unitary(state, channel.gate.update_matrix(), run.wires, nmode)
         for wire in run.wires:
             channel.wires = [wire]
             state = channel(state)
         return state
+
+
+class _Quantize(nn.Module):
+    """Round a control on an unbounded step grid or the codes of a linear DAC."""
+
+    step: torch.Tensor
+    full_scale: torch.Tensor | None
+    last_code: torch.Tensor
+
+    def __init__(
+        self, step: float | torch.Tensor | None, bits: int | None, full_scale: tuple[float, float] | None
+    ) -> None:
+        super().__init__()
+        if step is not None and bits is None and full_scale is None:
+            # Keep the calibration at full precision until the control dtype is known.
+            if not isinstance(step, torch.Tensor):
+                step = torch.tensor(step, dtype=torch.float64)
+            _register_scalar(self, 'step', step)
+            _check_scalar(self.step, 'step')
+            if self.step <= 0:
+                raise ValueError('step must be positive.')
+            self.register_buffer('full_scale', None)
+            return
+        if step is not None or bits is None or full_scale is None:
+            raise ValueError('Specify step alone or bits together with full_scale.')
+        if isinstance(bits, bool) or not isinstance(bits, int) or not 1 <= bits <= 53:
+            raise ValueError('bits must be an integer from 1 to 53 (the float64 code precision).')
+        bounds = torch.as_tensor(full_scale, dtype=torch.float64)
+        if bounds.shape != (2,):
+            raise ValueError('full_scale must be a pair of lower and upper references.')
+        spacing = (bounds[1] - bounds[0]) / (1 << bits)
+        if not torch.isfinite(spacing) or spacing <= 0:
+            raise ValueError('full_scale must give a finite positive DAC step.')
+        self.register_buffer('full_scale', bounds)
+        self.register_buffer('last_code', torch.tensor((1 << bits) - 1, dtype=torch.long))
+
+    def forward(self, value: torch.Tensor, run: _HardwareRun) -> torch.Tensor:
+        """Load the nearest grid value in the control's dtype and device."""
+        if value.is_complex():
+            raise TypeError('Parameter quantization requires a real control.')
+        if not value.is_floating_point():
+            value = value.to(torch.get_default_dtype())
+        if self.full_scale is None:
+            step = self.step.to(value).reshape(())
+            return (value / step).round() * step
+        # Compute the spacing after promotion so that small steps survive half-precision module casts.
+        work = value.to(torch.float32 if value.device.type == 'mps' else torch.float64)
+        low, high = self.full_scale.to(work).unbind()
+        last_code = self.last_code.to(work)
+        step = (high - low) / (last_code + 1)
+        code = ((work.clamp(low, high) - low) / step).round().clamp_max(last_code)
+        return (low + code * step).to(value)
 
 
 class GaussianNoise(nn.Module):
@@ -197,7 +260,9 @@ class GaussianNoise(nn.Module):
 class _HomodyneReadout(nn.Module):
     """Calibrated affine readout with independent Gaussian electronic noise."""
 
-    def __init__(self, gain=1.0, bias=0.0, noise_var=0.0):
+    def __init__(
+        self, gain: float | torch.Tensor = 1.0, bias: float | torch.Tensor = 0.0, noise_var: float | torch.Tensor = 0.0
+    ) -> None:
         super().__init__()
         for name, value in [('gain', gain), ('bias', bias), ('noise_var', noise_var)]:
             _register_scalar(self, name, value)
@@ -206,7 +271,7 @@ class _HomodyneReadout(nn.Module):
             raise ValueError('gain must be nonzero.')
         self._no_noise = not self.noise_var.requires_grad and bool((self.noise_var == 0).all())
 
-    def forward(self, samples, run):
+    def forward(self, samples: torch.Tensor, run: _HardwareRun) -> torch.Tensor:
         """Convert quadrature samples to output units, drawing electronic noise per shot."""
         output = self.gain.to(samples).reshape(()) * samples + self.bias.to(samples).reshape(())
         if not self._no_noise:
@@ -215,7 +280,9 @@ class _HomodyneReadout(nn.Module):
             output = output + self.noise_var.to(samples).reshape(()).sqrt() * noise.to(samples.device)
         return output
 
-    def condition(self, state, op, overrides):
+    def condition(
+        self, state: torch.Tensor | list[torch.Tensor], op: Homodyne, overrides: dict[str, torch.Tensor]
+    ) -> torch.Tensor | list[torch.Tensor]:
         """Condition on the noisy record itself, integrating out the unknown ideal outcome."""
         reference = state.real if isinstance(state, torch.Tensor) else state[0]
         gain, bias = self.gain.to(reference).reshape(()), self.bias.to(reference).reshape(())
@@ -300,6 +367,8 @@ class _PluginBinding(nn.Module):
         ]
         if index is not None:
             delays = delays[index : index + 1]
+        if self.where == 'loop_return':
+            return [(i, len(op.gates) - 1) for i, op in delays if len(op.gates)]
         locations = []
         for i, op in delays:
             gates = [j for j, gate in enumerate(op.gates) if self.matches(gate)]
@@ -307,6 +376,14 @@ class _PluginBinding(nn.Module):
                 gates = gates[self.index : self.index + 1]
             locations.extend((i, j) for j in gates)
         return locations
+
+    def execution_wires(self, op: Operation, source: Operation) -> tuple[int, ...]:
+        """Select the return port or all ports, including their mapped orthogonal basis modes."""
+        wires = op.wires
+        if self.where == 'loop_return':
+            # The first physical port returns to the loop. Each port's basis wires are contiguous.
+            wires = wires[: len(wires) // len(source.wires)]
+        return tuple(wires)
 
     def forward(
         self,
@@ -316,8 +393,9 @@ class _PluginBinding(nn.Module):
         parameter: str | None = None,
         source: Operation | None = None,
     ) -> Any:
-        cache_key = (self, op if source is None else source, parameter)
-        return self.plugin(value, replace(run, wires=tuple(op.wires), cache_key=cache_key))
+        source = op if source is None else source
+        run = replace(run, wires=self.execution_wires(op, source), cache_key=(self, source, parameter))
+        return self.plugin(value, run)
 
 
 @dataclass
@@ -350,6 +428,17 @@ class _ParameterConfig:
     ) -> 'HardwareModel':
         """Add Gaussian parameter noise."""
         return self.use(GaussianNoise(mu, sigma), name=name)
+
+    def quantize(
+        self,
+        step: float | torch.Tensor | None = None,
+        *,
+        bits: int | None = None,
+        full_scale: tuple[float, float] | None = None,
+        name: str | None = None,
+    ) -> 'HardwareModel':
+        """Set this control's loading grid in its native units. See ``HardwareModel.quantize``."""
+        return self.use(_Quantize(step, bits, full_scale), name=name)
 
 
 @dataclass
@@ -605,6 +694,30 @@ class _DelayConfig:
             self.model, (PhaseShift, MZI), None, {PhaseShift: 'theta', MZI: 'phi'}, (self.wires, self.index), 0
         )
 
+    def loop_loss(
+        self,
+        t: float | torch.Tensor | None = None,
+        *,
+        db: float | torch.Tensor | None = None,
+        requires_grad: bool = False,
+        name: str | None = None,
+    ) -> 'HardwareModel':
+        """Apply loss to the returning light after all gates in each selected delay.
+
+        Each pass attenuates the return port once, across all its orthogonal basis modes.
+        The through port leaves the coupler before this loss. The calibration belongs to
+        the hardware model and consumes no encoded data.
+
+        Args:
+            t: Round-trip power transmittance. Specify exactly one of ``t`` and ``db``. Default: ``None``
+            db: Round-trip power loss in dB. Default: ``None``
+            requires_grad: Whether to train the loss angle. Default: ``False``
+            name: Optional hardware binding name. Default: ``None``
+        """
+        return _StateConfig(self.model, 'loop_return', Delay, None, (self.wires, self.index)).loss(
+            t, db=db, requires_grad=requires_grad, name=name
+        )
+
     def ps(self, index: int | None = None) -> _PhaseConfig:
         """Select internal phase shifters, including the built-in one."""
         return _PhaseConfig(self.model, PhaseShift, None, (self.wires, self.index), index)
@@ -637,7 +750,7 @@ class _DelayConfig:
 class HardwareModel(nn.Module):
     """Hardware configuration for photonic circuits.
 
-    Selectors bind control noise, loss and mode profiles to circuit operations.
+    Selectors bind control quantization, noise, loss and mode profiles to circuit operations.
     Later bindings of the same type replace earlier ones at the same location.
     Unrolled circuits retain bindings to their operation objects.
 
@@ -657,7 +770,35 @@ class HardwareModel(nn.Module):
 
     def gaussian(self, mu: float | torch.Tensor = 0, sigma: float | torch.Tensor = 0.1) -> 'HardwareModel':
         """Perturb all supported controls, including delay gates and homodyne phases."""
-        plugin = GaussianNoise(mu, sigma)
+        return self._register_global_controls(GaussianNoise(mu, sigma))
+
+    def quantize(
+        self,
+        step: float | torch.Tensor | None = None,
+        *,
+        bits: int | None = None,
+        full_scale: tuple[float, float] | None = None,
+    ) -> 'HardwareModel':
+        """Round all supported gate and homodyne controls, including gates inside delays.
+
+        Specify either a step or the bit depth and full-scale range of a linear DAC.
+        For ``full_scale=(low, high)``, code ``k`` loads ``low + k * (high - low) / 2**bits``.
+        Requests saturate at the first and last code. Half steps round to the even code.
+        Each control uses its own units. Override the range on individual electrodes with different calibrations.
+        Loaded values have the control dtype and zero gradient with respect to the requested value.
+        Rules apply in registration order to the same fixed and encoded controls as ``gaussian()``.
+        Later quantization rules replace earlier ones on the same control.
+
+        Args:
+            step: Positive spacing on an unbounded zero-origin grid. Default: ``None``
+            bits: DAC resolution in bits, from 1 to 53. Default: ``None``
+            full_scale: Lower reference and nominal upper reference in control units (radians for angles).
+                The last code loads one step below the upper reference. Default: ``None``
+        """
+        return self._register_global_controls(_Quantize(step, bits, full_scale))
+
+    def _register_global_controls(self, plugin: nn.Module) -> 'HardwareModel':
+        """Apply one parameter plugin to supported standalone controls and delay components."""
         for delay in (None, (None, None)):
             self._register(
                 _PluginBinding(
@@ -822,7 +963,7 @@ class HardwareModel(nn.Module):
                 )
                 mapped = _PluginBinding(
                     plugin,
-                    binding.op_types,
+                    tuple({type(op) for op in gates}) if binding.where == 'loop_return' else binding.op_types,
                     None,
                     binding.where,
                     binding.parameter,
@@ -875,7 +1016,7 @@ class HardwareModel(nn.Module):
     def _loss_count(self, operators: Sequence[Operation], wires: Sequence[int]) -> int:
         """Count vacuum environment modes needed by Fock basis loss."""
         count = sum(
-            len(op.wires)
+            len(binding.execution_wires(op, op))
             for op, bindings in self._bind(operators).items()
             for binding, _ in bindings
             if binding.where is not None and isinstance(binding.plugin, Loss)
@@ -892,17 +1033,30 @@ class HardwareModel(nn.Module):
             state = binding.plugin(state, replace(run, wires=wires, cache_key=(binding, None, None)))
         return state
 
-    def _apply_state_plugins(self, state, op, run, bindings, where, source=None):
+    def _apply_state_plugins(
+        self,
+        state: Any,
+        op: nn.Module,
+        run: _HardwareRun,
+        bindings: Sequence[tuple[_PluginBinding, str | None]],
+        where: str,
+        source: Operation | None = None,
+    ) -> Any:
         """Apply state plugins at one gate boundary."""
+        loop_loss = None
         for binding, _ in bindings:
             if binding.where == where:
                 state = binding(state, run, op, source=source)
+            elif where == 'after' and binding.where == 'loop_return':
+                loop_loss = binding
+        if loop_loss is not None:
+            state = loop_loss(state, run, op, source=source)
         return state
 
     def _apply_operation(
         self,
         state: Any,
-        op: Operation,
+        op: nn.Module,
         run: _HardwareRun,
         bindings: Sequence[tuple[_PluginBinding, str | None]],
         source: Operation | None = None,
@@ -917,13 +1071,32 @@ class HardwareModel(nn.Module):
             state = readout.condition(state, op, overrides)
         return self._apply_state_plugins(state, op, run, bindings, 'after', source)
 
-    def _parameter_overrides(self, op, run, bindings, source=None):
+    def _parameter_overrides(
+        self,
+        op: nn.Module,
+        run: _HardwareRun,
+        bindings: Sequence[tuple[_PluginBinding, str | None]],
+        source: Operation | None = None,
+    ) -> dict[str, torch.Tensor]:
         """Resolve control plugins for both explicit operations and terminal measurements."""
         overrides = {}
         for binding, parameter in bindings:
-            if parameter is not None:
-                value = overrides.get(parameter, getattr(op, parameter))
-                overrides[parameter] = binding(value, run, op, parameter, source)
+            if parameter is None:
+                continue
+            if parameter in overrides:
+                value = overrides[parameter]
+            else:
+                value = getattr(op, parameter)
+                if value is None and source is not None:
+                    value = getattr(source, parameter)
+                if (
+                    parameter == 'loss_theta'
+                    and (raw_loss := getattr(op, 'loss_control', None)) is not None
+                    and any(p == parameter and isinstance(b.plugin, _Quantize) for b, p in bindings)
+                ):
+                    # The grid has zero input gradient. Connect it to T or dB before the singular acos.
+                    value = value.detach() + raw_loss * 0
+            overrides[parameter] = binding(value, run, op, parameter, source)
         return overrides
 
     def forward(

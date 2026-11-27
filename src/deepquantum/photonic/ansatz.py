@@ -6,6 +6,7 @@ from typing import Any
 import networkx as nx
 import numpy as np
 import torch
+from numpy.typing import ArrayLike
 from scipy.optimize import root
 
 from ..qmath import is_unitary
@@ -38,7 +39,7 @@ class Clements(QumodeCircuit):
             for wire in self.wires:
                 self.ps(wire, encode=True)
 
-    def dict2data(self, angle_dict: dict, dtype=torch.float) -> torch.Tensor:
+    def dict2data(self, angle_dict: dict, dtype: torch.dtype = torch.float) -> torch.Tensor:
         """Convert the dictionary of angles to the input data for the circuit."""
         angle_dict = angle_dict.copy()
         for key in angle_dict:
@@ -147,11 +148,11 @@ class GraphGBS(GaussianBosonSampling):
         self.to(adj_mat.dtype)
 
     @staticmethod
-    def norm_factor_c(n_num, lambd, trials=20):
+    def norm_factor_c(n_num: float, lambd: ArrayLike | torch.Tensor, trials: int = 20) -> list[float]:
         """Get the normalization factor c of squeezing parameters for given total mean photon numbers."""
         lambd = np.array(lambd)
 
-        def f(c, lambd, n_num):
+        def f(c: np.ndarray, lambd: np.ndarray, n_num: float) -> float:
             ave_n = (lambd * c) ** 2 / (1 - (lambd * c) ** 2)
             return sum(ave_n) - n_num
 

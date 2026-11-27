@@ -1,8 +1,21 @@
+from importlib.util import find_spec
+
 import numpy as np
-import pennylane as qml
+import pytest
 import torch
 
 import deepquantum as dq
+
+try:
+    import pennylane as qml
+except ModuleNotFoundError as exc:
+    if exc.name != 'pennylane':
+        raise
+    pytest.skip(f'{exc.name} is required for this comparison', allow_module_level=True)
+
+for backend in ('pennylane_sf', 'strawberryfields'):
+    if find_spec(backend) is None:
+        pytest.skip(f'{backend} is required for the PennyLane Fock device', allow_module_level=True)
 
 
 def test_number_operator_exp():

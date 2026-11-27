@@ -106,8 +106,8 @@ def test_tdm_substate_windows_and_gradients_match_global_circuit(encoded, hardwa
             torch.testing.assert_close(value, initial[name])
     unrolled = cir.global_circuit(nstep)
     unrolled.double()
-    expanded_data = None if data is None else data[:, torch.arange(nstep) % data.shape[1]].flatten(1)
-    cov, mean = unrolled(expanded_data)
+    unrolled_data = None if data is None else data[:, torch.arange(nstep) % data.shape[1]].flatten(1)
+    cov, mean = unrolled(unrolled_data)
     references = []
     selected = list(range(nstep))[time_steps] if isinstance(time_steps, slice) else time_steps
     for step, output in zip(selected, outputs, strict=True):
@@ -122,6 +122,14 @@ def test_tdm_substate_windows_and_gradients_match_global_circuit(encoded, hardwa
         sum(value.square().sum() for output in references for value in output), variables
     )
     torch.testing.assert_close(actual_grad, expected_grad)
+
+
+def test_delay_and_mzi_require_boolean_encoding():
+    cir = dq.QumodeCircuit(2, 'vac', backend='gaussian')
+    for add_gate, wire, angle in [(cir.delay, 0, 'phi'), (cir.mzi, [0, 1], 'theta')]:
+        with pytest.raises(TypeError, match='encode must be a bool'):
+            add_gate(wire, encode=angle)
+    assert cir.ndata == 0 and len(cir.operators) == 0
 
 
 def test_tdm_substate_windows_pause_close_and_restart():
@@ -333,6 +341,80 @@ def test_gaussian_loop_accepts_homodyne_memory_in_next_step_order():
     )
 
 
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann'])
+def test_submode_loop_memory_order_matches_six_explicit_modes(backend):
+    def prepare(nmode):
+        cir = dq.QumodeCircuit(nmode, 'vac', backend='gaussian')
+        if nmode >= 4:
+            cir.s2([0, 1], 0.31, 0.2)  # correlated basis modes in the first loop position
+            cir.d(2, 0.21, -0.4)  # distinguishes the second loop position
+        if nmode != 4:
+            cir.d(nmode - 2 if nmode == 6 else 0, 0.17, 0.3)  # fresh spatial input in basis mode 0
+        return cir.double()()
+
+    spatial, memory, concurrent = (prepare(n) for n in (1, 4, 6))
+    cir = dq.QumodeCircuit(1, spatial, backend=backend, den_mat=True)
+    cir.delay(0, ntau=2, inputs=[0.53, 0.16])
+    cir.set_hardware_model(dqp.HardwareModel().input(0).submodes([1, 0]))
+    cir.double()
+    reference = dq.QumodeCircuit(6, concurrent, backend='gaussian')
+    for k in (0, 1):
+        reference.bs_theta([k, 4 + k], 0.53)
+        reference.ps(k, 0.16)
+    cov, mean = reference.double()()
+    order = torch.tensor([2, 3, 0, 1, 4, 5])  # next-step order swaps the two loop positions
+    idx = torch.cat([order, order + 6])
+    expected = [cov[:, idx[:, None], idx], mean[:, idx]]
+    if backend == 'bargmann':
+        memory, concurrent = (dq.BargmannState(x, den_mat=True) for x in (memory, concurrent))
+    for result in (cir(memory=memory), cir(state=concurrent)):
+        assert (result.nmode, result.nsubmode, result.factorized) == (3, 2, False)
+        joint = result.to_joint()
+        moments = list(joint.quadrature_moments()) if backend == 'bargmann' else joint
+        torch.testing.assert_close(moments, expected, atol=1e-12, rtol=0)
+    # A terminal readout on spatial wire 0 observes the chosen basis mode at the output.
+    torch.testing.assert_close(cir.quadrature_mean(0, phi=0, lo=[0, 1]), mean[:, [5]])
+    with pytest.raises(ValueError, match='4 delay modes'):
+        cir(memory=concurrent)
+
+
+@pytest.mark.parametrize('detector', ['pnrd', 'threshold'])
+def test_bargmann_submode_loop_keeps_joint_event_weight_and_correlations(detector):
+    cir = dq.QumodeCircuit(1, 'vac', backend='bargmann', den_mat=True, detector=detector, cutoff=2)
+    cir.s(0, encode=True)
+    cir.delay(0, ntau=1, inputs=[0.5, 0.1])
+    cir.set_hardware_model(dqp.HardwareModel().s(0).submodes(relative_r=[1, 0.4]))
+    cir.double()
+    full = cir.global_circuit(2)
+    data = torch.tensor([[0.20, 0.12], [0.31, -0.17]], dtype=torch.double, requires_grad=True)
+
+    result = cir(data)
+    assert result.partition == ((0,), (1,))
+    output_probability = cir.get_prob([1])
+    memory, p1 = cir.post_select(0, 1, normalize=False)
+    torch.testing.assert_close(p1, output_probability)
+    assert memory.nmode == 2 and memory.den_mat
+    if detector == 'pnrd':
+        # The observed photon leaves odd parity in its partner loop mode. Both loops cannot be empty.
+        torch.testing.assert_close(memory.to_fock(1).flatten(), torch.zeros_like(p1).to(torch.cdouble))
+        for k in (0, 1):
+            assert (memory.partial_trace([k]).to_fock(1).flatten().real > 0.1 * p1).all()
+
+    assert cir(data, memory=memory).partition == ((0, 1),)
+    final, p10, info = cir.post_select(0, 0, normalize=False, return_info=True)
+    assert info['remaining_wires'] == (0,)
+    torch.testing.assert_close(info['input_weight'], p1)
+    torch.testing.assert_close(info['conditional_probability'], p10 / p1)
+    full(data.repeat(1, 2))
+    oracle, weight = full.post_select(cir.tdm_output_wires(2).flatten(), [1, 0], normalize=False)
+    torch.testing.assert_close(p10, weight, atol=1e-12, rtol=0)
+    torch.testing.assert_close(final.to_fock(3), oracle.to_fock(3), atol=1e-12, rtol=0)
+    args = dict(wires=[0, 1], phi=[0, 0.3], powers=[(2, 2)], normalize=False)
+    actual, expected = (s.quadrature_moments(**args) for s in (final, oracle))
+    torch.testing.assert_close(actual, expected, atol=1e-12, rtol=0)
+    torch.testing.assert_close(torch.autograd.grad(actual.sum(), data), torch.autograd.grad(expected.sum(), data))
+
+
 def test_bargmann_single_photon_windows_match_global_density():
     cir = dq.QumodeCircuit(1, 'vac', backend='bargmann', cutoff=1)
     cir.single_photon(0)
@@ -348,28 +430,116 @@ def test_bargmann_single_photon_windows_match_global_density():
         order = sorted(selected)
         return marginal.reorder([order.index(w) for w in selected]).to_fock(3)
 
-    # Even a ket circuit returns a reduced density matrix. Cutoff=1 must not remove source photons.
+    # A partial trace of the ket returns a density operator. Source photons survive the default readout cutoff of 1.
     for window, times in zip(cir.tdm_substate([0, 2], window=2), [[0], [1, 2]], strict=True):
         assert isinstance(window, dq.BargmannState) and window.den_mat and window.cutoff == 1
         torch.testing.assert_close(window.to_fock(3), expected(times))
     torch.testing.assert_close(cir.tdm_substate([2, 0]).to_fock(3), expected([2, 0]))
 
 
+def test_submode_loop_reprepares_photon_after_post_selection():
+    coeff = torch.tensor([0.8, 0.6j], dtype=torch.cdouble)
+    theta = torch.tensor(0.67, dtype=torch.double)
+    cir = dq.QumodeCircuit(1, 'vac', backend='bargmann', den_mat=True, cutoff=1)
+    cir.single_photon(0, coefficients=coeff)
+    cir.delay(0, ntau=1, inputs=[theta, 0.22])
+    cir.double()
+    cir()
+    memory, p1 = cir.post_select(0, 1, normalize=False)
+    # Detect the first photon, then leave the entire second photon in the loop.
+    cir(memory=memory)
+    memory, p10 = cir.post_select(0, 0, normalize=False)
+    torch.testing.assert_close(p1, theta.cos().square().reshape(1))
+    torch.testing.assert_close(p10, p1 * theta.sin().square())
+    ket = coeff.new_zeros(2, 2)
+    ket[1, 0], ket[0, 1] = coeff
+    torch.testing.assert_close(memory.to_fock(2)[0], p10 * torch.einsum('ij,kl->ijkl', ket, ket.conj()))
+
+
+def test_tdm_submode_single_photon_coherences_and_source_gradient():
+    cir = dq.QumodeCircuit(1, 'vac', backend='bargmann', cutoff=1)
+    cir.single_photon(0, coefficients=torch.tensor([0.8, 0.6j], dtype=torch.cdouble), requires_grad=True)
+    cir.delay(0, ntau=1, inputs=[0.67, 0.22])
+    cir.double()
+    result = cir.tdm_substate([1, 0])
+    assert (result.nmode, result.nsubmode, result.den_mat, result.partition) == (2, 2, True, ((0, 1),))
+    streamed = result.to_joint()
+
+    # Two fresh photons in total. Cutoff 3 retains every Fock occupation, including bunching.
+    full = cir.global_circuit(2)().to_joint()
+    spatial = cir.tdm_output_wires(2).flip(0)
+    keep = (2 * spatial + torch.arange(2)).flatten().tolist()
+    reduced = full.partial_trace([w for w in range(full.nmode) if w not in keep])
+    reference = reduced.reorder([sorted(keep).index(w) for w in keep])
+    assert streamed.cutoff == 1
+    torch.testing.assert_close(streamed.to_fock(3), reference.to_fock(3), atol=1e-12, rtol=0)
+    source = cir.sources['0'].components
+    gradients = [
+        torch.autograd.grad(s.quadrature_moments([0], 0.2, powers=[(4,)]).sum(), source)[0]
+        for s in (streamed, reference)
+    ]
+    assert gradients[0].abs().max() > 0.01
+    torch.testing.assert_close(*gradients, atol=1e-10, rtol=0)
+
+
 @pytest.mark.parametrize('backend', ['gaussian', 'bargmann'])
-def test_tdm_batched_windows_share_controls_and_preserve_output_order(backend):
+@pytest.mark.parametrize('feedback', [False, True], ids=['output-marginal', 'loop-memory'])
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason='MPS is not available')
+def test_tdm_submode_mps_control_gradients_match_cpu(backend, feedback):
+    def readout(device):
+        cir = dq.QumodeCircuit(2, 'vac', backend=backend, den_mat=True)
+        cir.s(0, encode=True)
+        cir.s2([0, 1], encode=True)
+        cir.d(1, encode=True)
+        cir.d_channel(1, convention='loss_theta', encode=True)
+        cir.bs([1, 0], encode=True)
+        cir.ps(0, encode=True)
+        cir.delay(0, ntau=1, convention='mzi', encode=True)
+        cir.set_hardware_model(dqp.HardwareModel().s(0).submodes(relative_r=[1, 0.6]))
+        cir.to(device)
+        data = torch.linspace(0.07, 0.32, cir.ndata, device=device).reshape(1, -1).requires_grad_()
+        if feedback:
+            joint = cir(data).to_joint()
+            if backend == 'bargmann':
+                memory, _ = cir.post_select([0, 1], [1, 0], normalize=False)
+            else:
+                idx = [0, 1, 6, 7]  # first loop position, both basis modes in xxpp order
+                memory = [joint[0][:, idx][:, :, idx], joint[1][:, idx]]
+            joint = cir(data, memory=memory).to_joint()
+        else:
+            joint = cir.tdm_substate([1, 0], data=data).to_joint()
+        cov, mean = joint.quadrature_moments() if backend == 'bargmann' else joint
+        (grad,) = torch.autograd.grad(cov.square().sum() + mean.sum(), data)
+        return tuple(x.detach().cpu() for x in (cov, mean, grad))
+
+    torch.testing.assert_close(readout('mps'), readout('cpu'), atol=4e-5, rtol=3e-4)
+
+
+@pytest.mark.parametrize('backend', ['gaussian', 'bargmann'])
+@pytest.mark.parametrize('submodes', [False, True], ids=['ordinary', 'partial-basis-coupling'])
+def test_tdm_batched_windows_share_controls_and_preserve_output_order(backend, submodes):
     cir = dq.QumodeCircuit(2, 'vac', backend=backend, den_mat=True)
     cir.thermal(1, nbar=0.1, requires_grad=True)
     cir.s(0, encode=True)
     cir.bs([0, 1], [0.61, 0.42])
     cir.delay(0, ntau=2, inputs=[0.51, 0.14])
-    cir.delay(1, ntau=1, inputs=[0.64, -0.3])
+    cir.delay(1, ntau=1, inputs=[0.64, -0.3], loop_gates=[dqp.Displacement([0.14, 0.2])])
     model = dqp.HardwareModel().output(1).loss(t=0.85)
     model.s().r.gaussian(sigma=0.025)
+    d = 3 if submodes else 1
+    if submodes:
+        model.s(0).submodes(relative_r=[1, 0.4, 0.2])
+        model.input(1).submodes(torch.tensor([0.8, 0, 0.6j], dtype=torch.cdouble))
+        model.delay(1).d().r.gaussian(sigma=0.01)
     cir.set_hardware_model(model)
     cir.double()
     data = torch.tensor([[[0.23, 0.14], [0.34, -0.18]]], dtype=torch.double).expand(2, -1, -1).clone().requires_grad_()
 
     def moments(state):
+        if submodes:
+            assert isinstance(state, dqp.SubmodeResult)
+            assert state.partition == ((0, 2), (1,))
+            state = state.to_joint()
         return state.quadrature_moments() if isinstance(state, dq.BargmannState) else state
 
     params = {k: v.clone() for k, v in cir.state_dict().items()}
@@ -383,23 +553,22 @@ def test_tdm_batched_windows_share_controls_and_preserve_output_order(backend):
         torch.testing.assert_close(tensor[0], tensor[1])  # hardware sample is shared across the encoded batch
     model.manual_seed(83)
     expected = moments(cir.tdm_substate([3, 2], wires=[0, 1], data=data))
-    idx = torch.tensor([3, 2, 1, 0, 7, 6, 5, 4])
+    order = (torch.tensor([3, 2, 1, 0])[:, None] * d + torch.arange(d)).flatten()
+    idx = torch.cat([order, order + 4 * d])
     expected = [expected[0][:, idx[:, None], idx], expected[1][:, idx]]
     torch.testing.assert_close(tuple(actual), tuple(expected))
     full = cir.global_circuit(4).double()
     full.hardware_model.manual_seed(83)
-    global_state = full(data.repeat(1, 2, 1).flatten(1))
-    outputs = cir.tdm_output_wires(4)[2:, [1, 0]].flatten()
-    if backend == 'bargmann':
-        reference = global_state.quadrature_moments(outputs.tolist())
-    else:
-        idx = torch.cat([outputs, outputs + full.nmode])
-        reference = [global_state[0][:, idx[:, None], idx], global_state[1][:, idx]]
+    cov, mean = moments(full(data.repeat(1, 2, 1).flatten(1)))
+    outputs = cir.tdm_output_wires(4)[2:, [1, 0]].reshape(-1, 1)
+    modes = (outputs * d + torch.arange(d)).flatten()
+    idx = torch.cat([modes, modes + full.nmode * d])
+    reference = [cov[:, idx[:, None], idx], mean[:, idx]]
     torch.testing.assert_close(tuple(actual), tuple(reference))
     variables = (data, cir.sources['1'].amplitude)
     torch.testing.assert_close(
         torch.autograd.grad(actual[0].square().sum(), variables),
-        torch.autograd.grad(expected[0].square().sum(), variables),
+        torch.autograd.grad(reference[0].square().sum(), variables),
     )
 
 
@@ -450,24 +619,128 @@ def test_loop_readout_starts_from_vacuum_independently_of_forward(backend):
     torch.testing.assert_close(output_mean, torch.zeros_like(output_mean))
 
 
-def test_automatic_homodyne_loop_reprepares_gaussian_source():
-    auto = dq.QumodeCircuitTDM(1, 'vac', backend='gaussian')
-    manual = dq.QumodeCircuit(1, 'vac', backend='gaussian')
+@pytest.mark.parametrize('preparation', ['first', 'every', 'thermal'])
+def test_tdm_continuation_uses_recorded_memory_and_fresh_inputs(preparation):
+    initial = [torch.eye(4, dtype=torch.double), torch.tensor([[0.8], [-0.4], [0.2], [0.0]], dtype=torch.double)]
+    auto = dq.QumodeCircuitTDM(2, initial)
+    manual = dq.QumodeCircuit(2, initial, backend='gaussian')
     for cir in (auto, manual):
-        cir.thermal(0, nbar=0.6)
-        cir.delay(0, ntau=2, inputs=[0.65, 0.21])
+        if preparation == 'thermal':
+            cir.thermal(0, nbar=0.45)
+        cir.ps(0, encode=True)
+        cir.delay(0, ntau=2, inputs=[0.58, -0.17])
+        cir.delay(1, ntau=1, inputs=[0.4, 0.2])
+        cir.bs([1, 0], [0.35, 0.18])
         cir.homodyne_x(0)
+        cir.homodyne_p(1)
         cir.double()
+    data = torch.linspace(-0.3, 0.5, 8, dtype=torch.double).reshape(2, 4, 1).requires_grad_()
+    vac = [torch.eye(6, dtype=torch.double), torch.zeros(6, 1, dtype=torch.double)]
+    start = vac if preparation == 'every' else None
     with torch.random.fork_rng(devices=[]):
-        torch.manual_seed(91)
-        expected = auto(nstep=3)
-        torch.manual_seed(91)
-        memory, records = None, []
-        for _ in range(3):
-            manual(memory=memory)
-            records.append(manual.measure_homodyne(shots=1))
+        torch.manual_seed(51)
+        whole = auto(data, memory=start)
+        records = auto.samples
+        torch.manual_seed(51)
+        part = auto(data[:, :2], memory=start)
+        first_records = auto.samples
+        kwargs = {'state': part} if preparation == 'first' else {'memory': auto.tdm_memory(part)}
+        final = auto(data[:, 2:], **kwargs)
+        torch.testing.assert_close(torch.cat([first_records, auto.samples], dim=-1), records)
+        torch.testing.assert_close(final, whole)
+        torch.manual_seed(51)
+        state, memory, manual_records = None, start, []
+        idx = [0, 1, 3, 5, 6, 8]  # xxpp coordinates of the three loop modes
+        for i in range(4):
+            manual(data[:, i], state=state, memory=memory)
+            manual_records.append(manual.measure_homodyne(shots=1))
             cov, mean = manual.state_measured
-            idx = [0, 1, 3, 4]
-            memory = [cov[:, idx, :][:, :, idx], mean[:, idx]]
-    torch.testing.assert_close(manual.state_measured, expected)
-    torch.testing.assert_close(torch.stack(records, -1), auto.samples)
+            expected = [cov[:, idx, :][:, :, idx], mean[:, idx]]
+            if preparation == 'first':
+                state = manual.state_measured
+            else:
+                memory = expected
+        torch.testing.assert_close(torch.stack(manual_records, -1), records)
+    torch.testing.assert_close(manual.state_measured, whole)
+    actual = auto.tdm_memory(whole)
+    torch.testing.assert_close(actual, expected)
+    torch.testing.assert_close(
+        torch.autograd.grad(actual[1].sum(), data)[0], torch.autograd.grad(expected[1].sum(), data)[0]
+    )
+    with pytest.raises(ValueError, match='full Gaussian'):
+        auto.tdm_memory(vac)
+    with pytest.raises(ValueError, match='either state or memory'):
+        auto(data, state=part, memory=vac)
+    if preparation == 'thermal':
+        with pytest.raises(ValueError, match='source'):
+            auto(data, state=part)
+
+
+def test_equal_submode_windows_share_hardware_draws_and_preserve_gradients():
+    ratios = [1.0, 0.6, 0.25]
+    r = torch.tensor(0.28, dtype=torch.double, requires_grad=True)
+    data = torch.tensor([[[-0.2], [0.3]], [[0.4], [0.1]]], dtype=torch.double, requires_grad=True)
+
+    def build(ratio=None):
+        cir = dq.QumodeCircuit(1, 'vac', backend='gaussian')
+        cir.s(0, r if ratio is None else r * ratio, 0.23)
+        cir.ps(0, encode=True)
+        cir.delay(0, ntau=3, inputs=[0.62, -0.24])
+        model = dqp.HardwareModel().ps(0).theta.gaussian(sigma=0.13)
+        if ratio is None:
+            model.s(0).submodes(relative_r=ratios)
+        cir.set_hardware_model(model)
+        model.manual_seed(174)
+        cir.double()
+        return next(cir.tdm_substate(5, window=3, data=data))
+
+    result = build()
+    assert result.partition == ((0,), (1,), (2,))
+    total, reference = 0.0, 0.0
+    for ((k,), state), ratio in zip(result._factors(), ratios, strict=True):
+        expected = build(ratio)
+        torch.testing.assert_close(state, expected, atol=2e-8, rtol=2e-7)
+        total += (k + 1) * state[0].square().sum()
+        reference += (k + 1) * expected[0].square().sum()
+    torch.testing.assert_close(
+        torch.autograd.grad(total, (r, data)), torch.autograd.grad(reference, (r, data)), atol=2e-7, rtol=2e-7
+    )
+
+
+def test_tdm_measured_memory_matches_global_circuit_on_actual_records():
+    cir = dq.QumodeCircuitTDM(2, 'vac')
+    cir.thermal(0, nbar=0.18)
+    cir.s(1, 0.31, 0.2)
+    cir.bs([0, 1], [0.41, -0.21])
+    cir.delay(0, ntau=2, inputs=[0.4, 0.12])
+    cir.delay(1, ntau=1, inputs=[0.62, -0.13])
+    cir.homodyne_x(0)
+    cir.homodyne_p(1)
+    cir.double()
+    torch.manual_seed(99)
+    memory = cir.tdm_memory(cir(nstep=3))
+    full = cir.global_circuit(3)
+    state = full()
+    for hom, value in zip(full.measurements, cir.samples.T.flatten(), strict=True):
+        state = hom(state, samples=value)
+    loops = [1, 0, 3]  # the two-bin loop has rotated by one position after three steps
+    idx = loops + [w + full.nmode for w in loops]
+    torch.testing.assert_close(memory, [state[0][:, idx, :][:, :, idx], state[1][:, idx]], atol=1e-12, rtol=0)
+
+
+def test_tdm_memory_rotates_loop_modes_and_repeats_nonvacuum_input():
+    cir = dq.QumodeCircuitTDM(1, [torch.eye(2), torch.tensor([[3.0], [0.0]])])
+    cir.delay(0, ntau=2, inputs=[0.0, 0.0])
+    cir.homodyne_x(0)
+    # At zero coupling the two loop means rotate independently of the input.
+    initial = [torch.eye(4), torch.tensor([[1.0], [2.0], [0.0], [0.0]])]
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(1)
+        cir(nstep=3)
+        first = cir.samples
+        torch.manual_seed(1)
+        memory = cir.tdm_memory(cir(nstep=3, memory=initial))
+        torch.testing.assert_close((cir.samples - first).flatten(), first.new_tensor([0.0, 3.0, 3.0]))
+        torch.testing.assert_close(memory[1][0, :2, 0], first.new_tensor([2.0, 1.0]))
+        following = cir.tdm_memory(cir(memory=memory))
+        torch.testing.assert_close(following[1][0], initial[1])

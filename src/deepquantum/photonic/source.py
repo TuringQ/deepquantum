@@ -8,7 +8,7 @@ from torch import nn
 import deepquantum.photonic as dqp
 
 from ..qmath import partial_trace
-from .bargmann import _gaussian_bargmann
+from .bargmann import BargmannPolyExp, _gaussian_bargmann
 from .qmath import _normalize_coefficients
 from .state import BargmannState
 
@@ -169,7 +169,7 @@ class ThermalSource(nn.Module):
     Fock preparation requires density matrices and retains the unnormalized cutoff projection,
     with trace :math:`1-[\bar n/(1+\bar n)]^C` per mode at cutoff :math:`C`.
     The internal parameter is :math:`\sqrt{\bar n}`.
-    Bargmann preparation requires density matrices and uses the full thermal kernel without truncation.
+    Bargmann preparation uses the kernel of the thermal density operator with ``den_mat=True``.
     See https://arxiv.org/pdf/1110.3234v1 Eq.(27).
 
     Args:
@@ -239,7 +239,10 @@ class ThermalSource(nn.Module):
             noise = torch.diag((1 - mask) * vacuum * (2 * self.nbar.to(cov) + 1))
             return [cov * mask[:, None] * mask[None, :] + noise, mean * mask[:, None]] + state[2:]
         if run.backend != 'fock' or run.basis:
-            raise NotImplementedError('ThermalSource requires Gaussian, Bosonic or Fock density states.')
+            raise NotImplementedError(
+                'ThermalSource supports Gaussian and Bosonic states, Fock density matrices and '
+                'Bargmann kernels of density operators.'
+            )
         cutoff = state.shape[-1]
         nbar = self.nbar.to(state.real)
         q = nbar / (1 + nbar)
@@ -253,9 +256,9 @@ class SinglePhotonSource(nn.Module):
     r"""Pure or mixed single-photon input in an orthogonal basis.
 
     ``QumodeCircuit.single_photon`` prepares independent spatial inputs before all gates.
-    Mixed inputs require Fock density matrices. Pure Fock state tensors require vacuum on the selected inputs.
-    Bargmann supports one basis mode per spatial input. Density states are reset
-    by partial trace, while ket preparations require vacuum on the selected inputs.
+    A mixed single photon requires ``den_mat=True`` (and ``basis=False`` on Fock).
+    For a Fock density matrix or the Bargmann kernel of a density operator, preparation traces out the
+    selected modes and inserts the single photon. Fock ket tensors and Bargmann kets require vacuum there.
     Specify at most one of ``coefficients``, ``density_matrix`` and ``factor``.
     Trainable parameters are the real and imaginary components of the coefficients or factor.
     A supplied density matrix is first factorized.
@@ -337,16 +340,26 @@ class SinglePhotonSource(nn.Module):
     def forward(self, state: Any, run: '_HardwareRun') -> Any:
         """Prepare one photon in the specified state across the selected orthogonal basis modes."""
         if run.backend == 'bargmann':
-            if self.components.shape[0] != 1:
-                raise NotImplementedError('Bargmann single-photon sources do not support submodes')
-            photon = BargmannState([1], den_mat=state.den_mat, cutoff=state.cutoff).to(
-                device=state.mat_a.device, dtype=state.mat_a.real.dtype
-            )
-            coefficient = self.density_matrix[0, 0] if state.den_mat else self.coefficients[0]
-            photon.coeff_c = photon.coeff_c * coefficient.to(photon.coeff_c)
-            for wire in run.wires:
-                state = state._replace_modes([wire], photon)
-            return state
+            # One derivative produces sum_k u_k z_k. Each column of a mixed factor
+            # contributes the outer product of that ket and its conjugate.
+            factor = torch.view_as_complex(self.components.contiguous())
+            factor = _normalize_coefficients(factor.flatten()).reshape_as(factor).to(state.mat_a)
+            nmode, rank = len(run.wires), factor.shape[1]
+            if factor.shape[0] > nmode or not state.den_mat and not self.is_pure:
+                raise ValueError('The Bargmann input needs the full source basis and den_mat=True for mixed photons.')
+            naux = 2 if state.den_mat else 1
+            nfree = nmode * naux
+            cross = factor.new_zeros(rank, nfree, naux)
+            cross[:, : factor.shape[0], 0] = factor.mT
+            if state.den_mat:
+                cross[:, nmode : nmode + factor.shape[0], 1] = factor.mH
+            matrix = factor.new_zeros(1, rank, nfree + naux, nfree + naux)
+            matrix[..., :nfree, nfree:] = cross
+            matrix[..., nfree:, :nfree] = cross.mT
+            coeff = factor.new_zeros(1, rank, *([2] * naux))
+            coeff[(...,) + (1,) * naux] = 1
+            photon = state._new(BargmannPolyExp._from_tensors(matrix, torch.zeros_like(matrix[..., 0]), coeff))
+            return state._replace_modes(list(run.wires), photon)
         if run.backend != 'fock' or run.basis:
             raise NotImplementedError('SinglePhotonSource requires Fock density matrices (basis=False, den_mat=True).')
         density = self.density_matrix
