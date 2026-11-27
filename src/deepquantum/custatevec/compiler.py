@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import chain
+from operator import attrgetter
 from typing import Any
 
 import numpy as np
 import torch
 
 from ..gate import Barrier
+from ..operation import Gate
 
 OP_MATRIX = 0
 OP_PAULI_ROTATION = 1
@@ -47,6 +50,7 @@ class CompiledCircuitPlan:
     gradient_kinds: np.ndarray
     generator_coeffs: np.ndarray
     parameter_sources: tuple[torch.Tensor, ...]
+    input_bindings: tuple[tuple[Gate, attrgetter, torch.Tensor, bool], ...]
     observable_paulis: tuple[tuple[int, ...], ...]
     observable_bits: tuple[tuple[int, ...], ...]
     observable_matrix: torch.Tensor | None
@@ -58,8 +62,6 @@ def _error(index: int, gate: Any, message: str) -> ValueError:
 
 
 def _static_matrix(gate: Any, index: int) -> torch.Tensor:
-    if any(parameter.requires_grad for parameter in gate.parameters()):
-        raise _error(index, gate, 'trainable parameters are unsupported for generic matrix gates')
     try:
         matrix = gate.update_matrix()
     except Exception as exc:  # pragma: no cover - third-party gate subclasses.
@@ -164,6 +166,7 @@ def compile_circuit(circuit: Any) -> CompiledCircuitPlan:
     parameter_indices: list[int] = []
     parameter_scales: list[float] = []
     parameter_sources: list[torch.Tensor] = []
+    input_names: list[tuple[Gate, str]] = []
     # Distinct autograd leaves can share storage. Only merge the same object.
     parameter_slots: dict[int, int] = {}
     gradient_kinds: list[int] = []
@@ -190,6 +193,7 @@ def compile_circuit(circuit: Any) -> CompiledCircuitPlan:
 
         if name == 'PhaseShift':
             theta = gate.theta
+            input_names.append((gate, 'theta'))
             scale = -1.0 if gate.inv_mode else 1.0
             opcodes.append(OP_PHASE)
             targets.append(target_bits)
@@ -216,6 +220,7 @@ def compile_circuit(circuit: Any) -> CompiledCircuitPlan:
             theta = getattr(gate, 'theta', None)
             if not isinstance(theta, torch.Tensor) or theta.numel() != 1:
                 raise _error(index, gate, 'rotation angle must be one scalar tensor')
+            input_names.append((gate, 'theta'))
             labels = (3,) * len(wires) if name == 'MultiRZ' else _PAULI.get(name, (1, 1))
             if len(wires) != len(labels):
                 raise _error(index, gate, f'{name} has an invalid target count')
@@ -260,6 +265,12 @@ def compile_circuit(circuit: Any) -> CompiledCircuitPlan:
             else:
                 matrix = torch.tensor([[0, 1], [1, 0]], dtype=torch.complex64)
         else:
+            inputs = tuple(
+                chain(gate.named_parameters(remove_duplicate=False), gate.named_buffers(remove_duplicate=False))
+            )
+            if any(tensor.requires_grad for _, tensor in inputs):
+                raise _error(index, gate, 'trainable inputs are unsupported for generic matrix gates')
+            input_names.extend((gate, name) for name, _ in inputs)
             matrix = _static_matrix(gate, index)
         dim = 1 << len(wires)
         if matrix.shape != (dim, dim):
@@ -292,6 +303,12 @@ def compile_circuit(circuit: Any) -> CompiledCircuitPlan:
         diagonals.append(diagonal)
 
     observable_paulis, observable_bits, observable_matrix, observable_matrix_bits = _compile_observables(circuit)
+    # Capture after update_matrix(), which can replace the gate's matrix buffer.
+    input_bindings = []
+    for gate, name in input_names:
+        read_input = attrgetter(name)
+        tensor = read_input(gate)
+        input_bindings.append((gate, read_input, tensor, tensor.requires_grad))
     return CompiledCircuitPlan(
         nqubit=circuit.nqubit,
         opcodes=np.asarray(opcodes, dtype=np.int32),
@@ -307,6 +324,7 @@ def compile_circuit(circuit: Any) -> CompiledCircuitPlan:
         gradient_kinds=np.asarray(gradient_kinds, dtype=np.int32),
         generator_coeffs=np.asarray(generator_coeffs, dtype=np.float64),
         parameter_sources=tuple(parameter_sources),
+        input_bindings=tuple(input_bindings),
         observable_paulis=observable_paulis,
         observable_bits=observable_bits,
         observable_matrix=observable_matrix,

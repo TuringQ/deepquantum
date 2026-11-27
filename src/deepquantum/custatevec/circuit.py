@@ -61,7 +61,6 @@ class QubitCircuitGPU(QubitCircuit):
         self.gpu_device = torch.device('cuda', index)
         self.gpu_backend = gpu_backend
         self._compiled_plan: CompiledCircuitPlan | None = None
-        self._compiled_trainability: tuple[tuple[nn.Parameter, bool], ...] = ()
         self._executor: Any = None
         self._matrix_observable: tuple[torch.Tensor, tuple[int, ...]] | None = None
         self._plan_dirty = True
@@ -82,6 +81,11 @@ class QubitCircuitGPU(QubitCircuit):
         result = super().add(*args, **kwargs)
         self.invalidate()
         return result
+
+    def init_para(self) -> None:
+        """Reinitialize the gate parameters and invalidate the compiled plan."""
+        self.invalidate()
+        super().init_para()
 
     def multirz(self, wires: list[int], inputs: Any = None, controls: int | list[int] | None = None) -> None:
         """Add a multi-qubit Z Pauli rotation."""
@@ -135,7 +139,6 @@ class QubitCircuitGPU(QubitCircuit):
             .contiguous(),
         )
         self._compiled_plan = plan
-        self._compiled_trainability = tuple((parameter, parameter.requires_grad) for parameter in self.parameters())
         self._plan_dirty = False
         self.state = None
         return self
@@ -187,13 +190,16 @@ class QubitCircuitGPU(QubitCircuit):
     def forward(self, data: torch.Tensor | None = None, state: Any = None) -> torch.Tensor:
         """Execute the circuit and return a borrowed ``(2**nqubit, 1)`` state tensor.
 
+        Treat the returned tensor as read-only. Clone it to modify or retain it.
         Runtime data encoding and external forward states are unsupported. Use
         ``expectation()`` for differentiable results using adjoint gradients.
         """
         if data is not None or state is not None:
             raise ValueError('QubitCircuitGPU accepts neither runtime data nor an external forward state')
         self._ensure_compiled()
-        self.state = self._executor.execute(self._parameter_tensor()).reshape(-1, 1)
+        values = self._parameter_tensor()
+        self.state = None
+        self.state = self._executor.execute(values).reshape(-1, 1)
         return self.state
 
     def measure(
@@ -244,6 +250,7 @@ class QubitCircuitGPU(QubitCircuit):
             self.state = None
             return _GPUAdjointExpectation.apply(values, self)
         if parameters is not None:
+            self.state = None
             self.state = self._executor.execute(values.detach()).reshape(-1, 1)
         return self._executor.expectation()
 
@@ -251,7 +258,7 @@ class QubitCircuitGPU(QubitCircuit):
         """Evaluate Pauli observables on an existing CUDA state.
 
         This non-differentiable readout borrows the state for the duration of the
-        call. Gate compilation and execution are skipped.
+        call and materializes conjugated views. Gate compilation and execution are skipped.
         """
         if not isinstance(state, torch.Tensor):
             raise TypeError('state must be a torch.Tensor')
@@ -308,11 +315,20 @@ class QubitCircuitGPU(QubitCircuit):
             self._executor = module.GPUCircuitExecutor(self.nqubit, self.gpu_device.index or 0)
 
     def _ensure_compiled(self) -> None:
-        if self._plan_dirty or self._compiled_plan is None or self._executor is None or self._trainability_changed():
+        if self._plan_dirty or self._executor is None or self._plan_inputs_changed():
             self.compile()
 
-    def _trainability_changed(self) -> bool:
-        return any(parameter.requires_grad != flag for parameter, flag in self._compiled_trainability)
+    def _plan_inputs_changed(self) -> bool:
+        if self._compiled_plan is None:
+            return True
+        for gate, read_input, tensor, requires_grad in self._compiled_plan.input_bindings:
+            try:
+                current = read_input(gate)
+            except AttributeError:
+                return True
+            if current is not tensor or current.requires_grad != requires_grad:
+                return True
+        return False
 
     def _parameter_tensor(self) -> torch.Tensor:
         """Pack dynamic values once per execution while preserving autograd edges."""
@@ -378,17 +394,14 @@ class _GPUAdjointExpectation(torch.autograd.Function):
         if (
             circuit._executor is not ctx.executor
             or circuit._plan_dirty
-            or circuit._trainability_changed()
+            or circuit._plan_inputs_changed()
             or ctx.executor.plan_version() != ctx.plan_version
         ):
             raise RuntimeError('single-GPU circuit changed or closed before backward')
         (parameters,) = ctx.saved_tensors
         weights = grad_output.to(device=parameters.device, dtype=torch.float32).reshape(-1).contiguous()
-        try:
-            gradient = ctx.executor.adjoint_vjp_prepared(parameters.detach(), weights, ctx.generation)
-            return (gradient, None)
-        finally:
-            circuit.state = None
+        gradient = ctx.executor.adjoint_vjp_prepared(parameters.detach(), weights, ctx.generation)
+        return (gradient, None)
 
 
 class _ZeroState(nn.Module):
@@ -409,18 +422,31 @@ class MultiRZ(Gate):
         self, *, inputs: Any, nqubit: int, wires: list[int], controls: int | list[int] | None, requires_grad: bool
     ) -> None:
         super().__init__(name='MultiRZ', nqubit=nqubit, wires=wires, controls=controls)
+        self.npara = 1
+        self.inv_mode = False
+        self.requires_grad = requires_grad
+        self.init_para(inputs)
+
+    def init_para(self, inputs: Any = None) -> None:
+        """Initialize the rotation angle."""
         if inputs is None:
             inputs = torch.rand((), dtype=torch.float32) * (4 * torch.pi)
         elif not isinstance(inputs, torch.Tensor):
             inputs = torch.tensor(inputs, dtype=torch.float32)
         if inputs.numel() != 1:
             raise ValueError('MultiRZ inputs must be one scalar')
-        self.npara = 1
-        self.inv_mode = False
-        if requires_grad:
+        if self.requires_grad:
             self.theta = nn.Parameter(inputs.reshape(()))
         else:
-            self.register_buffer('theta', inputs.reshape(()))
+            self.register_buffer('theta', inputs)
+
+    def _load_from_state_dict(self, state_dict: dict[str, Any], prefix: str, *args: Any, **kwargs: Any) -> None:
+        # Older checkpoints stored all MultiRZ angles as zero-dimensional tensors.
+        key = f'{prefix}theta'
+        angle = state_dict.get(key)
+        if isinstance(angle, torch.Tensor) and angle.numel() == 1 and angle.shape != self.theta.shape:
+            state_dict[key] = angle.reshape_as(self.theta)
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
 
     def inverse(self) -> MultiRZ:
         from copy import copy

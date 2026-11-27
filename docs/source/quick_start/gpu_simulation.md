@@ -54,10 +54,11 @@ Choose the GPU with `device` when constructing the circuit.
 By default, the backend is selected from the installed PyTorch build.
 You can also set `backend='cuquantum'` or `backend='ixquantum'` explicitly.
 
-Run the following Python example in the environment you just configured. It prepares a three-qubit GHZ state and checks the measurement counts.
+Run the following Python example in the environment you just configured. It verifies the three-qubit GHZ statevector.
 
 ```python
 import deepquantum as dq
+import torch
 
 circuit = dq.QubitCircuitGPU(3, device='cuda:0')
 circuit.h(0)
@@ -65,15 +66,14 @@ circuit.cnot(0, 1)
 circuit.cnot(1, 2)
 
 state = circuit()
-counts = circuit.measure(shots=1024)
-assert state.shape == (8, 1)
-assert set(counts) <= {'000', '111'} and sum(counts.values()) == 1024
-print(counts)  # Approximately equal '000' and '111' counts.
+expected = torch.zeros((8, 1), device=state.device, dtype=torch.complex64)
+expected[[0, 7], 0] = 2**(-0.5)
+torch.testing.assert_close(state, expected)
 circuit.close()
 ```
 
 The state is a `complex64` tensor, with qubit 0 as the most significant bit, matching `QubitCircuit`.
-Its storage is reused by later executions; use `state.clone()` to keep an independent copy.
+Treat the returned state as read-only. The circuit reuses its storage, so use `state.clone()` to keep or modify a copy.
 `close()` releases the circuit's GPU resources.
 To use a different GPU, construct a new circuit on that device.
 

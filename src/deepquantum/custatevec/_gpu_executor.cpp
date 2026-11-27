@@ -1,4 +1,5 @@
 // Shared cuStateVec API executor for cuQuantum and ixquantum.
+#include <c10/core/InferenceMode.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/cuda/CUDAStream.h>
 #include <cuComplex.h>
@@ -56,6 +57,7 @@ struct NativeResources {
                "create torch-to-cuStateVec event");
     check_cuda(cudaEventCreateWithFlags(&custatevec_to_torch, cudaEventDisableTiming),
                "create cuStateVec-to-torch event");
+    check_cuda(cudaEventCreateWithFlags(&stream_handoff, cudaEventDisableTiming), "create stream handoff event");
   }
 
   void close() {
@@ -67,16 +69,19 @@ struct NativeResources {
         torch_to_custatevec ? cudaEventDestroy(std::exchange(torch_to_custatevec, nullptr)) : cudaSuccess;
     const auto output_status =
         custatevec_to_torch ? cudaEventDestroy(std::exchange(custatevec_to_torch, nullptr)) : cudaSuccess;
+    const auto handoff_status = stream_handoff ? cudaEventDestroy(std::exchange(stream_handoff, nullptr)) : cudaSuccess;
     check_custatevec(sampler_status, "custatevecSamplerDestroy");
     check_custatevec(handle_status, "custatevecDestroy");
     check_cuda(input_status, "destroy torch-to-cuStateVec event");
     check_cuda(output_status, "destroy cuStateVec-to-torch event");
+    check_cuda(handoff_status, "destroy stream handoff event");
   }
 
   int device;
   custatevecHandle_t handle{nullptr};
   custatevecSamplerDescriptor_t sampler{nullptr};
   cudaEvent_t torch_to_custatevec{nullptr}, custatevec_to_torch{nullptr};
+  cudaEvent_t stream_handoff{nullptr};
 };
 
 // Values match the plan constants in compiler.py.
@@ -141,6 +146,12 @@ class GPUCircuitExecutor {
                const std::vector<int>& observable_matrix_bits, const py::object& initial_state) {
     if (closed_) throw std::runtime_error("executor is closed");
     const c10::cuda::CUDAGuard guard(device_);
+    // The old plan can hold tensors allocated on a stream other than their last reader.
+    if (stream_bound_) {
+      check_cuda(cudaStreamSynchronize(current_stream_), "finish previous plan before recompile");
+      stream_bound_ = false;
+    }
+    bind_current_stream();
     ++generation_;
     ++plan_version_;
     state_ready_ = false;
@@ -441,7 +452,13 @@ class GPUCircuitExecutor {
     if (!compiled_) throw std::runtime_error("executor has not been compiled");
   }
   void bind_current_stream() {
-    current_stream_ = c10::cuda::getCurrentCUDAStream(device_).stream();
+    const auto stream = c10::cuda::getCurrentCUDAStream(device_).stream();
+    if (stream_bound_ && stream != current_stream_) {
+      check_cuda(cudaEventRecord(resources_.stream_handoff, current_stream_), "record previous executor stream");
+      check_cuda(cudaStreamWaitEvent(stream, resources_.stream_handoff, 0), "wait for previous executor stream");
+    }
+    current_stream_ = stream;
+    stream_bound_ = true;
     if (!set_stream_known_unsupported_) {
       const auto status = custatevecSetStream(resources_.handle, current_stream_);
       if (status == CUSTATEVEC_STATUS_SUCCESS) {
@@ -511,9 +528,11 @@ class GPUCircuitExecutor {
       lengths.push_back(bits[i].size());
     }
     bind_current_stream();
+    // The conjugate copy must run after any producer stream has handed off the state.
+    const auto resolved_state = state.resolve_conj();
     torch_to_custatevec();
-    check_custatevec(custatevecComputeExpectationsOnPauliBasis(resources_.handle, state.data_ptr(), CUDA_C_32F, nqubit_,
-                                                               output.data(), pauli_ptrs.data(), output.size(),
+    check_custatevec(custatevecComputeExpectationsOnPauliBasis(resources_.handle, resolved_state.data_ptr(), CUDA_C_32F,
+                                                               nqubit_, output.data(), pauli_ptrs.data(), output.size(),
                                                                bit_ptrs.data(), lengths.data()),
                      "custatevecComputeExpectationsOnPauliBasis");
     custatevec_to_torch();
@@ -532,9 +551,11 @@ class GPUCircuitExecutor {
     return std::vector<float>(ptr, ptr + host.numel());
   }
   void prepare_initial() {
-    if (!state_.defined())
+    if (!state_.defined()) {
+      const c10::InferenceMode inference_mode(false);
       state_ = torch::empty({int64_t{1} << nqubit_},
                             torch::TensorOptions().dtype(torch::kComplexFloat).device(torch::kCUDA, device_));
+    }
     if (initial_state_.defined()) {
       state_.copy_(initial_state_);
       return;
@@ -563,6 +584,7 @@ class GPUCircuitExecutor {
     }
     state_ready_ = true;
     prepared_generation_ = generation_;
+    prepared_state_version_ = state_._version();
   }
   void ensure_sampler(uint32_t shots) {
     if (resources_.sampler != nullptr) {
@@ -642,9 +664,13 @@ class GPUCircuitExecutor {
   }
   void build_weighted_adjoint_state(const torch::Tensor& weights) {
     bind_current_stream();
-    if (!adjoint_state_.defined()) adjoint_state_ = torch::empty_like(state_);
+    if (!adjoint_state_.defined()) {
+      const c10::InferenceMode inference_mode(false);
+      adjoint_state_ = torch::empty_like(state_);
+    }
     adjoint_state_.zero_();
-    for (int64_t index = 0; index < weights.numel(); ++index) {
+    const auto resolved_weights = weights.resolve_neg();
+    for (int64_t index = 0; index < resolved_weights.numel(); ++index) {
       uint64_t x = 0, z = 0;
       int num_y = 0;
       for (size_t j = 0; j < obs_p_[index].size(); ++j) {
@@ -654,25 +680,32 @@ class GPUCircuitExecutor {
         if (pauli == 2) ++num_y;
       }
       dq_pauli_action(state_.data_ptr(), adjoint_state_.data_ptr(), state_.numel(), x, z, num_y,
-                      weights.data_ptr<float>() + index, current_stream_);
+                      resolved_weights.data_ptr<float>() + index, current_stream_);
       check_cuda(cudaGetLastError(), "adjoint Pauli accumulation");
     }
   }
-  torch::Tensor reverse_prepared(const torch::Tensor& weights, int64_t expected_generation) {
+  void require_prepared_state(int64_t expected_generation) const {
     if (!state_ready_ || prepared_generation_ != expected_generation || generation_ != expected_generation)
       throw std::runtime_error("prepared adjoint state is stale; execute forward again");
+    if (state_._version() != prepared_state_version_)
+      throw std::runtime_error("prepared adjoint state was modified in place; execute forward again");
+  }
+  torch::Tensor reverse_prepared(const torch::Tensor& weights, int64_t expected_generation) {
+    require_prepared_state(expected_generation);
     build_weighted_adjoint_state(weights);
     return reverse_from_current_adjoint(expected_generation);
   }
   torch::Tensor reverse_from_current_adjoint(int64_t expected_generation) {
-    if (!state_ready_ || prepared_generation_ != expected_generation || generation_ != expected_generation)
-      throw std::runtime_error("prepared adjoint state is stale; execute forward again");
+    require_prepared_state(expected_generation);
     bind_current_stream();
     auto gradients =
         torch::zeros({parameter_count_}, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA, device_));
 
     // A block-reduction buffer is reused in stream order for all parameter contributions.
     auto partial = torch::empty({1024}, gradients.options());
+    state_ready_ = false;
+    prepared_generation_ = -1;
+    ++generation_;
     for (auto iterator = ops_.rbegin(); iterator != ops_.rend(); ++iterator) {
       const Op& op = *iterator;
       const double theta = op.parameter_index >= 0 ? last_parameter_values_[op.parameter_index] : 0.0;
@@ -703,21 +736,20 @@ class GPUCircuitExecutor {
       apply_inverse(state_, op, theta);
       apply_inverse(adjoint_state_, op, theta);
     }
-    state_ready_ = false;
-    prepared_generation_ = -1;
-    ++generation_;
     return gradients;
   }
 
   int nqubit_, device_;
   NativeResources resources_;
   cudaStream_t current_stream_{nullptr};
+  bool stream_bound_{false};
   bool set_stream_known_unsupported_{false}, custatevec_uses_current_stream_{false};
   torch::Tensor state_, initial_state_, adjoint_state_, workspace_, sampler_workspace_, observable_matrix_;
   size_t workspace_bytes_{0}, sampler_workspace_bytes_{0};
   uint32_t sampler_max_shots_{0};
   int parameter_count_{0};
   int64_t generation_{0}, plan_version_{0}, prepared_generation_{-1};
+  int64_t prepared_state_version_{0};
   std::vector<float> last_parameter_values_;
   std::vector<Op> ops_;
   std::vector<std::vector<int>> obs_p_, obs_b_;
